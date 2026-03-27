@@ -1,0 +1,738 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>snapper &mdash; Semantic Line Breaks for Academic Writing</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Jost:ital,wght@0,300;0,400;0,500;0,600;0,700;0,800;1,400&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+:root {
+  --teal: #004D40;
+  --teal-light: #00695C;
+  --coral: #FF655D;
+  --yellow: #F1DB4B;
+  --green-dark: #2D5A3D;
+  --green-mid: #4D8C3E;
+  --green-light: #6BAF5B;
+  --cream: #F5F0E1;
+  --cream-light: #FAF8F2;
+  --bg: #FDFCF9;
+  --text: #1a2e1f;
+  --text-muted: #5a6e5f;
+  --code-bg: #0d1f14;
+  --diff-add: #d4f5d0;
+  --diff-add-strong: #a8e6a0;
+  --diff-rm: #fdd;
+  --diff-rm-strong: #f8b0b0;
+  --mono: 'JetBrains Mono', monospace;
+  --sans: 'Jost', system-ui, sans-serif;
+}
+
+*, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+html { scroll-behavior: smooth; }
+
+body {
+  font-family: var(--sans);
+  color: var(--text);
+  background: var(--bg);
+  line-height: 1.65;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ---- NOISE TEXTURE OVERLAY ---- */
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  opacity: 0.025;
+  pointer-events: none;
+  z-index: 9999;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+
+/* ---- UTILITY ---- */
+.container { max-width: 1080px; margin: 0 auto; padding: 0 2rem; }
+
+/* ---- HERO ---- */
+.hero {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  overflow: hidden;
+  background:
+    radial-gradient(ellipse 80% 60% at 20% 80%, rgba(107,175,91,0.08) 0%, transparent 70%),
+    radial-gradient(ellipse 60% 50% at 85% 20%, rgba(0,77,64,0.06) 0%, transparent 70%),
+    var(--bg);
+}
+
+.hero-inner {
+  text-align: center;
+  padding: 4rem 2rem;
+  animation: fadeUp 0.8s ease-out;
+}
+
+@keyframes fadeUp {
+  from { opacity: 0; transform: translateY(24px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.hero-logo {
+  width: 180px;
+  height: 180px;
+  border-radius: 28px;
+  box-shadow:
+    0 8px 32px rgba(45,90,61,0.15),
+    0 2px 8px rgba(45,90,61,0.1);
+  margin-bottom: 2.5rem;
+  transition: transform 0.3s ease;
+}
+
+.hero-logo:hover {
+  transform: scale(1.05) rotate(-2deg);
+}
+
+.hero h1 {
+  font-size: clamp(2.5rem, 5vw, 4rem);
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  color: var(--green-dark);
+  margin-bottom: 1rem;
+  line-height: 1.1;
+}
+
+.hero h1 span {
+  display: inline-block;
+  background: linear-gradient(135deg, var(--coral), #ff8a70);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.hero-tagline {
+  font-size: clamp(1.1rem, 2.2vw, 1.4rem);
+  color: var(--text-muted);
+  font-weight: 400;
+  max-width: 540px;
+  margin: 0 auto 2.5rem;
+}
+
+.hero-cta {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.85rem 2rem;
+  background: var(--teal);
+  color: white;
+  text-decoration: none;
+  border-radius: 8px;
+  font-weight: 600;
+  font-size: 1rem;
+  letter-spacing: 0.01em;
+  transition: all 0.2s ease;
+  box-shadow: 0 2px 12px rgba(0,77,64,0.25);
+}
+
+.hero-cta:hover {
+  background: var(--teal-light);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 20px rgba(0,77,64,0.3);
+}
+
+.hero-cta svg { width: 18px; height: 18px; }
+
+/* ---- SCROLL HINT ---- */
+.scroll-hint {
+  position: absolute;
+  bottom: 2rem;
+  left: 50%;
+  transform: translateX(-50%);
+  animation: bounce 2s ease-in-out infinite;
+  color: var(--text-muted);
+  opacity: 0.4;
+}
+
+@keyframes bounce {
+  0%, 100% { transform: translateX(-50%) translateY(0); }
+  50% { transform: translateX(-50%) translateY(8px); }
+}
+
+/* ---- SECTION LAYOUT ---- */
+section {
+  padding: 6rem 0;
+}
+
+.section-label {
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+  color: var(--coral);
+  margin-bottom: 0.75rem;
+}
+
+.section-title {
+  font-size: clamp(1.8rem, 3.5vw, 2.6rem);
+  font-weight: 700;
+  color: var(--green-dark);
+  margin-bottom: 1.25rem;
+  letter-spacing: -0.01em;
+  line-height: 1.2;
+}
+
+.section-subtitle {
+  font-size: 1.1rem;
+  color: var(--text-muted);
+  max-width: 600px;
+  margin-bottom: 3rem;
+}
+
+/* ---- DIFF DEMO ---- */
+.demo-section {
+  background:
+    linear-gradient(180deg, var(--bg) 0%, var(--cream-light) 100%);
+}
+
+.demo-wrapper {
+  position: relative;
+}
+
+.demo-tabs {
+  display: flex;
+  gap: 0;
+  margin-bottom: 0;
+  position: relative;
+  z-index: 2;
+}
+
+.demo-tab {
+  padding: 0.75rem 1.5rem;
+  font-family: var(--sans);
+  font-size: 0.9rem;
+  font-weight: 600;
+  border: 2px solid var(--green-dark);
+  background: transparent;
+  color: var(--green-dark);
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.demo-tab:first-child { border-radius: 8px 0 0 0; }
+.demo-tab:last-child { border-radius: 0 8px 0 0; border-left: none; }
+.demo-tab.active {
+  background: var(--green-dark);
+  color: white;
+}
+
+.demo-panel {
+  display: none;
+  border: 2px solid var(--green-dark);
+  border-top: none;
+  border-radius: 0 0 12px 12px;
+  overflow: hidden;
+}
+
+.demo-panel.active { display: block; }
+
+/* Before/After split */
+.split-view {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  min-height: 320px;
+}
+
+@media (max-width: 768px) {
+  .split-view { grid-template-columns: 1fr; }
+}
+
+.split-pane {
+  padding: 1.5rem;
+  font-family: var(--mono);
+  font-size: 0.82rem;
+  line-height: 1.8;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.split-pane-label {
+  display: block;
+  font-family: var(--sans);
+  font-weight: 700;
+  font-size: 0.7rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  margin-bottom: 1rem;
+  padding-bottom: 0.5rem;
+  border-bottom: 1px solid rgba(0,0,0,0.08);
+}
+
+.pane-before {
+  background: #fff;
+  border-right: 2px solid var(--green-dark);
+}
+
+.pane-before .split-pane-label { color: var(--text-muted); }
+
+.pane-after {
+  background: var(--cream-light);
+}
+
+.pane-after .split-pane-label { color: var(--green-mid); }
+
+.pane-after .sentence {
+  display: block;
+  padding: 2px 0;
+  border-left: 3px solid transparent;
+  padding-left: 8px;
+  margin-left: -11px;
+  transition: border-color 0.3s, background 0.3s;
+}
+
+.pane-after .sentence:nth-child(odd) {
+  border-left-color: var(--green-light);
+}
+
+.pane-after .sentence:nth-child(even) {
+  border-left-color: var(--coral);
+}
+
+.pane-after .sentence:hover {
+  background: rgba(107,175,91,0.08);
+}
+
+/* Git diff view */
+.diff-view {
+  background: var(--code-bg);
+  color: #d4d4d4;
+  padding: 1.5rem;
+  font-family: var(--mono);
+  font-size: 0.8rem;
+  line-height: 1.9;
+  overflow-x: auto;
+}
+
+.diff-view .diff-header {
+  color: #888;
+  margin-bottom: 1rem;
+  font-style: italic;
+}
+
+.diff-view .diff-scenario {
+  margin-bottom: 2rem;
+}
+
+.diff-view .diff-scenario:last-child { margin-bottom: 0; }
+
+.diff-view .scenario-label {
+  color: var(--yellow);
+  font-family: var(--sans);
+  font-weight: 700;
+  font-size: 0.75rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  margin-bottom: 0.75rem;
+  display: block;
+}
+
+.diff-view .diff-file {
+  color: #9cdcfe;
+  margin-bottom: 0.25rem;
+}
+
+.diff-view .diff-hunk { color: #c586c0; }
+
+.diff-view .diff-add {
+  color: #a8e6a0;
+  background: rgba(107,175,91,0.1);
+  display: block;
+}
+
+.diff-view .diff-rm {
+  color: #f8b0b0;
+  background: rgba(255,101,93,0.08);
+  display: block;
+}
+
+.diff-view .diff-ctx { color: #888; display: block; }
+
+.diff-view .diff-highlight {
+  background: rgba(255,101,93,0.25);
+  border-radius: 2px;
+  padding: 0 2px;
+}
+
+/* ---- FEATURES ---- */
+.features-section {
+  background: var(--cream-light);
+  position: relative;
+}
+
+.features-section::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(0,77,64,0.15), transparent);
+}
+
+.features-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 1.5rem;
+}
+
+.feature-card {
+  background: white;
+  border-radius: 12px;
+  padding: 1.75rem;
+  border: 1px solid rgba(0,77,64,0.08);
+  transition: all 0.25s ease;
+  position: relative;
+  overflow: hidden;
+}
+
+.feature-card::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
+  background: linear-gradient(90deg, var(--teal), var(--green-light));
+  opacity: 0;
+  transition: opacity 0.25s;
+}
+
+.feature-card:hover {
+  border-color: rgba(0,77,64,0.15);
+  box-shadow: 0 4px 20px rgba(45,90,61,0.08);
+  transform: translateY(-2px);
+}
+
+.feature-card:hover::before { opacity: 1; }
+
+.feature-icon {
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 1rem;
+  font-size: 1.2rem;
+  background: var(--cream);
+  color: var(--green-dark);
+}
+
+.feature-card h3 {
+  font-size: 1.05rem;
+  font-weight: 700;
+  color: var(--green-dark);
+  margin-bottom: 0.5rem;
+}
+
+.feature-card p {
+  font-size: 0.92rem;
+  color: var(--text-muted);
+  line-height: 1.6;
+}
+
+/* ---- INSTALL ---- */
+.install-section { background: var(--bg); }
+
+.install-options {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 1.5rem;
+}
+
+.install-card {
+  background: var(--code-bg);
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+.install-card-header {
+  padding: 0.75rem 1.25rem;
+  font-family: var(--sans);
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--yellow);
+  border-bottom: 1px solid rgba(255,255,255,0.06);
+}
+
+.install-card pre {
+  padding: 1.25rem;
+  font-family: var(--mono);
+  font-size: 0.82rem;
+  line-height: 1.7;
+  color: #d4d4d4;
+  overflow-x: auto;
+}
+
+.install-card pre .cmd { color: #a8e6a0; }
+.install-card pre .comment { color: #6a9955; }
+.install-card pre .flag { color: #9cdcfe; }
+
+/* ---- FOOTER ---- */
+footer {
+  padding: 3rem 0;
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 0.85rem;
+  border-top: 1px solid rgba(0,77,64,0.08);
+}
+
+footer a {
+  color: var(--text-muted);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+footer a:hover { color: var(--teal); }
+
+.footer-turtle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin-top: 0.75rem;
+}
+
+.footer-turtle svg {
+  width: 1.4em;
+  height: 1.4em;
+  vertical-align: middle;
+}
+
+/* ---- FADE-IN ON SCROLL ---- */
+.reveal {
+  opacity: 0;
+  transform: translateY(20px);
+  transition: opacity 0.6s ease, transform 0.6s ease;
+}
+
+.reveal.visible {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+/* ---- RESPONSIVE ---- */
+@media (max-width: 768px) {
+  .hero-logo { width: 140px; height: 140px; }
+  section { padding: 4rem 0; }
+  .pane-before { border-right: none; border-bottom: 2px solid var(--green-dark); }
+  .features-grid { grid-template-columns: 1fr; }
+  .install-options { grid-template-columns: 1fr; }
+}
+</style>
+</head>
+<body>
+
+<!-- ============ HERO ============ -->
+<section class="hero">
+  <div class="hero-inner">
+    <img src="../branding/logo/snapper_logo.png" alt="snapper logo" class="hero-logo">
+    <h1>Snap your prose into<br>clean, <span>diff-friendly</span> lines</h1>
+    <p class="hero-tagline">A fast, format-aware semantic line break formatter for academic papers and collaborative writing.</p>
+    <a href="https://github.com/HaoZeke/snapper" class="hero-cta">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 19c-5 1.5-5-2.5-7-3m14 6v-3.87a3.37 3.37 0 0 0-.94-2.61c3.14-.35 6.44-1.54 6.44-7A5.44 5.44 0 0 0 20 4.77 5.07 5.07 0 0 0 19.91 1S18.73.65 16 2.48a13.38 13.38 0 0 0-7 0C6.27.65 5.09 1 5.09 1A5.07 5.07 0 0 0 5 4.77a5.44 5.44 0 0 0-1.5 3.78c0 5.42 3.3 6.61 6.44 7A3.37 3.37 0 0 0 9 18.13V22"/></svg>
+      View on GitHub
+    </a>
+  </div>
+  <div class="scroll-hint">
+    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M19 12l-7 7-7-7"/></svg>
+  </div>
+</section>
+
+<!-- ============ DEMO ============ -->
+<section class="demo-section">
+  <div class="container">
+    <div class="reveal">
+      <p class="section-label">See it in action</p>
+      <h2 class="section-title">One sentence, one line</h2>
+      <p class="section-subtitle">Traditional wrapping hides changes in paragraph-wide diffs. Snapper breaks at sentence boundaries so every edit shows exactly what changed.</p>
+    </div>
+
+    <div class="demo-wrapper reveal">
+      <div class="demo-tabs">
+        <button class="demo-tab active" data-tab="split">Before &amp; After</button>
+        <button class="demo-tab" data-tab="diff">Git Diff</button>
+      </div>
+
+      <div class="demo-panel active" id="panel-split">
+        <div class="split-view">
+          <div class="split-pane pane-before">
+            <span class="split-pane-label">Before (traditional wrapping)</span>
+We present a method for formatting prose documents with semantic line breaks, where each sentence occupies its own line. This approach dramatically reduces noise in version control diffs when multiple authors collaborate on a manuscript. Our tool handles LaTeX, Org-mode, Markdown, and plaintext with format-aware parsing that preserves structural elements.</div>
+          <div class="split-pane pane-after">
+            <span class="split-pane-label">After (snapper)</span>
+            <span class="sentence">We present a method for formatting prose documents with semantic line breaks, where each sentence occupies its own line.</span>
+            <span class="sentence">This approach dramatically reduces noise in version control diffs when multiple authors collaborate on a manuscript.</span>
+            <span class="sentence">Our tool handles LaTeX, Org-mode, Markdown, and plaintext with format-aware parsing that preserves structural elements.</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="demo-panel" id="panel-diff">
+        <div class="diff-view">
+          <div class="diff-scenario">
+            <span class="scenario-label">Without snapper: change one word, diff shows entire paragraph</span>
+            <span class="diff-file">--- a/paper.org</span>
+            <span class="diff-file">+++ b/paper.org</span>
+            <span class="diff-hunk">@@ -1,3 +1,3 @@</span>
+<span class="diff-rm">-We present a method for formatting prose documents with semantic line breaks, where each sentence occupies its own line. This approach dramatically reduces noise in version control diffs when multiple authors collaborate on a manuscript. Our tool handles LaTeX, Org-mode, Markdown, and plaintext with format-aware parsing that preserves structural elements.</span>
+<span class="diff-add">+We present a method for formatting prose documents with semantic line breaks, where each sentence occupies its own line. This approach <span class="diff-highlight">significantly</span> reduces noise in version control diffs when multiple authors collaborate on a manuscript. Our tool handles LaTeX, Org-mode, Markdown, and plaintext with format-aware parsing that preserves structural elements.</span>
+          </div>
+          <div class="diff-scenario">
+            <span class="scenario-label">With snapper: same change, diff shows one line</span>
+            <span class="diff-file">--- a/paper.org</span>
+            <span class="diff-file">+++ b/paper.org</span>
+            <span class="diff-hunk">@@ -1,3 +1,3 @@</span>
+<span class="diff-ctx"> We present a method for formatting prose documents with semantic line breaks, where each sentence occupies its own line.</span>
+<span class="diff-rm">-This approach dramatically reduces noise in version control diffs when multiple authors collaborate on a manuscript.</span>
+<span class="diff-add">+This approach <span class="diff-highlight">significantly</span> reduces noise in version control diffs when multiple authors collaborate on a manuscript.</span>
+<span class="diff-ctx"> Our tool handles LaTeX, Org-mode, Markdown, and plaintext with format-aware parsing that preserves structural elements.</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ FEATURES ============ -->
+<section class="features-section">
+  <div class="container">
+    <div class="reveal">
+      <p class="section-label">Features</p>
+      <h2 class="section-title">Built for academic workflows</h2>
+      <p class="section-subtitle">Everything you need to adopt semantic line breaks across your paper writing toolchain.</p>
+    </div>
+
+    <div class="features-grid reveal">
+      <div class="feature-card">
+        <div class="feature-icon">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M16 13H8M16 17H8M10 9H8"/></svg>
+        </div>
+        <h3>Format-aware parsing</h3>
+        <p>Understands Org-mode, LaTeX, Markdown, and plaintext. Code blocks, math environments, tables, and drawers pass through untouched.</p>
+      </div>
+
+      <div class="feature-card">
+        <div class="feature-icon">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>
+        </div>
+        <h3>Abbreviation-aware</h3>
+        <p>Handles Dr., Fig., Eq., e.g., i.e., et al. and 80+ more. Add project-specific abbreviations via <code>.snapperrc.toml</code>.</p>
+      </div>
+
+      <div class="feature-card">
+        <div class="feature-icon">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 19c-5 1.5-5-2.5-7-3m14 6v-3.87a3.37 3.37 0 0 0-.94-2.61c3.14-.35 6.44-1.54 6.44-7A5.44 5.44 0 0 0 20 4.77"/></svg>
+        </div>
+        <h3>Pre-commit hook</h3>
+        <p>Ships with <code>.pre-commit-hooks.yaml</code>. Enforce semantic line breaks automatically on every commit across your team.</p>
+      </div>
+
+      <div class="feature-card">
+        <div class="feature-icon">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg>
+        </div>
+        <h3>Editor integration</h3>
+        <p>Stdin/stdout interface works with Emacs Apheleia, vim, and any editor that supports external formatters. Format on save.</p>
+      </div>
+
+      <div class="feature-card">
+        <div class="feature-icon">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
+        </div>
+        <h3>Vale style package</h3>
+        <p>Bundled vale rules flag lines with multiple sentences in your editor. Use <code>--check</code> for precise CI enforcement.</p>
+      </div>
+
+      <div class="feature-card">
+        <div class="feature-icon">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
+        </div>
+        <h3>Git smudge/clean filter</h3>
+        <p>Auto-format on commit, transparent to collaborators. Add to <code>.gitattributes</code> and formatting happens silently.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ INSTALL ============ -->
+<section class="install-section">
+  <div class="container">
+    <div class="reveal">
+      <p class="section-label">Get started</p>
+      <h2 class="section-title">Install in seconds</h2>
+    </div>
+
+    <div class="install-options reveal">
+      <div class="install-card">
+        <div class="install-card-header">Cargo</div>
+        <pre><span class="cmd">cargo install</span> <span class="flag">--path</span> .
+<span class="comment"># or build from source</span>
+<span class="cmd">cargo build</span> <span class="flag">--release</span></pre>
+      </div>
+
+      <div class="install-card">
+        <div class="install-card-header">Nix</div>
+        <pre><span class="cmd">nix build</span> github:HaoZeke/snapper
+<span class="comment"># or in a dev shell</span>
+<span class="cmd">nix develop</span> github:HaoZeke/snapper</pre>
+      </div>
+
+      <div class="install-card">
+        <div class="install-card-header">Pre-commit</div>
+        <pre><span class="comment"># .pre-commit-config.yaml</span>
+- <span class="flag">repo</span>: https://github.com/HaoZeke/snapper
+  <span class="flag">rev</span>: v0.1.0
+  <span class="flag">hooks</span>:
+    - <span class="flag">id</span>: snapper</pre>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ FOOTER ============ -->
+<footer>
+  <div class="container">
+    <p>MIT License &middot; <a href="https://github.com/HaoZeke/snapper">GitHub</a></p>
+    <div class="footer-turtle">
+      <span>provided by</span>
+      <svg xmlns="http://www.w3.org/2000/svg" width="1.4em" height="1.4em" viewBox="0 0 64 64" aria-hidden="true"><g fill-rule="evenodd"><ellipse cx="32" cy="11" fill="#80D25B" rx="7" ry="9"/><path fill="#80D25B" d="M20.3,46c0,0-3.2,9.9.3,13.8c3.5,3.9 6.1,3.4 6.1-6C26.8,44.3 20.3,46 20.3,46Z"/><path fill="#80D25B" d="M38.3,46c0,0-3.2,9.9.4,13.8c3.5,3.9 6.1,3.4 6.1-6C44.8,44.3 38.3,46 38.3,46Z" transform="matrix(-1 0 0 1 81.8 0)"/><path fill="#80D25B" d="M20.6,21.2c0,0-6.7-5.8-10.5-5.2C6.2,16.7 6,22.2 6,24c0,1.8 1.8,13.3 3.8,12.5c2-0.8 4-8.5 4-8.5c1.9,2.3 4.8,2.5 4.8,2.5L20.6,21.2Z"/><path fill="#80D25B" d="M57.6,21.2c0,0-6.6-5.8-10.5-5.2C43.2,16.7 43,22.2 43,24c0,1.8 1.8,13.3 3.8,12.5c2-0.8 4-8.5 4-8.5c1.9,2.3 4.8,2.5 4.8,2.5L57.6,21.2Z" transform="matrix(-1 0 0 1 100.623 0)"/><path fill="#BD7575" stroke="#595959" stroke-linecap="round" stroke-width="2" d="M32,53C40.8,53 48,44.5 48,34C48,23.5 46.7,17 32,17C17.3,17 16,23.5 16,34C16,44.5 23.2,53 32,53Z"/><polygon fill="#BD7575" stroke="#595959" stroke-linecap="round" stroke-width="2" points="32 22 38.9 26 38.9 34 32 38 25.1 34 25.1 26"/><path stroke="#595959" stroke-linecap="round" stroke-width="2" d="M30,8C28.9,8 28,8.9 28,10"/><path stroke="#595959" stroke-linecap="round" stroke-width="2" d="M36,8C34.9,8 34,8.9 34,10" transform="matrix(-1 0 0 1 70 0)"/><path stroke="#595959" stroke-linecap="round" stroke-width="2" d="M32.1,38.2L32.1,52.4M32,21.7L32,17M25.2,26L17.7,23.1M25.1,34.2L16.8,38.9"/><path stroke="#595959" stroke-linecap="round" stroke-width="2" d="M46.2,26L38.7,23.1" transform="matrix(-1 0 0 1 84.951 0)"/><path stroke="#595959" stroke-linecap="round" stroke-width="2" d="M47.1,34.2L38.8,38.9" transform="matrix(-1 0 0 1 85.891 0)"/></g></svg>
+      <a href="https://turtletech.us/" target="_blank" rel="noopener noreferrer">TurtleTech ehf</a>
+    </div>
+  </div>
+</footer>
+
+<script>
+// Tab switching
+document.querySelectorAll('.demo-tab').forEach(tab => {
+  tab.addEventListener('click', () => {
+    document.querySelectorAll('.demo-tab').forEach(t => t.classList.remove('active'));
+    document.querySelectorAll('.demo-panel').forEach(p => p.classList.remove('active'));
+    tab.classList.add('active');
+    document.getElementById('panel-' + tab.dataset.tab).classList.add('active');
+  });
+});
+
+// Scroll reveal
+const observer = new IntersectionObserver(
+  (entries) => entries.forEach(e => { if (e.isIntersecting) e.target.classList.add('visible'); }),
+  { threshold: 0.1, rootMargin: '0px 0px -40px 0px' }
+);
+document.querySelectorAll('.reveal').forEach(el => observer.observe(el));
+</script>
+
+</body>
+</html>
