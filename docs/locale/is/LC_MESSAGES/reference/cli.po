@@ -4,14 +4,15 @@
 # This file is distributed under the same license as the snapper package.
 # FIRST AUTHOR <EMAIL@ADDRESS>, 2026.
 #
-#, fuzzy
 msgid ""
 msgstr ""
 "Project-Id-Version: snapper \n"
 "Report-Msgid-Bugs-To: \n"
 "POT-Creation-Date: 2026-03-27 21:56+0100\n"
-"PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
-"Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
+"PO-Revision-Date: 2026-03-27 23:00+0100
+"
+"Last-Translator: Rohit Goswami <rgoswami@ieee.org>
+"
 "Language: is\n"
 "Language-Team: is <LL@li.org>\n"
 "Plural-Forms: nplurals=2; plural=(n%10==1 && n%100!=11 ? 0 : 1);\n"
@@ -22,11 +23,11 @@ msgstr ""
 
 #: ../../source/reference/cli.rst:4
 msgid "CLI Reference"
-msgstr ""
+msgstr "CLI tilvisun"
 
 #: ../../source/reference/cli.rst:7
 msgid "Synopsis"
-msgstr ""
+msgstr "Yfirlit"
 
 #: ../../source/reference/cli.rst:13
 msgid "If no files are given, ``snapper`` reads from stdin and writes to stdout."
@@ -34,7 +35,7 @@ msgstr ""
 
 #: ../../source/reference/cli.rst:16
 msgid "Options"
-msgstr ""
+msgstr "Valkostir"
 
 #: ../../source/reference/cli.rst:19
 msgid "``-f``, ``--format <FORMAT>``"
@@ -137,7 +138,7 @@ msgstr ""
 
 #: ../../source/reference/cli.rst:83
 msgid "Exit codes"
-msgstr ""
+msgstr "Utgangskodar"
 
 #: ../../source/reference/cli.rst:85
 msgid "``0`` : Success (or ``--check`` / ``--diff`` with no changes needed)"

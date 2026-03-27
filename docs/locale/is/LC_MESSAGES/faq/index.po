@@ -1,32 +1,29 @@
-# SOME DESCRIPTIVE TITLE.
-# Copyright (C) 2026--present, <a href="https://rgoswami.me">Rohit
-# Goswami</a>
+# Icelandic translations for snapper FAQ.
+# Copyright (C) 2026, Rohit Goswami
 # This file is distributed under the same license as the snapper package.
-# FIRST AUTHOR <EMAIL@ADDRESS>, 2026.
-#
-#, fuzzy
 msgid ""
 msgstr ""
-"Project-Id-Version: snapper \n"
+"Project-Id-Version: snapper\n"
 "Report-Msgid-Bugs-To: \n"
 "POT-Creation-Date: 2026-03-27 21:56+0100\n"
-"PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
-"Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
+"PO-Revision-Date: 2026-03-27 23:00+0100
+"
+"Last-Translator: Rohit Goswami <rgoswami@ieee.org>
+"
 "Language: is\n"
-"Language-Team: is <LL@li.org>\n"
+"Language-Team: is\n"
 "Plural-Forms: nplurals=2; plural=(n%10==1 && n%100!=11 ? 0 : 1);\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=utf-8\n"
 "Content-Transfer-Encoding: 8bit\n"
-"Generated-By: Babel 2.18.0\n"
 
 #: ../../source/faq/index.rst:3
 msgid "FAQ"
-msgstr ""
+msgstr "Algengar spurningar"
 
 #: ../../source/faq/index.rst:8
 msgid "Why not just wrap at 80 columns?"
-msgstr ""
+msgstr "Af hverju ekki bara ad umbrotna vid 80 dalka?"
 
 #: ../../source/faq/index.rst:10
 msgid ""
@@ -35,10 +32,13 @@ msgid ""
 "actual edit. Sentence-per-line formatting means a one-word change "
 "produces a one-line diff."
 msgstr ""
+"Dalkaumbrotin valda endurfladi a allri malsgreininni thegar eitt ord "
+"breytist. Ryfjarar sja alla malsgreinina i diff-inu, sem hylur raunverulega "
+"breytinguna. Med einni setningu a linu gefur eins ords breyting eins linu diff."
 
 #: ../../source/faq/index.rst:15
 msgid "Does this affect how the document renders?"
-msgstr ""
+msgstr "Hefur thetta ahrif a hvernig skjalid birtist?"
 
 #: ../../source/faq/index.rst:17
 msgid ""
@@ -47,14 +47,18 @@ msgid ""
 "Snapper preserves paragraph breaks (blank lines) and only changes where "
 "single newlines occur within a paragraph."
 msgstr ""
+"Nei. LaTeX, Org-mode, Markdown og flest textasnid meda einfold linuskipti "
+"sem bil. Tvo linuskipti i rod byrja nythja malsgrein. Snapper vardveitir "
+"malsgreinaskil (audar linur) og breytir adheins hvar einfold linuskipti "
+"koma fyrir innan malsgreinar."
 
 #: ../../source/faq/index.rst:22
 msgid "My collaborators don't use snapper."
-msgstr ""
+msgstr "Samstarfsfolk mitt notar ekki snapper."
 
 #: ../../source/faq/index.rst:24
 msgid "Will this cause problems?"
-msgstr ""
+msgstr "Veldur thetta vandamali?"
 
 #: ../../source/faq/index.rst:26
 msgid ""
@@ -63,14 +67,18 @@ msgid ""
 " fully transparent integration, use a git smudge/clean filter (see the "
 "how-to guide)."
 msgstr ""
+"Nei. Snidmotunin hefur adheins ahrif a bil innan malsgreina. "
+"Samstarfsfolk geta breytt eins og venjulega og breytingar theirra sameinast "
+"hreint. Notadu git smudge/clean siu (sjadu leidbeiningar) til fullkomlega "
+"gagnsaerrar samthattingar."
 
 #: ../../source/faq/index.rst:31
 msgid "Why does snapper split \"Dr."
-msgstr ""
+msgstr "Af hverju klippur snapper \"Dr."
 
 #: ../../source/faq/index.rst:33
 msgid "Smith\" correctly?"
-msgstr ""
+msgstr "Smith\" rett?"
 
 #: ../../source/faq/index.rst:35
 msgid ""
@@ -80,10 +88,14 @@ msgid ""
 "abbreviation periods. You can add project-specific abbreviations via "
 "``.snapperrc.toml``."
 msgstr ""
+"Snapper hefur umsjonnarlista med 80+ skammstofunum (titlar, latneskar "
+"skammstafanir, fradilegar tilvitnanir, stafstafir). Eftir Unicode "
+"setningamarkaskil sameinir thad skiptingar sem voru vid thekkt skammstofunarpunkta. "
+"Thu getur baett vid verkefnasertaekum skammstofunum i gegnum ``.snapperrc.toml``."
 
 #: ../../source/faq/index.rst:40
 msgid "What about non-English text?"
-msgstr ""
+msgstr "Hvad med texta a odrum tungumali en ensku?"
 
 #: ../../source/faq/index.rst:42
 msgid ""
@@ -93,20 +105,27 @@ msgid ""
 "based splitting performs poorly, a neural mode (``--neural``, via "
 "nnsplit) is planned behind a feature flag."
 msgstr ""
+"Unicode UAX #29 setningaskila-reikniritid virkar yfir tungumalamoerk. "
+"Skammstofunarlisti dekkar adheins ensku eins og er. ``--lang`` flagg og "
+"fjoltyngdir skammstofunarsett eru i aferdamorkun. Fyrir tungumol thar sem "
+"reglubundin skipting virkar illa er taugakerfisstilling (``--neural``, i gegnum "
+"nnsplit) aferdamorkud a bak vid eiginleikaflagga."
 
 #: ../../source/faq/index.rst:48
 msgid "Can I use snapper as a library?"
-msgstr ""
+msgstr "Get eg notad snapper sem forritasafn?"
 
 #: ../../source/faq/index.rst:50
 msgid ""
 "Yes. The crate (``snapper-fmt``) exposes ``format_text()`` and all "
 "internal modules:"
 msgstr ""
+"Ja. Crate-id (``snapper-fmt``) birtir ``format_text()`` og allar "
+"innri einingar:"
 
 #: ../../source/faq/index.rst:67
 msgid "How fast is it?"
-msgstr ""
+msgstr "Hversu hratt er thad?"
 
 #: ../../source/faq/index.rst:69
 msgid ""
@@ -114,10 +133,13 @@ msgid ""
 " runtime dependencies, no network calls, no model loading. The neural "
 "mode (when implemented) adds startup cost for model loading."
 msgstr ""
+"Snapper vinnur daemigerdar fraetigreinar (10-50 sidur) a minna en 10ms. "
+"Engin keyrsluhaed, engin netsamskipti, engin modelhledning. Taugakerfis-"
+"stillingin (thegar hun er utfaerd) baetir vid rettartima vid modelhledning."
 
 #: ../../source/faq/index.rst:74
 msgid "What about CRLF line endings?"
-msgstr ""
+msgstr "Hvad med CRLF linuendingar?"
 
 #: ../../source/faq/index.rst:76
 msgid ""
@@ -125,14 +147,18 @@ msgid ""
 "preserves it in the output. Internally, processing normalizes to LF and "
 "converts back before writing."
 msgstr ""
+"Snapper greinir linuendingarvenju inntaksins (LF eda CRLF) og vardveitir "
+"hana i utgangi. Innbyrddis stadlar vinnslun a LF og umbreytir aftur "
+"adur en skrifad er."
 
 #: ../../source/faq/index.rst:80
 msgid "How do I report a bug or request a feature?"
-msgstr ""
+msgstr "Hvernig tilkynni eg villu eda beid um nythjan eiginleika?"
 
 #: ../../source/faq/index.rst:82
 msgid ""
 "File an issue at `github.com/TurtleTech-ehf/snapper/issues "
 "<https://github.com/TurtleTech-ehf/snapper/issues>`_."
 msgstr ""
-
+"Skraddu mal a `github.com/TurtleTech-ehf/snapper/issues "
+"<https://github.com/TurtleTech-ehf/snapper/issues>`_."

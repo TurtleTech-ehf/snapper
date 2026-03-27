@@ -1,33 +1,30 @@
-# SOME DESCRIPTIVE TITLE.
-# Copyright (C) 2026--present, <a href="https://rgoswami.me">Rohit
-# Goswami</a>
+# Polish translations for snapper FAQ.
+# Copyright (C) 2026, Rohit Goswami
 # This file is distributed under the same license as the snapper package.
-# FIRST AUTHOR <EMAIL@ADDRESS>, 2026.
-#
-#, fuzzy
 msgid ""
 msgstr ""
-"Project-Id-Version: snapper \n"
+"Project-Id-Version: snapper\n"
 "Report-Msgid-Bugs-To: \n"
 "POT-Creation-Date: 2026-03-27 21:56+0100\n"
-"PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
-"Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
+"PO-Revision-Date: 2026-03-27 23:00+0100
+"
+"Last-Translator: Rohit Goswami <rgoswami@ieee.org>
+"
 "Language: pl\n"
-"Language-Team: pl <LL@li.org>\n"
+"Language-Team: pl\n"
 "Plural-Forms: nplurals=3; plural=(n==1 ? 0 : n%10>=2 && n%10<=4 && "
 "(n%100<10 || n%100>=20) ? 1 : 2);\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=utf-8\n"
 "Content-Transfer-Encoding: 8bit\n"
-"Generated-By: Babel 2.18.0\n"
 
 #: ../../source/faq/index.rst:3
 msgid "FAQ"
-msgstr ""
+msgstr "Najczesciej zadawane pytania"
 
 #: ../../source/faq/index.rst:8
 msgid "Why not just wrap at 80 columns?"
-msgstr ""
+msgstr "Dlaczego nie zawijac po prostu przy 80 kolumnach?"
 
 #: ../../source/faq/index.rst:10
 msgid ""
@@ -36,10 +33,14 @@ msgid ""
 "actual edit. Sentence-per-line formatting means a one-word change "
 "produces a one-line diff."
 msgstr ""
+"Zawijanie kolumnowe powoduje przeplyw calego akapitu przy zmianie jednego "
+"slowa. Recenzenci widza caly akapit w diff-ie, co zaslania rzeczywista "
+"zmiane. Formatowanie jedno-zdanie-na-linie sprawia, ze zmiana jednego "
+"slowa daje jednolinijkowy diff."
 
 #: ../../source/faq/index.rst:15
 msgid "Does this affect how the document renders?"
-msgstr ""
+msgstr "Czy wplywa to na wyglad wyrenderowanego dokumentu?"
 
 #: ../../source/faq/index.rst:17
 msgid ""
@@ -48,14 +49,19 @@ msgid ""
 "Snapper preserves paragraph breaks (blank lines) and only changes where "
 "single newlines occur within a paragraph."
 msgstr ""
+"Nie. LaTeX, Org-mode, Markdown i wiekszosc formatow tekstowych traktuje "
+"pojedyncze znaki nowej linii jako spacje. Dwa kolejne znaki nowej linii "
+"rozpoczynaja nowy akapit. Snapper zachowuje podzialy akapitow (puste linie) "
+"i zmienia tylko miejsca, gdzie pojedyncze znaki nowej linii wystepuja "
+"wewnatrz akapitu."
 
 #: ../../source/faq/index.rst:22
 msgid "My collaborators don't use snapper."
-msgstr ""
+msgstr "Moi wspolpracownicy nie uzywaja snappera."
 
 #: ../../source/faq/index.rst:24
 msgid "Will this cause problems?"
-msgstr ""
+msgstr "Czy to spowoduje problemy?"
 
 #: ../../source/faq/index.rst:26
 msgid ""
@@ -64,14 +70,18 @@ msgid ""
 " fully transparent integration, use a git smudge/clean filter (see the "
 "how-to guide)."
 msgstr ""
+"Nie. Formatowanie wplywa tylko na biale znaki wewnatrz akapitow. "
+"Wspolpracownicy moga edytowac normalnie, a ich zmiany beda sie laczyc "
+"bez konfliktow. Dla w pelni przezroczystej integracji uzyj filtra git "
+"smudge/clean (zobacz przewodnik)."
 
 #: ../../source/faq/index.rst:31
 msgid "Why does snapper split \"Dr."
-msgstr ""
+msgstr "Dlaczego snapper dzieli \"Dr."
 
 #: ../../source/faq/index.rst:33
 msgid "Smith\" correctly?"
-msgstr ""
+msgstr "Smith\" poprawnie?"
 
 #: ../../source/faq/index.rst:35
 msgid ""
@@ -81,10 +91,14 @@ msgid ""
 "abbreviation periods. You can add project-specific abbreviations via "
 "``.snapperrc.toml``."
 msgstr ""
+"Snapper utrzymuje liste ponad 80 skrotow (tytuly, terminy lacinskie, "
+"odniesienia naukowe, jednoliterowe inicjaly). Po wykryciu granic zdan "
+"Unicode laczy podzialy, ktore wystapily przy znanych kropkach skrotow. "
+"Mozesz dodac skroty specyficzne dla projektu w ``.snapperrc.toml``."
 
 #: ../../source/faq/index.rst:40
 msgid "What about non-English text?"
-msgstr ""
+msgstr "Co z tekstem w jezykach innych niz angielski?"
 
 #: ../../source/faq/index.rst:42
 msgid ""
@@ -94,20 +108,27 @@ msgid ""
 "based splitting performs poorly, a neural mode (``--neural``, via "
 "nnsplit) is planned behind a feature flag."
 msgstr ""
+"Algorytm granic zdan Unicode UAX #29 dziala we wszystkich jezykach. "
+"Lista skrotow obejmuje obecnie angielski. Flaga ``--lang`` i wielojezyczne "
+"zestawy skrotow sa planowane. Dla jezykow, w ktorych dzielenie oparte na "
+"regulach dziala slabo, tryb neuronowy (``--neural``, przez nnsplit) "
+"jest planowany za flaga funkcji."
 
 #: ../../source/faq/index.rst:48
 msgid "Can I use snapper as a library?"
-msgstr ""
+msgstr "Czy moge uzywac snappera jako biblioteki?"
 
 #: ../../source/faq/index.rst:50
 msgid ""
 "Yes. The crate (``snapper-fmt``) exposes ``format_text()`` and all "
 "internal modules:"
 msgstr ""
+"Tak. Crate (``snapper-fmt``) udostepnia ``format_text()`` i wszystkie "
+"wewnetrzne moduly:"
 
 #: ../../source/faq/index.rst:67
 msgid "How fast is it?"
-msgstr ""
+msgstr "Jak szybki jest snapper?"
 
 #: ../../source/faq/index.rst:69
 msgid ""
@@ -115,10 +136,14 @@ msgid ""
 " runtime dependencies, no network calls, no model loading. The neural "
 "mode (when implemented) adds startup cost for model loading."
 msgstr ""
+"Snapper przetwarza typowe artykuly naukowe (10-50 stron) w mniej niz 10ms. "
+"Bez zaleznosci uruchomieniowych, bez polaczen sieciowych, bez ladowania "
+"modeli. Tryb neuronowy (po wdrozeniu) dodaje koszt uruchomienia "
+"zwiazany z ladowaniem modelu."
 
 #: ../../source/faq/index.rst:74
 msgid "What about CRLF line endings?"
-msgstr ""
+msgstr "Co ze znakami konca linii CRLF?"
 
 #: ../../source/faq/index.rst:76
 msgid ""
@@ -126,14 +151,18 @@ msgid ""
 "preserves it in the output. Internally, processing normalizes to LF and "
 "converts back before writing."
 msgstr ""
+"Snapper wykrywa konwencje znakow konca linii wejscia (LF lub CRLF) i "
+"zachowuje ja na wyjsciu. Wewnetrznie przetwarzanie normalizuje do LF "
+"i konwertuje z powrotem przed zapisem."
 
 #: ../../source/faq/index.rst:80
 msgid "How do I report a bug or request a feature?"
-msgstr ""
+msgstr "Jak zglosic blad lub poprosic o nowa funkcje?"
 
 #: ../../source/faq/index.rst:82
 msgid ""
 "File an issue at `github.com/TurtleTech-ehf/snapper/issues "
 "<https://github.com/TurtleTech-ehf/snapper/issues>`_."
 msgstr ""
-
+"Zglos problem na `github.com/TurtleTech-ehf/snapper/issues "
+"<https://github.com/TurtleTech-ehf/snapper/issues>`_."

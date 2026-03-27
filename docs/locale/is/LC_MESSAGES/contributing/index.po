@@ -4,14 +4,15 @@
 # This file is distributed under the same license as the snapper package.
 # FIRST AUTHOR <EMAIL@ADDRESS>, 2026.
 #
-#, fuzzy
 msgid ""
 msgstr ""
 "Project-Id-Version: snapper \n"
 "Report-Msgid-Bugs-To: \n"
 "POT-Creation-Date: 2026-03-27 21:56+0100\n"
-"PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
-"Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
+"PO-Revision-Date: 2026-03-27 23:00+0100
+"
+"Last-Translator: Rohit Goswami <rgoswami@ieee.org>
+"
 "Language: is\n"
 "Language-Team: is <LL@li.org>\n"
 "Plural-Forms: nplurals=2; plural=(n%10==1 && n%100!=11 ? 0 : 1);\n"
@@ -22,7 +23,7 @@ msgstr ""
 
 #: ../../source/contributing/index.rst:3
 msgid "Contributing"
-msgstr ""
+msgstr "Ad leggja til"
 
 #: ../../source/contributing/index.rst
 msgid "Author"
@@ -34,7 +35,7 @@ msgstr ""
 
 #: ../../source/contributing/index.rst:9
 msgid "Development setup"
-msgstr ""
+msgstr "Throunaruppsetning"
 
 #: ../../source/contributing/index.rst:18
 msgid "With pixi:"
@@ -42,7 +43,7 @@ msgstr ""
 
 #: ../../source/contributing/index.rst:25
 msgid "Running checks"
-msgstr ""
+msgstr "Keyra profanir"
 
 #: ../../source/contributing/index.rst:33
 msgid "Dogfood check (verify all docs pass formatting):"
@@ -50,11 +51,11 @@ msgstr ""
 
 #: ../../source/contributing/index.rst:40
 msgid "Project structure"
-msgstr ""
+msgstr "Verkefnisbygging"
 
 #: ../../source/contributing/index.rst:74
 msgid "Commit conventions"
-msgstr ""
+msgstr "Commit-venjur"
 
 #: ../../source/contributing/index.rst:76
 msgid "Commits follow conventional commits, managed by ``cocogitto`` (``cog``):"
@@ -110,7 +111,7 @@ msgstr ""
 
 #: ../../source/contributing/index.rst:97
 msgid "Building documentation"
-msgstr ""
+msgstr "Byggja skjolun"
 
 #: ../../source/contributing/index.rst:103
 msgid "Or manually:"
@@ -118,7 +119,7 @@ msgstr ""
 
 #: ../../source/contributing/index.rst:111
 msgid "Adding a new format parser"
-msgstr ""
+msgstr "Baeta vid nyju snidthattara"
 
 #: ../../source/contributing/index.rst:113
 msgid ""

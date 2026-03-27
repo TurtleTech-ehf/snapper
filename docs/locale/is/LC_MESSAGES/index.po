@@ -6,8 +6,10 @@ msgstr ""
 "Project-Id-Version: snapper\n"
 "Report-Msgid-Bugs-To: \n"
 "POT-Creation-Date: 2026-03-27 21:56+0100\n"
-"PO-Revision-Date: 2026-03-27 22:00+0100\n"
-"Last-Translator: Rohit Goswami <rgoswami@ieee.org>\n"
+"PO-Revision-Date: 2026-03-27 23:00+0100
+"
+"Last-Translator: Rohit Goswami <rgoswami@ieee.org>
+"
 "Language: is\n"
 "Language-Team: is\n"
 "Plural-Forms: nplurals=2; plural=(n%10==1 && n%100!=11 ? 0 : 1);\n"

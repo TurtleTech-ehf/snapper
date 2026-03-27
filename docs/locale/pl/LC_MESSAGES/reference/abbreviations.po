@@ -4,14 +4,15 @@
 # This file is distributed under the same license as the snapper package.
 # FIRST AUTHOR <EMAIL@ADDRESS>, 2026.
 #
-#, fuzzy
 msgid ""
 msgstr ""
 "Project-Id-Version: snapper \n"
 "Report-Msgid-Bugs-To: \n"
 "POT-Creation-Date: 2026-03-27 21:56+0100\n"
-"PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
-"Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
+"PO-Revision-Date: 2026-03-27 23:00+0100
+"
+"Last-Translator: Rohit Goswami <rgoswami@ieee.org>
+"
 "Language: pl\n"
 "Language-Team: pl <LL@li.org>\n"
 "Plural-Forms: nplurals=3; plural=(n==1 ? 0 : n%10>=2 && n%10<=4 && "
@@ -23,11 +24,11 @@ msgstr ""
 
 #: ../../source/reference/abbreviations.rst:3
 msgid "Abbreviation Handling"
-msgstr ""
+msgstr "Obsluga skrotow"
 
 #: ../../source/reference/abbreviations.rst:8
 msgid "How abbreviation detection works"
-msgstr ""
+msgstr "Jak dziala wykrywanie skrotow"
 
 #: ../../source/reference/abbreviations.rst:10
 msgid ""
@@ -39,11 +40,11 @@ msgstr ""
 
 #: ../../source/reference/abbreviations.rst:15
 msgid "Built-in abbreviations"
-msgstr ""
+msgstr "Wbudowane skroty"
 
 #: ../../source/reference/abbreviations.rst:18
 msgid "Titles and honorifics"
-msgstr ""
+msgstr "Tytuly i zwroty grzecznosciowe"
 
 #: ../../source/reference/abbreviations.rst:20
 msgid ""
@@ -53,7 +54,7 @@ msgstr ""
 
 #: ../../source/reference/abbreviations.rst:23
 msgid "Academic and scientific"
-msgstr ""
+msgstr "Naukowe"
 
 #: ../../source/reference/abbreviations.rst:25
 msgid ""
@@ -63,7 +64,7 @@ msgstr ""
 
 #: ../../source/reference/abbreviations.rst:28
 msgid "Latin"
-msgstr ""
+msgstr "Lacinskie"
 
 #: ../../source/reference/abbreviations.rst:30
 msgid "e.g., i.e., et al., cf., etc., viz., ibid., ca., approx., v.s."
@@ -71,7 +72,7 @@ msgstr ""
 
 #: ../../source/reference/abbreviations.rst:33
 msgid "Time and dates"
-msgstr ""
+msgstr "Czas i daty"
 
 #: ../../source/reference/abbreviations.rst:35
 msgid ""
@@ -81,7 +82,7 @@ msgstr ""
 
 #: ../../source/reference/abbreviations.rst:38
 msgid "Common"
-msgstr ""
+msgstr "Popularne"
 
 #: ../../source/reference/abbreviations.rst:40
 msgid ""
@@ -91,7 +92,7 @@ msgstr ""
 
 #: ../../source/reference/abbreviations.rst:43
 msgid "Single-letter initials"
-msgstr ""
+msgstr "Jednoliterowe inicjaly"
 
 #: ../../source/reference/abbreviations.rst:45
 msgid "through Z. (for names like J. K. Rowling)."
@@ -99,7 +100,7 @@ msgstr ""
 
 #: ../../source/reference/abbreviations.rst:48
 msgid "Adding project-specific abbreviations"
-msgstr ""
+msgstr "Dodawanie skrotow specyficznych dla projektu"
 
 #: ../../source/reference/abbreviations.rst:50
 msgid "Create a ``.snapperrc.toml`` in your project root:"
@@ -111,7 +112,7 @@ msgstr ""
 
 #: ../../source/reference/abbreviations.rst:59
 msgid "Inline token protection"
-msgstr ""
+msgstr "Ochrona tokenow inline"
 
 #: ../../source/reference/abbreviations.rst:61
 msgid ""

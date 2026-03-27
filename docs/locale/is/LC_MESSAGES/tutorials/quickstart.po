@@ -4,14 +4,15 @@
 # This file is distributed under the same license as the snapper package.
 # FIRST AUTHOR <EMAIL@ADDRESS>, 2026.
 #
-#, fuzzy
 msgid ""
 msgstr ""
 "Project-Id-Version: snapper \n"
 "Report-Msgid-Bugs-To: \n"
 "POT-Creation-Date: 2026-03-27 21:56+0100\n"
-"PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
-"Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
+"PO-Revision-Date: 2026-03-27 23:00+0100
+"
+"Last-Translator: Rohit Goswami <rgoswami@ieee.org>
+"
 "Language: is\n"
 "Language-Team: is <LL@li.org>\n"
 "Plural-Forms: nplurals=2; plural=(n%10==1 && n%100!=11 ? 0 : 1);\n"
@@ -22,11 +23,11 @@ msgstr ""
 
 #: ../../source/tutorials/quickstart.rst:4
 msgid "Quickstart"
-msgstr ""
+msgstr "Byrjun"
 
 #: ../../source/tutorials/quickstart.rst:7
 msgid "Installation"
-msgstr ""
+msgstr "Uppsetning"
 
 #: ../../source/tutorials/quickstart.rst:9
 msgid ""
@@ -36,31 +37,31 @@ msgstr ""
 
 #: ../../source/tutorials/quickstart.rst:15
 msgid "Or build from source:"
-msgstr ""
+msgstr "Eda byggt fra frumkoda:"
 
 #: ../../source/tutorials/quickstart.rst:22
 msgid "With Nix:"
-msgstr ""
+msgstr "Med Nix:"
 
 #: ../../source/tutorials/quickstart.rst:29
 msgid "Basic usage"
-msgstr ""
+msgstr "Grunnnotkun"
 
 #: ../../source/tutorials/quickstart.rst:31
 msgid "Format a file, printing to stdout:"
-msgstr ""
+msgstr "Snidadu skra, skrifa a stdout:"
 
 #: ../../source/tutorials/quickstart.rst:37
 msgid "Format in place:"
-msgstr ""
+msgstr "Snidadu a stadnum:"
 
 #: ../../source/tutorials/quickstart.rst:43
 msgid "Pipe through stdin (for editor integration):"
-msgstr ""
+msgstr "Sigtu i gegnum stdin (fyrir ritilssamthattingu):"
 
 #: ../../source/tutorials/quickstart.rst:50
 msgid "What it does"
-msgstr ""
+msgstr "Hvad gerir thad"
 
 #: ../../source/tutorials/quickstart.rst:52
 msgid "Given a paragraph like this:"
@@ -79,7 +80,7 @@ msgstr ""
 
 #: ../../source/tutorials/quickstart.rst:70
 msgid "Format detection"
-msgstr ""
+msgstr "Snidgreining"
 
 #: ../../source/tutorials/quickstart.rst:72
 msgid "``snapper`` auto-detects the format from the file extension:"
@@ -103,11 +104,11 @@ msgstr ""
 
 #: ../../source/tutorials/quickstart.rst:82
 msgid "Override with ``--format``:"
-msgstr ""
+msgstr "Hneka med ``--format``:"
 
 #: ../../source/tutorials/quickstart.rst:89
 msgid "CI integration"
-msgstr ""
+msgstr "CI samthaetting"
 
 #: ../../source/tutorials/quickstart.rst:91
 msgid ""
@@ -117,7 +118,7 @@ msgstr ""
 
 #: ../../source/tutorials/quickstart.rst:99
 msgid "Pre-commit hook"
-msgstr ""
+msgstr "Pre-commit hook"
 
 #: ../../source/tutorials/quickstart.rst:101
 msgid "Add to your ``.pre-commit-config.yaml``:"
@@ -125,7 +126,7 @@ msgstr ""
 
 #: ../../source/tutorials/quickstart.rst:111
 msgid "Emacs (Apheleia)"
-msgstr ""
+msgstr "Emacs (Apheleia)"
 
 #: ../../source/tutorials/quickstart.rst:113
 msgid "Add to your Emacs config:"
