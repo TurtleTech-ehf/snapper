@@ -89,6 +89,28 @@ pub enum Commands {
         #[arg(long)]
         dry_run: bool,
     },
+    /// Sentence-level diff between two files.
+    Sdiff {
+        /// Original file.
+        old: PathBuf,
+        /// Modified file.
+        new: PathBuf,
+        /// Input format (auto-detected from extension if omitted).
+        #[arg(short, long)]
+        format: Option<FormatArg>,
+        /// Disable colored output.
+        #[arg(long)]
+        no_color: bool,
+    },
+    /// Watch files and reformat on change.
+    Watch {
+        /// Files or glob patterns to watch.
+        #[arg(required = true)]
+        patterns: Vec<String>,
+        /// Input format (auto-detected from extension if omitted).
+        #[arg(short, long)]
+        format: Option<FormatArg>,
+    },
 }
 
 /// Parse a range string "START:END" into (start, end) 1-indexed inclusive.

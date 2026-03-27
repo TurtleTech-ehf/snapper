@@ -24,8 +24,30 @@ fn run() -> Result<()> {
     let cli = Cli::parse();
 
     // Handle subcommands
-    if let Some(Commands::Init { dry_run }) = &cli.command {
-        return snapper_fmt::init::run_init(*dry_run);
+    if let Some(ref cmd) = cli.command {
+        match cmd {
+            Commands::Init { dry_run } => return snapper_fmt::init::run_init(*dry_run),
+            Commands::Sdiff {
+                old,
+                new,
+                format,
+                no_color,
+            } => {
+                let fmt = format.map(Format::from_arg);
+                let result = snapper_fmt::sdiff::sentence_diff(old, new, fmt, !no_color)?;
+                if result.is_empty() {
+                    eprintln!("No sentence-level differences.");
+                } else {
+                    print!("{result}");
+                    process::exit(1);
+                }
+                return Ok(());
+            }
+            Commands::Watch { patterns, format } => {
+                let fmt = format.map(Format::from_arg);
+                return snapper_fmt::watch::run_watch(patterns, fmt);
+            }
+        }
     }
 
     let project_config = ProjectConfig::resolve(cli.config.as_ref()).unwrap_or_default();

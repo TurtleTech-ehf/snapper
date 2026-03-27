@@ -43,7 +43,9 @@ pub mod init;
 pub mod output;
 pub mod parser;
 pub mod reflow;
+pub mod sdiff;
 pub mod sentence;
+pub mod watch;
 
 use anyhow::Result;
 
