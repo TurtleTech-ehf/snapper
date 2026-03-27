@@ -1,0 +1,71 @@
+use crate::parser::{FormatParser, Region};
+
+/// Trivial parser: everything is prose, blank lines are preserved.
+pub struct PlaintextParser;
+
+impl FormatParser for PlaintextParser {
+    fn parse(&self, input: &str) -> Vec<Region> {
+        let mut regions = Vec::new();
+        let mut current_prose = String::new();
+
+        for line in input.lines() {
+            if line.trim().is_empty() {
+                // Flush accumulated prose
+                if !current_prose.is_empty() {
+                    regions.push(Region::Prose(current_prose.clone()));
+                    current_prose.clear();
+                }
+                regions.push(Region::BlankLines(format!("{line}\n")));
+            } else {
+                if !current_prose.is_empty() {
+                    current_prose.push(' ');
+                }
+                current_prose.push_str(line.trim());
+            }
+        }
+
+        // Flush remaining prose
+        if !current_prose.is_empty() {
+            regions.push(Region::Prose(current_prose));
+        }
+
+        regions
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn simple_paragraph() {
+        let input = "Hello world. This is a test.\nAnother line here.";
+        let regions = PlaintextParser.parse(input);
+        assert_eq!(
+            regions,
+            vec![Region::Prose(
+                "Hello world. This is a test. Another line here.".to_string()
+            )]
+        );
+    }
+
+    #[test]
+    fn two_paragraphs() {
+        let input = "First paragraph.\n\nSecond paragraph.";
+        let regions = PlaintextParser.parse(input);
+        assert_eq!(
+            regions,
+            vec![
+                Region::Prose("First paragraph.".to_string()),
+                Region::BlankLines("\n".to_string()),
+                Region::Prose("Second paragraph.".to_string()),
+            ]
+        );
+    }
+
+    #[test]
+    fn empty_input() {
+        let regions = PlaintextParser.parse("");
+        assert!(regions.is_empty());
+    }
+}

@@ -1,0 +1,110 @@
+#+OPTIONS: num:nil toc:nil
+
+* Quickstart
+
+** Installation
+
+From source:
+
+#+begin_src bash
+cargo install --path .
+#+end_src
+
+Or build a release binary:
+
+#+begin_src bash
+cargo build --release
+# Binary at ./target/release/snapper
+#+end_src
+
+With Nix:
+
+#+begin_src bash
+nix build github:HaoZeke/snapper
+#+end_src
+
+** Basic usage
+
+Format a file, printing to stdout:
+
+#+begin_src bash
+snapper paper.org
+#+end_src
+
+Format in place:
+
+#+begin_src bash
+snapper --in-place paper.org
+#+end_src
+
+Pipe through stdin (for editor integration):
+
+#+begin_src bash
+cat draft.org | snapper --format org
+#+end_src
+
+** What it does
+
+Given a paragraph like this:
+
+#+begin_src text
+This is the first sentence. It continues with more details about the topic. See Fig. 3 for the results.
+#+end_src
+
+~snapper~ produces:
+
+#+begin_src text
+This is the first sentence.
+It continues with more details about the topic.
+See Fig. 3 for the results.
+#+end_src
+
+Each sentence occupies its own line. Structural elements like code blocks,
+tables, drawers, math environments, and front matter pass through unchanged.
+
+** Format detection
+
+~snapper~ auto-detects the format from the file extension:
+
+- =.org= -- Org-mode
+- =.tex=, =.latex= -- LaTeX
+- =.md=, =.markdown= -- Markdown
+- Everything else -- plaintext
+
+Override with =--format=:
+
+#+begin_src bash
+snapper --format latex draft.tex
+#+end_src
+
+** CI integration
+
+Use =--check= mode to verify formatting without modifying files. Exits with
+code 1 if any file would change:
+
+#+begin_src bash
+snapper --check paper.org
+#+end_src
+
+** Pre-commit hook
+
+Add to your =.pre-commit-config.yaml=:
+
+#+begin_src yaml
+- repo: https://github.com/HaoZeke/snapper
+  rev: v0.1.0
+  hooks:
+    - id: snapper
+#+end_src
+
+** Emacs (Apheleia)
+
+Add to your Emacs config:
+
+#+begin_src elisp
+(with-eval-after-load 'apheleia
+  (push '(snapper . ("snapper" "--format" "org")) apheleia-formatters)
+  (push '(org-mode . snapper) apheleia-mode-alist))
+#+end_src
+
+This runs ~snapper~ on save for Org-mode buffers.

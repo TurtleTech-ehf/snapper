@@ -1,0 +1,33 @@
+[workspace]
+name = "snapper"
+version = "0.1.0"
+channels = ["conda-forge"]
+platforms = ["linux-64", "osx-64", "osx-arm64"]
+
+[dependencies]
+rust = ">=1.85"
+
+[feature.dev.tasks]
+check = { cmd = "cargo fmt --check && cargo clippy -- -D warnings && cargo test" }
+build = { cmd = "cargo build --release" }
+test = { cmd = "cargo test" }
+
+[feature.docs.dependencies]
+python = ">=3.11"
+pip = "*"
+emacs = "*"
+sphinx = ">=7"
+myst-parser = "*"
+sphinx-sitemap = "*"
+
+[feature.docs.pypi-dependencies]
+shibuya = "*"
+
+[feature.docs.tasks]
+orgbld = { cmd = "emacs --batch -l docs/export.el", description = "Export orgmode to RST" }
+docbld = { cmd = "sphinx-build docs/source docs/build -b html", depends-on = ["orgbld"], description = "Build full documentation" }
+readme = { cmd = "./scripts/org_to_md.sh readme_src.org README.md", description = "Generate README.md from org source" }
+
+[environments]
+dev = { features = ["dev"], solve-group = "default" }
+docs = { features = ["docs"], solve-group = "default" }

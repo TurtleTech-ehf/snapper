@@ -1,0 +1,136 @@
+#+OPTIONS: num:nil toc:nil -:nil
+file:branding/logo/snapper_logo.png
+#+TOC: headlines 2
+* About
+A fast, format-aware semantic line break formatter. Reformats prose so each
+sentence occupies its own line, producing minimal and meaningful git diffs when
+collaborating on documents.
+** Why?
+When multiple authors collaborate on a paper using Git, traditional line
+wrapping at a fixed column width causes problems. A single word change can
+trigger a diff that spans an entire paragraph. By breaking at sentence
+boundaries instead, each edit affects only the sentence that changed.
+
+This convention, often called "semantic linefeeds," enjoys longstanding support
+from technical writers. Existing tools fall short: latexindent.pl only
+handles LaTeX, SemBr requires Python and neural networks, and most lack
+multi-format awareness. ~snapper~ solves this as a standalone Rust binary with no
+runtime dependencies, handling Org-mode, LaTeX, Markdown, and plaintext.
+** Design
+~snapper~ runs a three-stage pipeline:
+- Parse :: Classify input into prose regions and structure regions
+- Split :: Detect sentence boundaries in prose regions
+- Emit :: Output each sentence on its own line
+
+Structure regions (code blocks, math environments, tables, front matter,
+drawers, comments) pass through unchanged. Sentence detection relies on Unicode
+UAX #29 segmentation with abbreviation-aware post-processing that avoids false
+breaks at titles (Dr., Prof.), references (Fig., Eq.), and Latin terms (e.g.,
+i.e., et al.).
+* Installation
+From source:
+#+begin_src bash
+cargo build --release
+# Binary at ./target/release/snapper
+#+end_src
+Or install directly:
+#+begin_src bash
+cargo install --path .
+#+end_src
+With Nix:
+#+begin_src bash
+nix build github:HaoZeke/snapper
+#+end_src
+* Usage
+Format a file (output to stdout):
+#+begin_src bash
+snapper paper.org
+#+end_src
+Format in place:
+#+begin_src bash
+snapper --in-place paper.org
+#+end_src
+Pipe through stdin (for editor integration):
+#+begin_src bash
+cat draft.org | snapper --format org
+#+end_src
+Check formatting without modifying (for CI):
+#+begin_src bash
+snapper --check paper.org paper.tex notes.md
+#+end_src
+Limit line width (wrap long sentences at word boundaries):
+#+begin_src bash
+snapper --max-width 80 paper.org
+#+end_src
+Preview changes as a unified diff before committing:
+#+begin_src bash
+snapper --diff paper.org
+#+end_src
+** Supported formats
+| Format    | Extensions             | Structure preserved                     |
+|-----------+------------------------+-----------------------------------------|
+| Org-mode  | =.org=                 | Blocks, drawers, tables, keywords       |
+| LaTeX     | =.tex=, =.latex=       | Preamble, math, environments, comments  |
+| Markdown  | =.md=, =.markdown=     | Code blocks, front matter, HTML         |
+| Plaintext | everything else        | (none; all text treated as prose)       |
+** Pre-commit hook
+#+begin_src yaml
+- repo: https://github.com/HaoZeke/snapper
+  rev: v0.1.0
+  hooks:
+    - id: snapper
+#+end_src
+** Emacs (Apheleia)
+#+begin_src elisp
+(with-eval-after-load 'apheleia
+  (push '(snapper . ("snapper" "--format" "org")) apheleia-formatters)
+  (push '(org-mode . snapper) apheleia-mode-alist))
+#+end_src
+** Git smudge/clean filter
+Auto-format on commit, transparent to collaborators:
+#+begin_src bash
+git config filter.snapper.clean "snapper --format org"
+git config filter.snapper.smudge cat
+#+end_src
+Then add to =.gitattributes=:
+#+begin_src text
+*.org filter=snapper
+#+end_src
+** Vale integration
+~snapper~ ships a vale style package for editor hints. Add to your =.vale.ini=:
+#+begin_src ini
+StylesPath = /path/to/snapper/vale
+[*.org]
+BasedOnStyles = snapper
+#+end_src
+For precise CI checks, use ~snapper --check~ directly.
+** Project config
+Drop a =.snapperrc.toml= in your project root:
+#+begin_src toml
+extra_abbreviations = ["GROMACS", "LAMMPS", "DFT"]
+ignore = ["*.bib", "*.cls"]
+format = "org"
+max_width = 0
+#+end_src
+~snapper~ walks up from the current directory to find it.
+* Documentation
+Build the docs site with:
+#+begin_src bash
+pixi run docbld
+#+end_src
+* Development
+** Key dependencies
+- Clap 4 (derive) :: CLI argument parsing
+- unicode-segmentation :: UAX #29 sentence boundaries
+- regex :: Abbreviation and format pattern matching
+- textwrap :: Optional line width limiting
+- thiserror :: Typed error handling
+** Conventions
+We use ~cocogitto~ via ~cog~ to handle commit conventions.
+*** Readme
+Construct the ~readme~ via:
+#+begin_src bash
+./scripts/org_to_md.sh readme_src.org README.md
+#+end_src
+* License
+MIT.

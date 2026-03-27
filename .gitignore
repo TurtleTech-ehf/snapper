@@ -1,0 +1,11 @@
+/target
+
+# Override global ignore for dotfiles we need tracked
+!.pre-commit-hooks.yaml
+!.github/
+*.swp
+*.swo
+*~
+.direnv/
+result
+result-*

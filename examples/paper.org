@@ -1,0 +1,54 @@
+#+TITLE: Semantic Line Breaking for Academic Collaboration
+#+AUTHOR: Dr. A. Researcher
+#+DATE: 2026-01-15
+
+* Abstract
+
+We present a method for formatting prose documents with semantic line breaks, where each sentence occupies its own line. This approach dramatically reduces noise in version control diffs when multiple authors collaborate on a manuscript. Our tool handles LaTeX, Org-mode, Markdown, and plaintext with format-aware parsing that preserves structural elements.
+
+* Introduction
+
+Academic writing is inherently collaborative. Multiple authors contribute to a shared manuscript, often using version control systems like Git to track changes. However, traditional line wrapping causes problems: a single word change in a paragraph can trigger a diff that spans the entire paragraph, making review difficult.
+
+The semantic linefeeds convention, first popularized by Brandon Rhodes, addresses this by placing each sentence on its own line. Since most edits affect individual sentences, the resulting diffs are minimal and meaningful. See Fig. 1 for a comparison.
+
+** Related Work
+
+Previous tools have attempted to solve this problem. The latexindent.pl tool by Hughes offers a =oneSentencePerLine= mode for LaTeX documents. SemBr by admk et al. uses neural networks for sentence boundary detection. However, no existing tool combines fast execution, multiple format support, and deterministic output.
+
+#+BEGIN_SRC bibtex
+@article{rhodes2012,
+  author = {Brandon Rhodes},
+  title = {One Sentence Per Line},
+  year = {2012}
+}
+#+END_SRC
+
+* Method
+
+Our approach uses a three-stage pipeline:
+
+1. Parse the input into prose and structure regions
+2. Split prose regions at sentence boundaries
+3. Emit each sentence on its own line
+
+:PROPERTIES:
+:CUSTOM_ID: method
+:END:
+
+The parser is format-aware, preserving code blocks, math environments, tables, and other structural elements. Sentence detection uses Unicode UAX #29 segmentation as a baseline, with abbreviation-aware post-processing to avoid false splits at titles (Dr., Prof.), figure references (Fig., Eq.), and Latin abbreviations (e.g., i.e., et al.).
+
+| Format    | Prose Regions            | Structure Regions                |
+|-----------+--------------------------+----------------------------------|
+| Org-mode  | Paragraphs, list text    | Blocks, drawers, tables, keywords |
+| LaTeX     | Body text                | Preamble, math, environments     |
+| Markdown  | Paragraphs, list text    | Code blocks, front matter        |
+| Plaintext | Everything               | None                             |
+
+* Results
+
+The formatter achieves idempotent output: running it twice produces identical results. This is a critical property for CI integration, where the tool can verify that documents are properly formatted without modifying them.
+
+* Conclusion
+
+Semantic line breaking is a simple but effective technique for improving collaboration on prose documents. Our tool makes it easy to adopt this convention across multiple document formats.
