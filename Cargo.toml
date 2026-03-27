@@ -1,5 +1,5 @@
 [package]
-name = "snapper"
+name = "snapper-fmt"
 version = "0.1.0"
 edition = "2024"
 rust-version = "1.85"
@@ -8,6 +8,10 @@ repository = "https://github.com/HaoZeke/snapper"
 license = "MIT"
 keywords = ["semantic", "linebreak", "formatter", "latex", "orgmode"]
 categories = ["command-line-utilities", "text-processing"]
+
+[[bin]]
+name = "snapper"
+path = "src/main.rs"
 
 [dependencies]
 clap = { version = "4", features = ["derive"] }

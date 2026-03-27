@@ -5,10 +5,10 @@ use std::process;
 use anyhow::{Context, Result};
 use clap::Parser;
 
-use snapper::cli::Cli;
-use snapper::config::ProjectConfig;
-use snapper::format::Format;
-use snapper::{FormatConfig, format_text};
+use snapper_fmt::cli::Cli;
+use snapper_fmt::config::ProjectConfig;
+use snapper_fmt::format::Format;
+use snapper_fmt::{FormatConfig, format_text};
 
 fn main() {
     if let Err(e) = run() {
