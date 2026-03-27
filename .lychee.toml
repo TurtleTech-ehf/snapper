@@ -1,0 +1,16 @@
+# lychee link checker config
+# Run: lychee --config .lychee.toml .
+
+exclude_loopback = true
+max_concurrency = 16
+
+# Exclude internal/analytics URLs
+exclude = [
+    'analytics.turtletech.us',
+    'snapper-d8v.pages.dev',
+    'localhost',
+    '127.0.0.1',
+]
+
+# Include these file types
+include_verbatim = true

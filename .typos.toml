@@ -1,0 +1,17 @@
+[default.extend-words]
+# Icelandic words that look like typos
+bld = "bld"
+tst = "tst"
+maint = "maint"
+# crate names
+snapper-fmt = "snapper-fmt"
+
+[files]
+extend-exclude = [
+    "docs/locale/**/*.po",
+    "docs/build/**",
+    "Cargo.lock",
+    "pixi.lock",
+    "*.png",
+    "*.ico",
+]

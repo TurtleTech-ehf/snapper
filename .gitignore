@@ -3,6 +3,8 @@
 # Override global ignore for dotfiles we need tracked
 !.pre-commit-hooks.yaml
 !.github/
+!.lychee.toml
+!.typos.toml
 *.swp
 *.swo
 *~
