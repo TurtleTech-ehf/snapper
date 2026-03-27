@@ -29,13 +29,15 @@ msgstr "Pre-commit hook"
 
 #: ../../source/howto/ci-enforcement.rst:10
 msgid "The simplest CI integration. Add to ``.pre-commit-config.yaml``:"
-msgstr ""
+msgstr "Einfaldasta CI samþættingin. Bættu við í ``.pre-commit-config.yaml``:"
 
 #: ../../source/howto/ci-enforcement.rst:20
 msgid ""
 "This runs ``snapper --in-place`` on changed files matching ``.org``, "
 "``.tex``, ``.md``, and ``.txt``."
-msgstr "Thetta keyrir ``snapper --in-place`` a breyttum skram sem passa vid ``.org``, ``.tex``, ``.md`` og ``.txt``."
+msgstr ""
+"Þetta keyrir ``snapper --in-place`` á breyttum skrám sem passa við ``.org``, "
+"``.tex``, ``.md`` og ``.txt``."
 
 #: ../../source/howto/ci-enforcement.rst:23
 msgid "GitHub Actions"
@@ -43,25 +45,27 @@ msgstr "GitHub Actions"
 
 #: ../../source/howto/ci-enforcement.rst:25
 msgid "Add a formatting check step to your CI workflow:"
-msgstr ""
+msgstr "Bættu sníðmótunarprófunarskrefinu við CI vinnuflæðið:"
 
 #: ../../source/howto/ci-enforcement.rst:34
 msgid ""
 "The ``--check`` flag exits with code 1 if any file needs reformatting, "
 "without modifying anything."
 msgstr ""
+"``--check`` flaggið hættir með kóða 1 ef einhver skrá þarfnast endursníðmótunar, "
+"án þess að breyta neinu."
 
 #: ../../source/howto/ci-enforcement.rst:37
 msgid "Preview changes in CI"
-msgstr ""
+msgstr "Forskoða breytingar í CI"
 
 #: ../../source/howto/ci-enforcement.rst:39
 msgid "Use ``--diff`` to show what would change:"
-msgstr ""
+msgstr "Notaðu ``--diff`` til að sýna hvað myndi breytast:"
 
 #: ../../source/howto/ci-enforcement.rst:46
 msgid "This prints a unified diff to stdout, useful for PR review comments."
-msgstr ""
+msgstr "Þetta prentar sameinaðan diff á stdout, gagnlegt fyrir athugasemdir við PR rýni."
 
 #: ../../source/howto/ci-enforcement.rst:49
 msgid "GitLab CI"
@@ -69,4 +73,4 @@ msgstr "GitLab CI"
 
 #: ../../source/howto/ci-enforcement.rst:61
 msgid "Makefile integration"
-msgstr "Makefile samthæetting"
+msgstr "Makefile samþætting"

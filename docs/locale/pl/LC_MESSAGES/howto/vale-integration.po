@@ -26,7 +26,7 @@ msgstr "Integracja z vale"
 
 #: ../../source/howto/vale-integration.rst:8
 msgid "Overview"
-msgstr "Przeglad"
+msgstr "Przegląd"
 
 #: ../../source/howto/vale-integration.rst:10
 msgid ""
@@ -34,44 +34,49 @@ msgid ""
 " semantic line breaks. For precise enforcement, use ``snapper --check`` "
 "directly in CI."
 msgstr ""
+"Snapper zawiera pakiet stylów vale z dwiema regułami, które oznaczają linie "
+"wymagające semantycznych podziałów wierszy. Dla precyzyjnego wymuszania "
+"użyj ``snapper --check`` bezpośrednio w CI."
 
 #: ../../source/howto/vale-integration.rst:14
 msgid "Style package setup"
-msgstr "Konfiguracja pakietu stylow"
+msgstr "Konfiguracja pakietu stylów"
 
 #: ../../source/howto/vale-integration.rst:16
 msgid "Add the snapper vale style to your ``.vale.ini``:"
-msgstr ""
+msgstr "Dodaj styl snapper vale do swojego ``.vale.ini``:"
 
 #: ../../source/howto/vale-integration.rst:33
 msgid "Bundled rules"
-msgstr "Dolaczone reguly"
+msgstr "Dołączone reguły"
 
 #: ../../source/howto/vale-integration.rst:35
 msgid "``SemanticLineBreaks``"
-msgstr ""
+msgstr "``SemanticLineBreaks``"
 
 #: ../../source/howto/vale-integration.rst:36
 msgid ""
 "Flags lines containing multiple sentences (a period followed by a space "
 "and a capital letter on the same line)."
 msgstr ""
+"Oznacza linie zawierające wiele zdań (kropka, po której następuje spacja "
+"i wielka litera w tej samej linii)."
 
 #: ../../source/howto/vale-integration.rst:38
 msgid "Level: warning."
-msgstr ""
+msgstr "Poziom: ostrzeżenie."
 
 #: ../../source/howto/vale-integration.rst:40
 msgid "``LongProseLine``"
-msgstr ""
+msgstr "``LongProseLine``"
 
 #: ../../source/howto/vale-integration.rst:41
 msgid "Flags prose lines exceeding 120 characters."
-msgstr ""
+msgstr "Oznacza linie tekstu przekraczające 120 znaków."
 
 #: ../../source/howto/vale-integration.rst:43
 msgid "Level: suggestion."
-msgstr ""
+msgstr "Poziom: sugestia."
 
 #: ../../source/howto/vale-integration.rst:46
 msgid "Precise CI enforcement"
@@ -82,30 +87,33 @@ msgid ""
 "The vale rules use regex heuristics. For accurate checking, use the "
 "formatter directly:"
 msgstr ""
+"Reguły vale korzystają z heurystyk opartych na wyrażeniach regularnych. "
+"Dla dokładnego sprawdzania użyj bezpośrednio formatera:"
 
 #: ../../source/howto/vale-integration.rst:55
 msgid ""
 "This catches all cases the regex rules miss (abbreviations, inline "
 "tokens, etc.)."
 msgstr ""
+"Pozwala to wykryć wszystkie przypadki pomijane przez reguły regex "
+"(skróty, tokeny inline itp.)."
 
 #: ../../source/howto/vale-integration.rst:58
 msgid "Combining vale and snapper"
-msgstr "Laczenie vale i snapper"
+msgstr "Łączenie vale i snapper"
 
 #: ../../source/howto/vale-integration.rst:60
 msgid "A typical workflow:"
-msgstr ""
+msgstr "Typowy przepływ pracy:"
 
 #: ../../source/howto/vale-integration.rst:62
 msgid "vale catches style issues (AI tells, hedging, E-Prime) during editing"
-msgstr ""
+msgstr "vale wykrywa problemy stylistyczne (AI tells, hedging, E-Prime) podczas edycji"
 
 #: ../../source/howto/vale-integration.rst:64
 msgid "snapper enforces line break formatting in CI via ``--check``"
-msgstr ""
+msgstr "snapper wymusza formatowanie podziałów wierszy w CI za pomocą ``--check``"
 
 #: ../../source/howto/vale-integration.rst:66
 msgid "Pre-commit hook runs both:"
-msgstr ""
-
+msgstr "Hook pre-commit uruchamia oba narzędzia:"

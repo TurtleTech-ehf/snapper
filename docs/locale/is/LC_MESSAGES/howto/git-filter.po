@@ -21,7 +21,7 @@ msgstr ""
 
 #: ../../source/howto/git-filter.rst:3
 msgid "Git Smudge/Clean Filter"
-msgstr "Git smudge/clean sia"
+msgstr "Git smudge/clean sía"
 
 #: ../../source/howto/git-filter.rst:8
 msgid "Overview"
@@ -34,6 +34,10 @@ msgid ""
 "makes semantic line breaks transparent to collaborators who do not use "
 "snapper."
 msgstr ""
+"Git smudge/clean sía sníðar skrár sjálfvirkt við innlegg (clean) og "
+"endurheimtir valfrjálst upprunalega umbrotið við checkout (smudge). Þetta "
+"gerir merkingarbær línuskipti gagnsæ samstarfsfólki sem notar ekki "
+"snapper."
 
 #: ../../source/howto/git-filter.rst:14
 msgid "Setup"
@@ -41,7 +45,7 @@ msgstr "Uppsetning"
 
 #: ../../source/howto/git-filter.rst:16
 msgid "Configure the filter in your local git config:"
-msgstr ""
+msgstr "Stilltu síuna í staðbundinni git stillingu:"
 
 #: ../../source/howto/git-filter.rst:23
 msgid ""
@@ -49,40 +53,46 @@ msgid ""
 "files retain semantic line breaks. If you want to restore traditional "
 "wrapping on checkout, replace ``cat`` with a rewrapping command."
 msgstr ""
+"``smudge`` sían notar ``cat`` (í gegn), sem þýðir að útskráðar "
+"skrár halda merkingarbærum línuskiptum. Ef þú vilt endurheimta hefðbundna "
+"umbrotun við checkout, skiptu ``cat`` út fyrir endurumbrotsskipun."
 
 #: ../../source/howto/git-filter.rst:27
 msgid "Activate via .gitattributes"
-msgstr "Virkja med .gitattributes"
+msgstr "Virkja með .gitattributes"
 
 #: ../../source/howto/git-filter.rst:29
 msgid "Add to your repository's ``.gitattributes``:"
-msgstr ""
+msgstr "Bættu við í ``.gitattributes`` gagnageymslunnar:"
 
 #: ../../source/howto/git-filter.rst:37
 msgid ""
 "Commit ``.gitattributes`` to share with collaborators. The filter only "
 "activates for people who have configured it locally."
 msgstr ""
+"Leggðu inn ``.gitattributes`` til að deila með samstarfsfólki. Sían "
+"virkjast aðeins hjá þeim sem hafa stillt hana staðbundið."
 
 #: ../../source/howto/git-filter.rst:41
 msgid "Per-format filters"
-msgstr "Siu eftir snidi"
+msgstr "Síur eftir sniði"
 
 #: ../../source/howto/git-filter.rst:43
 msgid "If you need different settings per format:"
-msgstr ""
+msgstr "Ef þú þarft mismunandi stillingar eftir sniði:"
 
 #: ../../source/howto/git-filter.rst:59
 msgid "Verifying the filter works"
-msgstr "Staddfesta ad sian virki"
+msgstr "Staðfesta að sían virki"
 
 #: ../../source/howto/git-filter.rst:61
 msgid "After setting up, stage a file and check the diff:"
-msgstr ""
+msgstr "Eftir uppsetningu, settu skrá á sviðið og athugaðu diff-ið:"
 
 #: ../../source/howto/git-filter.rst:67
 msgid ""
 "The staged version should show sentence-per-line formatting even if the "
 "working copy uses traditional wrapping."
 msgstr ""
-
+"Útgáfan á sviðinu ætti að sýna sníðmótun með einni setningu á línu jafnvel "
+"þótt vinnuafritið noti hefðbundna umbrotun."

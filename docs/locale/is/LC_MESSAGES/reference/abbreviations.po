@@ -21,11 +21,11 @@ msgstr ""
 
 #: ../../source/reference/abbreviations.rst:3
 msgid "Abbreviation Handling"
-msgstr "Medhoendlun skammstofana"
+msgstr "Meðhöndlun skammstöfunar"
 
 #: ../../source/reference/abbreviations.rst:8
 msgid "How abbreviation detection works"
-msgstr "Hvernig skammstofunargreining virkar"
+msgstr "Hvernig skammstöfunargreining virkar"
 
 #: ../../source/reference/abbreviations.rst:10
 msgid ""
@@ -34,30 +34,38 @@ msgid ""
 "than sentence endings. Snapper post-processes the split results, merging "
 "segments where the break occurred at a known abbreviation."
 msgstr ""
+"Snapper notar Unicode UAX #29 setningarmarkaskil sem grunn. "
+"UAX #29 skiptir stundum við punkta sem tilheyra skammstöfunum frekar en "
+"setningalokum. Snapper eftirmeðhöndlar skiptiniðurstöðurnar og sameinar "
+"hluta þar sem skiptingin átti sér stað við þekkta skammstöfun."
 
 #: ../../source/reference/abbreviations.rst:15
 msgid "Built-in abbreviations"
-msgstr "Innbyggdar skammstafanir"
+msgstr "Innbyggðar skammstafanir"
 
 #: ../../source/reference/abbreviations.rst:18
 msgid "Titles and honorifics"
-msgstr "Titlar og virulegir titlar"
+msgstr "Titlar og virðingarheiti"
 
 #: ../../source/reference/abbreviations.rst:20
 msgid ""
 "Mr., Mrs., Ms., Dr., Prof., Sr., Jr., St., Rev., Gen., Gov., Sgt., Cpl., "
 "Pvt., Capt., Lt., Col., Maj., Cmdr., Adm."
 msgstr ""
+"Mr., Mrs., Ms., Dr., Prof., Sr., Jr., St., Rev., Gen., Gov., Sgt., Cpl., "
+"Pvt., Capt., Lt., Col., Maj., Cmdr., Adm."
 
 #: ../../source/reference/abbreviations.rst:23
 msgid "Academic and scientific"
-msgstr "Fraedileg og visindaleg"
+msgstr "Fræðileg og vísindaleg"
 
 #: ../../source/reference/abbreviations.rst:25
 msgid ""
 "Fig., Figs., Eq., Eqs., Ref., Refs., Tab., Sec., Ch., Vol., No., Nos., "
 "Ed., Eds., Trans., Dept., Thm., Lem., Prop., Def., Cor., Rem., Ex."
 msgstr ""
+"Fig., Figs., Eq., Eqs., Ref., Refs., Tab., Sec., Ch., Vol., No., Nos., "
+"Ed., Eds., Trans., Dept., Thm., Lem., Prop., Def., Cor., Rem., Ex."
 
 #: ../../source/reference/abbreviations.rst:28
 msgid "Latin"
@@ -65,17 +73,19 @@ msgstr "Latneskt"
 
 #: ../../source/reference/abbreviations.rst:30
 msgid "e.g., i.e., et al., cf., etc., viz., ibid., ca., approx., v.s."
-msgstr ""
+msgstr "e.g., i.e., et al., cf., etc., viz., ibid., ca., approx., v.s."
 
 #: ../../source/reference/abbreviations.rst:33
 msgid "Time and dates"
-msgstr "Timi og dagsetningar"
+msgstr "Tími og dagsetningar"
 
 #: ../../source/reference/abbreviations.rst:35
 msgid ""
 "Jan., Feb., Mar., Apr., Jun., Jul., Aug., Sep., Oct., Nov., Dec., Mon., "
 "Tue., Wed., Thu., Fri., Sat., Sun., a.m., p.m."
 msgstr ""
+"Jan., Feb., Mar., Apr., Jun., Jul., Aug., Sep., Oct., Nov., Dec., Mon., "
+"Tue., Wed., Thu., Fri., Sat., Sun., a.m., p.m."
 
 #: ../../source/reference/abbreviations.rst:38
 msgid "Common"
@@ -86,6 +96,8 @@ msgid ""
 "vs., misc., est., govt., dept., univ., inc., corp., ltd., Ave., Blvd., "
 "Rd., pp., pg., pt., pts."
 msgstr ""
+"vs., misc., est., govt., dept., univ., inc., corp., ltd., Ave., Blvd., "
+"Rd., pp., pg., pt., pts."
 
 #: ../../source/reference/abbreviations.rst:43
 msgid "Single-letter initials"
@@ -93,54 +105,57 @@ msgstr "Eins stafs upphafsstafir"
 
 #: ../../source/reference/abbreviations.rst:45
 msgid "through Z. (for names like J. K. Rowling)."
-msgstr ""
+msgstr "til og með Z. (fyrir nöfn eins og J. K. Rowling)."
 
 #: ../../source/reference/abbreviations.rst:48
 msgid "Adding project-specific abbreviations"
-msgstr "Baeta vid verkefnasertaekum skammstofunum"
+msgstr "Bæta við verkefnasértækum skammstöfunum"
 
 #: ../../source/reference/abbreviations.rst:50
 msgid "Create a ``.snapperrc.toml`` in your project root:"
-msgstr ""
+msgstr "Búðu til ``.snapperrc.toml`` í rót verkefnisins:"
 
 #: ../../source/reference/abbreviations.rst:56
 msgid "These merge with the built-in list at runtime."
-msgstr ""
+msgstr "Þær sameinast innbyggða listanum við keyrslu."
 
 #: ../../source/reference/abbreviations.rst:59
 msgid "Inline token protection"
-msgstr "Vorn innleidds takns"
+msgstr "Vörn innleidds tákns"
 
 #: ../../source/reference/abbreviations.rst:61
 msgid ""
 "Periods inside inline tokens never trigger sentence breaks, regardless of"
 " abbreviation lists:"
 msgstr ""
+"Punktar inni í innleiddum táknum kalla aldrei fram setningarskil, óháð "
+"skammstöfunarlistum:"
 
 #: ../../source/reference/abbreviations.rst:63
 msgid "Org links: ``[[https://example.com][Ex. Site]]``"
-msgstr ""
+msgstr "Org tenglar: ``[[https://example.com][Ex. Site]]``"
 
 #: ../../source/reference/abbreviations.rst:65
 msgid "LaTeX math: ``$x = 3.14$``"
-msgstr ""
+msgstr "LaTeX stærðfræði: ``$x = 3.14$``"
 
 #: ../../source/reference/abbreviations.rst:67
 #, python-brace-format
 msgid "LaTeX commands: ``\\cite{smith.2024}``"
-msgstr ""
+msgstr "LaTeX skipanir: ``\\cite{smith.2024}``"
 
 #: ../../source/reference/abbreviations.rst:69
 msgid "Markdown links: ``[Example Inc.](url)``"
-msgstr ""
+msgstr "Markdown tenglar: ``[Example Inc.](url)``"
 
 #: ../../source/reference/abbreviations.rst:71
 msgid "Inline code: ``~std.io.Read~``,"
-msgstr ""
+msgstr "Innleiður kóði: ``~std.io.Read~``,"
 
 #: ../../source/reference/abbreviations.rst:73
 msgid ""
 "These tokens get replaced with safe placeholders before sentence "
 "detection and restored afterward."
 msgstr ""
-
+"Þessi tákn eru skipt út fyrir örugg staðhaldstákn áður en setningargreining "
+"fer fram og endurheimast síðan."

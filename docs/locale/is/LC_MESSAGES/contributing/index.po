@@ -21,31 +21,31 @@ msgstr ""
 
 #: ../../source/contributing/index.rst:3
 msgid "Contributing"
-msgstr "Ad leggja til"
+msgstr "Að leggja til"
 
 #: ../../source/contributing/index.rst
 msgid "Author"
-msgstr ""
+msgstr "Höfundur"
 
 #: ../../source/contributing/index.rst:5
 msgid "Rohit Goswami"
-msgstr ""
+msgstr "Rohit Goswami"
 
 #: ../../source/contributing/index.rst:9
 msgid "Development setup"
-msgstr "Throunaruppsetning"
+msgstr "Þróunaruppsetning"
 
 #: ../../source/contributing/index.rst:18
 msgid "With pixi:"
-msgstr ""
+msgstr "Með pixi:"
 
 #: ../../source/contributing/index.rst:25
 msgid "Running checks"
-msgstr "Keyra profanir"
+msgstr "Keyra prófanir"
 
 #: ../../source/contributing/index.rst:33
 msgid "Dogfood check (verify all docs pass formatting):"
-msgstr ""
+msgstr "Sjálfsprófun (staðfesta að öll skjöl standist sníðmótun):"
 
 #: ../../source/contributing/index.rst:40
 msgid "Project structure"
@@ -53,101 +53,104 @@ msgstr "Verkefnisbygging"
 
 #: ../../source/contributing/index.rst:74
 msgid "Commit conventions"
-msgstr "Commit-venjur"
+msgstr "Innleggjavenjur"
 
 #: ../../source/contributing/index.rst:76
 msgid "Commits follow conventional commits, managed by ``cocogitto`` (``cog``):"
-msgstr ""
+msgstr "Innlegg fylgja stöðluðum innleggjum, stýrt af ``cocogitto`` (``cog``):"
 
 #: ../../source/contributing/index.rst:78
 msgid "``feat:``"
-msgstr ""
+msgstr "``feat:``"
 
 #: ../../source/contributing/index.rst:79
 msgid "new features"
-msgstr ""
+msgstr "nýir eiginleikar"
 
 #: ../../source/contributing/index.rst:81
 msgid "``fix:``"
-msgstr ""
+msgstr "``fix:``"
 
 #: ../../source/contributing/index.rst:82
 msgid "bug fixes"
-msgstr ""
+msgstr "villuleiðréttingar"
 
 #: ../../source/contributing/index.rst:84
 msgid "``doc:``"
-msgstr ""
+msgstr "``doc:``"
 
 #: ../../source/contributing/index.rst:85
 msgid "documentation changes"
-msgstr ""
+msgstr "breytingar á skjölun"
 
 #: ../../source/contributing/index.rst:87
 msgid "``chore:``"
-msgstr ""
+msgstr "``chore:``"
 
 #: ../../source/contributing/index.rst:88
 msgid "maintenance, dependency bumps"
-msgstr ""
+msgstr "viðhald, uppfærsla á háðum pökkum"
 
 #: ../../source/contributing/index.rst:90
 msgid "``tst:``"
-msgstr ""
+msgstr "``tst:``"
 
 #: ../../source/contributing/index.rst:91
 msgid "test changes"
-msgstr ""
+msgstr "breytingar á prófunum"
 
 #: ../../source/contributing/index.rst:93
 msgid "``bld:``"
-msgstr ""
+msgstr "``bld:``"
 
 #: ../../source/contributing/index.rst:94
 msgid "build system changes"
-msgstr ""
+msgstr "breytingar á byggingarkerfi"
 
 #: ../../source/contributing/index.rst:97
 msgid "Building documentation"
-msgstr "Byggja skjolun"
+msgstr "Byggja skjölun"
 
 #: ../../source/contributing/index.rst:103
 msgid "Or manually:"
-msgstr ""
+msgstr "Eða handvirkt:"
 
 #: ../../source/contributing/index.rst:111
 msgid "Adding a new format parser"
-msgstr "Baeta vid nyju snidthattara"
+msgstr "Bæta við nýjum sniðþáttara"
 
 #: ../../source/contributing/index.rst:113
 msgid ""
 "Create ``src/parser/yourformat.rs`` implementing the ``FormatParser`` "
 "trait"
 msgstr ""
+"Búðu til ``src/parser/yourformat.rs`` sem útfærir ``FormatParser`` "
+"eiginleikann"
 
 #: ../../source/contributing/index.rst:115
 msgid "Add the variant to ``Format`` enum in ``src/format.rs``"
-msgstr ""
+msgstr "Bættu afbrigðinu við ``Format`` upptalninguna í ``src/format.rs``"
 
 #: ../../source/contributing/index.rst:117
 msgid "Wire it into ``format_text()`` in ``src/lib.rs``"
-msgstr ""
+msgstr "Tengdu það inn í ``format_text()`` í ``src/lib.rs``"
 
 #: ../../source/contributing/index.rst:119
 msgid "Add extension mapping in ``Format::from_path()``"
-msgstr ""
+msgstr "Bættu við skráarendingarvörpun í ``Format::from_path()``"
 
 #: ../../source/contributing/index.rst:121
 msgid ""
 "Add fixture pair in ``tests/fixtures/`` (``sample.fmt`` + "
 "``expected.fmt``)"
 msgstr ""
+"Bættu við prófunargögnum í ``tests/fixtures/`` (``sample.fmt`` + "
+"``expected.fmt``)"
 
 #: ../../source/contributing/index.rst:123
 msgid "Add integration tests in ``tests/integration.rs``"
-msgstr ""
+msgstr "Bættu við samþættingarprófunum í ``tests/integration.rs``"
 
 #: ../../source/contributing/index.rst:125
 msgid "Document in ``docs/orgmode/reference/formats.org``"
-msgstr ""
-
+msgstr "Skjalaðu í ``docs/orgmode/reference/formats.org``"

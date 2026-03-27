@@ -30,13 +30,15 @@ msgstr "Hook pre-commit"
 
 #: ../../source/howto/ci-enforcement.rst:10
 msgid "The simplest CI integration. Add to ``.pre-commit-config.yaml``:"
-msgstr ""
+msgstr "Najprostsza integracja z CI. Dodaj do ``.pre-commit-config.yaml``:"
 
 #: ../../source/howto/ci-enforcement.rst:20
 msgid ""
 "This runs ``snapper --in-place`` on changed files matching ``.org``, "
 "``.tex``, ``.md``, and ``.txt``."
-msgstr "Uruchamia ``snapper --in-place`` na zmienionych plikach pasujacych do ``.org``, ``.tex``, ``.md`` i ``.txt``."
+msgstr ""
+"Uruchamia ``snapper --in-place`` na zmienionych plikach pasujących do "
+"``.org``, ``.tex``, ``.md`` i ``.txt``."
 
 #: ../../source/howto/ci-enforcement.rst:23
 msgid "GitHub Actions"
@@ -44,25 +46,27 @@ msgstr "GitHub Actions"
 
 #: ../../source/howto/ci-enforcement.rst:25
 msgid "Add a formatting check step to your CI workflow:"
-msgstr ""
+msgstr "Dodaj krok sprawdzania formatowania do swojego workflow CI:"
 
 #: ../../source/howto/ci-enforcement.rst:34
 msgid ""
 "The ``--check`` flag exits with code 1 if any file needs reformatting, "
 "without modifying anything."
 msgstr ""
+"Flaga ``--check`` kończy działanie z kodem 1, jeśli jakikolwiek plik "
+"wymaga przeformatowania, bez modyfikowania czegokolwiek."
 
 #: ../../source/howto/ci-enforcement.rst:37
 msgid "Preview changes in CI"
-msgstr ""
+msgstr "Podgląd zmian w CI"
 
 #: ../../source/howto/ci-enforcement.rst:39
 msgid "Use ``--diff`` to show what would change:"
-msgstr ""
+msgstr "Użyj ``--diff``, aby wyświetlić planowane zmiany:"
 
 #: ../../source/howto/ci-enforcement.rst:46
 msgid "This prints a unified diff to stdout, useful for PR review comments."
-msgstr ""
+msgstr "Wypisuje ujednolicony diff na stdout, przydatny do komentarzy w przeglądzie PR."
 
 #: ../../source/howto/ci-enforcement.rst:49
 msgid "GitLab CI"

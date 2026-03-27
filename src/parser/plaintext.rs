@@ -7,8 +7,29 @@ impl FormatParser for PlaintextParser {
     fn parse(&self, input: &str) -> Vec<Region> {
         let mut regions = Vec::new();
         let mut current_prose = String::new();
+        let mut pragma_off = false;
 
         for line in input.lines() {
+            // Check for snapper:off/on pragmas
+            if let Some(on) = super::check_pragma(line) {
+                if !current_prose.is_empty() {
+                    regions.push(Region::Prose(current_prose.clone()));
+                    current_prose.clear();
+                }
+                pragma_off = !on;
+                regions.push(Region::Structure(format!("{line}\n")));
+                continue;
+            }
+
+            if pragma_off {
+                if !current_prose.is_empty() {
+                    regions.push(Region::Prose(current_prose.clone()));
+                    current_prose.clear();
+                }
+                regions.push(Region::Structure(format!("{line}\n")));
+                continue;
+            }
+
             if line.trim().is_empty() {
                 // Flush accumulated prose
                 if !current_prose.is_empty() {

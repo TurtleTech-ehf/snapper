@@ -22,7 +22,7 @@ msgstr ""
 
 #: ../../source/reference/formats.rst:4
 msgid "Supported Formats"
-msgstr "Obslugiwane formaty"
+msgstr "Obsługiwane formaty"
 
 #: ../../source/reference/formats.rst:6
 msgid ""
@@ -30,198 +30,207 @@ msgid ""
 "boundaries) and *structure regions* (passed through unchanged). The "
 "classification depends on the format."
 msgstr ""
+"``snapper`` klasyfikuje tekst na *regiony prozy* (przeformatowywane na "
+"granicach zdań) i *regiony strukturalne* (przepuszczane bez zmian). "
+"Klasyfikacja zależy od formatu."
 
 #: ../../source/reference/formats.rst:10
 msgid "Org-mode (``--format org``)"
-msgstr ""
+msgstr "Org-mode (``--format org``)"
 
 #: ../../source/reference/formats.rst:13 ../../source/reference/formats.rst:55
 #: ../../source/reference/formats.rst:76
 msgid "Structure regions (preserved)"
-msgstr ""
+msgstr "Regiony strukturalne (zachowane)"
 
 #: ../../source/reference/formats.rst:15
 msgid "``#+BEGIN_*`` ..."
-msgstr ""
+msgstr "``#+BEGIN_*`` ..."
 
 #: ../../source/reference/formats.rst:17
 msgid "``#+END_*`` blocks (source, example, quote, etc.)"
-msgstr ""
+msgstr "bloki ``#+END_*`` (source, example, quote itp.)"
 
 #: ../../source/reference/formats.rst:19
 msgid "``:PROPERTIES:`` ..."
-msgstr ""
+msgstr "``:PROPERTIES:`` ..."
 
 #: ../../source/reference/formats.rst:21
 msgid "``:END:`` drawers"
-msgstr ""
+msgstr "szuflady ``:END:``"
 
 #: ../../source/reference/formats.rst:23
 msgid "``#+KEYWORD:`` directives (TITLE, AUTHOR, DATE, OPTIONS, etc.)"
-msgstr ""
+msgstr "dyrektywy ``#+KEYWORD:`` (TITLE, AUTHOR, DATE, OPTIONS itp.)"
 
 #: ../../source/reference/formats.rst:25
 msgid "Table rows (lines starting with ``|``)"
-msgstr ""
+msgstr "Wiersze tabeli (linie zaczynające się od ``|``)"
 
 #: ../../source/reference/formats.rst:27
 msgid "Comment lines (starting with ``#`` but not ``#+`` )"
-msgstr ""
+msgstr "Linie komentarzy (zaczynające się od ``#``, ale nie ``#+``)"
 
 #: ../../source/reference/formats.rst:29
 msgid "Headline stars and TODO keywords"
-msgstr ""
+msgstr "Gwiazdki nagłówków i słowa kluczowe TODO"
 
 #: ../../source/reference/formats.rst:31
 msgid "List item markers (``-``, ``+``, ``1.``)"
-msgstr ""
+msgstr "Znaczniki elementów listy (``-``, ``+``, ``1.``)"
 
 #: ../../source/reference/formats.rst:34 ../../source/reference/formats.rst:68
 #: ../../source/reference/formats.rst:87
 msgid "Prose regions (reflowed)"
-msgstr ""
+msgstr "Regiony prozy (przeformatowywane)"
 
 #: ../../source/reference/formats.rst:36 ../../source/reference/formats.rst:89
 msgid "Paragraph text"
-msgstr ""
+msgstr "Tekst akapitowy"
 
 #: ../../source/reference/formats.rst:38
 msgid "Headline text (after the stars and keyword)"
-msgstr ""
+msgstr "Tekst nagłówka (po gwiazdkach i słowie kluczowym)"
 
 #: ../../source/reference/formats.rst:40 ../../source/reference/formats.rst:93
 msgid "List item text (after the marker)"
-msgstr ""
+msgstr "Tekst elementu listy (po znaczniku)"
 
 #: ../../source/reference/formats.rst:43
 msgid "Inline tokens (kept atomic)"
-msgstr ""
+msgstr "Tokeny inline (zachowane jako niepodzielne)"
 
 #: ../../source/reference/formats.rst:45
 msgid "These tokens within prose are not split across lines:"
-msgstr ""
+msgstr "Te tokeny wewnątrz prozy nie są dzielone między liniami:"
 
 #: ../../source/reference/formats.rst:47
 msgid "Links: ``[[url][description]]``"
-msgstr ""
+msgstr "Linki: ``[[url][opis]]``"
 
 #: ../../source/reference/formats.rst:49
 msgid "Inline code: ``~code~``, ``==verbatim==``"
-msgstr ""
+msgstr "Kod inline: ``~code~``, ``==verbatim==``"
 
 #: ../../source/reference/formats.rst:52
 msgid "LaTeX (``--format latex``)"
-msgstr ""
+msgstr "LaTeX (``--format latex``)"
 
 #: ../../source/reference/formats.rst:57
 #, python-brace-format
 msgid "Preamble (everything before ``\\begin{document}``)"
-msgstr ""
+msgstr "Preambuła (wszystko przed ``\\begin{document}``)"
 
 #: ../../source/reference/formats.rst:59
 msgid ""
 "Non-prose environments: equation, align, figure, table, tabular, "
 "lstlisting, verbatim, minted, tikzpicture, and their starred variants"
 msgstr ""
+"Środowiska nie-prozatorskie: equation, align, figure, table, tabular, "
+"lstlisting, verbatim, minted, tikzpicture oraz ich warianty z gwiazdką"
 
 #: ../../source/reference/formats.rst:61
 msgid "Display math: ``\\[...\\]``"
-msgstr ""
+msgstr "Wzory wyświetlane: ``\\[...\\]``"
 
 #: ../../source/reference/formats.rst:63
 msgid "Comment lines (starting with ``%``)"
-msgstr ""
+msgstr "Linie komentarzy (zaczynające się od ``%``)"
 
 #: ../../source/reference/formats.rst:65
 #, python-brace-format
 msgid "``\\end{document}``"
-msgstr ""
+msgstr "``\\end{document}``"
 
 #: ../../source/reference/formats.rst:70
 msgid "Body text between structural elements"
-msgstr ""
+msgstr "Tekst główny pomiędzy elementami strukturalnymi"
 
 #: ../../source/reference/formats.rst:73
 msgid "Markdown (``--format markdown``)"
-msgstr ""
+msgstr "Markdown (``--format markdown``)"
 
 #: ../../source/reference/formats.rst:78
 msgid "Fenced code blocks (``````` or ``~~~``)"
-msgstr ""
+msgstr "Ogrodzone bloki kodu (``````` lub ``~~~``)"
 
 #: ../../source/reference/formats.rst:80
 msgid "Front matter (``---`` or ``+++``  delimited at file start)"
-msgstr ""
+msgstr "Front matter (``---`` lub ``+++`` na początku pliku)"
 
 #: ../../source/reference/formats.rst:82
 msgid "Heading markers (``#``, ``##``, etc.)"
-msgstr ""
+msgstr "Znaczniki nagłówków (``#``, ``##`` itp.)"
 
 #: ../../source/reference/formats.rst:84
 msgid "List item markers (``-``, ``\\*``, ``+``, ``1.``)"
-msgstr ""
+msgstr "Znaczniki elementów listy (``-``, ``\\*``, ``+``, ``1.``)"
 
 #: ../../source/reference/formats.rst:91
 msgid "Heading text (after the marker)"
-msgstr ""
+msgstr "Tekst nagłówka (po znaczniku)"
 
 #: ../../source/reference/formats.rst:96
 msgid "Plaintext (``--format plaintext``)"
-msgstr ""
+msgstr "Zwykły tekst (``--format plaintext``)"
 
 #: ../../source/reference/formats.rst:98
 msgid "Everything is prose. Blank lines are preserved as paragraph separators."
-msgstr ""
+msgstr "Całość traktowana jako proza. Puste linie są zachowane jako separatory akapitów."
 
 #: ../../source/reference/formats.rst:102
 msgid "Sentence Detection"
-msgstr "Wykrywanie zdan"
+msgstr "Wykrywanie zdań"
 
 #: ../../source/reference/formats.rst:104
 msgid ""
 "``snapper`` uses Unicode UAX #29 sentence boundary detection as a "
 "baseline, then merges false splits caused by known abbreviations:"
 msgstr ""
+"``snapper`` używa wykrywania granic zdań Unicode UAX #29 jako punktu "
+"wyjścia, a następnie łączy fałszywe podziały spowodowane znanymi skrótami:"
 
 #: ../../source/reference/formats.rst:107
 msgid "Titles"
-msgstr ""
+msgstr "Tytuły"
 
 #: ../../source/reference/formats.rst:109
 msgid "Mr., Mrs., Ms., Dr., Prof., Sr., Jr., St., Rev., Gen., etc."
-msgstr ""
+msgstr "Mr., Mrs., Ms., Dr., Prof., Sr., Jr., St., Rev., Gen. itp."
 
 #: ../../source/reference/formats.rst:112
 msgid "Academic"
-msgstr ""
+msgstr "Naukowe"
 
 #: ../../source/reference/formats.rst:114
 msgid ""
 "Fig., Figs., Eq., Eqs., Ref., Refs., Tab., Sec., Ch., Vol., No., Thm., "
 "Lem., Prop., Def., Cor., Rem., Ex."
 msgstr ""
+"Fig., Figs., Eq., Eqs., Ref., Refs., Tab., Sec., Ch., Vol., No., Thm., "
+"Lem., Prop., Def., Cor., Rem., Ex."
 
 #: ../../source/reference/formats.rst:117
 msgid "Latin"
-msgstr "Lacinskie"
+msgstr "Łacińskie"
 
 #: ../../source/reference/formats.rst:119
 msgid "e.g., i.e., et al., cf., etc., viz., ibid., ca., approx."
-msgstr ""
+msgstr "e.g., i.e., et al., cf., etc., viz., ibid., ca., approx."
 
 #: ../../source/reference/formats.rst:122
 msgid "Single initials"
-msgstr ""
+msgstr "Pojedyncze inicjały"
 
 #: ../../source/reference/formats.rst:124
 msgid "A., B., C., ... Z."
-msgstr ""
+msgstr "A., B., C., ... Z."
 
 #: ../../source/reference/formats.rst:128
 msgid "Date and time"
-msgstr ""
+msgstr "Data i czas"
 
 #: ../../source/reference/formats.rst:130
 msgid "Jan., Feb., ..., Dec., Mon., Tue., ..., Sun., a.m., p.m."
-msgstr ""
+msgstr "Jan., Feb., ..., Dec., Mon., Tue., ..., Sun., a.m., p.m."
 

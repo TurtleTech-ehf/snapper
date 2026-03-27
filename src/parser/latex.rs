@@ -59,6 +59,7 @@ impl FormatParser for LatexParser {
         let mut in_preamble = true;
         let mut in_non_prose_env: Option<String> = None;
         let mut in_display_math = false;
+        let mut pragma_off = false;
 
         let flush_prose = |prose: &mut String, regions: &mut Vec<Region>| {
             if !prose.is_empty() {
@@ -68,6 +69,20 @@ impl FormatParser for LatexParser {
         };
 
         for line in input.lines() {
+            // Check for snapper:off/on pragmas
+            if let Some(on) = super::check_pragma(line) {
+                flush_prose(&mut current_prose, &mut regions);
+                pragma_off = !on;
+                regions.push(Region::Structure(format!("{line}\n")));
+                continue;
+            }
+
+            if pragma_off {
+                flush_prose(&mut current_prose, &mut regions);
+                regions.push(Region::Structure(format!("{line}\n")));
+                continue;
+            }
+
             // Preamble: everything before \begin{document} is structure
             if in_preamble {
                 if line.contains(r"\begin{document}") {

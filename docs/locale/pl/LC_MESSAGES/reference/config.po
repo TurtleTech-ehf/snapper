@@ -34,6 +34,9 @@ msgid ""
 " and walking up to the filesystem root. Override the search with "
 "``--config path/to/config.toml``."
 msgstr ""
+"Snapper szuka pliku ``.snapperrc.toml`` począwszy od bieżącego katalogu "
+"w górę aż do korzenia systemu plików. Przesłoń wyszukiwanie za pomocą "
+"``--config path/to/config.toml``."
 
 #: ../../source/reference/config.rst:14
 msgid "Config format"
@@ -45,7 +48,7 @@ msgstr "Pola"
 
 #: ../../source/reference/config.rst:34
 msgid "extra\\ :sub:`abbreviations`"
-msgstr ""
+msgstr "extra\\ :sub:`abbreviations`"
 
 #: ../../source/reference/config.rst:36
 msgid ""
@@ -53,10 +56,13 @@ msgid ""
 "sentence break when followed by a period. Useful for domain-specific "
 "terms your papers use frequently."
 msgstr ""
+"Tablica ciągów znaków. Każdy wpis określa skrót, który nie powinien "
+"powodować podziału zdania po kropce. Przydatne dla terminów dziedzinowych "
+"często używanych w artykułach."
 
 #: ../../source/reference/config.rst:41
 msgid "ignore"
-msgstr ""
+msgstr "ignore"
 
 #: ../../source/reference/config.rst:43
 msgid ""
@@ -64,30 +70,38 @@ msgid ""
 "during ``--in-place`` and ``--check`` operations. Does not affect "
 "stdin/stdout mode."
 msgstr ""
+"Tablica ciągów znaków ze wzorcami glob. Pliki pasujące do tych wzorców "
+"są pomijane podczas operacji ``--in-place`` i ``--check``. Nie wpływa "
+"na tryb stdin/stdout."
 
 #: ../../source/reference/config.rst:48
 msgid "format"
-msgstr ""
+msgstr "format"
 
 #: ../../source/reference/config.rst:50
 msgid ""
 "String. Default format when auto-detection from file extension does not "
 "apply. One of: ``org``, ``latex``, ``markdown``, ``plaintext``."
 msgstr ""
+"Ciąg znaków. Domyślny format, gdy automatyczne wykrywanie na podstawie "
+"rozszerzenia pliku nie ma zastosowania. Jeden z: ``org``, ``latex``, "
+"``markdown``, ``plaintext``."
 
 #: ../../source/reference/config.rst:55
 msgid "max\\ :sub:`width`"
-msgstr ""
+msgstr "max\\ :sub:`width`"
 
 #: ../../source/reference/config.rst:57
 msgid ""
 "Integer. Sentences exceeding this width get wrapped at word boundaries. "
 "Set to ``0`` for unlimited (the default)."
 msgstr ""
+"Liczba całkowita. Zdania przekraczające tę szerokość są zawijane na "
+"granicach słów. Ustaw na ``0`` dla braku limitu (wartość domyślna)."
 
 #: ../../source/reference/config.rst:62
 msgid "Precedence"
-msgstr "Kolejnosc priorytetow"
+msgstr "Kolejność priorytetów"
 
 #: ../../source/reference/config.rst:64
 msgid ""
@@ -95,4 +109,7 @@ msgid ""
 "in defaults. Explicitly passing ``--format`` or ``--max-width`` always "
 "wins."
 msgstr ""
+"Flagi CLI nadpisują wartości z pliku konfiguracyjnego. Wartości z pliku "
+"konfiguracyjnego nadpisują wbudowane wartości domyślne. Jawne podanie "
+"``--format`` lub ``--max-width`` zawsze ma pierwszeństwo."
 
