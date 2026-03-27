@@ -43,3 +43,13 @@ pretty_assertions = "1"
 lto = true
 codegen-units = 1
 strip = true
+
+# The profile that 'dist' will build with
+[profile.dist]
+inherits = "release"
+lto = "thin"
+
+[package.metadata.binstall]
+pkg-url = "{ repo }/releases/download/v{ version }/snapper-{ target }{ archive-suffix }"
+bin-dir = "snapper-{ target }/{ bin }{ binary-ext }"
+pkg-fmt = "tgz"
