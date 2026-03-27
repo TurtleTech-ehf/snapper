@@ -1,0 +1,89 @@
+# SOME DESCRIPTIVE TITLE.
+# Copyright (C) 2026--present, <a href="https://rgoswami.me">Rohit
+# Goswami</a>
+# This file is distributed under the same license as the snapper package.
+# FIRST AUTHOR <EMAIL@ADDRESS>, 2026.
+#
+#, fuzzy
+msgid ""
+msgstr ""
+"Project-Id-Version: snapper \n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2026-03-27 21:56+0100\n"
+"PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
+"Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
+"Language: is\n"
+"Language-Team: is <LL@li.org>\n"
+"Plural-Forms: nplurals=2; plural=(n%10==1 && n%100!=11 ? 0 : 1);\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=utf-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Generated-By: Babel 2.18.0\n"
+
+#: ../../source/howto/git-filter.rst:3
+msgid "Git Smudge/Clean Filter"
+msgstr ""
+
+#: ../../source/howto/git-filter.rst:8
+msgid "Overview"
+msgstr ""
+
+#: ../../source/howto/git-filter.rst:10
+msgid ""
+"A git smudge/clean filter auto-formats files on commit (clean) and "
+"optionally restores the original wrapping on checkout (smudge). This "
+"makes semantic line breaks transparent to collaborators who do not use "
+"snapper."
+msgstr ""
+
+#: ../../source/howto/git-filter.rst:14
+msgid "Setup"
+msgstr ""
+
+#: ../../source/howto/git-filter.rst:16
+msgid "Configure the filter in your local git config:"
+msgstr ""
+
+#: ../../source/howto/git-filter.rst:23
+msgid ""
+"The ``smudge`` filter uses ``cat`` (passthrough), meaning checked-out "
+"files retain semantic line breaks. If you want to restore traditional "
+"wrapping on checkout, replace ``cat`` with a rewrapping command."
+msgstr ""
+
+#: ../../source/howto/git-filter.rst:27
+msgid "Activate via .gitattributes"
+msgstr ""
+
+#: ../../source/howto/git-filter.rst:29
+msgid "Add to your repository's ``.gitattributes``:"
+msgstr ""
+
+#: ../../source/howto/git-filter.rst:37
+msgid ""
+"Commit ``.gitattributes`` to share with collaborators. The filter only "
+"activates for people who have configured it locally."
+msgstr ""
+
+#: ../../source/howto/git-filter.rst:41
+msgid "Per-format filters"
+msgstr ""
+
+#: ../../source/howto/git-filter.rst:43
+msgid "If you need different settings per format:"
+msgstr ""
+
+#: ../../source/howto/git-filter.rst:59
+msgid "Verifying the filter works"
+msgstr ""
+
+#: ../../source/howto/git-filter.rst:61
+msgid "After setting up, stage a file and check the diff:"
+msgstr ""
+
+#: ../../source/howto/git-filter.rst:67
+msgid ""
+"The staged version should show sentence-per-line formatting even if the "
+"working copy uses traditional wrapping."
+msgstr ""
+

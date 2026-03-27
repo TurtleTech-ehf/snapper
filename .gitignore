@@ -17,4 +17,6 @@ docs/source/faq/
 docs/source/howto/
 docs/source/reference/
 docs/source/tutorials/
+docs/locale/pot/
+docs/locale/**/*.mo
 dist/

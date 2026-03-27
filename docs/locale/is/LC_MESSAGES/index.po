@@ -1,0 +1,54 @@
+# Icelandic translations for snapper docs.
+# Copyright (C) 2026, Rohit Goswami
+# This file is distributed under the same license as the snapper package.
+msgid ""
+msgstr ""
+"Project-Id-Version: snapper\n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2026-03-27 21:56+0100\n"
+"PO-Revision-Date: 2026-03-27 22:00+0100\n"
+"Last-Translator: Rohit Goswami <rgoswami@ieee.org>\n"
+"Language: is\n"
+"Language-Team: is\n"
+"Plural-Forms: nplurals=2; plural=(n%10==1 && n%100!=11 ? 0 : 1);\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=utf-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+
+#: ../../source/index.rst:13
+msgid "Tutorials"
+msgstr "Leidbeiningar"
+
+#: ../../source/index.rst:19
+msgid "How-to guides"
+msgstr "Hvernig a"
+
+#: ../../source/index.rst:28
+msgid "Reference"
+msgstr "Tilvisanir"
+
+#: ../../source/index.rst:37
+msgid "Development"
+msgstr "Throun"
+
+#: ../../source/index.rst:4
+msgid "snapper"
+msgstr "snapper"
+
+#: ../../source/index.rst
+msgid "Author"
+msgstr "Hofundur"
+
+#: ../../source/index.rst:6
+msgid "`Rohit Goswami <https://rgoswami.me>`_"
+msgstr "`Rohit Goswami <https://rgoswami.me>`_"
+
+#: ../../source/index.rst:10
+msgid ""
+"A fast, format-aware semantic line break formatter. Reformats prose so "
+"each sentence occupies its own line, producing minimal and meaningful git"
+" diffs when collaborating on papers and documentation."
+msgstr ""
+"Hratt og snidvitandi linuskiptatol. Endursnidur texta svo hver setning "
+"er a sinni eigin linu, sem gefur hreina og merkingarbera git diff thegar "
+"hoefundar vinna saman ad ritum og skjolun."

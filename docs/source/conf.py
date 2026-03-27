@@ -1,3 +1,5 @@
+import os
+
 project = "snapper"
 copyright = '2026--present, <a href="https://rgoswami.me">Rohit Goswami</a>'
 author = "Rohit Goswami"
@@ -12,6 +14,11 @@ extensions = [
 
 templates_path = ["_templates"]
 exclude_patterns = []
+
+# -- i18n (Sphinx gettext + sphinx-intl) --
+locale_dirs = ["../locale/"]
+gettext_compact = False
+language = os.environ.get("SPHINX_LANGUAGE", "en")
 
 html_theme = "shibuya"
 html_static_path = ["_static"]
@@ -28,12 +35,18 @@ html_theme_options = {
     "logo_url": "https://snapper.turtletech.us/",
 }
 
+# Shibuya native language selector (renders in nav bar automatically)
 html_context = {
     "source_type": "github",
     "source_user": "TurtleTech-ehf",
     "source_repo": "snapper",
     "source_version": "main",
     "source_docs_path": "/docs/source/",
+    "languages": [
+        ("English", "/docs/%s/", "en"),
+        ("Islenska", "/docs/is/%s/", "is"),
+        ("Polski", "/docs/pl/%s/", "pl"),
+    ],
 }
 
 myst_enable_extensions = [

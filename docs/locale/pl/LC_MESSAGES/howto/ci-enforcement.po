@@ -1,0 +1,75 @@
+# SOME DESCRIPTIVE TITLE.
+# Copyright (C) 2026--present, <a href="https://rgoswami.me">Rohit
+# Goswami</a>
+# This file is distributed under the same license as the snapper package.
+# FIRST AUTHOR <EMAIL@ADDRESS>, 2026.
+#
+#, fuzzy
+msgid ""
+msgstr ""
+"Project-Id-Version: snapper \n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2026-03-27 21:56+0100\n"
+"PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
+"Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
+"Language: pl\n"
+"Language-Team: pl <LL@li.org>\n"
+"Plural-Forms: nplurals=3; plural=(n==1 ? 0 : n%10>=2 && n%10<=4 && "
+"(n%100<10 || n%100>=20) ? 1 : 2);\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=utf-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Generated-By: Babel 2.18.0\n"
+
+#: ../../source/howto/ci-enforcement.rst:3
+msgid "CI Enforcement"
+msgstr ""
+
+#: ../../source/howto/ci-enforcement.rst:8
+msgid "Pre-commit hook"
+msgstr ""
+
+#: ../../source/howto/ci-enforcement.rst:10
+msgid "The simplest CI integration. Add to ``.pre-commit-config.yaml``:"
+msgstr ""
+
+#: ../../source/howto/ci-enforcement.rst:20
+msgid ""
+"This runs ``snapper --in-place`` on changed files matching ``.org``, "
+"``.tex``, ``.md``, and ``.txt``."
+msgstr ""
+
+#: ../../source/howto/ci-enforcement.rst:23
+msgid "GitHub Actions"
+msgstr ""
+
+#: ../../source/howto/ci-enforcement.rst:25
+msgid "Add a formatting check step to your CI workflow:"
+msgstr ""
+
+#: ../../source/howto/ci-enforcement.rst:34
+msgid ""
+"The ``--check`` flag exits with code 1 if any file needs reformatting, "
+"without modifying anything."
+msgstr ""
+
+#: ../../source/howto/ci-enforcement.rst:37
+msgid "Preview changes in CI"
+msgstr ""
+
+#: ../../source/howto/ci-enforcement.rst:39
+msgid "Use ``--diff`` to show what would change:"
+msgstr ""
+
+#: ../../source/howto/ci-enforcement.rst:46
+msgid "This prints a unified diff to stdout, useful for PR review comments."
+msgstr ""
+
+#: ../../source/howto/ci-enforcement.rst:49
+msgid "GitLab CI"
+msgstr ""
+
+#: ../../source/howto/ci-enforcement.rst:61
+msgid "Makefile integration"
+msgstr ""
+

@@ -1,0 +1,79 @@
+# SOME DESCRIPTIVE TITLE.
+# Copyright (C) 2026--present, <a href="https://rgoswami.me">Rohit
+# Goswami</a>
+# This file is distributed under the same license as the snapper package.
+# FIRST AUTHOR <EMAIL@ADDRESS>, 2026.
+#
+#, fuzzy
+msgid ""
+msgstr ""
+"Project-Id-Version: snapper \n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2026-03-27 21:56+0100\n"
+"PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
+"Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
+"Language: pl\n"
+"Language-Team: pl <LL@li.org>\n"
+"Plural-Forms: nplurals=3; plural=(n==1 ? 0 : n%10>=2 && n%10<=4 && "
+"(n%100<10 || n%100>=20) ? 1 : 2);\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=utf-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Generated-By: Babel 2.18.0\n"
+
+#: ../../source/howto/editor-integration.rst:3
+msgid "Editor Integration"
+msgstr ""
+
+#: ../../source/howto/editor-integration.rst:8
+msgid "Emacs (Apheleia)"
+msgstr ""
+
+#: ../../source/howto/editor-integration.rst:10
+msgid ""
+"`Apheleia <https://github.com/radian-software/apheleia>`_ runs external "
+"formatters on buffer save, preserving cursor position."
+msgstr ""
+
+#: ../../source/howto/editor-integration.rst:21
+msgid ""
+"The ``--format`` flag auto-detects from the file extension, so you can "
+"omit it if your files have standard extensions."
+msgstr ""
+
+#: ../../source/howto/editor-integration.rst:24
+msgid "Vim / Neovim"
+msgstr ""
+
+#: ../../source/howto/editor-integration.rst:26
+msgid "Use ``formatprg`` to pipe through snapper:"
+msgstr ""
+
+#: ../../source/howto/editor-integration.rst:34
+msgid ""
+"Then ``gq`` to reformat selected text, or ``gggqG`` to reformat the "
+"entire buffer."
+msgstr ""
+
+#: ../../source/howto/editor-integration.rst:36
+msgid "For Neovim with ``conform.nvim``:"
+msgstr ""
+
+#: ../../source/howto/editor-integration.rst:56
+msgid "VS Code"
+msgstr ""
+
+#: ../../source/howto/editor-integration.rst:58
+msgid "Use the \"Run on Save\" extension with a custom command:"
+msgstr ""
+
+#: ../../source/howto/editor-integration.rst:74
+msgid "Generic (any editor)"
+msgstr ""
+
+#: ../../source/howto/editor-integration.rst:76
+msgid ""
+"Snapper reads stdin and writes stdout by default. Any editor that "
+"supports piping through an external program works:"
+msgstr ""
+

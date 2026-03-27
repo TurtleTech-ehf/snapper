@@ -1,0 +1,151 @@
+# SOME DESCRIPTIVE TITLE.
+# Copyright (C) 2026--present, <a href="https://rgoswami.me">Rohit
+# Goswami</a>
+# This file is distributed under the same license as the snapper package.
+# FIRST AUTHOR <EMAIL@ADDRESS>, 2026.
+#
+#, fuzzy
+msgid ""
+msgstr ""
+"Project-Id-Version: snapper \n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2026-03-27 21:56+0100\n"
+"PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
+"Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
+"Language: is\n"
+"Language-Team: is <LL@li.org>\n"
+"Plural-Forms: nplurals=2; plural=(n%10==1 && n%100!=11 ? 0 : 1);\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=utf-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Generated-By: Babel 2.18.0\n"
+
+#: ../../source/reference/cli.rst:4
+msgid "CLI Reference"
+msgstr ""
+
+#: ../../source/reference/cli.rst:7
+msgid "Synopsis"
+msgstr ""
+
+#: ../../source/reference/cli.rst:13
+msgid "If no files are given, ``snapper`` reads from stdin and writes to stdout."
+msgstr ""
+
+#: ../../source/reference/cli.rst:16
+msgid "Options"
+msgstr ""
+
+#: ../../source/reference/cli.rst:19
+msgid "``-f``, ``--format <FORMAT>``"
+msgstr ""
+
+#: ../../source/reference/cli.rst:21
+msgid "Input format. One of: ``org``, ``latex``, ``markdown``, ``plaintext``."
+msgstr ""
+
+#: ../../source/reference/cli.rst:24
+msgid ""
+"Auto-detected from file extension when omitted. Defaults to ``plaintext``"
+" for stdin."
+msgstr ""
+
+#: ../../source/reference/cli.rst:28
+msgid "``-o``, ``--output <FILE>``"
+msgstr ""
+
+#: ../../source/reference/cli.rst:30
+msgid "Write output to a file instead of stdout."
+msgstr ""
+
+#: ../../source/reference/cli.rst:33
+msgid "``-i``, ``--in-place``"
+msgstr ""
+
+#: ../../source/reference/cli.rst:35
+msgid "Modify input files in place. Requires file arguments (not stdin)."
+msgstr ""
+
+#: ../../source/reference/cli.rst:39
+msgid "``-w``, ``--max-width <N>``"
+msgstr ""
+
+#: ../../source/reference/cli.rst:41
+msgid ""
+"Maximum line width. Sentences exceeding this width are wrapped at word "
+"boundaries using ``textwrap``. Default: ``0`` (unlimited)."
+msgstr ""
+
+#: ../../source/reference/cli.rst:46
+msgid "``--check``"
+msgstr ""
+
+#: ../../source/reference/cli.rst:48
+msgid ""
+"Check mode for CI. Exits with code 1 if any file would change, without "
+"modifying anything. Prints the paths of files that would be reformatted "
+"to stderr."
+msgstr ""
+
+#: ../../source/reference/cli.rst:53
+msgid "``--diff``"
+msgstr ""
+
+#: ../../source/reference/cli.rst:55
+msgid ""
+"Show a unified diff of what would change, without modifying anything. "
+"Useful for reviewing before committing. Exits with code 1 if any file "
+"would change."
+msgstr ""
+
+#: ../../source/reference/cli.rst:60
+msgid "``--config <PATH>``"
+msgstr ""
+
+#: ../../source/reference/cli.rst:62
+msgid ""
+"Path to a ``.snapperrc.toml`` config file. When omitted, ``snapper`` "
+"searches from the current directory upward."
+msgstr ""
+
+#: ../../source/reference/cli.rst:66
+msgid "``--neural``"
+msgstr ""
+
+#: ../../source/reference/cli.rst:68
+msgid ""
+"Use neural sentence detection via ``nnsplit``. Requires building with "
+"``--features neural``. Useful for non-English text where rule-based "
+"splitting produces poor results."
+msgstr ""
+
+#: ../../source/reference/cli.rst:73
+msgid "``-h``, ``--help``"
+msgstr ""
+
+#: ../../source/reference/cli.rst:75
+msgid "Print help message."
+msgstr ""
+
+#: ../../source/reference/cli.rst:78
+msgid "``-V``, ``--version``"
+msgstr ""
+
+#: ../../source/reference/cli.rst:80
+msgid "Print version."
+msgstr ""
+
+#: ../../source/reference/cli.rst:83
+msgid "Exit codes"
+msgstr ""
+
+#: ../../source/reference/cli.rst:85
+msgid "``0`` : Success (or ``--check`` / ``--diff`` with no changes needed)"
+msgstr ""
+
+#: ../../source/reference/cli.rst:87
+msgid ""
+"``1`` : ``--check`` or ``--diff`` found files that would change, or any "
+"error"
+msgstr ""
+

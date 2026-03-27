@@ -1,0 +1,138 @@
+# SOME DESCRIPTIVE TITLE.
+# Copyright (C) 2026--present, <a href="https://rgoswami.me">Rohit
+# Goswami</a>
+# This file is distributed under the same license as the snapper package.
+# FIRST AUTHOR <EMAIL@ADDRESS>, 2026.
+#
+#, fuzzy
+msgid ""
+msgstr ""
+"Project-Id-Version: snapper \n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2026-03-27 21:56+0100\n"
+"PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
+"Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
+"Language: is\n"
+"Language-Team: is <LL@li.org>\n"
+"Plural-Forms: nplurals=2; plural=(n%10==1 && n%100!=11 ? 0 : 1);\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=utf-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Generated-By: Babel 2.18.0\n"
+
+#: ../../source/faq/index.rst:3
+msgid "FAQ"
+msgstr ""
+
+#: ../../source/faq/index.rst:8
+msgid "Why not just wrap at 80 columns?"
+msgstr ""
+
+#: ../../source/faq/index.rst:10
+msgid ""
+"Column wrapping causes paragraph-wide reflows when you change a single "
+"word. Reviewers see the entire paragraph in the diff, obscuring the "
+"actual edit. Sentence-per-line formatting means a one-word change "
+"produces a one-line diff."
+msgstr ""
+
+#: ../../source/faq/index.rst:15
+msgid "Does this affect how the document renders?"
+msgstr ""
+
+#: ../../source/faq/index.rst:17
+msgid ""
+"No. LaTeX, Org-mode, Markdown, and most prose formats treat single "
+"newlines as whitespace. Two consecutive newlines start a new paragraph. "
+"Snapper preserves paragraph breaks (blank lines) and only changes where "
+"single newlines occur within a paragraph."
+msgstr ""
+
+#: ../../source/faq/index.rst:22
+msgid "My collaborators don't use snapper."
+msgstr ""
+
+#: ../../source/faq/index.rst:24
+msgid "Will this cause problems?"
+msgstr ""
+
+#: ../../source/faq/index.rst:26
+msgid ""
+"No. The formatting affects only whitespace within paragraphs. "
+"Collaborators can edit normally and their changes will merge cleanly. For"
+" fully transparent integration, use a git smudge/clean filter (see the "
+"how-to guide)."
+msgstr ""
+
+#: ../../source/faq/index.rst:31
+msgid "Why does snapper split \"Dr."
+msgstr ""
+
+#: ../../source/faq/index.rst:33
+msgid "Smith\" correctly?"
+msgstr ""
+
+#: ../../source/faq/index.rst:35
+msgid ""
+"Snapper maintains a curated list of 80+ abbreviations (titles, Latin "
+"terms, academic references, single-letter initials). After Unicode "
+"sentence boundary detection, it merges any splits that occurred at known "
+"abbreviation periods. You can add project-specific abbreviations via "
+"``.snapperrc.toml``."
+msgstr ""
+
+#: ../../source/faq/index.rst:40
+msgid "What about non-English text?"
+msgstr ""
+
+#: ../../source/faq/index.rst:42
+msgid ""
+"The Unicode UAX #29 sentence boundary algorithm works across languages. "
+"The abbreviation list currently covers English. A ``--lang`` flag and "
+"multi-language abbreviation sets are planned. For languages where rule-"
+"based splitting performs poorly, a neural mode (``--neural``, via "
+"nnsplit) is planned behind a feature flag."
+msgstr ""
+
+#: ../../source/faq/index.rst:48
+msgid "Can I use snapper as a library?"
+msgstr ""
+
+#: ../../source/faq/index.rst:50
+msgid ""
+"Yes. The crate (``snapper-fmt``) exposes ``format_text()`` and all "
+"internal modules:"
+msgstr ""
+
+#: ../../source/faq/index.rst:67
+msgid "How fast is it?"
+msgstr ""
+
+#: ../../source/faq/index.rst:69
+msgid ""
+"Snapper processes typical academic papers (10-50 pages) in under 10ms. No"
+" runtime dependencies, no network calls, no model loading. The neural "
+"mode (when implemented) adds startup cost for model loading."
+msgstr ""
+
+#: ../../source/faq/index.rst:74
+msgid "What about CRLF line endings?"
+msgstr ""
+
+#: ../../source/faq/index.rst:76
+msgid ""
+"Snapper detects the input's line ending convention (LF or CRLF) and "
+"preserves it in the output. Internally, processing normalizes to LF and "
+"converts back before writing."
+msgstr ""
+
+#: ../../source/faq/index.rst:80
+msgid "How do I report a bug or request a feature?"
+msgstr ""
+
+#: ../../source/faq/index.rst:82
+msgid ""
+"File an issue at `github.com/TurtleTech-ehf/snapper/issues "
+"<https://github.com/TurtleTech-ehf/snapper/issues>`_."
+msgstr ""
+

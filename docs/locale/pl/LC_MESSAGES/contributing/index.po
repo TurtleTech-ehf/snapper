@@ -1,0 +1,155 @@
+# SOME DESCRIPTIVE TITLE.
+# Copyright (C) 2026--present, <a href="https://rgoswami.me">Rohit
+# Goswami</a>
+# This file is distributed under the same license as the snapper package.
+# FIRST AUTHOR <EMAIL@ADDRESS>, 2026.
+#
+#, fuzzy
+msgid ""
+msgstr ""
+"Project-Id-Version: snapper \n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2026-03-27 21:56+0100\n"
+"PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
+"Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
+"Language: pl\n"
+"Language-Team: pl <LL@li.org>\n"
+"Plural-Forms: nplurals=3; plural=(n==1 ? 0 : n%10>=2 && n%10<=4 && "
+"(n%100<10 || n%100>=20) ? 1 : 2);\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=utf-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Generated-By: Babel 2.18.0\n"
+
+#: ../../source/contributing/index.rst:3
+msgid "Contributing"
+msgstr ""
+
+#: ../../source/contributing/index.rst
+msgid "Author"
+msgstr ""
+
+#: ../../source/contributing/index.rst:5
+msgid "Rohit Goswami"
+msgstr ""
+
+#: ../../source/contributing/index.rst:9
+msgid "Development setup"
+msgstr ""
+
+#: ../../source/contributing/index.rst:18
+msgid "With pixi:"
+msgstr ""
+
+#: ../../source/contributing/index.rst:25
+msgid "Running checks"
+msgstr ""
+
+#: ../../source/contributing/index.rst:33
+msgid "Dogfood check (verify all docs pass formatting):"
+msgstr ""
+
+#: ../../source/contributing/index.rst:40
+msgid "Project structure"
+msgstr ""
+
+#: ../../source/contributing/index.rst:74
+msgid "Commit conventions"
+msgstr ""
+
+#: ../../source/contributing/index.rst:76
+msgid "Commits follow conventional commits, managed by ``cocogitto`` (``cog``):"
+msgstr ""
+
+#: ../../source/contributing/index.rst:78
+msgid "``feat:``"
+msgstr ""
+
+#: ../../source/contributing/index.rst:79
+msgid "new features"
+msgstr ""
+
+#: ../../source/contributing/index.rst:81
+msgid "``fix:``"
+msgstr ""
+
+#: ../../source/contributing/index.rst:82
+msgid "bug fixes"
+msgstr ""
+
+#: ../../source/contributing/index.rst:84
+msgid "``doc:``"
+msgstr ""
+
+#: ../../source/contributing/index.rst:85
+msgid "documentation changes"
+msgstr ""
+
+#: ../../source/contributing/index.rst:87
+msgid "``chore:``"
+msgstr ""
+
+#: ../../source/contributing/index.rst:88
+msgid "maintenance, dependency bumps"
+msgstr ""
+
+#: ../../source/contributing/index.rst:90
+msgid "``tst:``"
+msgstr ""
+
+#: ../../source/contributing/index.rst:91
+msgid "test changes"
+msgstr ""
+
+#: ../../source/contributing/index.rst:93
+msgid "``bld:``"
+msgstr ""
+
+#: ../../source/contributing/index.rst:94
+msgid "build system changes"
+msgstr ""
+
+#: ../../source/contributing/index.rst:97
+msgid "Building documentation"
+msgstr ""
+
+#: ../../source/contributing/index.rst:103
+msgid "Or manually:"
+msgstr ""
+
+#: ../../source/contributing/index.rst:111
+msgid "Adding a new format parser"
+msgstr ""
+
+#: ../../source/contributing/index.rst:113
+msgid ""
+"Create ``src/parser/yourformat.rs`` implementing the ``FormatParser`` "
+"trait"
+msgstr ""
+
+#: ../../source/contributing/index.rst:115
+msgid "Add the variant to ``Format`` enum in ``src/format.rs``"
+msgstr ""
+
+#: ../../source/contributing/index.rst:117
+msgid "Wire it into ``format_text()`` in ``src/lib.rs``"
+msgstr ""
+
+#: ../../source/contributing/index.rst:119
+msgid "Add extension mapping in ``Format::from_path()``"
+msgstr ""
+
+#: ../../source/contributing/index.rst:121
+msgid ""
+"Add fixture pair in ``tests/fixtures/`` (``sample.fmt`` + "
+"``expected.fmt``)"
+msgstr ""
+
+#: ../../source/contributing/index.rst:123
+msgid "Add integration tests in ``tests/integration.rs``"
+msgstr ""
+
+#: ../../source/contributing/index.rst:125
+msgid "Document in ``docs/orgmode/reference/formats.org``"
+msgstr ""
+

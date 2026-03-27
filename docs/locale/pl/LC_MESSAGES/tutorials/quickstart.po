@@ -1,0 +1,138 @@
+# SOME DESCRIPTIVE TITLE.
+# Copyright (C) 2026--present, <a href="https://rgoswami.me">Rohit
+# Goswami</a>
+# This file is distributed under the same license as the snapper package.
+# FIRST AUTHOR <EMAIL@ADDRESS>, 2026.
+#
+#, fuzzy
+msgid ""
+msgstr ""
+"Project-Id-Version: snapper \n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2026-03-27 21:56+0100\n"
+"PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
+"Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
+"Language: pl\n"
+"Language-Team: pl <LL@li.org>\n"
+"Plural-Forms: nplurals=3; plural=(n==1 ? 0 : n%10>=2 && n%10<=4 && "
+"(n%100<10 || n%100>=20) ? 1 : 2);\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=utf-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Generated-By: Babel 2.18.0\n"
+
+#: ../../source/tutorials/quickstart.rst:4
+msgid "Quickstart"
+msgstr ""
+
+#: ../../source/tutorials/quickstart.rst:7
+msgid "Installation"
+msgstr ""
+
+#: ../../source/tutorials/quickstart.rst:9
+msgid ""
+"From `crates.io <https://crates.io/crates/snapper-fmt>`_ (the crate is "
+"``snapper-fmt``, the binary it installs is ``snapper``):"
+msgstr ""
+
+#: ../../source/tutorials/quickstart.rst:15
+msgid "Or build from source:"
+msgstr ""
+
+#: ../../source/tutorials/quickstart.rst:22
+msgid "With Nix:"
+msgstr ""
+
+#: ../../source/tutorials/quickstart.rst:29
+msgid "Basic usage"
+msgstr ""
+
+#: ../../source/tutorials/quickstart.rst:31
+msgid "Format a file, printing to stdout:"
+msgstr ""
+
+#: ../../source/tutorials/quickstart.rst:37
+msgid "Format in place:"
+msgstr ""
+
+#: ../../source/tutorials/quickstart.rst:43
+msgid "Pipe through stdin (for editor integration):"
+msgstr ""
+
+#: ../../source/tutorials/quickstart.rst:50
+msgid "What it does"
+msgstr ""
+
+#: ../../source/tutorials/quickstart.rst:52
+msgid "Given a paragraph like this:"
+msgstr ""
+
+#: ../../source/tutorials/quickstart.rst:58
+msgid "``snapper`` produces:"
+msgstr ""
+
+#: ../../source/tutorials/quickstart.rst:66
+msgid ""
+"Each sentence occupies its own line. Structural elements like code "
+"blocks, tables, drawers, math environments, and front matter pass through"
+" unchanged."
+msgstr ""
+
+#: ../../source/tutorials/quickstart.rst:70
+msgid "Format detection"
+msgstr ""
+
+#: ../../source/tutorials/quickstart.rst:72
+msgid "``snapper`` auto-detects the format from the file extension:"
+msgstr ""
+
+#: ../../source/tutorials/quickstart.rst:74
+msgid "``.org`` -- Org-mode"
+msgstr ""
+
+#: ../../source/tutorials/quickstart.rst:76
+msgid "``.tex``, ``.latex`` -- LaTeX"
+msgstr ""
+
+#: ../../source/tutorials/quickstart.rst:78
+msgid "``.md``, ``.markdown`` -- Markdown"
+msgstr ""
+
+#: ../../source/tutorials/quickstart.rst:80
+msgid "Everything else -- plaintext"
+msgstr ""
+
+#: ../../source/tutorials/quickstart.rst:82
+msgid "Override with ``--format``:"
+msgstr ""
+
+#: ../../source/tutorials/quickstart.rst:89
+msgid "CI integration"
+msgstr ""
+
+#: ../../source/tutorials/quickstart.rst:91
+msgid ""
+"Use ``--check`` mode to verify formatting without modifying files. Exits "
+"with code 1 if any file would change:"
+msgstr ""
+
+#: ../../source/tutorials/quickstart.rst:99
+msgid "Pre-commit hook"
+msgstr ""
+
+#: ../../source/tutorials/quickstart.rst:101
+msgid "Add to your ``.pre-commit-config.yaml``:"
+msgstr ""
+
+#: ../../source/tutorials/quickstart.rst:111
+msgid "Emacs (Apheleia)"
+msgstr ""
+
+#: ../../source/tutorials/quickstart.rst:113
+msgid "Add to your Emacs config:"
+msgstr ""
+
+#: ../../source/tutorials/quickstart.rst:121
+msgid "This runs ``snapper`` on save for Org-mode buffers."
+msgstr ""
+

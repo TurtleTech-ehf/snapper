@@ -23,13 +23,14 @@ sphinx-sitemap = "*"
 
 [feature.docs.pypi-dependencies]
 shibuya = "*"
+sphinx-intl = "*"
 
 [feature.docs.dependencies.nodejs]
 version = ">=20"
 
 [feature.docs.tasks]
 orgbld = { cmd = "emacs --batch -l docs/export.el", description = "Export orgmode to RST" }
-docbld = { cmd = "sphinx-build docs/source docs/build -b html", depends-on = ["orgbld"], description = "Build full documentation" }
+docbld = { cmd = "./scripts/build_i18n_docs.sh", description = "Build docs for all languages (en, is, pl)" }
 readme = { cmd = "./scripts/org_to_md.sh readme_src.org README.md", description = "Generate README.md from org source" }
 site-assemble = { cmd = "mkdir -p dist && cp -r site/* dist/ && cp -r docs/build dist/docs", depends-on = ["docbld"], description = "Assemble landing page + docs into dist/" }
 deploy = { cmd = "CLOUDFLARE_API_TOKEN=$(pass show turtletech/cloudflare/snapper-pages-token) CLOUDFLARE_ACCOUNT_ID=$(pass show turtletech/cloudflare/account-id) npx wrangler pages deploy dist/ --project-name=snapper --branch=main", depends-on = ["site-assemble"], description = "Build docs and deploy to Cloudflare Pages" }

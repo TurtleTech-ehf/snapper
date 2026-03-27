@@ -1,0 +1,99 @@
+# SOME DESCRIPTIVE TITLE.
+# Copyright (C) 2026--present, <a href="https://rgoswami.me">Rohit
+# Goswami</a>
+# This file is distributed under the same license as the snapper package.
+# FIRST AUTHOR <EMAIL@ADDRESS>, 2026.
+#
+#, fuzzy
+msgid ""
+msgstr ""
+"Project-Id-Version: snapper \n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2026-03-27 21:56+0100\n"
+"PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
+"Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
+"Language: pl\n"
+"Language-Team: pl <LL@li.org>\n"
+"Plural-Forms: nplurals=3; plural=(n==1 ? 0 : n%10>=2 && n%10<=4 && "
+"(n%100<10 || n%100>=20) ? 1 : 2);\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=utf-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Generated-By: Babel 2.18.0\n"
+
+#: ../../source/reference/config.rst:3
+msgid "Configuration"
+msgstr ""
+
+#: ../../source/reference/config.rst:8
+msgid "Project config file"
+msgstr ""
+
+#: ../../source/reference/config.rst:10
+msgid ""
+"Snapper looks for ``.snapperrc.toml`` starting from the current directory"
+" and walking up to the filesystem root. Override the search with "
+"``--config path/to/config.toml``."
+msgstr ""
+
+#: ../../source/reference/config.rst:14
+msgid "Config format"
+msgstr ""
+
+#: ../../source/reference/config.rst:31
+msgid "Fields"
+msgstr ""
+
+#: ../../source/reference/config.rst:34
+msgid "extra\\ :sub:`abbreviations`"
+msgstr ""
+
+#: ../../source/reference/config.rst:36
+msgid ""
+"String array. Each entry names an abbreviation that should not trigger a "
+"sentence break when followed by a period. Useful for domain-specific "
+"terms your papers use frequently."
+msgstr ""
+
+#: ../../source/reference/config.rst:41
+msgid "ignore"
+msgstr ""
+
+#: ../../source/reference/config.rst:43
+msgid ""
+"String array of glob patterns. Files matching these patterns get skipped "
+"during ``--in-place`` and ``--check`` operations. Does not affect "
+"stdin/stdout mode."
+msgstr ""
+
+#: ../../source/reference/config.rst:48
+msgid "format"
+msgstr ""
+
+#: ../../source/reference/config.rst:50
+msgid ""
+"String. Default format when auto-detection from file extension does not "
+"apply. One of: ``org``, ``latex``, ``markdown``, ``plaintext``."
+msgstr ""
+
+#: ../../source/reference/config.rst:55
+msgid "max\\ :sub:`width`"
+msgstr ""
+
+#: ../../source/reference/config.rst:57
+msgid ""
+"Integer. Sentences exceeding this width get wrapped at word boundaries. "
+"Set to ``0`` for unlimited (the default)."
+msgstr ""
+
+#: ../../source/reference/config.rst:62
+msgid "Precedence"
+msgstr ""
+
+#: ../../source/reference/config.rst:64
+msgid ""
+"CLI flags override config file values. Config file values override built-"
+"in defaults. Explicitly passing ``--format`` or ``--max-width`` always "
+"wins."
+msgstr ""
+

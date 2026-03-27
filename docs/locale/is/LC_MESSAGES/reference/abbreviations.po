@@ -1,0 +1,147 @@
+# SOME DESCRIPTIVE TITLE.
+# Copyright (C) 2026--present, <a href="https://rgoswami.me">Rohit
+# Goswami</a>
+# This file is distributed under the same license as the snapper package.
+# FIRST AUTHOR <EMAIL@ADDRESS>, 2026.
+#
+#, fuzzy
+msgid ""
+msgstr ""
+"Project-Id-Version: snapper \n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2026-03-27 21:56+0100\n"
+"PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
+"Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
+"Language: is\n"
+"Language-Team: is <LL@li.org>\n"
+"Plural-Forms: nplurals=2; plural=(n%10==1 && n%100!=11 ? 0 : 1);\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=utf-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Generated-By: Babel 2.18.0\n"
+
+#: ../../source/reference/abbreviations.rst:3
+msgid "Abbreviation Handling"
+msgstr ""
+
+#: ../../source/reference/abbreviations.rst:8
+msgid "How abbreviation detection works"
+msgstr ""
+
+#: ../../source/reference/abbreviations.rst:10
+msgid ""
+"Snapper uses Unicode UAX #29 sentence boundary detection as a baseline. "
+"UAX #29 sometimes splits at periods that belong to abbreviations rather "
+"than sentence endings. Snapper post-processes the split results, merging "
+"segments where the break occurred at a known abbreviation."
+msgstr ""
+
+#: ../../source/reference/abbreviations.rst:15
+msgid "Built-in abbreviations"
+msgstr ""
+
+#: ../../source/reference/abbreviations.rst:18
+msgid "Titles and honorifics"
+msgstr ""
+
+#: ../../source/reference/abbreviations.rst:20
+msgid ""
+"Mr., Mrs., Ms., Dr., Prof., Sr., Jr., St., Rev., Gen., Gov., Sgt., Cpl., "
+"Pvt., Capt., Lt., Col., Maj., Cmdr., Adm."
+msgstr ""
+
+#: ../../source/reference/abbreviations.rst:23
+msgid "Academic and scientific"
+msgstr ""
+
+#: ../../source/reference/abbreviations.rst:25
+msgid ""
+"Fig., Figs., Eq., Eqs., Ref., Refs., Tab., Sec., Ch., Vol., No., Nos., "
+"Ed., Eds., Trans., Dept., Thm., Lem., Prop., Def., Cor., Rem., Ex."
+msgstr ""
+
+#: ../../source/reference/abbreviations.rst:28
+msgid "Latin"
+msgstr ""
+
+#: ../../source/reference/abbreviations.rst:30
+msgid "e.g., i.e., et al., cf., etc., viz., ibid., ca., approx., v.s."
+msgstr ""
+
+#: ../../source/reference/abbreviations.rst:33
+msgid "Time and dates"
+msgstr ""
+
+#: ../../source/reference/abbreviations.rst:35
+msgid ""
+"Jan., Feb., Mar., Apr., Jun., Jul., Aug., Sep., Oct., Nov., Dec., Mon., "
+"Tue., Wed., Thu., Fri., Sat., Sun., a.m., p.m."
+msgstr ""
+
+#: ../../source/reference/abbreviations.rst:38
+msgid "Common"
+msgstr ""
+
+#: ../../source/reference/abbreviations.rst:40
+msgid ""
+"vs., misc., est., govt., dept., univ., inc., corp., ltd., Ave., Blvd., "
+"Rd., pp., pg., pt., pts."
+msgstr ""
+
+#: ../../source/reference/abbreviations.rst:43
+msgid "Single-letter initials"
+msgstr ""
+
+#: ../../source/reference/abbreviations.rst:45
+msgid "through Z. (for names like J. K. Rowling)."
+msgstr ""
+
+#: ../../source/reference/abbreviations.rst:48
+msgid "Adding project-specific abbreviations"
+msgstr ""
+
+#: ../../source/reference/abbreviations.rst:50
+msgid "Create a ``.snapperrc.toml`` in your project root:"
+msgstr ""
+
+#: ../../source/reference/abbreviations.rst:56
+msgid "These merge with the built-in list at runtime."
+msgstr ""
+
+#: ../../source/reference/abbreviations.rst:59
+msgid "Inline token protection"
+msgstr ""
+
+#: ../../source/reference/abbreviations.rst:61
+msgid ""
+"Periods inside inline tokens never trigger sentence breaks, regardless of"
+" abbreviation lists:"
+msgstr ""
+
+#: ../../source/reference/abbreviations.rst:63
+msgid "Org links: ``[[https://example.com][Ex. Site]]``"
+msgstr ""
+
+#: ../../source/reference/abbreviations.rst:65
+msgid "LaTeX math: ``$x = 3.14$``"
+msgstr ""
+
+#: ../../source/reference/abbreviations.rst:67
+#, python-brace-format
+msgid "LaTeX commands: ``\\cite{smith.2024}``"
+msgstr ""
+
+#: ../../source/reference/abbreviations.rst:69
+msgid "Markdown links: ``[Example Inc.](url)``"
+msgstr ""
+
+#: ../../source/reference/abbreviations.rst:71
+msgid "Inline code: ``~std.io.Read~``,"
+msgstr ""
+
+#: ../../source/reference/abbreviations.rst:73
+msgid ""
+"These tokens get replaced with safe placeholders before sentence "
+"detection and restored afterward."
+msgstr ""
+
