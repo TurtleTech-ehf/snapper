@@ -1,0 +1,59 @@
+#+title: Git Smudge/Clean Filter
+#+options: num:nil toc:nil
+
+* Overview
+
+A git smudge/clean filter auto-formats files on commit (clean) and optionally restores the original wrapping on checkout (smudge).
+This makes semantic line breaks transparent to collaborators who do not use snapper.
+
+* Setup
+
+Configure the filter in your local git config:
+
+#+begin_src bash
+git config filter.snapper.clean "snapper --format org"
+git config filter.snapper.smudge cat
+#+end_src
+
+The =smudge= filter uses =cat= (passthrough), meaning checked-out files retain semantic line breaks.
+If you want to restore traditional wrapping on checkout, replace =cat= with a rewrapping command.
+
+* Activate via .gitattributes
+
+Add to your repository's =.gitattributes=:
+
+#+begin_src text
+*.org filter=snapper
+*.tex filter=snapper
+*.md  filter=snapper
+#+end_src
+
+Commit =.gitattributes= to share with collaborators.
+The filter only activates for people who have configured it locally.
+
+* Per-format filters
+
+If you need different settings per format:
+
+#+begin_src bash
+git config filter.snapper-org.clean "snapper --format org"
+git config filter.snapper-org.smudge cat
+
+git config filter.snapper-tex.clean "snapper --format latex"
+git config filter.snapper-tex.smudge cat
+#+end_src
+
+#+begin_src text
+*.org filter=snapper-org
+*.tex filter=snapper-tex
+#+end_src
+
+* Verifying the filter works
+
+After setting up, stage a file and check the diff:
+
+#+begin_src bash
+git diff --cached paper.org
+#+end_src
+
+The staged version should show sentence-per-line formatting even if the working copy uses traditional wrapping.

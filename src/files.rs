@@ -1,9 +1,9 @@
 use anyhow::{Context, Result};
 use std::path::Path;
 
+use crate::FormatConfig;
 use crate::diff;
 use crate::format::Format;
-use crate::FormatConfig;
 
 /// Format a file on disk, returning the formatted text.
 /// Auto-detects format from the file extension.
