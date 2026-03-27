@@ -32,14 +32,16 @@ msgid ""
 "From `crates.io <https://crates.io/crates/snapper-fmt>`_ (the crate is "
 "``snapper-fmt``, the binary it installs is ``snapper``):"
 msgstr ""
+"Frá `crates.io <https://crates.io/crates/snapper-fmt>`_ (crate-ið er "
+"``snapper-fmt``, forritaskráin sem það setur upp er ``snapper``):"
 
 #: ../../source/tutorials/quickstart.rst:15
 msgid "Or build from source:"
-msgstr "Eda byggt fra frumkoda:"
+msgstr "Eða byggt frá frumkóða:"
 
 #: ../../source/tutorials/quickstart.rst:22
 msgid "With Nix:"
-msgstr "Med Nix:"
+msgstr "Með Nix:"
 
 #: ../../source/tutorials/quickstart.rst:29
 msgid "Basic usage"
@@ -47,27 +49,27 @@ msgstr "Grunnnotkun"
 
 #: ../../source/tutorials/quickstart.rst:31
 msgid "Format a file, printing to stdout:"
-msgstr "Snidadu skra, skrifa a stdout:"
+msgstr "Sníða skrá, prenta á stdout:"
 
 #: ../../source/tutorials/quickstart.rst:37
 msgid "Format in place:"
-msgstr "Snidadu a stadnum:"
+msgstr "Sníða á staðnum:"
 
 #: ../../source/tutorials/quickstart.rst:43
 msgid "Pipe through stdin (for editor integration):"
-msgstr "Sigtu i gegnum stdin (fyrir ritilssamthattingu):"
+msgstr "Sigta í gegnum stdin (fyrir samþættingu við ritil):"
 
 #: ../../source/tutorials/quickstart.rst:50
 msgid "What it does"
-msgstr "Hvad gerir thad"
+msgstr "Hvað gerir það"
 
 #: ../../source/tutorials/quickstart.rst:52
 msgid "Given a paragraph like this:"
-msgstr ""
+msgstr "Fyrir málsgrein eins og þessa:"
 
 #: ../../source/tutorials/quickstart.rst:58
 msgid "``snapper`` produces:"
-msgstr ""
+msgstr "``snapper`` framleiðir:"
 
 #: ../../source/tutorials/quickstart.rst:66
 msgid ""
@@ -75,44 +77,48 @@ msgid ""
 "blocks, tables, drawers, math environments, and front matter pass through"
 " unchanged."
 msgstr ""
+"Hver setning tekur sína eigin línu. Uppbyggingareiningar eins og kóðablokkir, "
+"töflur, skúffur, stærðfræðiumhverfi og framefni fara í gegn óbreytt."
 
 #: ../../source/tutorials/quickstart.rst:70
 msgid "Format detection"
-msgstr "Snidgreining"
+msgstr "Sniðgreining"
 
 #: ../../source/tutorials/quickstart.rst:72
 msgid "``snapper`` auto-detects the format from the file extension:"
-msgstr ""
+msgstr "``snapper`` sjálfgreinir sniðið frá skráarendingu:"
 
 #: ../../source/tutorials/quickstart.rst:74
 msgid "``.org`` -- Org-mode"
-msgstr ""
+msgstr "``.org`` -- Org-mode"
 
 #: ../../source/tutorials/quickstart.rst:76
 msgid "``.tex``, ``.latex`` -- LaTeX"
-msgstr ""
+msgstr "``.tex``, ``.latex`` -- LaTeX"
 
 #: ../../source/tutorials/quickstart.rst:78
 msgid "``.md``, ``.markdown`` -- Markdown"
-msgstr ""
+msgstr "``.md``, ``.markdown`` -- Markdown"
 
 #: ../../source/tutorials/quickstart.rst:80
 msgid "Everything else -- plaintext"
-msgstr ""
+msgstr "Allt annað -- ósniðinn texti"
 
 #: ../../source/tutorials/quickstart.rst:82
 msgid "Override with ``--format``:"
-msgstr "Hneka med ``--format``:"
+msgstr "Hnekkja með ``--format``:"
 
 #: ../../source/tutorials/quickstart.rst:89
 msgid "CI integration"
-msgstr "CI samthaetting"
+msgstr "CI samþætting"
 
 #: ../../source/tutorials/quickstart.rst:91
 msgid ""
 "Use ``--check`` mode to verify formatting without modifying files. Exits "
 "with code 1 if any file would change:"
 msgstr ""
+"Notaðu ``--check`` stillingu til að staðfesta sníðmótun án þess að breyta "
+"skrám. Hættir með kóða 1 ef einhver skrá myndi breytast:"
 
 #: ../../source/tutorials/quickstart.rst:99
 msgid "Pre-commit hook"
@@ -120,7 +126,7 @@ msgstr "Pre-commit hook"
 
 #: ../../source/tutorials/quickstart.rst:101
 msgid "Add to your ``.pre-commit-config.yaml``:"
-msgstr ""
+msgstr "Bættu við í ``.pre-commit-config.yaml``:"
 
 #: ../../source/tutorials/quickstart.rst:111
 msgid "Emacs (Apheleia)"
@@ -128,9 +134,8 @@ msgstr "Emacs (Apheleia)"
 
 #: ../../source/tutorials/quickstart.rst:113
 msgid "Add to your Emacs config:"
-msgstr ""
+msgstr "Bættu við í Emacs stillinguna þína:"
 
 #: ../../source/tutorials/quickstart.rst:121
 msgid "This runs ``snapper`` on save for Org-mode buffers."
-msgstr ""
-
+msgstr "Þetta keyrir ``snapper`` við vistun fyrir Org-mode minnissvæði."

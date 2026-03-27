@@ -17,19 +17,19 @@ msgstr ""
 
 #: ../../source/index.rst:13
 msgid "Tutorials"
-msgstr "Leidbeiningar"
+msgstr "Leiðbeiningar"
 
 #: ../../source/index.rst:19
 msgid "How-to guides"
-msgstr "Hvernig a"
+msgstr "Hvernig á að"
 
 #: ../../source/index.rst:28
 msgid "Reference"
-msgstr "Tilvisanir"
+msgstr "Tilvísanir"
 
 #: ../../source/index.rst:37
 msgid "Development"
-msgstr "Throun"
+msgstr "Þróun"
 
 #: ../../source/index.rst:4
 msgid "snapper"
@@ -37,7 +37,7 @@ msgstr "snapper"
 
 #: ../../source/index.rst
 msgid "Author"
-msgstr "Hofundur"
+msgstr "Höfundur"
 
 #: ../../source/index.rst:6
 msgid "`Rohit Goswami <https://rgoswami.me>`_"
@@ -49,6 +49,6 @@ msgid ""
 "each sentence occupies its own line, producing minimal and meaningful git"
 " diffs when collaborating on papers and documentation."
 msgstr ""
-"Hratt og snidvitandi linuskiptatol. Endursnidur texta svo hver setning "
-"er a sinni eigin linu, sem gefur hreina og merkingarbera git diff thegar "
-"hoefundar vinna saman ad ritum og skjolun."
+"Hraðvirkt og sniðvitandi línuskiptatól sem byggir á merkingu. Endursníður texta þannig að hver setning "
+"er á sinni eigin línu, sem gefur hrein og merkingarbær git diff þegar "
+"höfundar vinna saman að ritum og skjölun."

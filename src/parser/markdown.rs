@@ -21,6 +21,7 @@ impl FormatParser for MarkdownParser {
         let mut in_frontmatter = false;
         let mut frontmatter_fence = String::new();
         let mut line_number = 0;
+        let mut pragma_off = false;
 
         let flush_prose = |prose: &mut String, regions: &mut Vec<Region>| {
             if !prose.is_empty() {
@@ -31,6 +32,20 @@ impl FormatParser for MarkdownParser {
 
         for line in input.lines() {
             line_number += 1;
+
+            // Check for snapper:off/on pragmas
+            if let Some(on) = super::check_pragma(line) {
+                flush_prose(&mut current_prose, &mut regions);
+                pragma_off = !on;
+                regions.push(Region::Structure(format!("{line}\n")));
+                continue;
+            }
+
+            if pragma_off {
+                flush_prose(&mut current_prose, &mut regions);
+                regions.push(Region::Structure(format!("{line}\n")));
+                continue;
+            }
 
             // Front matter detection (only at start of file)
             if line_number == 1 && (line.trim() == "---" || line.trim() == "+++") {

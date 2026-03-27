@@ -22,11 +22,11 @@ msgstr ""
 
 #: ../../source/reference/abbreviations.rst:3
 msgid "Abbreviation Handling"
-msgstr "Obsluga skrotow"
+msgstr "Obsługa skrótów"
 
 #: ../../source/reference/abbreviations.rst:8
 msgid "How abbreviation detection works"
-msgstr "Jak dziala wykrywanie skrotow"
+msgstr "Jak działa wykrywanie skrótów"
 
 #: ../../source/reference/abbreviations.rst:10
 msgid ""
@@ -35,20 +35,26 @@ msgid ""
 "than sentence endings. Snapper post-processes the split results, merging "
 "segments where the break occurred at a known abbreviation."
 msgstr ""
+"Snapper używa wykrywania granic zdań Unicode UAX #29 jako punktu wyjścia. "
+"UAX #29 czasem dzieli tekst przy kropkach należących do skrótów, a nie "
+"zakończeń zdań. Snapper przetwarza wyniki dzielenia, łącząc segmenty, "
+"w których podział wystąpił przy znanym skrócie."
 
 #: ../../source/reference/abbreviations.rst:15
 msgid "Built-in abbreviations"
-msgstr "Wbudowane skroty"
+msgstr "Wbudowane skróty"
 
 #: ../../source/reference/abbreviations.rst:18
 msgid "Titles and honorifics"
-msgstr "Tytuly i zwroty grzecznosciowe"
+msgstr "Tytuły i zwroty grzecznościowe"
 
 #: ../../source/reference/abbreviations.rst:20
 msgid ""
 "Mr., Mrs., Ms., Dr., Prof., Sr., Jr., St., Rev., Gen., Gov., Sgt., Cpl., "
 "Pvt., Capt., Lt., Col., Maj., Cmdr., Adm."
 msgstr ""
+"Mr., Mrs., Ms., Dr., Prof., Sr., Jr., St., Rev., Gen., Gov., Sgt., Cpl., "
+"Pvt., Capt., Lt., Col., Maj., Cmdr., Adm."
 
 #: ../../source/reference/abbreviations.rst:23
 msgid "Academic and scientific"
@@ -59,14 +65,16 @@ msgid ""
 "Fig., Figs., Eq., Eqs., Ref., Refs., Tab., Sec., Ch., Vol., No., Nos., "
 "Ed., Eds., Trans., Dept., Thm., Lem., Prop., Def., Cor., Rem., Ex."
 msgstr ""
+"Fig., Figs., Eq., Eqs., Ref., Refs., Tab., Sec., Ch., Vol., No., Nos., "
+"Ed., Eds., Trans., Dept., Thm., Lem., Prop., Def., Cor., Rem., Ex."
 
 #: ../../source/reference/abbreviations.rst:28
 msgid "Latin"
-msgstr "Lacinskie"
+msgstr "Łacińskie"
 
 #: ../../source/reference/abbreviations.rst:30
 msgid "e.g., i.e., et al., cf., etc., viz., ibid., ca., approx., v.s."
-msgstr ""
+msgstr "e.g., i.e., et al., cf., etc., viz., ibid., ca., approx., v.s."
 
 #: ../../source/reference/abbreviations.rst:33
 msgid "Time and dates"
@@ -77,6 +85,8 @@ msgid ""
 "Jan., Feb., Mar., Apr., Jun., Jul., Aug., Sep., Oct., Nov., Dec., Mon., "
 "Tue., Wed., Thu., Fri., Sat., Sun., a.m., p.m."
 msgstr ""
+"Jan., Feb., Mar., Apr., Jun., Jul., Aug., Sep., Oct., Nov., Dec., Mon., "
+"Tue., Wed., Thu., Fri., Sat., Sun., a.m., p.m."
 
 #: ../../source/reference/abbreviations.rst:38
 msgid "Common"
@@ -87,61 +97,67 @@ msgid ""
 "vs., misc., est., govt., dept., univ., inc., corp., ltd., Ave., Blvd., "
 "Rd., pp., pg., pt., pts."
 msgstr ""
+"vs., misc., est., govt., dept., univ., inc., corp., ltd., Ave., Blvd., "
+"Rd., pp., pg., pt., pts."
 
 #: ../../source/reference/abbreviations.rst:43
 msgid "Single-letter initials"
-msgstr "Jednoliterowe inicjaly"
+msgstr "Jednoliterowe inicjały"
 
 #: ../../source/reference/abbreviations.rst:45
 msgid "through Z. (for names like J. K. Rowling)."
-msgstr ""
+msgstr "od A. do Z. (dla nazwisk typu J. K. Rowling)."
 
 #: ../../source/reference/abbreviations.rst:48
 msgid "Adding project-specific abbreviations"
-msgstr "Dodawanie skrotow specyficznych dla projektu"
+msgstr "Dodawanie skrótów specyficznych dla projektu"
 
 #: ../../source/reference/abbreviations.rst:50
 msgid "Create a ``.snapperrc.toml`` in your project root:"
-msgstr ""
+msgstr "Utwórz plik ``.snapperrc.toml`` w katalogu głównym projektu:"
 
 #: ../../source/reference/abbreviations.rst:56
 msgid "These merge with the built-in list at runtime."
-msgstr ""
+msgstr "Są one łączone z wbudowaną listą w czasie wykonywania."
 
 #: ../../source/reference/abbreviations.rst:59
 msgid "Inline token protection"
-msgstr "Ochrona tokenow inline"
+msgstr "Ochrona tokenów inline"
 
 #: ../../source/reference/abbreviations.rst:61
 msgid ""
 "Periods inside inline tokens never trigger sentence breaks, regardless of"
 " abbreviation lists:"
 msgstr ""
+"Kropki wewnątrz tokenów inline nigdy nie powodują podziału zdań, niezależnie "
+"od list skrótów:"
 
 #: ../../source/reference/abbreviations.rst:63
 msgid "Org links: ``[[https://example.com][Ex. Site]]``"
-msgstr ""
+msgstr "Linki Org: ``[[https://example.com][Ex. Site]]``"
 
 #: ../../source/reference/abbreviations.rst:65
 msgid "LaTeX math: ``$x = 3.14$``"
-msgstr ""
+msgstr "Wzory LaTeX: ``$x = 3.14$``"
 
 #: ../../source/reference/abbreviations.rst:67
 #, python-brace-format
 msgid "LaTeX commands: ``\\cite{smith.2024}``"
-msgstr ""
+msgstr "Polecenia LaTeX: ``\\cite{smith.2024}``"
 
 #: ../../source/reference/abbreviations.rst:69
 msgid "Markdown links: ``[Example Inc.](url)``"
-msgstr ""
+msgstr "Linki Markdown: ``[Example Inc.](url)``"
 
 #: ../../source/reference/abbreviations.rst:71
 msgid "Inline code: ``~std.io.Read~``,"
-msgstr ""
+msgstr "Kod inline: ``~std.io.Read~``,"
 
 #: ../../source/reference/abbreviations.rst:73
 msgid ""
 "These tokens get replaced with safe placeholders before sentence "
 "detection and restored afterward."
 msgstr ""
+"Tokeny te są zastępowane bezpiecznymi symbolami zastępczymi przed wykryciem "
+"zdań i przywracane po zakończeniu."
 

@@ -59,6 +59,7 @@ impl FormatParser for OrgParser {
         let mut current_prose = String::new();
         let mut in_block = false;
         let mut in_drawer = false;
+        let mut pragma_off = false;
         // Track list item context: indent level of the marker text.
         // Continuation lines indented at or beyond this level belong to the item.
         let mut list_item_indent: Option<usize> = None;
@@ -71,6 +72,21 @@ impl FormatParser for OrgParser {
         };
 
         for line in input.lines() {
+            // Check for snapper:off/on pragmas
+            if let Some(on) = super::check_pragma(line) {
+                flush_prose(&mut current_prose, &mut regions);
+                pragma_off = !on;
+                regions.push(Region::Structure(format!("{line}\n")));
+                continue;
+            }
+
+            // Inside pragma-off region: pass through unchanged
+            if pragma_off {
+                flush_prose(&mut current_prose, &mut regions);
+                regions.push(Region::Structure(format!("{line}\n")));
+                continue;
+            }
+
             // Inside a block -- everything is structure
             if in_block {
                 flush_prose(&mut current_prose, &mut regions);

@@ -33,12 +33,16 @@ msgid ""
 "`Apheleia <https://github.com/radian-software/apheleia>`_ runs external "
 "formatters on buffer save, preserving cursor position."
 msgstr ""
+"`Apheleia <https://github.com/radian-software/apheleia>`_ uruchamia zewnętrzne "
+"formatery przy zapisie bufora, zachowując pozycję kursora."
 
 #: ../../source/howto/editor-integration.rst:21
 msgid ""
 "The ``--format`` flag auto-detects from the file extension, so you can "
 "omit it if your files have standard extensions."
 msgstr ""
+"Flaga ``--format`` automatycznie wykrywa format na podstawie rozszerzenia pliku, "
+"więc można ją pominąć, jeśli pliki mają standardowe rozszerzenia."
 
 #: ../../source/howto/editor-integration.rst:24
 msgid "Vim / Neovim"
@@ -46,17 +50,19 @@ msgstr "Vim / Neovim"
 
 #: ../../source/howto/editor-integration.rst:26
 msgid "Use ``formatprg`` to pipe through snapper:"
-msgstr ""
+msgstr "Użyj ``formatprg``, aby przekierować tekst przez snappera:"
 
 #: ../../source/howto/editor-integration.rst:34
 msgid ""
 "Then ``gq`` to reformat selected text, or ``gggqG`` to reformat the "
 "entire buffer."
 msgstr ""
+"Następnie ``gq`` do przeformatowania zaznaczonego tekstu lub ``gggqG`` "
+"do przeformatowania całego bufora."
 
 #: ../../source/howto/editor-integration.rst:36
 msgid "For Neovim with ``conform.nvim``:"
-msgstr ""
+msgstr "Dla Neovima z ``conform.nvim``:"
 
 #: ../../source/howto/editor-integration.rst:56
 msgid "VS Code"
@@ -64,15 +70,16 @@ msgstr "VS Code"
 
 #: ../../source/howto/editor-integration.rst:58
 msgid "Use the \"Run on Save\" extension with a custom command:"
-msgstr ""
+msgstr "Użyj rozszerzenia \"Run on Save\" z własnym poleceniem:"
 
 #: ../../source/howto/editor-integration.rst:74
 msgid "Generic (any editor)"
-msgstr "Ogolne (dowolny edytor)"
+msgstr "Ogólne (dowolny edytor)"
 
 #: ../../source/howto/editor-integration.rst:76
 msgid ""
 "Snapper reads stdin and writes stdout by default. Any editor that "
 "supports piping through an external program works:"
 msgstr ""
-
+"Snapper domyślnie czyta ze stdin i pisze na stdout. Każdy edytor "
+"obsługujący przekierowanie przez zewnętrzny program będzie działał:"

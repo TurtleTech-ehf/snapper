@@ -21,7 +21,7 @@ msgstr ""
 
 #: ../../source/howto/editor-integration.rst:3
 msgid "Editor Integration"
-msgstr "Samthaetting vid ritla"
+msgstr "Samþætting við ritla"
 
 #: ../../source/howto/editor-integration.rst:8
 msgid "Emacs (Apheleia)"
@@ -32,12 +32,16 @@ msgid ""
 "`Apheleia <https://github.com/radian-software/apheleia>`_ runs external "
 "formatters on buffer save, preserving cursor position."
 msgstr ""
+"`Apheleia <https://github.com/radian-software/apheleia>`_ keyrir ytri "
+"sníðmótunartól við vistun minnissvæðis og varðveitir staðsetningu bendils."
 
 #: ../../source/howto/editor-integration.rst:21
 msgid ""
 "The ``--format`` flag auto-detects from the file extension, so you can "
 "omit it if your files have standard extensions."
 msgstr ""
+"``--format`` flaggið sjálfgreinir út frá skráarendingu, svo þú getur "
+"sleppt því ef skrárnar þínar hafa staðlaðar endingar."
 
 #: ../../source/howto/editor-integration.rst:24
 msgid "Vim / Neovim"
@@ -45,17 +49,19 @@ msgstr "Vim / Neovim"
 
 #: ../../source/howto/editor-integration.rst:26
 msgid "Use ``formatprg`` to pipe through snapper:"
-msgstr ""
+msgstr "Notaðu ``formatprg`` til að síga í gegnum snapper:"
 
 #: ../../source/howto/editor-integration.rst:34
 msgid ""
 "Then ``gq`` to reformat selected text, or ``gggqG`` to reformat the "
 "entire buffer."
 msgstr ""
+"Síðan ``gq`` til að endursníða valinn texta, eða ``gggqG`` til að endursníða "
+"allt minnissvæðið."
 
 #: ../../source/howto/editor-integration.rst:36
 msgid "For Neovim with ``conform.nvim``:"
-msgstr ""
+msgstr "Fyrir Neovim með ``conform.nvim``:"
 
 #: ../../source/howto/editor-integration.rst:56
 msgid "VS Code"
@@ -63,7 +69,7 @@ msgstr "VS Code"
 
 #: ../../source/howto/editor-integration.rst:58
 msgid "Use the \"Run on Save\" extension with a custom command:"
-msgstr ""
+msgstr "Notaðu \"Run on Save\" viðbótina með sérsniðinni skipun:"
 
 #: ../../source/howto/editor-integration.rst:74
 msgid "Generic (any editor)"
@@ -74,4 +80,5 @@ msgid ""
 "Snapper reads stdin and writes stdout by default. Any editor that "
 "supports piping through an external program works:"
 msgstr ""
-
+"Snapper les af stdin og skrifar á stdout sjálfgefið. Sérhver ritill sem "
+"styður að síga í gegnum ytra forrit virkar:"

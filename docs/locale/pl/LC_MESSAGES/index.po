@@ -30,7 +30,7 @@ msgstr "Dokumentacja"
 
 #: ../../source/index.rst:37
 msgid "Development"
-msgstr "Rozwoj"
+msgstr "Rozwój"
 
 #: ../../source/index.rst:4
 msgid "snapper"
@@ -50,7 +50,7 @@ msgid ""
 "each sentence occupies its own line, producing minimal and meaningful git"
 " diffs when collaborating on papers and documentation."
 msgstr ""
-"Szybki formater semantycznych podzialow wierszy z rozpoznawaniem formatu. "
-"Formatuje tekst tak, aby kazde zdanie zajmowalo osobna linie, co daje "
-"minimalne i czytelne roznice w git diff przy wspolpracy nad artykukami "
-"i dokumentacja."
+"Szybki formater semantycznych podziałów wierszy z rozpoznawaniem formatu. "
+"Formatuje tekst tak, aby każde zdanie zajmowało osobną linię, co daje "
+"minimalne i czytelne różnice w git diff przy współpracy nad artykułami "
+"i dokumentacją."

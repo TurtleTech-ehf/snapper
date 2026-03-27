@@ -21,7 +21,7 @@ msgstr ""
 
 #: ../../source/howto/vale-integration.rst:3
 msgid "Vale Integration"
-msgstr "Vale samthaetting"
+msgstr "Vale samþætting"
 
 #: ../../source/howto/vale-integration.rst:8
 msgid "Overview"
@@ -33,60 +33,69 @@ msgid ""
 " semantic line breaks. For precise enforcement, use ``snapper --check`` "
 "directly in CI."
 msgstr ""
+"Snapper fylgir vale stílpakka með tveimur reglum sem merkja línur sem þurfa "
+"merkingarbær línuskipti. Fyrir nákvæma framfylgd, notaðu ``snapper --check`` "
+"beint í CI."
 
 #: ../../source/howto/vale-integration.rst:14
 msgid "Style package setup"
-msgstr "Uppsetning stilpakka"
+msgstr "Uppsetning stílpakka"
 
 #: ../../source/howto/vale-integration.rst:16
 msgid "Add the snapper vale style to your ``.vale.ini``:"
-msgstr ""
+msgstr "Bættu snapper vale stílnum við ``.vale.ini`` skrána þína:"
 
 #: ../../source/howto/vale-integration.rst:33
 msgid "Bundled rules"
-msgstr "Medfylgjandi reglur"
+msgstr "Meðfylgjandi reglur"
 
 #: ../../source/howto/vale-integration.rst:35
 msgid "``SemanticLineBreaks``"
-msgstr ""
+msgstr "``SemanticLineBreaks``"
 
 #: ../../source/howto/vale-integration.rst:36
 msgid ""
 "Flags lines containing multiple sentences (a period followed by a space "
 "and a capital letter on the same line)."
 msgstr ""
+"Merkir línur sem innihalda margar setningar (punktur á eftir bili og "
+"stórum staf á sömu línu)."
 
 #: ../../source/howto/vale-integration.rst:38
 msgid "Level: warning."
-msgstr ""
+msgstr "Stig: viðvörun."
 
 #: ../../source/howto/vale-integration.rst:40
 msgid "``LongProseLine``"
-msgstr ""
+msgstr "``LongProseLine``"
 
 #: ../../source/howto/vale-integration.rst:41
 msgid "Flags prose lines exceeding 120 characters."
-msgstr ""
+msgstr "Merkir textalínur sem fara yfir 120 stafi."
 
 #: ../../source/howto/vale-integration.rst:43
 msgid "Level: suggestion."
-msgstr ""
+msgstr "Stig: tillaga."
 
 #: ../../source/howto/vale-integration.rst:46
 msgid "Precise CI enforcement"
-msgstr "Naekvam CI-framfylgd"
+msgstr "Nákvæm CI-framfylgd"
 
 #: ../../source/howto/vale-integration.rst:48
 msgid ""
 "The vale rules use regex heuristics. For accurate checking, use the "
 "formatter directly:"
 msgstr ""
+"Vale reglurnar nota reglulega segð sem heuristic. Fyrir nákvæma athugun, "
+"notaðu sníðmótunartólið beint:"
 
 #: ../../source/howto/vale-integration.rst:55
 msgid ""
 "This catches all cases the regex rules miss (abbreviations, inline "
 "tokens, etc.)."
 msgstr ""
+"Þetta nær öllum tilvikum sem reglulegu segðirnar missa af (skammstöfunum, "
+"innleiddum táknum, o.fl.)."
 
 #: ../../source/howto/vale-integration.rst:58
 msgid "Combining vale and snapper"
@@ -94,17 +103,16 @@ msgstr "Sameina vale og snapper"
 
 #: ../../source/howto/vale-integration.rst:60
 msgid "A typical workflow:"
-msgstr ""
+msgstr "Dæmigert vinnuflæði:"
 
 #: ../../source/howto/vale-integration.rst:62
 msgid "vale catches style issues (AI tells, hedging, E-Prime) during editing"
-msgstr ""
+msgstr "vale finnur stílvandamál (gervigreindarorðalag, varúðarorð, E-Prime) meðan á ritun stendur"
 
 #: ../../source/howto/vale-integration.rst:64
 msgid "snapper enforces line break formatting in CI via ``--check``"
-msgstr ""
+msgstr "snapper framfylgir línuskiptasníðmótun í CI með ``--check``"
 
 #: ../../source/howto/vale-integration.rst:66
 msgid "Pre-commit hook runs both:"
-msgstr ""
-
+msgstr "Pre-commit hook keyrir bæði:"

@@ -26,7 +26,7 @@ msgstr "Filtr git smudge/clean"
 
 #: ../../source/howto/git-filter.rst:8
 msgid "Overview"
-msgstr "Przeglad"
+msgstr "Przegląd"
 
 #: ../../source/howto/git-filter.rst:10
 msgid ""
@@ -35,6 +35,10 @@ msgid ""
 "makes semantic line breaks transparent to collaborators who do not use "
 "snapper."
 msgstr ""
+"Filtr git smudge/clean automatycznie formatuje pliki przy commicie (clean) "
+"i opcjonalnie przywraca oryginalne zawijanie przy checkout (smudge). Dzięki "
+"temu semantyczne podziały wierszy są przezroczyste dla współpracowników, "
+"którzy nie używają snappera."
 
 #: ../../source/howto/git-filter.rst:14
 msgid "Setup"
@@ -42,7 +46,7 @@ msgstr "Konfiguracja"
 
 #: ../../source/howto/git-filter.rst:16
 msgid "Configure the filter in your local git config:"
-msgstr ""
+msgstr "Skonfiguruj filtr w lokalnej konfiguracji git:"
 
 #: ../../source/howto/git-filter.rst:23
 msgid ""
@@ -50,6 +54,9 @@ msgid ""
 "files retain semantic line breaks. If you want to restore traditional "
 "wrapping on checkout, replace ``cat`` with a rewrapping command."
 msgstr ""
+"Filtr ``smudge`` używa ``cat`` (przepuszczanie), co oznacza, że pobrane "
+"pliki zachowują semantyczne podziały wierszy. Jeśli chcesz przywrócić "
+"tradycyjne zawijanie przy checkout, zastąp ``cat`` poleceniem zawijającym."
 
 #: ../../source/howto/git-filter.rst:27
 msgid "Activate via .gitattributes"
@@ -57,33 +64,36 @@ msgstr "Aktywacja przez .gitattributes"
 
 #: ../../source/howto/git-filter.rst:29
 msgid "Add to your repository's ``.gitattributes``:"
-msgstr ""
+msgstr "Dodaj do pliku ``.gitattributes`` w swoim repozytorium:"
 
 #: ../../source/howto/git-filter.rst:37
 msgid ""
 "Commit ``.gitattributes`` to share with collaborators. The filter only "
 "activates for people who have configured it locally."
 msgstr ""
+"Zacommituj ``.gitattributes``, aby udostępnić go współpracownikom. Filtr "
+"aktywuje się tylko u osób, które skonfigurowały go lokalnie."
 
 #: ../../source/howto/git-filter.rst:41
 msgid "Per-format filters"
-msgstr "Filtry wedlug formatu"
+msgstr "Filtry według formatu"
 
 #: ../../source/howto/git-filter.rst:43
 msgid "If you need different settings per format:"
-msgstr ""
+msgstr "Jeśli potrzebujesz różnych ustawień dla poszczególnych formatów:"
 
 #: ../../source/howto/git-filter.rst:59
 msgid "Verifying the filter works"
-msgstr "Weryfikacja dzialania filtra"
+msgstr "Weryfikacja działania filtra"
 
 #: ../../source/howto/git-filter.rst:61
 msgid "After setting up, stage a file and check the diff:"
-msgstr ""
+msgstr "Po skonfigurowaniu dodaj plik do indeksu i sprawdź diff:"
 
 #: ../../source/howto/git-filter.rst:67
 msgid ""
 "The staged version should show sentence-per-line formatting even if the "
 "working copy uses traditional wrapping."
 msgstr ""
-
+"Wersja w indeksie powinna pokazywać formatowanie jedno-zdanie-na-linię, "
+"nawet jeśli kopia robocza używa tradycyjnego zawijania."

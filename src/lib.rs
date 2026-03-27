@@ -37,6 +37,8 @@ pub mod config;
 pub mod diff;
 pub mod files;
 pub mod format;
+pub mod init;
+pub mod output;
 pub mod parser;
 pub mod reflow;
 pub mod sentence;
@@ -126,4 +128,62 @@ pub fn format_text(input: &str, config: &FormatConfig) -> Result<String> {
     }
 
     Ok(output)
+}
+
+/// Format only lines within a range (1-indexed, inclusive).
+/// Lines outside the range pass through unchanged.
+pub fn format_range(
+    input: &str,
+    config: &FormatConfig,
+    start: usize,
+    end: usize,
+) -> Result<String> {
+    let lines: Vec<&str> = input.lines().collect();
+    let total = lines.len();
+
+    // Clamp range
+    let start = start.max(1);
+    let end = end.min(total);
+
+    if start > total {
+        return Ok(input.to_string());
+    }
+
+    // Extract the range as a contiguous block
+    let range_text = lines[start - 1..end].join("\n");
+    let formatted = format_text(&range_text, config)?;
+
+    // Reassemble: before + formatted + after
+    let mut result = String::new();
+    for (i, line) in lines.iter().enumerate() {
+        let line_num = i + 1;
+        if line_num < start {
+            result.push_str(line);
+            result.push('\n');
+        }
+    }
+    result.push_str(&formatted);
+    if !formatted.ends_with('\n') && end < total {
+        result.push('\n');
+    }
+    for (i, line) in lines.iter().enumerate() {
+        let line_num = i + 1;
+        if line_num > end {
+            result.push_str(line);
+            if line_num < total {
+                result.push('\n');
+            }
+        }
+    }
+
+    // Preserve original trailing newline convention
+    if input.ends_with('\n') && !result.ends_with('\n') {
+        result.push('\n');
+    } else if !input.ends_with('\n') {
+        while result.ends_with('\n') {
+            result.pop();
+        }
+    }
+
+    Ok(result)
 }

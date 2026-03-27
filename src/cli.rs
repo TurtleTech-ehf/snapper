@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use clap::{Parser, ValueEnum};
+use clap::{Parser, Subcommand, ValueEnum};
 
 #[derive(Debug, Clone, Copy, ValueEnum)]
 pub enum FormatArg {
@@ -10,9 +10,19 @@ pub enum FormatArg {
     Plaintext,
 }
 
+#[derive(Debug, Clone, Copy, ValueEnum)]
+pub enum OutputFormat {
+    Text,
+    Json,
+    Sarif,
+}
+
 #[derive(Debug, Parser)]
 #[command(name = "snapper", version, about = "Semantic line break formatter")]
 pub struct Cli {
+    #[command(subcommand)]
+    pub command: Option<Commands>,
+
     /// Input files. Reads stdin if omitted.
     #[arg()]
     pub files: Vec<PathBuf>,
@@ -20,6 +30,10 @@ pub struct Cli {
     /// Input format (auto-detected from extension if omitted).
     #[arg(short, long)]
     pub format: Option<FormatArg>,
+
+    /// Assume this filename when reading stdin (for format auto-detection).
+    #[arg(long)]
+    pub stdin_filepath: Option<PathBuf>,
 
     /// Output file (stdout if omitted).
     #[arg(short, long)]
@@ -48,4 +62,36 @@ pub struct Cli {
     /// Path to config file (default: .snapperrc.toml in current or parent dirs).
     #[arg(long)]
     pub config: Option<PathBuf>,
+
+    /// Only format lines in this range (1-indexed, inclusive). Format: START:END.
+    #[arg(long)]
+    pub range: Option<String>,
+
+    /// Output format for --check mode.
+    #[arg(long, default_value = "text")]
+    pub output_format: OutputFormat,
+}
+
+#[derive(Debug, Subcommand)]
+pub enum Commands {
+    /// Initialize snapper for a project (generate config, pre-commit, gitattributes).
+    Init {
+        /// Preview what would be generated without writing files.
+        #[arg(long)]
+        dry_run: bool,
+    },
+}
+
+/// Parse a range string "START:END" into (start, end) 1-indexed inclusive.
+pub fn parse_range(s: &str) -> Option<(usize, usize)> {
+    let parts: Vec<&str> = s.split(':').collect();
+    if parts.len() != 2 {
+        return None;
+    }
+    let start = parts[0].parse::<usize>().ok()?;
+    let end = parts[1].parse::<usize>().ok()?;
+    if start == 0 || end == 0 || start > end {
+        return None;
+    }
+    Some((start, end))
 }

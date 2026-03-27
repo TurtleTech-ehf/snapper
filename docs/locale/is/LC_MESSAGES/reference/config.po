@@ -25,7 +25,7 @@ msgstr "Stillingar"
 
 #: ../../source/reference/config.rst:8
 msgid "Project config file"
-msgstr "Stillingarskra verkefnis"
+msgstr "Stillingarskrá verkefnis"
 
 #: ../../source/reference/config.rst:10
 msgid ""
@@ -33,18 +33,21 @@ msgid ""
 " and walking up to the filesystem root. Override the search with "
 "``--config path/to/config.toml``."
 msgstr ""
+"Snapper leitar að ``.snapperrc.toml`` frá núverandi möppu og upp á rót "
+"skráakerfisins. Hnekktu leitinni með "
+"``--config path/to/config.toml``."
 
 #: ../../source/reference/config.rst:14
 msgid "Config format"
-msgstr "Snid stillingarskrar"
+msgstr "Snið stillingarskrár"
 
 #: ../../source/reference/config.rst:31
 msgid "Fields"
-msgstr "Svid"
+msgstr "Svið"
 
 #: ../../source/reference/config.rst:34
 msgid "extra\\ :sub:`abbreviations`"
-msgstr ""
+msgstr "extra\\ :sub:`abbreviations`"
 
 #: ../../source/reference/config.rst:36
 msgid ""
@@ -52,10 +55,13 @@ msgid ""
 "sentence break when followed by a period. Useful for domain-specific "
 "terms your papers use frequently."
 msgstr ""
+"Strengjafylki. Hver færsla nefnir skammstöfun sem á ekki að kalla fram "
+"setningarskil þegar punktur fylgir á eftir. Gagnlegt fyrir sérhæfð hugtök "
+"sem ritgerðirnar þínar nota oft."
 
 #: ../../source/reference/config.rst:41
 msgid "ignore"
-msgstr ""
+msgstr "ignore"
 
 #: ../../source/reference/config.rst:43
 msgid ""
@@ -63,26 +69,33 @@ msgid ""
 "during ``--in-place`` and ``--check`` operations. Does not affect "
 "stdin/stdout mode."
 msgstr ""
+"Strengjafylki af glob mynstrum. Skrár sem passa við þessi mynstur eru "
+"slepptar í ``--in-place`` og ``--check`` aðgerðum. Hefur ekki áhrif á "
+"stdin/stdout stillingu."
 
 #: ../../source/reference/config.rst:48
 msgid "format"
-msgstr ""
+msgstr "format"
 
 #: ../../source/reference/config.rst:50
 msgid ""
 "String. Default format when auto-detection from file extension does not "
 "apply. One of: ``org``, ``latex``, ``markdown``, ``plaintext``."
 msgstr ""
+"Strengur. Sjálfgefið snið þegar sjálfgreining frá skráarendingu á ekki við. "
+"Eitt af: ``org``, ``latex``, ``markdown``, ``plaintext``."
 
 #: ../../source/reference/config.rst:55
 msgid "max\\ :sub:`width`"
-msgstr ""
+msgstr "max\\ :sub:`width`"
 
 #: ../../source/reference/config.rst:57
 msgid ""
 "Integer. Sentences exceeding this width get wrapped at word boundaries. "
 "Set to ``0`` for unlimited (the default)."
 msgstr ""
+"Heiltala. Setningar sem fara yfir þessa breidd eru umbrotnar við orðamörk. "
+"Settu á ``0`` fyrir ótakmarkað (sjálfgefið)."
 
 #: ../../source/reference/config.rst:62
 msgid "Precedence"
@@ -94,4 +107,6 @@ msgid ""
 "in defaults. Explicitly passing ``--format`` or ``--max-width`` always "
 "wins."
 msgstr ""
-
+"CLI flögg hnekkja gildum stillingarskráar. Gildi stillingarskráar hnekkja "
+"innbyggðum sjálfgildum. Að gefa ``--format`` eða ``--max-width`` sérstaklega "
+"vinnur alltaf."

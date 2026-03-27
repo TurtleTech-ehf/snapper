@@ -33,10 +33,12 @@ msgid ""
 "From `crates.io <https://crates.io/crates/snapper-fmt>`_ (the crate is "
 "``snapper-fmt``, the binary it installs is ``snapper``):"
 msgstr ""
+"Z `crates.io <https://crates.io/crates/snapper-fmt>`_ (crate to "
+"``snapper-fmt``, instalowany plik binarny to ``snapper``):"
 
 #: ../../source/tutorials/quickstart.rst:15
 msgid "Or build from source:"
-msgstr "Lub zbuduj ze zrodel:"
+msgstr "Lub zbuduj ze źródeł:"
 
 #: ../../source/tutorials/quickstart.rst:22
 msgid "With Nix:"
@@ -44,7 +46,7 @@ msgstr "Z Nix:"
 
 #: ../../source/tutorials/quickstart.rst:29
 msgid "Basic usage"
-msgstr "Podstawowe uzycie"
+msgstr "Podstawowe użycie"
 
 #: ../../source/tutorials/quickstart.rst:31
 msgid "Format a file, printing to stdout:"
@@ -56,7 +58,7 @@ msgstr "Sformatuj w miejscu:"
 
 #: ../../source/tutorials/quickstart.rst:43
 msgid "Pipe through stdin (for editor integration):"
-msgstr "Przeslij przez stdin (dla integracji z edytorem):"
+msgstr "Prześlij przez stdin (dla integracji z edytorem):"
 
 #: ../../source/tutorials/quickstart.rst:50
 msgid "What it does"
@@ -64,11 +66,11 @@ msgstr "Co robi"
 
 #: ../../source/tutorials/quickstart.rst:52
 msgid "Given a paragraph like this:"
-msgstr ""
+msgstr "Mając akapit taki jak ten:"
 
 #: ../../source/tutorials/quickstart.rst:58
 msgid "``snapper`` produces:"
-msgstr ""
+msgstr "``snapper`` generuje:"
 
 #: ../../source/tutorials/quickstart.rst:66
 msgid ""
@@ -76,6 +78,9 @@ msgid ""
 "blocks, tables, drawers, math environments, and front matter pass through"
 " unchanged."
 msgstr ""
+"Każde zdanie zajmuje osobną linię. Elementy strukturalne, takie jak bloki "
+"kodu, tabele, szuflady, środowiska matematyczne i front matter, przechodzą "
+"bez zmian."
 
 #: ../../source/tutorials/quickstart.rst:70
 msgid "Format detection"
@@ -83,27 +88,27 @@ msgstr "Wykrywanie formatu"
 
 #: ../../source/tutorials/quickstart.rst:72
 msgid "``snapper`` auto-detects the format from the file extension:"
-msgstr ""
+msgstr "``snapper`` automatycznie wykrywa format na podstawie rozszerzenia pliku:"
 
 #: ../../source/tutorials/quickstart.rst:74
 msgid "``.org`` -- Org-mode"
-msgstr ""
+msgstr "``.org`` -- Org-mode"
 
 #: ../../source/tutorials/quickstart.rst:76
 msgid "``.tex``, ``.latex`` -- LaTeX"
-msgstr ""
+msgstr "``.tex``, ``.latex`` -- LaTeX"
 
 #: ../../source/tutorials/quickstart.rst:78
 msgid "``.md``, ``.markdown`` -- Markdown"
-msgstr ""
+msgstr "``.md``, ``.markdown`` -- Markdown"
 
 #: ../../source/tutorials/quickstart.rst:80
 msgid "Everything else -- plaintext"
-msgstr ""
+msgstr "Wszystko inne -- zwykły tekst"
 
 #: ../../source/tutorials/quickstart.rst:82
 msgid "Override with ``--format``:"
-msgstr "Nadpisz za pomoca ``--format``:"
+msgstr "Nadpisz za pomocą ``--format``:"
 
 #: ../../source/tutorials/quickstart.rst:89
 msgid "CI integration"
@@ -114,6 +119,8 @@ msgid ""
 "Use ``--check`` mode to verify formatting without modifying files. Exits "
 "with code 1 if any file would change:"
 msgstr ""
+"Użyj trybu ``--check``, aby zweryfikować formatowanie bez modyfikowania "
+"plików. Kończy działanie z kodem 1, jeśli jakikolwiek plik uległby zmianie:"
 
 #: ../../source/tutorials/quickstart.rst:99
 msgid "Pre-commit hook"
@@ -121,7 +128,7 @@ msgstr "Hook pre-commit"
 
 #: ../../source/tutorials/quickstart.rst:101
 msgid "Add to your ``.pre-commit-config.yaml``:"
-msgstr ""
+msgstr "Dodaj do swojego ``.pre-commit-config.yaml``:"
 
 #: ../../source/tutorials/quickstart.rst:111
 msgid "Emacs (Apheleia)"
@@ -129,9 +136,9 @@ msgstr "Emacs (Apheleia)"
 
 #: ../../source/tutorials/quickstart.rst:113
 msgid "Add to your Emacs config:"
-msgstr ""
+msgstr "Dodaj do swojej konfiguracji Emacsa:"
 
 #: ../../source/tutorials/quickstart.rst:121
 msgid "This runs ``snapper`` on save for Org-mode buffers."
-msgstr ""
+msgstr "Uruchamia ``snapper`` przy zapisie buforów Org-mode."
 

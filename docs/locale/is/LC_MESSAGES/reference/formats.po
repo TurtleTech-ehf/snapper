@@ -21,7 +21,7 @@ msgstr ""
 
 #: ../../source/reference/formats.rst:4
 msgid "Supported Formats"
-msgstr "Studd snid"
+msgstr "Studd snið"
 
 #: ../../source/reference/formats.rst:6
 msgid ""
@@ -29,148 +29,152 @@ msgid ""
 "boundaries) and *structure regions* (passed through unchanged). The "
 "classification depends on the format."
 msgstr ""
+"``snapper`` flokkar texta í *textasvæði* (endurflætt við setningarskil) "
+"og *uppbyggingarsvæði* (send í gegn óbreytt). Flokkunin fer eftir sniðinu."
 
 #: ../../source/reference/formats.rst:10
 msgid "Org-mode (``--format org``)"
-msgstr ""
+msgstr "Org-mode (``--format org``)"
 
 #: ../../source/reference/formats.rst:13 ../../source/reference/formats.rst:55
 #: ../../source/reference/formats.rst:76
 msgid "Structure regions (preserved)"
-msgstr ""
+msgstr "Uppbyggingarsvæði (varðveitt)"
 
 #: ../../source/reference/formats.rst:15
 msgid "``#+BEGIN_*`` ..."
-msgstr ""
+msgstr "``#+BEGIN_*`` ..."
 
 #: ../../source/reference/formats.rst:17
 msgid "``#+END_*`` blocks (source, example, quote, etc.)"
-msgstr ""
+msgstr "``#+END_*`` blokkir (frumkóði, dæmi, tilvitnun, o.fl.)"
 
 #: ../../source/reference/formats.rst:19
 msgid "``:PROPERTIES:`` ..."
-msgstr ""
+msgstr "``:PROPERTIES:`` ..."
 
 #: ../../source/reference/formats.rst:21
 msgid "``:END:`` drawers"
-msgstr ""
+msgstr "``:END:`` skúffur"
 
 #: ../../source/reference/formats.rst:23
 msgid "``#+KEYWORD:`` directives (TITLE, AUTHOR, DATE, OPTIONS, etc.)"
-msgstr ""
+msgstr "``#+KEYWORD:`` lýsiorð (TITLE, AUTHOR, DATE, OPTIONS, o.fl.)"
 
 #: ../../source/reference/formats.rst:25
 msgid "Table rows (lines starting with ``|``)"
-msgstr ""
+msgstr "Töflulínur (línur sem byrja á ``|``)"
 
 #: ../../source/reference/formats.rst:27
 msgid "Comment lines (starting with ``#`` but not ``#+`` )"
-msgstr ""
+msgstr "Athugasemdarlínur (byrja á ``#`` en ekki ``#+`` )"
 
 #: ../../source/reference/formats.rst:29
 msgid "Headline stars and TODO keywords"
-msgstr ""
+msgstr "Fyrirsagnastjörnur og TODO lykilorð"
 
 #: ../../source/reference/formats.rst:31
 msgid "List item markers (``-``, ``+``, ``1.``)"
-msgstr ""
+msgstr "Listaatriðamerki (``-``, ``+``, ``1.``)"
 
 #: ../../source/reference/formats.rst:34 ../../source/reference/formats.rst:68
 #: ../../source/reference/formats.rst:87
 msgid "Prose regions (reflowed)"
-msgstr ""
+msgstr "Textasvæði (endurflætt)"
 
 #: ../../source/reference/formats.rst:36 ../../source/reference/formats.rst:89
 msgid "Paragraph text"
-msgstr ""
+msgstr "Málsgreinatexti"
 
 #: ../../source/reference/formats.rst:38
 msgid "Headline text (after the stars and keyword)"
-msgstr ""
+msgstr "Fyrirsagnartexti (á eftir stjörnunum og lykilorðinu)"
 
 #: ../../source/reference/formats.rst:40 ../../source/reference/formats.rst:93
 msgid "List item text (after the marker)"
-msgstr ""
+msgstr "Texti listaatriðis (á eftir merkinu)"
 
 #: ../../source/reference/formats.rst:43
 msgid "Inline tokens (kept atomic)"
-msgstr ""
+msgstr "Innleidd tákn (haldin óbrotin)"
 
 #: ../../source/reference/formats.rst:45
 msgid "These tokens within prose are not split across lines:"
-msgstr ""
+msgstr "Þessum táknum innan texta er ekki skipt á milli lína:"
 
 #: ../../source/reference/formats.rst:47
 msgid "Links: ``[[url][description]]``"
-msgstr ""
+msgstr "Tenglar: ``[[url][description]]``"
 
 #: ../../source/reference/formats.rst:49
 msgid "Inline code: ``~code~``, ``==verbatim==``"
-msgstr ""
+msgstr "Innleiður kóði: ``~code~``, ``==verbatim==``"
 
 #: ../../source/reference/formats.rst:52
 msgid "LaTeX (``--format latex``)"
-msgstr ""
+msgstr "LaTeX (``--format latex``)"
 
 #: ../../source/reference/formats.rst:57
 #, python-brace-format
 msgid "Preamble (everything before ``\\begin{document}``)"
-msgstr ""
+msgstr "Formáli (allt á undan ``\\begin{document}``)"
 
 #: ../../source/reference/formats.rst:59
 msgid ""
 "Non-prose environments: equation, align, figure, table, tabular, "
 "lstlisting, verbatim, minted, tikzpicture, and their starred variants"
 msgstr ""
+"Umhverfi sem eru ekki texti: equation, align, figure, table, tabular, "
+"lstlisting, verbatim, minted, tikzpicture, og stjörnumerktar afbrigði þeirra"
 
 #: ../../source/reference/formats.rst:61
 msgid "Display math: ``\\[...\\]``"
-msgstr ""
+msgstr "Sýnistærðfræði: ``\\[...\\]``"
 
 #: ../../source/reference/formats.rst:63
 msgid "Comment lines (starting with ``%``)"
-msgstr ""
+msgstr "Athugasemdarlínur (byrja á ``%``)"
 
 #: ../../source/reference/formats.rst:65
 #, python-brace-format
 msgid "``\\end{document}``"
-msgstr ""
+msgstr "``\\end{document}``"
 
 #: ../../source/reference/formats.rst:70
 msgid "Body text between structural elements"
-msgstr ""
+msgstr "Meginmálstexti á milli uppbyggingareininga"
 
 #: ../../source/reference/formats.rst:73
 msgid "Markdown (``--format markdown``)"
-msgstr ""
+msgstr "Markdown (``--format markdown``)"
 
 #: ../../source/reference/formats.rst:78
 msgid "Fenced code blocks (``````` or ``~~~``)"
-msgstr ""
+msgstr "Afgirtar kóðablokkir (``````` eða ``~~~``)"
 
 #: ../../source/reference/formats.rst:80
 msgid "Front matter (``---`` or ``+++``  delimited at file start)"
-msgstr ""
+msgstr "Framefni (``---`` eða ``+++`` afmarkað í byrjun skráar)"
 
 #: ../../source/reference/formats.rst:82
 msgid "Heading markers (``#``, ``##``, etc.)"
-msgstr ""
+msgstr "Fyrirsagnarmerki (``#``, ``##``, o.fl.)"
 
 #: ../../source/reference/formats.rst:84
 msgid "List item markers (``-``, ``\\*``, ``+``, ``1.``)"
-msgstr ""
+msgstr "Listaatriðamerki (``-``, ``\\*``, ``+``, ``1.``)"
 
 #: ../../source/reference/formats.rst:91
 msgid "Heading text (after the marker)"
-msgstr ""
+msgstr "Fyrirsagnartexti (á eftir merkinu)"
 
 #: ../../source/reference/formats.rst:96
 msgid "Plaintext (``--format plaintext``)"
-msgstr ""
+msgstr "Ósniðinn texti (``--format plaintext``)"
 
 #: ../../source/reference/formats.rst:98
 msgid "Everything is prose. Blank lines are preserved as paragraph separators."
-msgstr ""
+msgstr "Allt er texti. Auðar línur eru varðveittar sem málsgreinaskil."
 
 #: ../../source/reference/formats.rst:102
 msgid "Sentence Detection"
@@ -181,24 +185,28 @@ msgid ""
 "``snapper`` uses Unicode UAX #29 sentence boundary detection as a "
 "baseline, then merges false splits caused by known abbreviations:"
 msgstr ""
+"``snapper`` notar Unicode UAX #29 setningarmarkaskil sem grunn og sameinar "
+"síðan rangar skiptingar sem stafa af þekktum skammstöfunum:"
 
 #: ../../source/reference/formats.rst:107
 msgid "Titles"
-msgstr ""
+msgstr "Titlar"
 
 #: ../../source/reference/formats.rst:109
 msgid "Mr., Mrs., Ms., Dr., Prof., Sr., Jr., St., Rev., Gen., etc."
-msgstr ""
+msgstr "Mr., Mrs., Ms., Dr., Prof., Sr., Jr., St., Rev., Gen., o.fl."
 
 #: ../../source/reference/formats.rst:112
 msgid "Academic"
-msgstr ""
+msgstr "Fræðilegt"
 
 #: ../../source/reference/formats.rst:114
 msgid ""
 "Fig., Figs., Eq., Eqs., Ref., Refs., Tab., Sec., Ch., Vol., No., Thm., "
 "Lem., Prop., Def., Cor., Rem., Ex."
 msgstr ""
+"Fig., Figs., Eq., Eqs., Ref., Refs., Tab., Sec., Ch., Vol., No., Thm., "
+"Lem., Prop., Def., Cor., Rem., Ex."
 
 #: ../../source/reference/formats.rst:117
 msgid "Latin"
@@ -206,21 +214,20 @@ msgstr "Latneskt"
 
 #: ../../source/reference/formats.rst:119
 msgid "e.g., i.e., et al., cf., etc., viz., ibid., ca., approx."
-msgstr ""
+msgstr "e.g., i.e., et al., cf., etc., viz., ibid., ca., approx."
 
 #: ../../source/reference/formats.rst:122
 msgid "Single initials"
-msgstr ""
+msgstr "Stakir upphafsstafir"
 
 #: ../../source/reference/formats.rst:124
 msgid "A., B., C., ... Z."
-msgstr ""
+msgstr "A., B., C., ... Z."
 
 #: ../../source/reference/formats.rst:128
 msgid "Date and time"
-msgstr ""
+msgstr "Dagsetning og tími"
 
 #: ../../source/reference/formats.rst:130
 msgid "Jan., Feb., ..., Dec., Mon., Tue., ..., Sun., a.m., p.m."
-msgstr ""
-
+msgstr "Jan., Feb., ..., Dec., Mon., Tue., ..., Sun., a.m., p.m."
