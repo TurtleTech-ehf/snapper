@@ -77,6 +77,40 @@ Override with =--format=:
 snapper --format latex draft.tex
 #+end_src
 
+** Sentence-level diff
+
+Compare two versions of a file at the sentence level, ignoring whitespace reflow:
+
+#+begin_src bash
+snapper sdiff paper_v1.org paper_v2.org
+#+end_src
+
+Only actual content changes appear.
+Reformatting (rewrapping) the same text produces zero diff.
+Useful for reviewing collaborator edits on shared papers.
+
+** Watch mode
+
+Auto-reformat files on save:
+
+#+begin_src bash
+snapper watch '*.org' 'sections/*.tex'
+#+end_src
+
+Monitors files and runs =--in-place= on change (200ms debounce).
+Press Ctrl+C to stop.
+
+** Project setup
+
+Initialize snapper for a new project:
+
+#+begin_src bash
+snapper init
+#+end_src
+
+Detects which formats exist and generates =.snapperrc.toml=, =.gitattributes=, pre-commit config, and Apheleia snippets.
+Use =--dry-run= to preview.
+
 ** CI integration
 
 Use =--check= mode to verify formatting without modifying files.
@@ -86,13 +120,19 @@ Exits with code 1 if any file would change:
 snapper --check paper.org
 #+end_src
 
+For GitHub Code Scanning, use SARIF output:
+
+#+begin_src bash
+snapper --check --output-format sarif paper.org > snapper.sarif
+#+end_src
+
 ** Pre-commit hook
 
 Add to your =.pre-commit-config.yaml=:
 
 #+begin_src yaml
 - repo: https://github.com/TurtleTech-ehf/snapper
-  rev: v0.1.0
+  rev: v0.2.1
   hooks:
     - id: snapper
 #+end_src

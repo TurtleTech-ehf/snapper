@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: snapper \n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-03-27 21:56+0100\n"
+"POT-Creation-Date: 2026-03-28 00:25+0100\n"
 "PO-Revision-Date: 2026-03-27 23:00+0100\n"
 "Last-Translator: Rohit Goswami <rgoswami@ieee.org>\n"
 "Language: is\n"
@@ -77,8 +77,9 @@ msgid ""
 "blocks, tables, drawers, math environments, and front matter pass through"
 " unchanged."
 msgstr ""
-"Hver setning tekur sína eigin línu. Uppbyggingareiningar eins og kóðablokkir, "
-"töflur, skúffur, stærðfræðiumhverfi og framefni fara í gegn óbreytt."
+"Hver setning tekur sína eigin línu. Uppbyggingareiningar eins og "
+"kóðablokkir, töflur, skúffur, stærðfræðiumhverfi og framefni fara í gegn "
+"óbreytt."
 
 #: ../../source/tutorials/quickstart.rst:70
 msgid "Format detection"
@@ -109,33 +110,94 @@ msgid "Override with ``--format``:"
 msgstr "Hnekkja með ``--format``:"
 
 #: ../../source/tutorials/quickstart.rst:89
+msgid "Sentence-level diff"
+msgstr "Setningamunur"
+
+#: ../../source/tutorials/quickstart.rst:91
+msgid ""
+"Compare two versions of a file at the sentence level, ignoring whitespace"
+" reflow:"
+msgstr ""
+"Berðu saman tvær útgáfur af skrá á setningastigi, án tillits til "
+"endurumbrots á bilum:"
+
+#: ../../source/tutorials/quickstart.rst:97
+msgid ""
+"Only actual content changes appear. Reformatting (rewrapping) the same "
+"text produces zero diff. Useful for reviewing collaborator edits on "
+"shared papers."
+msgstr ""
+"Aðeins raunverulegar efnisbreytingar birtast. Endurumbrot (endurumbrotsröðun)"
+" á sama texta skilar engum mun. Gagnlegt til að yfirfara breytingar "
+"samstarfsaðila á sameiginlegum greinum."
+
+#: ../../source/tutorials/quickstart.rst:102
+msgid "Watch mode"
+msgstr "Fylgjast með"
+
+#: ../../source/tutorials/quickstart.rst:104
+msgid "Auto-reformat files on save:"
+msgstr "Sjálfvirkt endurumbrot skráa við vistun:"
+
+#: ../../source/tutorials/quickstart.rst:110
+msgid ""
+"Monitors files and runs ``--in-place`` on change (200ms debounce). Press "
+"Ctrl+C to stop."
+msgstr ""
+"Fylgist með skrám og keyrir ``--in-place`` við breytingu (200ms "
+"tafir). Ýttu á Ctrl+C til að stöðva."
+
+#: ../../source/tutorials/quickstart.rst:114
+msgid "Project setup"
+msgstr "Uppsetning verkefnis"
+
+#: ../../source/tutorials/quickstart.rst:116
+msgid "Initialize snapper for a new project:"
+msgstr "Frumstilltu snapper fyrir nýtt verkefni:"
+
+#: ../../source/tutorials/quickstart.rst:122
+msgid ""
+"Detects which formats exist and generates ``.snapperrc.toml``, "
+"``.gitattributes``, pre-commit config, and Apheleia snippets. Use "
+"``--dry-run`` to preview."
+msgstr ""
+"Greinir hvaða snið eru til staðar og býr til ``.snapperrc.toml``, "
+"``.gitattributes``, pre-commit stillingar og Apheleia búta. Notaðu "
+"``--dry-run`` til að forskoða."
+
+#: ../../source/tutorials/quickstart.rst:126
 msgid "CI integration"
 msgstr "CI samþætting"
 
-#: ../../source/tutorials/quickstart.rst:91
+#: ../../source/tutorials/quickstart.rst:128
 msgid ""
 "Use ``--check`` mode to verify formatting without modifying files. Exits "
 "with code 1 if any file would change:"
 msgstr ""
-"Notaðu ``--check`` stillingu til að staðfesta sníðmótun án þess að breyta "
-"skrám. Hættir með kóða 1 ef einhver skrá myndi breytast:"
+"Notaðu ``--check`` stillingu til að staðfesta sníðmótun án þess að breyta"
+" skrám. Hættir með kóða 1 ef einhver skrá myndi breytast:"
 
-#: ../../source/tutorials/quickstart.rst:99
+#: ../../source/tutorials/quickstart.rst:135
+msgid "For GitHub Code Scanning, use SARIF output:"
+msgstr "Fyrir GitHub Code Scanning, notaðu SARIF úttak:"
+
+#: ../../source/tutorials/quickstart.rst:142
 msgid "Pre-commit hook"
 msgstr "Pre-commit hook"
 
-#: ../../source/tutorials/quickstart.rst:101
+#: ../../source/tutorials/quickstart.rst:144
 msgid "Add to your ``.pre-commit-config.yaml``:"
 msgstr "Bættu við í ``.pre-commit-config.yaml``:"
 
-#: ../../source/tutorials/quickstart.rst:111
+#: ../../source/tutorials/quickstart.rst:154
 msgid "Emacs (Apheleia)"
 msgstr "Emacs (Apheleia)"
 
-#: ../../source/tutorials/quickstart.rst:113
+#: ../../source/tutorials/quickstart.rst:156
 msgid "Add to your Emacs config:"
 msgstr "Bættu við í Emacs stillinguna þína:"
 
-#: ../../source/tutorials/quickstart.rst:121
+#: ../../source/tutorials/quickstart.rst:164
 msgid "This runs ``snapper`` on save for Org-mode buffers."
 msgstr "Þetta keyrir ``snapper`` við vistun fyrir Org-mode minnissvæði."
+

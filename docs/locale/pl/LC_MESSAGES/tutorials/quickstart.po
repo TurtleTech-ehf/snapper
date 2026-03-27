@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: snapper \n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-03-27 21:56+0100\n"
+"POT-Creation-Date: 2026-03-28 00:25+0100\n"
 "PO-Revision-Date: 2026-03-27 23:00+0100\n"
 "Last-Translator: Rohit Goswami <rgoswami@ieee.org>\n"
 "Language: pl\n"
@@ -78,9 +78,9 @@ msgid ""
 "blocks, tables, drawers, math environments, and front matter pass through"
 " unchanged."
 msgstr ""
-"Każde zdanie zajmuje osobną linię. Elementy strukturalne, takie jak bloki "
-"kodu, tabele, szuflady, środowiska matematyczne i front matter, przechodzą "
-"bez zmian."
+"Każde zdanie zajmuje osobną linię. Elementy strukturalne, takie jak bloki"
+" kodu, tabele, szuflady, środowiska matematyczne i front matter, "
+"przechodzą bez zmian."
 
 #: ../../source/tutorials/quickstart.rst:70
 msgid "Format detection"
@@ -111,34 +111,95 @@ msgid "Override with ``--format``:"
 msgstr "Nadpisz za pomocą ``--format``:"
 
 #: ../../source/tutorials/quickstart.rst:89
+msgid "Sentence-level diff"
+msgstr "Diff zdaniowy"
+
+#: ../../source/tutorials/quickstart.rst:91
+msgid ""
+"Compare two versions of a file at the sentence level, ignoring whitespace"
+" reflow:"
+msgstr ""
+"Porównaj dwie wersje pliku na poziomie zdań, ignorując przeformatowanie "
+"białych znaków:"
+
+#: ../../source/tutorials/quickstart.rst:97
+msgid ""
+"Only actual content changes appear. Reformatting (rewrapping) the same "
+"text produces zero diff. Useful for reviewing collaborator edits on "
+"shared papers."
+msgstr ""
+"Wyświetlane są tylko rzeczywiste zmiany treści. Przeformatowanie "
+"(przełamanie wierszy) tego samego tekstu daje zerowy diff. Przydatne do "
+"przeglądania edycji współpracowników we wspólnych artykułach."
+
+#: ../../source/tutorials/quickstart.rst:102
+msgid "Watch mode"
+msgstr "Tryb obserwacji"
+
+#: ../../source/tutorials/quickstart.rst:104
+msgid "Auto-reformat files on save:"
+msgstr "Automatyczne przeformatowanie plików przy zapisie:"
+
+#: ../../source/tutorials/quickstart.rst:110
+msgid ""
+"Monitors files and runs ``--in-place`` on change (200ms debounce). Press "
+"Ctrl+C to stop."
+msgstr ""
+"Monitoruje pliki i uruchamia ``--in-place`` przy zmianie (200ms "
+"opóźnienia). Naciśnij Ctrl+C, aby zatrzymać."
+
+#: ../../source/tutorials/quickstart.rst:114
+msgid "Project setup"
+msgstr "Konfiguracja projektu"
+
+#: ../../source/tutorials/quickstart.rst:116
+msgid "Initialize snapper for a new project:"
+msgstr "Zainicjalizuj snapper dla nowego projektu:"
+
+#: ../../source/tutorials/quickstart.rst:122
+msgid ""
+"Detects which formats exist and generates ``.snapperrc.toml``, "
+"``.gitattributes``, pre-commit config, and Apheleia snippets. Use "
+"``--dry-run`` to preview."
+msgstr ""
+"Wykrywa, które formaty istnieją, i generuje ``.snapperrc.toml``, "
+"``.gitattributes``, konfigurację pre-commit oraz fragmenty Apheleia. Użyj "
+"``--dry-run``, aby wyświetlić podgląd."
+
+#: ../../source/tutorials/quickstart.rst:126
 msgid "CI integration"
 msgstr "Integracja z CI"
 
-#: ../../source/tutorials/quickstart.rst:91
+#: ../../source/tutorials/quickstart.rst:128
 msgid ""
 "Use ``--check`` mode to verify formatting without modifying files. Exits "
 "with code 1 if any file would change:"
 msgstr ""
 "Użyj trybu ``--check``, aby zweryfikować formatowanie bez modyfikowania "
-"plików. Kończy działanie z kodem 1, jeśli jakikolwiek plik uległby zmianie:"
+"plików. Kończy działanie z kodem 1, jeśli jakikolwiek plik uległby "
+"zmianie:"
 
-#: ../../source/tutorials/quickstart.rst:99
+#: ../../source/tutorials/quickstart.rst:135
+msgid "For GitHub Code Scanning, use SARIF output:"
+msgstr "Dla GitHub Code Scanning użyj wyjścia SARIF:"
+
+#: ../../source/tutorials/quickstart.rst:142
 msgid "Pre-commit hook"
 msgstr "Hook pre-commit"
 
-#: ../../source/tutorials/quickstart.rst:101
+#: ../../source/tutorials/quickstart.rst:144
 msgid "Add to your ``.pre-commit-config.yaml``:"
 msgstr "Dodaj do swojego ``.pre-commit-config.yaml``:"
 
-#: ../../source/tutorials/quickstart.rst:111
+#: ../../source/tutorials/quickstart.rst:154
 msgid "Emacs (Apheleia)"
 msgstr "Emacs (Apheleia)"
 
-#: ../../source/tutorials/quickstart.rst:113
+#: ../../source/tutorials/quickstart.rst:156
 msgid "Add to your Emacs config:"
 msgstr "Dodaj do swojej konfiguracji Emacsa:"
 
-#: ../../source/tutorials/quickstart.rst:121
+#: ../../source/tutorials/quickstart.rst:164
 msgid "This runs ``snapper`` on save for Org-mode buffers."
 msgstr "Uruchamia ``snapper`` przy zapisie buforów Org-mode."
 

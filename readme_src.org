@@ -59,6 +59,18 @@ Preview changes as a unified diff before committing:
 #+begin_src bash
 snapper --diff paper.org
 #+end_src
+Compare two versions at the sentence level (whitespace reflow produces zero diff):
+#+begin_src bash
+snapper sdiff paper_v1.org paper_v2.org
+#+end_src
+Watch files and auto-reformat on save:
+#+begin_src bash
+snapper watch '*.org' 'sections/*.tex'
+#+end_src
+Initialize a project (generates config, pre-commit, gitattributes):
+#+begin_src bash
+snapper init
+#+end_src
 ** Supported formats
 | Format    | Extensions             | Structure preserved                     |
 |-----------+------------------------+-----------------------------------------|
