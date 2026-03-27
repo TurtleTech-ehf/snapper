@@ -10,4 +10,11 @@
 result
 result-*
 docs/.ox-rst/
+docs/build/
+docs/source/*.rst
+docs/source/contributing/
+docs/source/faq/
+docs/source/howto/
+docs/source/reference/
+docs/source/tutorials/
 dist/
