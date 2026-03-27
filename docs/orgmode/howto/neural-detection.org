@@ -1,0 +1,74 @@
+#+title: Neural Sentence Detection
+#+options: num:nil toc:nil
+
+* Overview
+
+Snapper includes a neural sentence boundary detector via [[https://github.com/bminixhofer/nnsplit][nnsplit]], a byte-level LSTM model running on [[https://github.com/sonos/tract][tract]] (pure Rust ONNX inference).
+
+The rule-based detector (default) handles English academic text well: abbreviations (Dr., Fig., Eq.), inline tokens (links, math), and standard punctuation.
+The neural detector handles languages where rule-based splitting falls short.
+
+* When to use neural
+
+- Non-English text (German, French, Chinese, Russian, Turkish, etc.)
+- Text with unusual punctuation patterns
+- Mixed-language documents where abbreviation lists do not cover all languages
+
+For English academic papers, the rule-based detector produces better results (faster, no false breaks on abbreviations like "Fig.").
+
+* Basic usage
+
+#+begin_src bash
+snapper --neural paper.org
+#+end_src
+
+On first run, the English model (~4MB) downloads and caches to =~/.cache/nnsplit/en/=.
+Subsequent runs load from cache.
+
+* Non-English languages
+
+Use =--lang= to select a language model:
+
+#+begin_src bash
+snapper --neural --lang de paper_german.tex
+snapper --neural --lang fr article_french.md
+snapper --neural --lang zh document_chinese.org
+#+end_src
+
+Available languages: =en=, =de=, =fr=, =no=, =sv=, =zh=, =tr=, =ru=, =uk=.
+
+Each model downloads on first use (~4MB each) and caches to =~/.cache/nnsplit/<lang>/=.
+
+* Custom models
+
+Load a custom ONNX model file:
+
+#+begin_src bash
+snapper --neural --model-path /path/to/custom_model.onnx paper.org
+#+end_src
+
+Custom models must follow the nnsplit ONNX format (byte-level input, sigmoid output, =split_sequence= metadata).
+
+* Performance comparison
+
+| Mode | Speed | Abbreviation handling | Best for |
+|------+-------+-----------------------+----------|
+| Rule-based (default) | ~5ms/file | Excellent (80+ rules) | English academic text |
+| Neural (=--neural=) | ~200ms/file | Model-dependent | Non-English, mixed text |
+
+The rule-based detector starts instantly.
+The neural detector loads the model on first invocation (~100-500ms), then processes text at ~200ms per typical academic file.
+
+* Combining with format-aware parsing
+
+Neural detection replaces only the sentence splitting step.
+Format-aware parsing (code blocks, math, drawers, tables) still applies.
+Inline token protection (links, math, code) still applies.
+
+#+begin_src bash
+# Neural splitting + Org-mode format awareness
+snapper --neural --format org paper.org
+
+# Neural splitting + LaTeX format awareness
+snapper --neural --format latex paper.tex
+#+end_src

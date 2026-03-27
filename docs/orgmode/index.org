@@ -29,6 +29,8 @@ Reformats prose so each sentence occupies its own line, producing minimal and me
    howto/ci-enforcement
    howto/git-filter
    howto/vale-integration
+   howto/neural-detection
+   howto/pragmas
 
 .. toctree::
    :maxdepth: 2
