@@ -3,25 +3,25 @@
 
 # Table of Contents
 
--   [About](#org69726b7)
-    -   [Why?](#orgbbac54a)
-    -   [Design](#org0753428)
--   [Installation](#org999eea5)
--   [Usage](#org512791f)
-    -   [Supported formats](#org15743cc)
-    -   [Pre-commit hook](#org5362a90)
-    -   [Emacs (Apheleia)](#org0648306)
-    -   [Git smudge/clean filter](#org9fcb1f5)
-    -   [Vale integration](#org4f7908a)
-    -   [Project config](#orgbbe9762)
--   [Documentation](#org6b0aec9)
--   [Development](#org6b26437)
-    -   [Key dependencies](#orga537f24)
-    -   [Conventions](#org4131674)
--   [License](#orgbf0aa56)
+-   [About](#org4308355)
+    -   [Why?](#org9eba865)
+    -   [Design](#orgd092db4)
+-   [Installation](#org54aa1ec)
+-   [Usage](#org2086455)
+    -   [Supported formats](#org0f6ab09)
+    -   [Pre-commit hook](#org58ca712)
+    -   [Emacs (Apheleia)](#org6a8f366)
+    -   [Git smudge/clean filter](#orgbb92d91)
+    -   [Vale integration](#org4237538)
+    -   [Project config](#org26a5820)
+-   [Documentation](#orgd4b0eba)
+-   [Development](#org564688e)
+    -   [Key dependencies](#orgbd35161)
+    -   [Conventions](#org56d2cfc)
+-   [License](#org769c847)
 
 
-<a id="org69726b7"></a>
+<a id="org4308355"></a>
 
 # About
 
@@ -29,7 +29,7 @@ A fast, format-aware semantic line break formatter.
 Reformats prose so each sentence occupies its own line, producing minimal and meaningful git diffs when collaborating on documents.
 
 
-<a id="orgbbac54a"></a>
+<a id="org9eba865"></a>
 
 ## Why?
 
@@ -42,7 +42,7 @@ Existing tools fall short: latexindent.pl only handles LaTeX, SemBr requires Pyt
 `snapper` solves this as a standalone Rust binary with no runtime dependencies, handling Org-mode, LaTeX, Markdown, and plaintext.
 
 
-<a id="org0753428"></a>
+<a id="orgd092db4"></a>
 
 ## Design
 
@@ -56,7 +56,7 @@ Structure regions (code blocks, math environments, tables, front matter, drawers
 Sentence detection relies on Unicode UAX #29 segmentation with abbreviation-aware post-processing that avoids false breaks at titles (Dr., Prof.), references (Fig., Eq.), and Latin terms (e.g., i.e., et al.).
 
 
-<a id="org999eea5"></a>
+<a id="org54aa1ec"></a>
 
 # Installation
 
@@ -71,10 +71,10 @@ From source:
 
 With Nix:
 
-    nix build github:HaoZeke/snapper
+    nix build github:TurtleTech-ehf/snapper
 
 
-<a id="org512791f"></a>
+<a id="org2086455"></a>
 
 # Usage
 
@@ -103,7 +103,7 @@ Preview changes as a unified diff before committing:
     snapper --diff paper.org
 
 
-<a id="org15743cc"></a>
+<a id="org0f6ab09"></a>
 
 ## Supported formats
 
@@ -152,17 +152,17 @@ Preview changes as a unified diff before committing:
 </table>
 
 
-<a id="org5362a90"></a>
+<a id="org58ca712"></a>
 
 ## Pre-commit hook
 
-    - repo: https://github.com/HaoZeke/snapper
+    - repo: https://github.com/TurtleTech-ehf/snapper
       rev: v0.1.0
       hooks:
         - id: snapper
 
 
-<a id="org0648306"></a>
+<a id="org6a8f366"></a>
 
 ## Emacs (Apheleia)
 
@@ -171,7 +171,7 @@ Preview changes as a unified diff before committing:
       (push '(org-mode . snapper) apheleia-mode-alist))
 
 
-<a id="org9fcb1f5"></a>
+<a id="orgbb92d91"></a>
 
 ## Git smudge/clean filter
 
@@ -185,7 +185,7 @@ Then add to `.gitattributes`:
     *.org filter=snapper
 
 
-<a id="org4f7908a"></a>
+<a id="org4237538"></a>
 
 ## Vale integration
 
@@ -199,7 +199,7 @@ Add to your `.vale.ini`:
 For precise CI checks, use `snapper --check` directly.
 
 
-<a id="orgbbe9762"></a>
+<a id="org26a5820"></a>
 
 ## Project config
 
@@ -213,7 +213,7 @@ Drop a `.snapperrc.toml` in your project root:
 `snapper` walks up from the current directory to find it.
 
 
-<a id="org6b0aec9"></a>
+<a id="orgd4b0eba"></a>
 
 # Documentation
 
@@ -222,12 +222,12 @@ Build the docs site with:
     pixi run docbld
 
 
-<a id="org6b26437"></a>
+<a id="org564688e"></a>
 
 # Development
 
 
-<a id="orga537f24"></a>
+<a id="orgbd35161"></a>
 
 ## Key dependencies
 
@@ -238,7 +238,7 @@ Build the docs site with:
 -   **thiserror:** Typed error handling
 
 
-<a id="org4131674"></a>
+<a id="org56d2cfc"></a>
 
 ## Conventions
 
@@ -252,7 +252,7 @@ Construct the `readme` via:
     ./scripts/org_to_md.sh readme_src.org README.md
 
 
-<a id="orgbf0aa56"></a>
+<a id="org769c847"></a>
 
 # License
 

@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2024"
 rust-version = "1.85"
 description = "Semantic line break formatter for Org, LaTeX, Markdown, and plaintext"
-repository = "https://github.com/HaoZeke/snapper"
+repository = "https://github.com/TurtleTech-ehf/snapper"
 license = "MIT"
 keywords = ["semantic", "linebreak", "formatter", "latex", "orgmode"]
 categories = ["command-line-utilities", "text-processing"]
@@ -21,6 +21,7 @@ regex = "1"
 textwrap = "0.16"
 thiserror = "2"
 anyhow = "1"
+imara-diff = "0.2"
 
 [features]
 default = []

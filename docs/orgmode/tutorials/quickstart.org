@@ -20,7 +20,7 @@ cargo build --release
 With Nix:
 
 #+begin_src bash
-nix build github:HaoZeke/snapper
+nix build github:TurtleTech-ehf/snapper
 #+end_src
 
 ** Basic usage
@@ -91,7 +91,7 @@ snapper --check paper.org
 Add to your =.pre-commit-config.yaml=:
 
 #+begin_src yaml
-- repo: https://github.com/HaoZeke/snapper
+- repo: https://github.com/TurtleTech-ehf/snapper
   rev: v0.1.0
   hooks:
     - id: snapper

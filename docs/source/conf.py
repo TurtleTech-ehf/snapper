@@ -20,12 +20,12 @@ html_theme_options = {
     "accent_color": "teal",
     "dark_code": True,
     "globaltoc_expand_depth": 2,
-    "github_url": "https://github.com/HaoZeke/snapper",
+    "github_url": "https://github.com/TurtleTech-ehf/snapper",
 }
 
 html_context = {
     "source_type": "github",
-    "source_user": "HaoZeke",
+    "source_user": "TurtleTech-ehf",
     "source_repo": "snapper",
     "source_version": "main",
     "source_docs_path": "/docs/source/",

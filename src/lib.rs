@@ -34,6 +34,8 @@
 pub mod abbreviations;
 pub mod cli;
 pub mod config;
+pub mod diff;
+pub mod files;
 pub mod format;
 pub mod parser;
 pub mod reflow;
