@@ -1,0 +1,83 @@
+#+title: Skip Regions with Pragmas
+#+options: num:nil toc:nil
+
+* Overview
+
+Sometimes you need to prevent snapper from reformatting specific regions: hand-formatted poetry, aligned text, carefully laid-out tables in prose, or any text where line breaks carry meaning.
+
+Use =snapper:off= and =snapper:on= pragmas to mark regions that should pass through unchanged.
+
+* Syntax by format
+
+** Org-mode
+
+#+begin_src org
+Some prose that gets reformatted normally.
+
+# snapper:off
+This text will not
+be reformatted. Line breaks
+are preserved exactly.
+# snapper:on
+
+More prose that gets reformatted.
+#+end_src
+
+** LaTeX
+
+#+begin_src latex
+Some prose that gets reformatted normally.
+
+% snapper:off
+This text will not
+be reformatted.
+% snapper:on
+
+More prose that gets reformatted.
+#+end_src
+
+** Markdown
+
+#+begin_src markdown
+Some prose that gets reformatted normally.
+
+<!-- snapper:off -->
+This text will not
+be reformatted.
+<!-- snapper:on -->
+
+More prose that gets reformatted.
+#+end_src
+
+** Plaintext
+
+#+begin_src text
+Some prose that gets reformatted normally.
+
+snapper:off
+This text will not
+be reformatted.
+snapper:on
+
+More prose that gets reformatted.
+#+end_src
+
+* Use cases
+
+- Poetry or verse with intentional line breaks
+- ASCII art or diagrams in comments
+- Carefully aligned reference lists
+- License headers with specific formatting
+- Text that should match an external source exactly
+
+* Nesting
+
+Pragmas do not nest.
+A =snapper:off= disables formatting until the next =snapper:on=.
+If the file ends without a =snapper:on=, the rest of the file passes through unchanged.
+
+* Interaction with other features
+
+Pragmas take priority over all other parsing.
+Inside an off region, no sentence splitting, no format-aware parsing, and no abbreviation handling occurs.
+The pragma comment lines themselves always pass through as structure.

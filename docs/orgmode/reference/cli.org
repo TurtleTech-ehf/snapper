@@ -6,6 +6,7 @@
 
 #+begin_src text
 snapper [OPTIONS] [FILE...]
+snapper init [--dry-run]
 #+end_src
 
 If no files are given, ~snapper~ reads from stdin and writes to stdout.
@@ -19,6 +20,13 @@ One of: =org=, =latex=, =markdown=, =plaintext=.
 
 Auto-detected from file extension when omitted.
 Defaults to =plaintext= for stdin.
+
+*** =--stdin-filepath <PATH>=
+
+Assume this filename when reading stdin, for format auto-detection.
+Useful for editor integrations that pipe buffer contents.
+
+Example: =cat paper.org | snapper --stdin-filepath paper.org=
 
 *** =-o=, =--output <FILE>=
 
@@ -34,6 +42,7 @@ Requires file arguments (not stdin).
 Maximum line width.
 Sentences exceeding this width are wrapped at word boundaries using ~textwrap~.
 Default: =0= (unlimited).
+Also respects =max_line_length= from =.editorconfig= if present.
 
 *** =--check=
 
@@ -47,16 +56,44 @@ Show a unified diff of what would change, without modifying anything.
 Useful for reviewing before committing.
 Exits with code 1 if any file would change.
 
+*** =--range <START:END>=
+
+Only format lines in the given range (1-indexed, inclusive).
+Lines outside the range pass through unchanged.
+Useful for editor format-selection integrations.
+
+Example: =snapper --range 10:20 paper.org=
+
+*** =--output-format <text|json|sarif>=
+
+Output format for =--check= mode.
+Default: =text= (prints filenames to stderr).
+
+- =json= : outputs a JSON array with file paths and line counts
+- =sarif= : outputs SARIF v2.1.0 for GitHub Code Scanning integration
+
+*** =--neural=
+
+Use neural sentence detection via nnsplit (byte-level LSTM, tract backend).
+Downloads and caches the model (~4MB) to =~/.cache/nnsplit/= on first use.
+Rule-based detection remains the default (faster, better abbreviation handling).
+Neural excels for non-English text.
+
+*** =--lang <CODE>=
+
+Language for neural sentence detection.
+Default: =en=.
+Available: =en=, =de=, =fr=, =no=, =sv=, =zh=, =tr=, =ru=, =uk=.
+
+*** =--model-path <PATH>=
+
+Path to a custom ONNX model file for neural detection.
+Overrides =--lang=.
+
 *** =--config <PATH>=
 
 Path to a =.snapperrc.toml= config file.
 When omitted, ~snapper~ searches from the current directory upward.
-
-*** =--neural=
-
-Use neural sentence detection via ~nnsplit~.
-Requires building with =--features neural=.
-Useful for non-English text where rule-based splitting produces poor results.
 
 *** =-h=, =--help=
 
@@ -65,6 +102,20 @@ Print help message.
 *** =-V=, =--version=
 
 Print version.
+
+** Subcommands
+
+*** =snapper init=
+
+Initialize snapper for a project.
+Detects which prose formats exist in the directory tree and generates:
+
+- =.snapperrc.toml= with sensible defaults
+- =.gitattributes= entries for the git smudge/clean filter
+- pre-commit hook snippet
+- Apheleia (Emacs) configuration snippet
+
+Use =--dry-run= to preview without writing files.
 
 ** Exit codes
 
