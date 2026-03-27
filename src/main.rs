@@ -54,6 +54,8 @@ fn run() -> Result<()> {
             format,
             max_width,
             use_neural: cli.neural,
+            neural_lang: cli.lang.clone(),
+            neural_model_path: cli.model_path.clone(),
             extra_abbreviations: project_config.extra_abbreviations.clone(),
         };
 
@@ -161,6 +163,8 @@ fn process_file(
         format,
         max_width,
         use_neural: cli.neural,
+        neural_lang: cli.lang.clone(),
+        neural_model_path: cli.model_path.clone(),
         extra_abbreviations: project_config.extra_abbreviations.clone(),
     };
 

@@ -47,9 +47,18 @@ pub struct Cli {
     #[arg(short = 'w', long, default_value_t = 0)]
     pub max_width: usize,
 
-    /// Use neural sentence detection (requires neural feature).
+    /// Use neural sentence detection (nnsplit LSTM model).
     #[arg(long)]
     pub neural: bool,
+
+    /// Language for neural sentence detection (default: en).
+    /// Available: en, de, fr, no, sv, zh, tr, ru, uk.
+    #[arg(long, default_value = "en")]
+    pub lang: String,
+
+    /// Path to custom ONNX model file for neural detection.
+    #[arg(long)]
+    pub model_path: Option<PathBuf>,
 
     /// Exit with code 1 if any file would change.
     #[arg(long)]

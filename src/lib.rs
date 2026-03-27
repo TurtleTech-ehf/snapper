@@ -25,6 +25,8 @@
 //!     format: Format::Plaintext,
 //!     max_width: 0,
 //!     use_neural: false,
+//!     neural_lang: "en".to_string(),
+//!     neural_model_path: None,
 //!     extra_abbreviations: vec![],
 //! };
 //! let output = format_text(input, &config).unwrap();
@@ -60,38 +62,46 @@ pub struct FormatConfig {
     pub format: Format,
     pub max_width: usize,
     pub use_neural: bool,
-    /// Extra abbreviations from project config.
+    pub neural_lang: String,
+    pub neural_model_path: Option<std::path::PathBuf>,
     pub extra_abbreviations: Vec<String>,
+}
+
+/// Build the appropriate sentence splitter from config.
+pub fn build_splitter(config: &FormatConfig) -> Result<Box<dyn SentenceSplitter>> {
+    if config.use_neural {
+        let neural = if let Some(ref path) = config.neural_model_path {
+            sentence::neural::NeuralSentenceSplitter::from_path(path)
+        } else {
+            sentence::neural::NeuralSentenceSplitter::new(&config.neural_lang)
+        };
+        Ok(Box::new(neural.map_err(|e| anyhow::anyhow!("{e}"))?))
+    } else if config.extra_abbreviations.is_empty() {
+        Ok(Box::new(UnicodeSentenceSplitter::new()))
+    } else {
+        Ok(Box::new(UnicodeSentenceSplitter::with_extra_abbreviations(
+            &config.extra_abbreviations,
+        )))
+    }
 }
 
 /// Format text with semantic line breaks.
 pub fn format_text(input: &str, config: &FormatConfig) -> Result<String> {
+    let splitter = build_splitter(config)?;
+    format_text_with_splitter(input, config, splitter.as_ref())
+}
+
+/// Format text using a pre-constructed splitter (avoids reloading models per file).
+pub fn format_text_with_splitter(
+    input: &str,
+    config: &FormatConfig,
+    splitter: &dyn SentenceSplitter,
+) -> Result<String> {
     let parser: Box<dyn FormatParser> = match config.format {
         Format::Org => Box::new(OrgParser),
         Format::Latex => Box::new(LatexParser),
         Format::Markdown => Box::new(MarkdownParser),
         Format::Plaintext => Box::new(PlaintextParser),
-    };
-
-    let splitter: Box<dyn SentenceSplitter> = if config.use_neural {
-        #[cfg(feature = "neural")]
-        {
-            // Neural splitter would go here
-            anyhow::bail!("Neural splitter not yet implemented");
-        }
-        #[cfg(not(feature = "neural"))]
-        {
-            anyhow::bail!(
-                "Neural sentence detection requires the 'neural' feature. \
-                 Build with: cargo build --features neural"
-            );
-        }
-    } else if config.extra_abbreviations.is_empty() {
-        Box::new(UnicodeSentenceSplitter::new())
-    } else {
-        Box::new(UnicodeSentenceSplitter::with_extra_abbreviations(
-            &config.extra_abbreviations,
-        ))
     };
 
     let had_trailing_newline = input.ends_with('\n');
@@ -111,7 +121,7 @@ pub fn format_text(input: &str, config: &FormatConfig) -> Result<String> {
         max_width: config.max_width,
     };
 
-    let mut output = reflow(&regions, splitter.as_ref(), &reflow_config);
+    let mut output = reflow(&regions, splitter, &reflow_config);
 
     // Preserve the original file's trailing newline convention.
     if had_trailing_newline && !output.ends_with('\n') {

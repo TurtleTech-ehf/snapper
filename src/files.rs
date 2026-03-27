@@ -15,6 +15,8 @@ pub fn format_file(path: &str, max_width: usize) -> Result<String> {
         format: fmt,
         max_width,
         use_neural: false,
+        neural_lang: "en".to_string(),
+        neural_model_path: None,
         extra_abbreviations: Vec::new(),
     };
     crate::format_text(&content, &config)
@@ -33,6 +35,8 @@ pub fn format_file_with(
         format: fmt,
         max_width,
         use_neural: false,
+        neural_lang: "en".to_string(),
+        neural_model_path: None,
         extra_abbreviations,
     };
     crate::format_text(&content, &config)
