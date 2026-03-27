@@ -1,0 +1,122 @@
+# SOME DESCRIPTIVE TITLE.
+# Copyright (C) 2026--present, <a href="https://rgoswami.me">Rohit
+# Goswami</a>
+# This file is distributed under the same license as the snapper package.
+# FIRST AUTHOR <EMAIL@ADDRESS>, 2026.
+#
+msgid ""
+msgstr ""
+"Project-Id-Version: snapper \n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2026-03-27 23:21+0100\n"
+"PO-Revision-Date: 2026-03-27 23:00+0100\n"
+"Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
+"Language: pl\n"
+"Language-Team: pl <LL@li.org>\n"
+"Plural-Forms: nplurals=3; plural=(n==1 ? 0 : n%10>=2 && n%10<=4 && "
+"(n%100<10 || n%100>=20) ? 1 : 2);\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=utf-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Generated-By: Babel 2.18.0\n"
+
+#: ../../source/howto/pragmas.rst:3
+msgid "Skip Regions with Pragmas"
+msgstr "Pomijanie regionów za pomocą pragm"
+
+#: ../../source/howto/pragmas.rst:8
+msgid "Overview"
+msgstr "Przegląd"
+
+#: ../../source/howto/pragmas.rst:10
+msgid ""
+"Sometimes you need to prevent snapper from reformatting specific regions:"
+" hand-formatted poetry, aligned text, carefully laid-out tables in prose,"
+" or any text where line breaks carry meaning."
+msgstr ""
+"Czasami trzeba zapobiec przeformatowaniu określonych regionów przez "
+"snappera: ręcznie sformatowanej poezji, wyrównanego tekstu, starannie "
+"ułożonych tabel w prozie lub dowolnego tekstu, w którym podziały "
+"wierszy niosą znaczenie."
+
+#: ../../source/howto/pragmas.rst:12
+msgid ""
+"Use ``snapper:off`` and ``snapper:on`` pragmas to mark regions that "
+"should pass through unchanged."
+msgstr ""
+"Użyj pragm ``snapper:off`` i ``snapper:on``, aby oznaczyć regiony, "
+"które powinny przejść bez zmian."
+
+#: ../../source/howto/pragmas.rst:15
+msgid "Syntax by format"
+msgstr "Składnia według formatu"
+
+#: ../../source/howto/pragmas.rst:18
+msgid "Org-mode"
+msgstr "Org-mode"
+
+#: ../../source/howto/pragmas.rst:33
+msgid "LaTeX"
+msgstr "LaTeX"
+
+#: ../../source/howto/pragmas.rst:47
+msgid "Markdown"
+msgstr "Markdown"
+
+#: ../../source/howto/pragmas.rst:61
+msgid "Plaintext"
+msgstr "Zwykły tekst"
+
+#: ../../source/howto/pragmas.rst:75
+msgid "Use cases"
+msgstr "Przypadki użycia"
+
+#: ../../source/howto/pragmas.rst:77
+msgid "Poetry or verse with intentional line breaks"
+msgstr "Poezja lub wiersze z celowymi podziałami wierszy"
+
+#: ../../source/howto/pragmas.rst:79
+msgid "ASCII art or diagrams in comments"
+msgstr "Grafika ASCII lub diagramy w komentarzach"
+
+#: ../../source/howto/pragmas.rst:81
+msgid "Carefully aligned reference lists"
+msgstr "Starannie wyrównane listy odniesień"
+
+#: ../../source/howto/pragmas.rst:83
+msgid "License headers with specific formatting"
+msgstr "Nagłówki licencji ze specyficznym formatowaniem"
+
+#: ../../source/howto/pragmas.rst:85
+msgid "Text that should match an external source exactly"
+msgstr "Tekst, który musi dokładnie odpowiadać zewnętrznemu źródłu"
+
+#: ../../source/howto/pragmas.rst:88
+msgid "Nesting"
+msgstr "Zagnieżdżanie"
+
+#: ../../source/howto/pragmas.rst:90
+msgid ""
+"Pragmas do not nest. A ``snapper:off`` disables formatting until the next"
+" ``snapper:on``. If the file ends without a ``snapper:on``, the rest of "
+"the file passes through unchanged."
+msgstr ""
+"Pragmy nie zagnieżdżają się. ``snapper:off`` wyłącza formatowanie aż "
+"do następnego ``snapper:on``. Jeśli plik kończy się bez ``snapper:on``, "
+"reszta pliku przechodzi bez zmian."
+
+#: ../../source/howto/pragmas.rst:95
+msgid "Interaction with other features"
+msgstr "Interakcja z innymi funkcjami"
+
+#: ../../source/howto/pragmas.rst:97
+msgid ""
+"Pragmas take priority over all other parsing. Inside an off region, no "
+"sentence splitting, no format-aware parsing, and no abbreviation handling"
+" occurs. The pragma comment lines themselves always pass through as "
+"structure."
+msgstr ""
+"Pragmy mają priorytet nad wszystkimi innymi operacjami parsowania. "
+"Wewnątrz regionu wyłączonego nie następuje podział zdań, parser "
+"rozpoznający format ani obsługa skrótów. Same linie komentarzy pragm "
+"zawsze przechodzą jako struktura."

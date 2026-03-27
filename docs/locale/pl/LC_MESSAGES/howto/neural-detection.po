@@ -1,0 +1,212 @@
+# SOME DESCRIPTIVE TITLE.
+# Copyright (C) 2026--present, <a href="https://rgoswami.me">Rohit
+# Goswami</a>
+# This file is distributed under the same license as the snapper package.
+# FIRST AUTHOR <EMAIL@ADDRESS>, 2026.
+#
+msgid ""
+msgstr ""
+"Project-Id-Version: snapper \n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2026-03-27 23:21+0100\n"
+"PO-Revision-Date: 2026-03-27 23:00+0100\n"
+"Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
+"Language: pl\n"
+"Language-Team: pl <LL@li.org>\n"
+"Plural-Forms: nplurals=3; plural=(n==1 ? 0 : n%10>=2 && n%10<=4 && "
+"(n%100<10 || n%100>=20) ? 1 : 2);\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=utf-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Generated-By: Babel 2.18.0\n"
+
+#: ../../source/howto/neural-detection.rst:3
+msgid "Neural Sentence Detection"
+msgstr "Neuronowe wykrywanie zdań"
+
+#: ../../source/howto/neural-detection.rst:8
+msgid "Overview"
+msgstr "Przegląd"
+
+#: ../../source/howto/neural-detection.rst:10
+msgid ""
+"Snapper includes a neural sentence boundary detector via `nnsplit "
+"<https://github.com/bminixhofer/nnsplit>`_, a byte-level LSTM model "
+"running on `tract <https://github.com/sonos/tract>`_ (pure Rust ONNX "
+"inference)."
+msgstr ""
+"Snapper zawiera neuronowy detektor granic zdań poprzez `nnsplit "
+"<https://github.com/bminixhofer/nnsplit>`_, model LSTM na poziomie "
+"bajtów działający na `tract <https://github.com/sonos/tract>`_ "
+"(wnioskowanie ONNX w czystym Rust)."
+
+#: ../../source/howto/neural-detection.rst:12
+msgid ""
+"The rule-based detector (default) handles English academic text well: "
+"abbreviations (Dr., Fig., Eq.), inline tokens (links, math), and standard"
+" punctuation. The neural detector handles languages where rule-based "
+"splitting falls short."
+msgstr ""
+"Detektor oparty na regułach (domyślny) dobrze obsługuje angielski tekst "
+"akademicki: skróty (Dr., Fig., Eq.), tokeny inline (linki, matematyka) "
+"i standardową interpunkcję. Detektor neuronowy obsługuje języki, w "
+"których podział oparty na regułach zawodzi."
+
+#: ../../source/howto/neural-detection.rst:16
+msgid "When to use neural"
+msgstr "Kiedy używać wykrywania neuronowego"
+
+#: ../../source/howto/neural-detection.rst:18
+msgid "Non-English text (German, French, Chinese, Russian, Turkish, etc.)"
+msgstr "Tekst w językach innych niż angielski (niemiecki, francuski, chiński, rosyjski, turecki itp.)"
+
+#: ../../source/howto/neural-detection.rst:20
+msgid "Text with unusual punctuation patterns"
+msgstr "Tekst z nietypowymi wzorcami interpunkcji"
+
+#: ../../source/howto/neural-detection.rst:22
+msgid ""
+"Mixed-language documents where abbreviation lists do not cover all "
+"languages"
+msgstr ""
+"Dokumenty wielojęzyczne, w których listy skrótów nie obejmują "
+"wszystkich języków"
+
+#: ../../source/howto/neural-detection.rst:24
+msgid ""
+"For English academic papers, the rule-based detector produces better "
+"results (faster, no false breaks on abbreviations like \"Fig.\")."
+msgstr ""
+"Dla angielskich artykułów akademickich detektor oparty na regułach daje "
+"lepsze wyniki (szybszy, bez fałszywych podziałów na skrótach takich "
+"jak \"Fig.\")."
+
+#: ../../source/howto/neural-detection.rst:27
+msgid "Basic usage"
+msgstr "Podstawowe użycie"
+
+#: ../../source/howto/neural-detection.rst:33
+msgid ""
+"On first run, the English model (~4MB) downloads and caches to "
+"``~/.cache/nnsplit/en/``. Subsequent runs load from cache."
+msgstr ""
+"Przy pierwszym uruchomieniu angielski model (~4MB) jest pobierany i "
+"zapisywany w ``~/.cache/nnsplit/en/``. Kolejne uruchomienia ładują "
+"z pamięci podręcznej."
+
+#: ../../source/howto/neural-detection.rst:37
+msgid "Non-English languages"
+msgstr "Języki inne niż angielski"
+
+#: ../../source/howto/neural-detection.rst:39
+msgid "Use ``--lang`` to select a language model:"
+msgstr "Użyj ``--lang``, aby wybrać model językowy:"
+
+#: ../../source/howto/neural-detection.rst:47
+msgid ""
+"Available languages: ``en``, ``de``, ``fr``, ``no``, ``sv``, ``zh``, "
+"``tr``, ``ru``, ``uk``."
+msgstr ""
+"Dostępne języki: ``en``, ``de``, ``fr``, ``no``, ``sv``, ``zh``, "
+"``tr``, ``ru``, ``uk``."
+
+#: ../../source/howto/neural-detection.rst:49
+msgid ""
+"Each model downloads on first use (~4MB each) and caches to "
+"``~/.cache/nnsplit/<lang>/``."
+msgstr ""
+"Każdy model jest pobierany przy pierwszym użyciu (~4MB każdy) i zapisywany "
+"w ``~/.cache/nnsplit/<lang>/``."
+
+#: ../../source/howto/neural-detection.rst:52
+msgid "Custom models"
+msgstr "Niestandardowe modele"
+
+#: ../../source/howto/neural-detection.rst:54
+msgid "Load a custom ONNX model file:"
+msgstr "Załaduj niestandardowy plik modelu ONNX:"
+
+#: ../../source/howto/neural-detection.rst:60
+msgid ""
+"Custom models must follow the nnsplit ONNX format (byte-level input, "
+"sigmoid output, ``split_sequence`` metadata)."
+msgstr ""
+"Niestandardowe modele muszą być zgodne z formatem nnsplit ONNX (wejście "
+"na poziomie bajtów, wyjście sigmoid, metadane ``split_sequence``)."
+
+#: ../../source/howto/neural-detection.rst:63
+msgid "Performance comparison"
+msgstr "Porównanie wydajności"
+
+#: ../../source/howto/neural-detection.rst:68
+msgid "Mode"
+msgstr "Tryb"
+
+#: ../../source/howto/neural-detection.rst:68
+msgid "Speed"
+msgstr "Szybkość"
+
+#: ../../source/howto/neural-detection.rst:68
+msgid "Abbreviation handling"
+msgstr "Obsługa skrótów"
+
+#: ../../source/howto/neural-detection.rst:68
+msgid "Best for"
+msgstr "Najlepsze do"
+
+#: ../../source/howto/neural-detection.rst:70
+msgid "Rule-based (default)"
+msgstr "Oparty na regułach (domyślny)"
+
+#: ../../source/howto/neural-detection.rst:70
+msgid "~5ms/file"
+msgstr "~5ms/plik"
+
+#: ../../source/howto/neural-detection.rst:70
+msgid "Excellent (80+ rules)"
+msgstr "Doskonałe (80+ reguł)"
+
+#: ../../source/howto/neural-detection.rst:70
+msgid "English academic text"
+msgstr "Angielski tekst akademicki"
+
+#: ../../source/howto/neural-detection.rst:72
+msgid "Neural (``--neural``)"
+msgstr "Neuronowy (``--neural``)"
+
+#: ../../source/howto/neural-detection.rst:72
+msgid "~200ms/file"
+msgstr "~200ms/plik"
+
+#: ../../source/howto/neural-detection.rst:72
+msgid "Model-dependent"
+msgstr "Zależne od modelu"
+
+#: ../../source/howto/neural-detection.rst:72
+msgid "Non-English, mixed text"
+msgstr "Nieangielski, mieszany tekst"
+
+#: ../../source/howto/neural-detection.rst:75
+msgid ""
+"The rule-based detector starts instantly. The neural detector loads the "
+"model on first invocation (~100-500ms), then processes text at ~200ms per"
+" typical academic file."
+msgstr ""
+"Detektor oparty na regułach uruchamia się natychmiast. Detektor "
+"neuronowy ładuje model przy pierwszym wywołaniu (~100-500ms), a następnie "
+"przetwarza tekst z prędkością ~200ms na typowy plik akademicki."
+
+#: ../../source/howto/neural-detection.rst:79
+msgid "Combining with format-aware parsing"
+msgstr "Łączenie z parserem rozpoznającym format"
+
+#: ../../source/howto/neural-detection.rst:81
+msgid ""
+"Neural detection replaces only the sentence splitting step. Format-aware "
+"parsing (code blocks, math, drawers, tables) still applies. Inline token "
+"protection (links, math, code) still applies."
+msgstr ""
+"Wykrywanie neuronowe zastępuje jedynie krok podziału zdań. Parser "
+"rozpoznający format (bloki kodu, matematyka, szuflady, tabele) nadal "
+"obowiązuje. Ochrona tokenów inline (linki, matematyka, kod) nadal "
+"obowiązuje."
