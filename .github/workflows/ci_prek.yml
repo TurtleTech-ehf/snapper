@@ -1,0 +1,62 @@
+name: Pre-checks
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    - cron: '0 6 1 * *'
+
+concurrency:
+  group: prek-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions: read-all
+
+jobs:
+  lychee:
+    name: Link check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: lycheeverse/lychee-action@v2
+        with:
+          args: >-
+            --no-progress
+            --exclude-loopback
+            --exclude 'analytics.turtletech.us'
+            --exclude 'snapper-d8v.pages.dev'
+            '*.md'
+            '*.org'
+            'docs/orgmode/**/*.org'
+            'site/index.html'
+          fail: false
+
+  typos:
+    name: Spell check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: crate-ci/typos@master
+        with:
+          config: .typos.toml
+
+  dogfood:
+    name: Snapper self-check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Build snapper
+        run: cargo build --jobs 2
+
+      - name: Check docs formatting
+        run: |
+          cargo run --quiet -- --check --format org readme_src.org docs/orgmode/**/*.org examples/paper.org
+          cargo run --quiet -- --check --format plaintext examples/basic.txt
+          cargo run --quiet -- --check --format markdown examples/paper.md
+          cargo run --quiet -- --check --format latex examples/paper.tex
