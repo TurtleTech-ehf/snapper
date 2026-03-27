@@ -1,0 +1,66 @@
+=============
+Configuration
+=============
+
+
+
+Project config file
+-------------------
+
+Snapper looks for ``.snapperrc.toml`` starting from the current directory and walking up to the filesystem root.
+Override the search with ``--config path/to/config.toml``.
+
+Config format
+-------------
+
+.. code:: toml
+
+    # Extra abbreviations (merged with built-in list)
+    extra_abbreviations = ["GROMACS", "LAMMPS", "DFT"]
+
+    # File patterns to ignore (glob syntax)
+    ignore = ["*.bib", "*.cls", "*.sty"]
+
+    # Default format (overridden by --format flag)
+    format = "org"
+
+    # Maximum line width (0 = unlimited, overridden by --max-width flag)
+    max_width = 0
+
+Fields
+------
+
+extra\ :sub:`abbreviations`\
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+String array.
+Each entry names an abbreviation that should not trigger a sentence break when followed by a period.
+Useful for domain-specific terms your papers use frequently.
+
+ignore
+~~~~~~
+
+String array of glob patterns.
+Files matching these patterns get skipped during ``--in-place`` and ``--check`` operations.
+Does not affect stdin/stdout mode.
+
+format
+~~~~~~
+
+String.
+Default format when auto-detection from file extension does not apply.
+One of: ``org``, ``latex``, ``markdown``, ``plaintext``.
+
+max\ :sub:`width`\
+~~~~~~~~~~~~~~~~~~
+
+Integer.
+Sentences exceeding this width get wrapped at word boundaries.
+Set to ``0`` for unlimited (the default).
+
+Precedence
+----------
+
+CLI flags override config file values.
+Config file values override built-in defaults.
+Explicitly passing ``--format`` or ``--max-width`` always wins.

@@ -1,0 +1,73 @@
+=====================
+Abbreviation Handling
+=====================
+
+
+
+How abbreviation detection works
+--------------------------------
+
+Snapper uses Unicode UAX #29 sentence boundary detection as a baseline.
+UAX #29 sometimes splits at periods that belong to abbreviations rather than sentence endings.
+Snapper post-processes the split results, merging segments where the break occurred at a known abbreviation.
+
+Built-in abbreviations
+----------------------
+
+Titles and honorifics
+~~~~~~~~~~~~~~~~~~~~~
+
+Mr., Mrs., Ms., Dr., Prof., Sr., Jr., St., Rev., Gen., Gov., Sgt., Cpl., Pvt., Capt., Lt., Col., Maj., Cmdr., Adm.
+
+Academic and scientific
+~~~~~~~~~~~~~~~~~~~~~~~
+
+Fig., Figs., Eq., Eqs., Ref., Refs., Tab., Sec., Ch., Vol., No., Nos., Ed., Eds., Trans., Dept., Thm., Lem., Prop., Def., Cor., Rem., Ex.
+
+Latin
+~~~~~
+
+e.g., i.e., et al., cf., etc., viz., ibid., ca., approx., v.s.
+
+Time and dates
+~~~~~~~~~~~~~~
+
+Jan., Feb., Mar., Apr., Jun., Jul., Aug., Sep., Oct., Nov., Dec., Mon., Tue., Wed., Thu., Fri., Sat., Sun., a.m., p.m.
+
+Common
+~~~~~~
+
+vs., misc., est., govt., dept., univ., inc., corp., ltd., Ave., Blvd., Rd., pp., pg., pt., pts.
+
+Single-letter initials
+~~~~~~~~~~~~~~~~~~~~~~
+
+A. through Z. (for names like J. K. Rowling).
+
+Adding project-specific abbreviations
+-------------------------------------
+
+Create a ``.snapperrc.toml`` in your project root:
+
+.. code:: toml
+
+    extra_abbreviations = ["GROMACS", "LAMMPS", "DFT", "VASP", "Abstr", "Suppl"]
+
+These merge with the built-in list at runtime.
+
+Inline token protection
+-----------------------
+
+Periods inside inline tokens never trigger sentence breaks, regardless of abbreviation lists:
+
+- Org links: ``[[https://example.com][Ex. Site]]``
+
+- LaTeX math: ``$x = 3.14$``
+
+- LaTeX commands: ``\cite{smith.2024}``
+
+- Markdown links: ``[Example Inc.](url)``
+
+- Inline code: ``~std.io.Read~``,
+
+These tokens get replaced with safe placeholders before sentence detection and restored afterward.

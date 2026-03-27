@@ -235,6 +235,44 @@ body::before {
 [data-theme="dark"] .theme-toggle .icon-moon { display: block; }
 [data-theme="dark"] .theme-toggle { background: #1a2e1f; border-color: rgba(165,214,167,0.15); }
 
+/* ---- LANG SELECTOR ---- */
+.lang-selector {
+  position: fixed;
+  top: 1.25rem;
+  right: 4.5rem;
+  z-index: 100;
+  background: var(--cream);
+  border: 1px solid rgba(0,77,64,0.12);
+  border-radius: 8px;
+  padding: 0 0.5rem;
+  height: 42px;
+  display: flex;
+  align-items: center;
+  gap: 0;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+  overflow: hidden;
+}
+
+.lang-btn {
+  background: none;
+  border: none;
+  padding: 0.4rem 0.55rem;
+  font-size: 0.8rem;
+  font-weight: 600;
+  font-family: var(--sans);
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: color 0.2s, background 0.2s;
+  border-radius: 6px;
+  letter-spacing: 0.02em;
+}
+
+.lang-btn:hover { color: var(--text); background: rgba(0,77,64,0.06); }
+.lang-btn.active { color: var(--teal); background: rgba(0,77,64,0.1); }
+[data-theme="dark"] .lang-selector { background: #1a2e1f; border-color: rgba(165,214,167,0.15); }
+[data-theme="dark"] .lang-btn:hover { background: rgba(165,214,167,0.08); }
+[data-theme="dark"] .lang-btn.active { color: var(--green-light); background: rgba(165,214,167,0.12); }
+
 .scroll-hint {
   position: absolute;
   bottom: 2rem;
@@ -625,7 +663,12 @@ footer a:hover { color: var(--teal); }
 </head>
 <body>
 
-<!-- ============ THEME TOGGLE ============ -->
+<!-- ============ LANG + THEME ============ -->
+<div class="lang-selector" role="group" aria-label="Language">
+  <button class="lang-btn active" data-lang="en">EN</button>
+  <button class="lang-btn" data-lang="is">IS</button>
+  <button class="lang-btn" data-lang="pl">PL</button>
+</div>
 <button class="theme-toggle" aria-label="Toggle dark mode" onclick="toggleTheme()">
   <svg class="icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="5"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg>
   <svg class="icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
@@ -635,16 +678,16 @@ footer a:hover { color: var(--teal); }
 <section class="hero">
   <div class="hero-inner">
     <img src="snapper_logo.png" alt="snapper logo" class="hero-logo">
-    <h1>Snap your prose into<br>clean, <span>diff-friendly</span> lines</h1>
-    <p class="hero-tagline">A fast, format-aware semantic line break formatter for academic papers and collaborative writing.</p>
+    <h1 data-i18n="hero_title">Snap your prose into<br>clean, <span>diff-friendly</span> lines</h1>
+    <p class="hero-tagline" data-i18n="hero_tagline">A fast, format-aware semantic line break formatter for academic papers and collaborative writing.</p>
     <div class="hero-ctas">
       <a href="https://github.com/TurtleTech-ehf/snapper" class="hero-cta">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 19c-5 1.5-5-2.5-7-3m14 6v-3.87a3.37 3.37 0 0 0-.94-2.61c3.14-.35 6.44-1.54 6.44-7A5.44 5.44 0 0 0 20 4.77 5.07 5.07 0 0 0 19.91 1S18.73.65 16 2.48a13.38 13.38 0 0 0-7 0C6.27.65 5.09 1 5.09 1A5.07 5.07 0 0 0 5 4.77a5.44 5.44 0 0 0-1.5 3.78c0 5.42 3.3 6.61 6.44 7A3.37 3.37 0 0 0 9 18.13V22"/></svg>
-        View on GitHub
+        <span data-i18n="cta_github">View on GitHub</span>
       </a>
       <a href="docs/" class="hero-cta hero-cta-secondary">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg>
-        Documentation
+        <span data-i18n="cta_docs">Documentation</span>
       </a>
     </div>
   </div>
@@ -657,24 +700,24 @@ footer a:hover { color: var(--teal); }
 <section class="demo-section">
   <div class="container">
     <div class="reveal">
-      <p class="section-label">See it in action</p>
-      <h2 class="section-title">One sentence, one line</h2>
-      <p class="section-subtitle">Traditional wrapping hides changes in paragraph-wide diffs. Snapper breaks at sentence boundaries so every edit shows exactly what changed.</p>
+      <p class="section-label" data-i18n="demo_label">See it in action</p>
+      <h2 class="section-title" data-i18n="demo_title">One sentence, one line</h2>
+      <p class="section-subtitle" data-i18n="demo_subtitle">Traditional wrapping hides changes in paragraph-wide diffs. Snapper breaks at sentence boundaries so every edit shows exactly what changed.</p>
     </div>
 
     <div class="demo-wrapper reveal">
       <div class="demo-tabs">
-        <button class="demo-tab active" data-tab="split">Before &amp; After</button>
+        <button class="demo-tab active" data-tab="split" data-i18n="tab_before_after">Before &amp; After</button>
         <button class="demo-tab" data-tab="diff">Git Diff</button>
       </div>
 
       <div class="demo-panel active" id="panel-split">
         <div class="split-view">
           <div class="split-pane pane-before">
-            <span class="split-pane-label">Before (traditional wrapping)</span>
+            <span class="split-pane-label" data-i18n="pane_before">Before (traditional wrapping)</span>
 We present a method for formatting prose documents with semantic line breaks, where each sentence occupies its own line. This approach dramatically reduces noise in version control diffs when multiple authors collaborate on a manuscript. Our tool handles LaTeX, Org-mode, Markdown, and plaintext with format-aware parsing that preserves structural elements.</div>
           <div class="split-pane pane-after">
-            <span class="split-pane-label">After (snapper)</span>
+            <span class="split-pane-label" data-i18n="pane_after">After (snapper)</span>
             <span class="sentence">We present a method for formatting prose documents with semantic line breaks, where each sentence occupies its own line.</span>
             <span class="sentence">This approach dramatically reduces noise in version control diffs when multiple authors collaborate on a manuscript.</span>
             <span class="sentence">Our tool handles LaTeX, Org-mode, Markdown, and plaintext with format-aware parsing that preserves structural elements.</span>
@@ -712,9 +755,9 @@ We present a method for formatting prose documents with semantic line breaks, wh
 <section class="features-section">
   <div class="container">
     <div class="reveal">
-      <p class="section-label">Features</p>
-      <h2 class="section-title">Built for academic workflows</h2>
-      <p class="section-subtitle">Everything you need to adopt semantic line breaks across your paper writing toolchain.</p>
+      <p class="section-label" data-i18n="features_label">Features</p>
+      <h2 class="section-title" data-i18n="features_title">Built for academic workflows</h2>
+      <p class="section-subtitle" data-i18n="features_subtitle">Everything you need to adopt semantic line breaks across your paper writing toolchain.</p>
     </div>
 
     <div class="features-grid reveal">
@@ -722,48 +765,48 @@ We present a method for formatting prose documents with semantic line breaks, wh
         <div class="feature-icon">
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M16 13H8M16 17H8M10 9H8"/></svg>
         </div>
-        <h3>Format-aware parsing</h3>
-        <p>Understands Org-mode, LaTeX, Markdown, and plaintext. Code blocks, math environments, tables, and drawers pass through untouched.</p>
+        <h3 data-i18n="feat1_title">Format-aware parsing</h3>
+        <p data-i18n="feat1_desc">Understands Org-mode, LaTeX, Markdown, and plaintext. Code blocks, math environments, tables, and drawers pass through untouched.</p>
       </div>
 
       <div class="feature-card">
         <div class="feature-icon">
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>
         </div>
-        <h3>Abbreviation-aware</h3>
-        <p>Handles Dr., Fig., Eq., e.g., i.e., et al. and 80+ more. Add project-specific abbreviations via <code>.snapperrc.toml</code>.</p>
+        <h3 data-i18n="feat2_title">Abbreviation-aware</h3>
+        <p data-i18n="feat2_desc">Handles Dr., Fig., Eq., e.g., i.e., et al. and 80+ more. Add project-specific abbreviations via <code>.snapperrc.toml</code>.</p>
       </div>
 
       <div class="feature-card">
         <div class="feature-icon">
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 19c-5 1.5-5-2.5-7-3m14 6v-3.87a3.37 3.37 0 0 0-.94-2.61c3.14-.35 6.44-1.54 6.44-7A5.44 5.44 0 0 0 20 4.77"/></svg>
         </div>
-        <h3>Pre-commit hook</h3>
-        <p>Ships with <code>.pre-commit-hooks.yaml</code>. Enforce semantic line breaks automatically on every commit across your team.</p>
+        <h3 data-i18n="feat3_title">Pre-commit hook</h3>
+        <p data-i18n="feat3_desc">Ships with <code>.pre-commit-hooks.yaml</code>. Enforce semantic line breaks automatically on every commit across your team.</p>
       </div>
 
       <div class="feature-card">
         <div class="feature-icon">
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg>
         </div>
-        <h3>Editor integration</h3>
-        <p>Stdin/stdout interface works with Emacs Apheleia, vim, and any editor that supports external formatters. Format on save.</p>
+        <h3 data-i18n="feat4_title">Editor integration</h3>
+        <p data-i18n="feat4_desc">Stdin/stdout interface works with Emacs Apheleia, vim, and any editor that supports external formatters. Format on save.</p>
       </div>
 
       <div class="feature-card">
         <div class="feature-icon">
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
         </div>
-        <h3>Vale style package</h3>
-        <p>Bundled vale rules flag lines with multiple sentences in your editor. Use <code>--check</code> for precise CI enforcement.</p>
+        <h3 data-i18n="feat5_title">Vale style package</h3>
+        <p data-i18n="feat5_desc">Bundled vale rules flag lines with multiple sentences in your editor. Use <code>--check</code> for precise CI enforcement.</p>
       </div>
 
       <div class="feature-card">
         <div class="feature-icon">
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
         </div>
-        <h3>Git smudge/clean filter</h3>
-        <p>Auto-format on commit, transparent to collaborators. Add to <code>.gitattributes</code> and formatting happens silently.</p>
+        <h3 data-i18n="feat6_title">Git smudge/clean filter</h3>
+        <p data-i18n="feat6_desc">Auto-format on commit, transparent to collaborators. Add to <code>.gitattributes</code> and formatting happens silently.</p>
       </div>
     </div>
   </div>
@@ -773,8 +816,8 @@ We present a method for formatting prose documents with semantic line breaks, wh
 <section class="install-section">
   <div class="container">
     <div class="reveal">
-      <p class="section-label">Get started</p>
-      <h2 class="section-title">Install in seconds</h2>
+      <p class="section-label" data-i18n="install_label">Get started</p>
+      <h2 class="section-title" data-i18n="install_title">Install in seconds</h2>
     </div>
 
     <div class="install-options reveal">
@@ -810,7 +853,7 @@ We present a method for formatting prose documents with semantic line breaks, wh
   <div class="container">
     <p>MIT License &middot; <a href="https://github.com/TurtleTech-ehf/snapper">GitHub</a></p>
     <div class="footer-turtle">
-      <span>provided by</span>
+      <span data-i18n="footer_provided">provided by</span>
       <svg xmlns="http://www.w3.org/2000/svg" width="1.4em" height="1.4em" viewBox="0 0 64 64" aria-hidden="true"><g fill-rule="evenodd"><ellipse cx="32" cy="11" fill="#80D25B" rx="7" ry="9"/><path fill="#80D25B" d="M20.3,46c0,0-3.2,9.9.3,13.8c3.5,3.9 6.1,3.4 6.1-6C26.8,44.3 20.3,46 20.3,46Z"/><path fill="#80D25B" d="M38.3,46c0,0-3.2,9.9.4,13.8c3.5,3.9 6.1,3.4 6.1-6C44.8,44.3 38.3,46 38.3,46Z" transform="matrix(-1 0 0 1 81.8 0)"/><path fill="#80D25B" d="M20.6,21.2c0,0-6.7-5.8-10.5-5.2C6.2,16.7 6,22.2 6,24c0,1.8 1.8,13.3 3.8,12.5c2-0.8 4-8.5 4-8.5c1.9,2.3 4.8,2.5 4.8,2.5L20.6,21.2Z"/><path fill="#80D25B" d="M57.6,21.2c0,0-6.6-5.8-10.5-5.2C43.2,16.7 43,22.2 43,24c0,1.8 1.8,13.3 3.8,12.5c2-0.8 4-8.5 4-8.5c1.9,2.3 4.8,2.5 4.8,2.5L57.6,21.2Z" transform="matrix(-1 0 0 1 100.623 0)"/><path fill="#BD7575" stroke="#595959" stroke-linecap="round" stroke-width="2" d="M32,53C40.8,53 48,44.5 48,34C48,23.5 46.7,17 32,17C17.3,17 16,23.5 16,34C16,44.5 23.2,53 32,53Z"/><polygon fill="#BD7575" stroke="#595959" stroke-linecap="round" stroke-width="2" points="32 22 38.9 26 38.9 34 32 38 25.1 34 25.1 26"/><path stroke="#595959" stroke-linecap="round" stroke-width="2" d="M30,8C28.9,8 28,8.9 28,10"/><path stroke="#595959" stroke-linecap="round" stroke-width="2" d="M36,8C34.9,8 34,8.9 34,10" transform="matrix(-1 0 0 1 70 0)"/><path stroke="#595959" stroke-linecap="round" stroke-width="2" d="M32.1,38.2L32.1,52.4M32,21.7L32,17M25.2,26L17.7,23.1M25.1,34.2L16.8,38.9"/><path stroke="#595959" stroke-linecap="round" stroke-width="2" d="M46.2,26L38.7,23.1" transform="matrix(-1 0 0 1 84.951 0)"/><path stroke="#595959" stroke-linecap="round" stroke-width="2" d="M47.1,34.2L38.8,38.9" transform="matrix(-1 0 0 1 85.891 0)"/></g></svg>
       <a href="https://turtletech.us/" target="_blank" rel="noopener noreferrer">TurtleTech ehf</a>
     </div>
@@ -818,7 +861,128 @@ We present a method for formatting prose documents with semantic line breaks, wh
 </footer>
 
 <script>
-// Theme toggle
+// ---- I18N ----
+const I18N = {
+  en: {
+    hero_title: 'Snap your prose into<br>clean, <span>diff-friendly</span> lines',
+    hero_tagline: 'A fast, format-aware semantic line break formatter for academic papers and collaborative writing.',
+    cta_github: 'View on GitHub',
+    cta_docs: 'Documentation',
+    demo_label: 'See it in action',
+    demo_title: 'One sentence, one line',
+    demo_subtitle: 'Traditional wrapping hides changes in paragraph-wide diffs. Snapper breaks at sentence boundaries so every edit shows exactly what changed.',
+    tab_before_after: 'Before & After',
+    pane_before: 'Before (traditional wrapping)',
+    pane_after: 'After (snapper)',
+    features_label: 'Features',
+    features_title: 'Built for academic workflows',
+    features_subtitle: 'Everything you need to adopt semantic line breaks across your paper writing toolchain.',
+    feat1_title: 'Format-aware parsing',
+    feat1_desc: 'Understands Org-mode, LaTeX, Markdown, and plaintext. Code blocks, math environments, tables, and drawers pass through untouched.',
+    feat2_title: 'Abbreviation-aware',
+    feat2_desc: 'Handles Dr., Fig., Eq., e.g., i.e., et al. and 80+ more. Add project-specific abbreviations via <code>.snapperrc.toml</code>.',
+    feat3_title: 'Pre-commit hook',
+    feat3_desc: 'Ships with <code>.pre-commit-hooks.yaml</code>. Enforce semantic line breaks automatically on every commit across your team.',
+    feat4_title: 'Editor integration',
+    feat4_desc: 'Stdin/stdout interface works with Emacs Apheleia, vim, and any editor that supports external formatters. Format on save.',
+    feat5_title: 'Vale style package',
+    feat5_desc: 'Bundled vale rules flag lines with multiple sentences in your editor. Use <code>--check</code> for precise CI enforcement.',
+    feat6_title: 'Git smudge/clean filter',
+    feat6_desc: 'Auto-format on commit, transparent to collaborators. Add to <code>.gitattributes</code> and formatting happens silently.',
+    install_label: 'Get started',
+    install_title: 'Install in seconds',
+    footer_provided: 'provided by',
+  },
+  is: {
+    hero_title: 'Skiptu texta i hreinar,<br><span>diff-vaenlegar</span> linur',
+    hero_tagline: 'Hratt og sniðvitandi linuskiptitol fyrir frae&eth;igreinar og samvinnu i ritun.',
+    cta_github: 'Skoða a GitHub',
+    cta_docs: 'Skjolun',
+    demo_label: 'Sjadu i verki',
+    demo_title: 'Ein setning, ein lina',
+    demo_subtitle: 'Hefðbundin linu&shy;umbrot fela breytingar i malsgrei&eth;arvi&eth;um diff. Snapper brýtur vi&eth; setningamark svo hver breyting sjest greinilega.',
+    tab_before_after: 'Fyrir og eftir',
+    pane_before: 'Fyrir (hefðbundin umbrot)',
+    pane_after: 'Eftir (snapper)',
+    features_label: 'Eiginleikar',
+    features_title: 'Hannað fyrir frae&eth;istorf',
+    features_subtitle: 'Allt sem &thorn;arf til að taka upp merkingarleg linuskipti i ritverkfaeri&eth;inu &thorn;inu.',
+    feat1_title: 'Sniðvitandi &thorn;attun',
+    feat1_desc: 'Skilur Org-mode, LaTeX, Markdown og hreinan texta. Kóðablokkar, staeðfraeðiumhverfi, toflur og skúffur fara i gegn obreyttar.',
+    feat2_title: 'Skammstofunarvitandi',
+    feat2_desc: 'Meðhondlar Dr., mynd, jofnu, t.d., &thorn;.e., o.fl. og 80+ i viðbot. Bættu vi&eth; verkefnasertaekum skammstofunum i <code>.snapperrc.toml</code>.',
+    feat3_title: 'Pre-commit hook',
+    feat3_desc: 'Kemur með <code>.pre-commit-hooks.yaml</code>. Framfylgdu merkingarlegum linuskiptum sjálfvirkt vi&eth; hverja commit.',
+    feat4_title: 'Ritilssamþaetting',
+    feat4_desc: 'Stdin/stdout tengi virkar með Emacs Apheleia, vim og hvaða ritil sem styður ytri sniðtol. Sni&eth;að vi&eth; vistun.',
+    feat5_title: 'Vale stllpakki',
+    feat5_desc: 'Innbyggðar vale-reglur merkja linur með mörgum setningum i ritlinum. Notið <code>--check</code> fyrir naekvaema CI-eftirfylgni.',
+    feat6_title: 'Git smudge/clean sia',
+    feat6_desc: 'Sjálfvirk sniðmotun vi&eth; commit, gagnsae samstarfsmönnum. Baettu vi&eth; <code>.gitattributes</code> og sniðmotun gerist &thorn;egjandi.',
+    install_label: 'Byrjaðu',
+    install_title: 'Uppsetning a nokkrum sekundum',
+    footer_provided: 'gert af',
+  },
+  pl: {
+    hero_title: 'Podziel tekst na czyste,<br><span>diff-przyjazne</span> linie',
+    hero_tagline: 'Szybki formater semantycznych podzia&lstrok;ow wierszy dla artyku&lstrok;ow naukowych i wspo&lstrok;pracy redakcyjnej.',
+    cta_github: 'Zobacz na GitHub',
+    cta_docs: 'Dokumentacja',
+    demo_label: 'Zobacz w akcji',
+    demo_title: 'Jedno zdanie, jedna linia',
+    demo_subtitle: 'Tradycyjne zawijanie ukrywa zmiany w diff-ach obejmujacych ca&lstrok;e akapity. Snapper &lstrok;amie na granicach zda&nacute; -- ka&zdot;da edycja pokazuje dokladnie co sie zmienilo.',
+    tab_before_after: 'Przed i po',
+    pane_before: 'Przed (tradycyjne zawijanie)',
+    pane_after: 'Po (snapper)',
+    features_label: 'Funkcje',
+    features_title: 'Stworzony dla pracy naukowej',
+    features_subtitle: 'Wszystko czego potrzebujesz aby wdro&zdot;y&cacute; semantyczne podzialy wierszy w swoim procesie pisania.',
+    feat1_title: 'Rozpoznawanie formatu',
+    feat1_desc: 'Rozumie Org-mode, LaTeX, Markdown i zwyk&lstrok;y tekst. Bloki kodu, srodowiska matematyczne, tabele i szuflady przechodza bez zmian.',
+    feat2_title: 'Obs&lstrok;uga skrotow',
+    feat2_desc: 'Obs&lstrok;uguje Dr., Rys., Row., np., tj., et al. i ponad 80 innych. Dodaj skroty specyficzne dla projektu w <code>.snapperrc.toml</code>.',
+    feat3_title: 'Hook pre-commit',
+    feat3_desc: 'Zawiera <code>.pre-commit-hooks.yaml</code>. Wymuszaj semantyczne podzialy wierszy automatycznie przy ka&zdot;dym zatwierdzeniu.',
+    feat4_title: 'Integracja z edytorem',
+    feat4_desc: 'Interfejs stdin/stdout dzia&lstrok;a z Emacs Apheleia, vim i ka&zdot;dym edytorem obs&lstrok;ugujacym zewnetrzne formatery. Formatuj przy zapisie.',
+    feat5_title: 'Pakiet stylow vale',
+    feat5_desc: 'Do&lstrok;aczone regu&lstrok;y vale oznaczaja linie z wieloma zdaniami w edytorze. U&zdot;yj <code>--check</code> do precyzyjnego wymuszania w CI.',
+    feat6_title: 'Filtr git smudge/clean',
+    feat6_desc: 'Automatyczne formatowanie przy zatwierdzeniu, przezroczyste dla wspo&lstrok;pracownikow. Dodaj do <code>.gitattributes</code> -- formatowanie dzieje sie cicho.',
+    install_label: 'Rozpocznij',
+    install_title: 'Instalacja w kilka sekund',
+    footer_provided: 'dostarczone przez',
+  }
+};
+
+function setLang(lang) {
+  document.documentElement.setAttribute('lang', lang);
+  localStorage.setItem('snapper-lang', lang);
+  document.querySelectorAll('.lang-btn').forEach(b => {
+    b.classList.toggle('active', b.dataset.lang === lang);
+  });
+  const strings = I18N[lang] || I18N.en;
+  document.querySelectorAll('[data-i18n]').forEach(el => {
+    const key = el.getAttribute('data-i18n');
+    if (strings[key]) el.innerHTML = strings[key];
+  });
+}
+
+// Detect language: saved > browser locale > en
+(function() {
+  const saved = localStorage.getItem('snapper-lang');
+  if (saved && I18N[saved]) { setLang(saved); return; }
+  const nav = (navigator.language || '').toLowerCase();
+  if (nav.startsWith('is')) { setLang('is'); return; }
+  if (nav.startsWith('pl')) { setLang('pl'); return; }
+})();
+
+// Lang selector clicks
+document.querySelectorAll('.lang-btn').forEach(btn => {
+  btn.addEventListener('click', () => setLang(btn.dataset.lang));
+});
+
+// ---- THEME TOGGLE ----
 function toggleTheme() {
   const current = document.documentElement.getAttribute('data-theme');
   const next = current === 'dark' ? 'light' : 'dark';
@@ -826,7 +990,6 @@ function toggleTheme() {
   localStorage.setItem('snapper-theme', next);
 }
 
-// Restore saved theme or respect system preference
 (function() {
   const saved = localStorage.getItem('snapper-theme');
   if (saved) {
@@ -836,7 +999,7 @@ function toggleTheme() {
   }
 })();
 
-// Tab switching
+// ---- TAB SWITCHING ----
 document.querySelectorAll('.demo-tab').forEach(tab => {
   tab.addEventListener('click', () => {
     document.querySelectorAll('.demo-tab').forEach(t => t.classList.remove('active'));
@@ -846,7 +1009,7 @@ document.querySelectorAll('.demo-tab').forEach(tab => {
   });
 });
 
-// Scroll reveal
+// ---- SCROLL REVEAL ----
 const observer = new IntersectionObserver(
   (entries) => entries.forEach(e => { if (e.isIntersecting) e.target.classList.add('visible'); }),
   { threshold: 0.1, rootMargin: '0px 0px -40px 0px' }

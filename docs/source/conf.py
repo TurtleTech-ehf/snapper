@@ -17,11 +17,14 @@ html_theme = "shibuya"
 html_static_path = ["_static"]
 html_css_files = ["custom.css"]
 
+html_baseurl = "https://snapper.turtletech.us/docs/"
+
 html_theme_options = {
     "accent_color": "teal",
     "dark_code": True,
     "globaltoc_expand_depth": 2,
     "github_url": "https://github.com/TurtleTech-ehf/snapper",
+    "logo_url": "https://snapper.turtletech.us/",
 }
 
 html_context = {
