@@ -40,6 +40,7 @@ pub mod diff;
 pub mod files;
 pub mod format;
 pub mod init;
+pub mod lsp;
 pub mod output;
 pub mod parser;
 pub mod reflow;

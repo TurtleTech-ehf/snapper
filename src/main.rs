@@ -43,6 +43,11 @@ fn run() -> Result<()> {
                 }
                 return Ok(());
             }
+            Commands::Lsp => {
+                let rt = tokio::runtime::Runtime::new().expect("failed to create tokio runtime");
+                rt.block_on(snapper_fmt::lsp::run_lsp());
+                return Ok(());
+            }
             Commands::Watch { patterns, format } => {
                 let fmt = format.map(Format::from_arg);
                 return snapper_fmt::watch::run_watch(patterns, fmt);

@@ -102,6 +102,8 @@ pub enum Commands {
         #[arg(long)]
         no_color: bool,
     },
+    /// Start the LSP server (stdin/stdout).
+    Lsp,
     /// Watch files and reformat on change.
     Watch {
         /// Files or glob patterns to watch.
