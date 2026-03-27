@@ -64,6 +64,68 @@ Use the "Run on Save" extension with a custom command:
 }
 #+end_src
 
+* LSP (any editor with LSP support)
+
+Snapper ships a Language Server Protocol implementation.
+Start it with:
+
+#+begin_src bash
+snapper lsp
+#+end_src
+
+This provides document formatting, range formatting, and diagnostics (flags lines with multiple sentences) over the standard LSP protocol on stdin/stdout.
+
+** Neovim (native LSP)
+
+#+begin_src lua
+vim.api.nvim_create_autocmd("FileType", {
+  pattern = { "org", "tex", "markdown" },
+  callback = function()
+    vim.lsp.start({
+      name = "snapper",
+      cmd = { "snapper", "lsp" },
+    })
+  end,
+})
+#+end_src
+
+** Emacs (eglot)
+
+#+begin_src elisp
+(add-to-list 'eglot-server-programs
+             '((org-mode latex-mode markdown-mode) "snapper" "lsp"))
+#+end_src
+
+** VS Code
+
+Add to =settings.json= (requires a generic LSP client extension):
+
+#+begin_src json
+{
+  "lsp.servers": {
+    "snapper": {
+      "command": "snapper",
+      "args": ["lsp"],
+      "filetypes": ["org", "tex", "markdown"]
+    }
+  }
+}
+#+end_src
+
+** Helix
+
+Add to =~/.config/helix/languages.toml=:
+
+#+begin_src toml
+[[language]]
+name = "org"
+language-servers = ["snapper"]
+
+[language-server.snapper]
+command = "snapper"
+args = ["lsp"]
+#+end_src
+
 * Generic (any editor)
 
 Snapper reads stdin and writes stdout by default.
