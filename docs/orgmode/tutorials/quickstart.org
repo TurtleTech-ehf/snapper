@@ -59,8 +59,8 @@ It continues with more details about the topic.
 See Fig. 3 for the results.
 #+end_src
 
-Each sentence occupies its own line. Structural elements like code blocks,
-tables, drawers, math environments, and front matter pass through unchanged.
+Each sentence occupies its own line.
+Structural elements like code blocks, tables, drawers, math environments, and front matter pass through unchanged.
 
 ** Format detection
 
@@ -79,8 +79,8 @@ snapper --format latex draft.tex
 
 ** CI integration
 
-Use =--check= mode to verify formatting without modifying files. Exits with
-code 1 if any file would change:
+Use =--check= mode to verify formatting without modifying files.
+Exits with code 1 if any file would change:
 
 #+begin_src bash
 snapper --check paper.org

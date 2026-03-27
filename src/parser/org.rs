@@ -59,6 +59,9 @@ impl FormatParser for OrgParser {
         let mut current_prose = String::new();
         let mut in_block = false;
         let mut in_drawer = false;
+        // Track list item context: indent level of the marker text.
+        // Continuation lines indented at or beyond this level belong to the item.
+        let mut list_item_indent: Option<usize> = None;
 
         let flush_prose = |prose: &mut String, regions: &mut Vec<Region>| {
             if !prose.is_empty() {
@@ -107,6 +110,7 @@ impl FormatParser for OrgParser {
             // Blank line
             if line.trim().is_empty() {
                 flush_prose(&mut current_prose, &mut regions);
+                list_item_indent = None;
                 regions.push(Region::BlankLines(format!("{line}\n")));
                 continue;
             }
@@ -150,12 +154,37 @@ impl FormatParser for OrgParser {
                 flush_prose(&mut current_prose, &mut regions);
                 let marker = caps.get(1).unwrap().as_str();
                 let text = caps.get(2).unwrap().as_str();
+                // Track indent for continuation detection: text starts at marker length
+                list_item_indent = Some(marker.len());
                 regions.push(Region::Structure(marker.to_string()));
                 if !text.is_empty() {
                     regions.push(Region::Prose(text.to_string()));
                 }
                 regions.push(Region::Structure("\n".to_string()));
                 continue;
+            }
+
+            // List item continuation: indented line following a list item
+            if let Some(indent) = list_item_indent {
+                let leading = line.len() - line.trim_start().len();
+                if leading >= indent && !line.trim().is_empty() {
+                    // Append to the previous Prose region of the list item.
+                    // The last three regions are Structure(marker), Prose(text), Structure(\n)
+                    // We want to extend the Prose region.
+                    if let Some(Region::Structure(s)) = regions.last() {
+                        if s == "\n" {
+                            regions.pop(); // remove the \n
+                            if let Some(Region::Prose(prose)) = regions.last_mut() {
+                                prose.push(' ');
+                                prose.push_str(line.trim());
+                            }
+                            regions.push(Region::Structure("\n".to_string()));
+                            continue;
+                        }
+                    }
+                }
+                // Not a continuation: leave list context
+                list_item_indent = None;
             }
 
             // Regular prose line -- accumulate
@@ -233,6 +262,22 @@ mod tests {
         assert_eq!(regions.len(), 6);
         assert_eq!(regions[0], Region::Structure("- ".to_string()));
         assert_eq!(regions[1], Region::Prose("First item text".to_string()));
+    }
+
+    #[test]
+    fn list_item_continuation() {
+        let input = "- First sentence of item.\n  Continuation of the same item.\n- Second item";
+        let regions = OrgParser.parse(input);
+        // First item: Structure("- ") + Prose("First sentence of item. Continuation of the same item.") + Structure("\n")
+        assert_eq!(regions[0], Region::Structure("- ".to_string()));
+        assert_eq!(
+            regions[1],
+            Region::Prose("First sentence of item. Continuation of the same item.".to_string())
+        );
+        assert_eq!(regions[2], Region::Structure("\n".to_string()));
+        // Second item: Structure("- ") + Prose("Second item") + Structure("\n")
+        assert_eq!(regions[3], Region::Structure("- ".to_string()));
+        assert_eq!(regions[4], Region::Prose("Second item".to_string()));
     }
 
     #[test]

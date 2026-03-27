@@ -127,5 +127,6 @@ fn stdin_stdout() {
         })
         .expect("failed to run snapper");
     let result = String::from_utf8(output.stdout).unwrap();
-    assert_eq!(result, "Hello world.\nThis is a test.\nAnother sentence.\n");
+    // Input has no trailing newline, so output preserves that.
+    assert_eq!(result, "Hello world.\nThis is a test.\nAnother sentence.");
 }

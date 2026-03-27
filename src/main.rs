@@ -6,6 +6,7 @@ use anyhow::{Context, Result};
 use clap::Parser;
 
 use snapper::cli::Cli;
+use snapper::config::ProjectConfig;
 use snapper::format::Format;
 use snapper::{FormatConfig, format_text};
 
@@ -18,6 +19,7 @@ fn main() {
 
 fn run() -> Result<()> {
     let cli = Cli::parse();
+    let project_config = ProjectConfig::resolve(cli.config.as_ref()).unwrap_or_default();
 
     if cli.files.is_empty() {
         // Read from stdin
@@ -35,6 +37,7 @@ fn run() -> Result<()> {
             format,
             max_width: cli.max_width,
             use_neural: cli.neural,
+            extra_abbreviations: project_config.extra_abbreviations.clone(),
         };
 
         let output = format_text(&input, &config)?;
@@ -63,6 +66,7 @@ fn run() -> Result<()> {
                 format,
                 max_width: cli.max_width,
                 use_neural: cli.neural,
+                extra_abbreviations: project_config.extra_abbreviations.clone(),
             };
 
             let output = format_text(&input, &config)?;
