@@ -27,7 +27,8 @@ static INLINE_TOKEN_RE: LazyLock<Regex> = LazyLock::new(|| {
 
 static ABBREV_PATTERN: LazyLock<Regex> = LazyLock::new(|| {
     let alts = ABBREVIATIONS.to_vec();
-    let pattern = format!(r"(?:^|\s)(?:{})$", alts.join("|"));
+    // Allow quotes, parens, brackets before the abbreviation (not just whitespace)
+    let pattern = format!(r#"(?:^|[\s"'`(\[])(?:{})$"#, alts.join("|"));
     Regex::new(&pattern).expect("valid abbreviation regex")
 });
 

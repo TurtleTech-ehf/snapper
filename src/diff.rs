@@ -13,11 +13,7 @@ pub fn unified_diff(path: &str, original: &str, formatted: &str) -> String {
     config.context_len(3);
 
     let body = diff
-        .unified_diff(
-            &BasicLineDiffPrinter(&input.interner),
-            config,
-            &input,
-        )
+        .unified_diff(&BasicLineDiffPrinter(&input.interner), config, &input)
         .to_string();
 
     if body.is_empty() {

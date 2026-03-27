@@ -1,10 +1,20 @@
-#+OPTIONS: num:nil toc:nil
+#+title: snapper
+#+options: toc:nil num:nil title:nil
 
+#+begin_export rst
+=======
 snapper
-=====
+=======
 
-A fast, format-aware semantic line break formatter for prose documents.
+:Author: `Rohit Goswami <https://rgoswami.me>`_
+#+end_export
 
+file:../../branding/logo/snapper_logo.png
+
+A fast, format-aware semantic line break formatter.
+Reformats prose so each sentence occupies its own line, producing minimal and meaningful git diffs when collaborating on papers and documentation.
+
+#+begin_export rst
 .. toctree::
    :maxdepth: 2
    :caption: Tutorials
@@ -13,7 +23,27 @@ A fast, format-aware semantic line break formatter for prose documents.
 
 .. toctree::
    :maxdepth: 2
+   :caption: How-to guides
+
+   howto/editor-integration
+   howto/ci-enforcement
+   howto/git-filter
+   howto/vale-integration
+
+.. toctree::
+   :maxdepth: 2
    :caption: Reference
 
    reference/cli
    reference/formats
+   reference/abbreviations
+   reference/config
+
+.. toctree::
+   :maxdepth: 2
+   :caption: Development
+
+   contributing/index
+   faq/index
+   changelog
+#+end_export
