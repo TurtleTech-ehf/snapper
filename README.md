@@ -3,25 +3,25 @@
 
 # Table of Contents
 
--   [About](#org31b81ba)
-    -   [Why?](#org7afa5bd)
-    -   [Design](#orgd9a8b0c)
--   [Installation](#org8580300)
--   [Usage](#org1b2e268)
-    -   [Supported formats](#org097ce76)
-    -   [Pre-commit hook](#org6b6ae71)
-    -   [Emacs (Apheleia)](#org2397c24)
-    -   [Git smudge/clean filter](#org51e7d13)
-    -   [Vale integration](#org54317bb)
-    -   [Project config](#org084aa1f)
--   [Documentation](#orgafae9b6)
--   [Development](#orgeadb759)
-    -   [Key dependencies](#org4418ad1)
-    -   [Conventions](#org9b0952c)
--   [License](#org674a580)
+-   [About](#org69726b7)
+    -   [Why?](#orgbbac54a)
+    -   [Design](#org0753428)
+-   [Installation](#org999eea5)
+-   [Usage](#org512791f)
+    -   [Supported formats](#org15743cc)
+    -   [Pre-commit hook](#org5362a90)
+    -   [Emacs (Apheleia)](#org0648306)
+    -   [Git smudge/clean filter](#org9fcb1f5)
+    -   [Vale integration](#org4f7908a)
+    -   [Project config](#orgbbe9762)
+-   [Documentation](#org6b0aec9)
+-   [Development](#org6b26437)
+    -   [Key dependencies](#orga537f24)
+    -   [Conventions](#org4131674)
+-   [License](#orgbf0aa56)
 
 
-<a id="org31b81ba"></a>
+<a id="org69726b7"></a>
 
 # About
 
@@ -29,7 +29,7 @@ A fast, format-aware semantic line break formatter.
 Reformats prose so each sentence occupies its own line, producing minimal and meaningful git diffs when collaborating on documents.
 
 
-<a id="org7afa5bd"></a>
+<a id="orgbbac54a"></a>
 
 ## Why?
 
@@ -42,7 +42,7 @@ Existing tools fall short: latexindent.pl only handles LaTeX, SemBr requires Pyt
 `snapper` solves this as a standalone Rust binary with no runtime dependencies, handling Org-mode, LaTeX, Markdown, and plaintext.
 
 
-<a id="orgd9a8b0c"></a>
+<a id="org0753428"></a>
 
 ## Design
 
@@ -56,25 +56,25 @@ Structure regions (code blocks, math environments, tables, front matter, drawers
 Sentence detection relies on Unicode UAX #29 segmentation with abbreviation-aware post-processing that avoids false breaks at titles (Dr., Prof.), references (Fig., Eq.), and Latin terms (e.g., i.e., et al.).
 
 
-<a id="org8580300"></a>
+<a id="org999eea5"></a>
 
 # Installation
+
+From [crates.io](https://crates.io/crates/snapper-fmt) (the crate is `snapper-fmt`, the binary it installs is `snapper`):
+
+    cargo install snapper-fmt
 
 From source:
 
     cargo build --release
     # Binary at ./target/release/snapper
 
-Or install directly:
-
-    cargo install --path .
-
 With Nix:
 
     nix build github:HaoZeke/snapper
 
 
-<a id="org1b2e268"></a>
+<a id="org512791f"></a>
 
 # Usage
 
@@ -103,7 +103,7 @@ Preview changes as a unified diff before committing:
     snapper --diff paper.org
 
 
-<a id="org097ce76"></a>
+<a id="org15743cc"></a>
 
 ## Supported formats
 
@@ -152,7 +152,7 @@ Preview changes as a unified diff before committing:
 </table>
 
 
-<a id="org6b6ae71"></a>
+<a id="org5362a90"></a>
 
 ## Pre-commit hook
 
@@ -162,7 +162,7 @@ Preview changes as a unified diff before committing:
         - id: snapper
 
 
-<a id="org2397c24"></a>
+<a id="org0648306"></a>
 
 ## Emacs (Apheleia)
 
@@ -171,7 +171,7 @@ Preview changes as a unified diff before committing:
       (push '(org-mode . snapper) apheleia-mode-alist))
 
 
-<a id="org51e7d13"></a>
+<a id="org9fcb1f5"></a>
 
 ## Git smudge/clean filter
 
@@ -185,7 +185,7 @@ Then add to `.gitattributes`:
     *.org filter=snapper
 
 
-<a id="org54317bb"></a>
+<a id="org4f7908a"></a>
 
 ## Vale integration
 
@@ -199,7 +199,7 @@ Add to your `.vale.ini`:
 For precise CI checks, use `snapper --check` directly.
 
 
-<a id="org084aa1f"></a>
+<a id="orgbbe9762"></a>
 
 ## Project config
 
@@ -213,7 +213,7 @@ Drop a `.snapperrc.toml` in your project root:
 `snapper` walks up from the current directory to find it.
 
 
-<a id="orgafae9b6"></a>
+<a id="org6b0aec9"></a>
 
 # Documentation
 
@@ -222,12 +222,12 @@ Build the docs site with:
     pixi run docbld
 
 
-<a id="orgeadb759"></a>
+<a id="org6b26437"></a>
 
 # Development
 
 
-<a id="org4418ad1"></a>
+<a id="orga537f24"></a>
 
 ## Key dependencies
 
@@ -238,7 +238,7 @@ Build the docs site with:
 -   **thiserror:** Typed error handling
 
 
-<a id="org9b0952c"></a>
+<a id="org4131674"></a>
 
 ## Conventions
 
@@ -252,7 +252,7 @@ Construct the `readme` via:
     ./scripts/org_to_md.sh readme_src.org README.md
 
 
-<a id="org674a580"></a>
+<a id="orgbf0aa56"></a>
 
 # License
 

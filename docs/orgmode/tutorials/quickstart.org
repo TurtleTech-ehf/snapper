@@ -4,13 +4,13 @@
 
 ** Installation
 
-From source:
+From [[https://crates.io/crates/snapper-fmt][crates.io]] (the crate is =snapper-fmt=, the binary it installs is =snapper=):
 
 #+begin_src bash
-cargo install --path .
+cargo install snapper-fmt
 #+end_src
 
-Or build a release binary:
+Or build from source:
 
 #+begin_src bash
 cargo build --release

@@ -21,14 +21,14 @@ Existing tools fall short: latexindent.pl only handles LaTeX, SemBr requires Pyt
 Structure regions (code blocks, math environments, tables, front matter, drawers, comments) pass through unchanged.
 Sentence detection relies on Unicode UAX #29 segmentation with abbreviation-aware post-processing that avoids false breaks at titles (Dr., Prof.), references (Fig., Eq.), and Latin terms (e.g., i.e., et al.).
 * Installation
+From [[https://crates.io/crates/snapper-fmt][crates.io]] (the crate is =snapper-fmt=, the binary it installs is =snapper=):
+#+begin_src bash
+cargo install snapper-fmt
+#+end_src
 From source:
 #+begin_src bash
 cargo build --release
 # Binary at ./target/release/snapper
-#+end_src
-Or install directly:
-#+begin_src bash
-cargo install --path .
 #+end_src
 With Nix:
 #+begin_src bash

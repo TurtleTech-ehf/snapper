@@ -1,3 +1,36 @@
+//! # snapper
+//!
+//! Semantic line break formatter for prose documents. Reformats text so each
+//! sentence occupies its own line, producing minimal git diffs when
+//! collaborating on papers and documentation.
+//!
+//! The crate is published as `snapper-fmt` on crates.io; the binary it
+//! installs is called `snapper`.
+//!
+//! ## Supported formats
+//!
+//! - **Org-mode**: blocks, drawers, tables, keywords preserved
+//! - **LaTeX**: preamble, math, environments, comments preserved
+//! - **Markdown**: code blocks, front matter, headings preserved
+//! - **Plaintext**: everything treated as prose
+//!
+//! ## Library usage
+//!
+//! ```rust
+//! use snapper_fmt::{format_text, FormatConfig};
+//! use snapper_fmt::format::Format;
+//!
+//! let input = "Hello world. This is a test. Another sentence.";
+//! let config = FormatConfig {
+//!     format: Format::Plaintext,
+//!     max_width: 0,
+//!     use_neural: false,
+//!     extra_abbreviations: vec![],
+//! };
+//! let output = format_text(input, &config).unwrap();
+//! assert_eq!(output, "Hello world.\nThis is a test.\nAnother sentence.");
+//! ```
+
 pub mod abbreviations;
 pub mod cli;
 pub mod config;

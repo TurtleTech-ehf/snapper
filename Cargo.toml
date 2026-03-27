@@ -8,6 +8,7 @@ repository = "https://github.com/HaoZeke/snapper"
 license = "MIT"
 keywords = ["semantic", "linebreak", "formatter", "latex", "orgmode"]
 categories = ["command-line-utilities", "text-processing"]
+readme = "README.md"
 
 [[bin]]
 name = "snapper"
