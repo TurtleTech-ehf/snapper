@@ -37,12 +37,14 @@ pub fn reflow(
                 // Skip when followed by Structure (e.g. the "\n" after
                 // headlines/list items) to avoid double newlines.
                 if !sentences.is_empty() {
-                    let needs_newline = match regions.get(idx + 1) {
-                        Some(Region::BlankLines(_)) | Some(Region::Prose(_)) => true,
-                        None => true,
-                        Some(Region::Structure(_)) => false,
-                    };
-                    if needs_newline {
+                    // Add trailing newline after prose. Only suppress when
+                    // the next region is a bare "\n" (inline Structure from
+                    // headlines/list items) to avoid double newlines.
+                    let suppress = matches!(
+                        regions.get(idx + 1),
+                        Some(Region::Structure(s)) if s == "\n"
+                    );
+                    if !suppress {
                         output.push('\n');
                     }
                 }
@@ -61,7 +63,7 @@ mod tests {
     fn reflow_text(input: &str) -> String {
         let regions = vec![Region::Prose(input.to_string())];
         let config = ReflowConfig { max_width: 0 };
-        reflow(&regions, &UnicodeSentenceSplitter, &config)
+        reflow(&regions, &UnicodeSentenceSplitter::new(), &config)
     }
 
     #[test]
@@ -86,7 +88,7 @@ mod tests {
             Region::Prose("First sentence. Second sentence.".to_string()),
         ];
         let config = ReflowConfig { max_width: 0 };
-        let result = reflow(&regions, &UnicodeSentenceSplitter, &config);
+        let result = reflow(&regions, &UnicodeSentenceSplitter::new(), &config);
         assert_eq!(
             result,
             "#+TITLE: Test\n\nFirst sentence.\nSecond sentence.\n"
@@ -99,7 +101,7 @@ mod tests {
             "This is a very long sentence that should be wrapped at a reasonable width for readability in narrow terminals.".to_string(),
         )];
         let config = ReflowConfig { max_width: 40 };
-        let result = reflow(&regions, &UnicodeSentenceSplitter, &config);
+        let result = reflow(&regions, &UnicodeSentenceSplitter::new(), &config);
         // Every line should be <= 40 chars
         for line in result.lines() {
             assert!(

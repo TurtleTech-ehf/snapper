@@ -11,6 +11,7 @@ rust = ">=1.85"
 check = { cmd = "cargo fmt --check && cargo clippy -- -D warnings && cargo test" }
 build = { cmd = "cargo build --release" }
 test = { cmd = "cargo test" }
+dogfood = { cmd = "cargo run --quiet -- --check --format org readme_src.org docs/orgmode/**/*.org examples/paper.org && cargo run --quiet -- --check --format plaintext examples/basic.txt && cargo run --quiet -- --check --format markdown examples/paper.md && cargo run --quiet -- --check --format latex examples/paper.tex", description = "Verify all docs pass snapper --check", depends-on = ["build"] }
 
 [feature.docs.dependencies]
 python = ">=3.11"

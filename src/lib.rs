@@ -23,6 +23,8 @@ pub struct FormatConfig {
     pub format: Format,
     pub max_width: usize,
     pub use_neural: bool,
+    /// Extra abbreviations from project config.
+    pub extra_abbreviations: Vec<String>,
 }
 
 /// Format text with semantic line breaks.
@@ -47,14 +49,46 @@ pub fn format_text(input: &str, config: &FormatConfig) -> Result<String> {
                  Build with: cargo build --features neural"
             );
         }
+    } else if config.extra_abbreviations.is_empty() {
+        Box::new(UnicodeSentenceSplitter::new())
     } else {
-        Box::new(UnicodeSentenceSplitter)
+        Box::new(UnicodeSentenceSplitter::with_extra_abbreviations(
+            &config.extra_abbreviations,
+        ))
     };
 
-    let regions = parser.parse(input);
+    let had_trailing_newline = input.ends_with('\n');
+    let uses_crlf = input.contains("\r\n");
+
+    // Normalize to LF for processing, restore CRLF at the end if needed.
+    let normalized;
+    let work_input = if uses_crlf {
+        normalized = input.replace("\r\n", "\n");
+        &normalized
+    } else {
+        input
+    };
+
+    let regions = parser.parse(work_input);
     let reflow_config = ReflowConfig {
         max_width: config.max_width,
     };
 
-    Ok(reflow(&regions, splitter.as_ref(), &reflow_config))
+    let mut output = reflow(&regions, splitter.as_ref(), &reflow_config);
+
+    // Preserve the original file's trailing newline convention.
+    if had_trailing_newline && !output.ends_with('\n') {
+        output.push('\n');
+    } else if !had_trailing_newline {
+        while output.ends_with('\n') {
+            output.pop();
+        }
+    }
+
+    // Restore CRLF if the input used it.
+    if uses_crlf {
+        output = output.replace('\n', "\r\n");
+    }
+
+    Ok(output)
 }

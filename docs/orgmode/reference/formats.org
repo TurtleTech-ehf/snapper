@@ -2,15 +2,16 @@
 
 * Supported Formats
 
-~snapper~ classifies text into /prose regions/ (reflowed at sentence boundaries)
-and /structure regions/ (passed through unchanged). The classification depends
-on the format.
+~snapper~ classifies text into /prose regions/ (reflowed at sentence boundaries) and /structure regions/ (passed through unchanged).
+The classification depends on the format.
 
 ** Org-mode (=--format org=)
 
 *** Structure regions (preserved)
-- =#+BEGIN_*= ... =#+END_*= blocks (source, example, quote, etc.)
-- =:PROPERTIES:= ... =:END:= drawers
+- =#+BEGIN_*= ...
+=#+END_*= blocks (source, example, quote, etc.)
+- =:PROPERTIES:= ...
+=:END:= drawers
 - =#+KEYWORD:= directives (TITLE, AUTHOR, DATE, OPTIONS, etc.)
 - Table rows (lines starting with =|=)
 - Comment lines (starting with =#= but not =#+= )
@@ -31,8 +32,7 @@ These tokens within prose are not split across lines:
 
 *** Structure regions (preserved)
 - Preamble (everything before =\begin{document}=)
-- Non-prose environments: equation, align, figure, table, tabular, lstlisting,
-  verbatim, minted, tikzpicture, and their starred variants
+- Non-prose environments: equation, align, figure, table, tabular, lstlisting, verbatim, minted, tikzpicture, and their starred variants
 - Display math: =\[...\]=
 - Comment lines (starting with =%=)
 - =\end{document}=
@@ -55,25 +55,25 @@ These tokens within prose are not split across lines:
 
 ** Plaintext (=--format plaintext=)
 
-Everything is prose. Blank lines are preserved as paragraph separators.
+Everything is prose.
+Blank lines are preserved as paragraph separators.
 
 ** Sentence Detection
 
-~snapper~ uses Unicode UAX #29 sentence boundary detection as a baseline, then
-merges false splits caused by known abbreviations:
+~snapper~ uses Unicode UAX #29 sentence boundary detection as a baseline, then merges false splits caused by known abbreviations:
 
 *** Titles
 Mr., Mrs., Ms., Dr., Prof., Sr., Jr., St., Rev., Gen., etc.
 
 *** Academic
-Fig., Figs., Eq., Eqs., Ref., Refs., Tab., Sec., Ch., Vol., No., Thm., Lem.,
-Prop., Def., Cor., Rem., Ex.
+Fig., Figs., Eq., Eqs., Ref., Refs., Tab., Sec., Ch., Vol., No., Thm., Lem., Prop., Def., Cor., Rem., Ex.
 
 *** Latin
 e.g., i.e., et al., cf., etc., viz., ibid., ca., approx.
 
 *** Single initials
-A., B., C., ... Z.
+A., B., C., ...
+Z.
 
 *** Date and time
 Jan., Feb., ..., Dec., Mon., Tue., ..., Sun., a.m., p.m.
