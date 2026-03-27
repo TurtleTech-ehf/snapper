@@ -1,3 +1,4 @@
+pub mod neural;
 pub mod unicode;
 
 /// Trait for sentence boundary detection.
