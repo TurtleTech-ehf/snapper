@@ -9,3 +9,5 @@
 .direnv/
 result
 result-*
+docs/.ox-rst/
+dist/

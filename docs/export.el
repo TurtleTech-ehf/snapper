@@ -1,15 +1,19 @@
 ;; Batch export org-mode files to RST for Sphinx
 ;; Usage: emacs --batch -l docs/export.el
+;; Hermetic: clones ox-rst from source if not cached, no MELPA dependency.
 
-;; Setup Package Manager (to fetch ox-rst automatically)
-(require 'package)
-(add-to-list 'package-archives '("melpa" . "https://melpa.org/packages/") t)
-(package-initialize)
+(require 'ox-publish)
 
-;; Ensure ox-rst is present
-(unless (package-installed-p 'ox-rst)
-  (package-refresh-contents)
-  (package-install 'ox-rst))
+;; Clone ox-rst to a local cache dir if not present
+(let* ((cache-dir (expand-file-name ".ox-rst" (file-name-directory load-file-name)))
+       (ox-rst-file (expand-file-name "ox-rst.el" cache-dir)))
+  (unless (file-exists-p ox-rst-file)
+    (message "Cloning ox-rst...")
+    (make-directory cache-dir t)
+    (call-process "git" nil nil nil
+                  "clone" "--depth" "1"
+                  "https://github.com/msnoigrs/ox-rst.git" cache-dir))
+  (add-to-list 'load-path cache-dir))
 
 (require 'ox-rst)
 (require 'ox-publish)
