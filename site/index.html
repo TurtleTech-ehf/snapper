@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>snapper &mdash; Semantic Line Breaks for Academic Writing</title>
+<script defer data-website-id="af8c1286-06aa-414b-958c-e015bed1e569" src="https://analytics.turtletech.us/script.js"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Jost:ital,wght@0,300;0,400;0,500;0,600;0,700;0,800;1,400&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
@@ -82,8 +83,8 @@ body::before {
 }
 
 .hero-logo {
-  width: 180px;
-  height: 180px;
+  width: 260px;
+  height: 260px;
   border-radius: 28px;
   box-shadow:
     0 8px 32px rgba(45,90,61,0.15),
@@ -144,6 +145,26 @@ body::before {
 }
 
 .hero-cta svg { width: 18px; height: 18px; }
+
+.hero-cta-secondary {
+  background: transparent;
+  color: var(--teal);
+  border: 2px solid var(--teal);
+  box-shadow: none;
+}
+
+.hero-cta-secondary:hover {
+  background: var(--teal);
+  color: white;
+  box-shadow: 0 4px 20px rgba(0,77,64,0.3);
+}
+
+.hero-ctas {
+  display: flex;
+  gap: 1rem;
+  justify-content: center;
+  flex-wrap: wrap;
+}
 
 /* ---- SCROLL HINT ---- */
 .scroll-hint {
@@ -526,7 +547,7 @@ footer a:hover { color: var(--teal); }
 
 /* ---- RESPONSIVE ---- */
 @media (max-width: 768px) {
-  .hero-logo { width: 140px; height: 140px; }
+  .hero-logo { width: 180px; height: 180px; }
   section { padding: 4rem 0; }
   .pane-before { border-right: none; border-bottom: 2px solid var(--green-dark); }
   .features-grid { grid-template-columns: 1fr; }
@@ -542,10 +563,16 @@ footer a:hover { color: var(--teal); }
     <img src="snapper_logo.png" alt="snapper logo" class="hero-logo">
     <h1>Snap your prose into<br>clean, <span>diff-friendly</span> lines</h1>
     <p class="hero-tagline">A fast, format-aware semantic line break formatter for academic papers and collaborative writing.</p>
-    <a href="https://github.com/TurtleTech-ehf/snapper" class="hero-cta">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 19c-5 1.5-5-2.5-7-3m14 6v-3.87a3.37 3.37 0 0 0-.94-2.61c3.14-.35 6.44-1.54 6.44-7A5.44 5.44 0 0 0 20 4.77 5.07 5.07 0 0 0 19.91 1S18.73.65 16 2.48a13.38 13.38 0 0 0-7 0C6.27.65 5.09 1 5.09 1A5.07 5.07 0 0 0 5 4.77a5.44 5.44 0 0 0-1.5 3.78c0 5.42 3.3 6.61 6.44 7A3.37 3.37 0 0 0 9 18.13V22"/></svg>
-      View on GitHub
-    </a>
+    <div class="hero-ctas">
+      <a href="https://github.com/TurtleTech-ehf/snapper" class="hero-cta">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 19c-5 1.5-5-2.5-7-3m14 6v-3.87a3.37 3.37 0 0 0-.94-2.61c3.14-.35 6.44-1.54 6.44-7A5.44 5.44 0 0 0 20 4.77 5.07 5.07 0 0 0 19.91 1S18.73.65 16 2.48a13.38 13.38 0 0 0-7 0C6.27.65 5.09 1 5.09 1A5.07 5.07 0 0 0 5 4.77a5.44 5.44 0 0 0-1.5 3.78c0 5.42 3.3 6.61 6.44 7A3.37 3.37 0 0 0 9 18.13V22"/></svg>
+        View on GitHub
+      </a>
+      <a href="https://snapper.turtletech.us/docs/" class="hero-cta hero-cta-secondary">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg>
+        Documentation
+      </a>
+    </div>
   </div>
   <div class="scroll-hint">
     <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M19 12l-7 7-7-7"/></svg>
