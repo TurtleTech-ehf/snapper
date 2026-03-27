@@ -1,0 +1,40 @@
+\documentclass{article}
+\usepackage{amsmath}
+\usepackage{graphicx}
+\usepackage{hyperref}
+
+\title{Semantic Line Breaking for Version Control}
+\author{A. Researcher \and B. Collaborator}
+\date{\today}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+We demonstrate how semantic line breaks improve collaboration on LaTeX documents. Traditional line wrapping produces noisy diffs that obscure the actual changes. By breaking at sentence boundaries, each sentence becomes an atomic unit in version control.
+\end{abstract}
+
+\section{Introduction}
+
+Academic papers are written collaboratively, often with Git for version control. When authors wrap text at a fixed column width, even minor edits can cause large diffs. This makes code review painful and merge conflicts more likely.
+
+The solution is simple: put each sentence on its own line. This approach, known as semantic linefeeds, ensures that diffs show exactly which sentences changed. See Fig.~\ref{fig:comparison} for an example.
+
+\section{Method}
+
+Our formatter parses LaTeX documents and identifies prose regions vs. structural elements. Structural elements such as equations, figures, and code listings pass through unchanged.
+
+\begin{equation}
+\label{eq:diff}
+\Delta = \text{lines\_changed}(\text{semantic}) \ll \text{lines\_changed}(\text{wrapped})
+\end{equation}
+
+% The formatter preserves comments like this one.
+
+The sentence detection algorithm handles common abbreviations. For example, references like Fig.~1, Eq.~\ref{eq:diff}, and titles like Dr. Smith do not cause false sentence breaks.
+
+\section{Results}
+
+We tested the formatter on 50 academic papers. The average diff size was reduced by 73\% compared to traditionally wrapped text. The formatter is idempotent and runs in under 10ms for typical documents.
+
+\end{document}

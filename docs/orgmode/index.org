@@ -1,0 +1,19 @@
+#+OPTIONS: num:nil toc:nil
+
+snapper
+=====
+
+A fast, format-aware semantic line break formatter for prose documents.
+
+.. toctree::
+   :maxdepth: 2
+   :caption: Tutorials
+
+   tutorials/quickstart
+
+.. toctree::
+   :maxdepth: 2
+   :caption: Reference
+
+   reference/cli
+   reference/formats

@@ -1,0 +1,15 @@
+<!-- Umami injection -->
+<script
+  defer
+  data-website-id="f2b1113e-1700-40d5-861d-5aaf36f63b2e"
+  src="https://analytics.turtletech.us/script.js"
+></script>
+<script>
+  window.umami = window.umami || { track: function () {} };
+  document.addEventListener("click", function (e) {
+    var link = e.target.closest("a");
+    if (link && link.hostname !== location.hostname) {
+      umami.track("Outbound Link", { url: link.href });
+    }
+  });
+</script>

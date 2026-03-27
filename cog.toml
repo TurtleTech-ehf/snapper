@@ -1,0 +1,19 @@
+from_latest_tag = false
+ignore_merge_commits = true
+disable_changelog = false
+generate_mono_repository_global_tag = true
+tag_prefix = "v"
+
+[commit_types]
+enh = { changelog_title = "Enhancements" }
+bug = { changelog_title = "Bugfixes" }
+maint = { changelog_title = "Maintenance" }
+prj = { changelog_title = "Project" }
+doc = { changelog_title = "Documentation" }
+tst = { changelog_title = "Tests" }
+bld = { changelog_title = "Buildsystem" }
+gen = { changelog_title = "Generated" }
+
+[changelog]
+path = "CHANGELOG.md"
+authors = [{ username = "HaoZeke", signature = "Rohit Goswami" }]

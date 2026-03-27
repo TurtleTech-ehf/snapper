@@ -1,0 +1,44 @@
+project = "snapper"
+copyright = '2026--present, <a href="https://rgoswami.me">Rohit Goswami</a>'
+author = "Rohit Goswami"
+release = "0.1.0"
+html_logo = "../../branding/logo/snapper_logo.png"
+
+extensions = [
+    "myst_parser",
+    "sphinx_sitemap",
+    "sphinx.ext.intersphinx",
+]
+
+templates_path = ["_templates"]
+exclude_patterns = []
+
+html_theme = "shibuya"
+html_static_path = ["_static"]
+
+html_theme_options = {
+    "accent_color": "teal",
+    "dark_code": True,
+    "globaltoc_expand_depth": 2,
+    "github_url": "https://github.com/HaoZeke/snapper",
+}
+
+html_context = {
+    "source_type": "github",
+    "source_user": "HaoZeke",
+    "source_repo": "snapper",
+    "source_version": "main",
+    "source_docs_path": "/docs/source/",
+}
+
+myst_enable_extensions = [
+    "colon_fence",
+    "deflist",
+]
+
+intersphinx_mapping = {}
+
+source_suffix = {
+    ".rst": "restructuredtext",
+    ".md": "markdown",
+}

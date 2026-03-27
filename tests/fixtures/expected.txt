@@ -1,0 +1,12 @@
+This is a simple plaintext document.
+It contains multiple sentences that should be broken at sentence boundaries.
+The formatter should handle this correctly.
+
+Here is a second paragraph.
+Dr. Smith published his findings in 2024.
+The results were promising, e.g. a 20% improvement over baseline methods.
+
+A third paragraph with questions.
+Does this work?
+Yes!
+It handles various punctuation marks correctly.

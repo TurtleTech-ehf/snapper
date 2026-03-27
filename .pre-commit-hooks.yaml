@@ -1,0 +1,6 @@
+- id: sembr
+  name: Semantic line breaks
+  description: Reformat prose files with semantic line breaks
+  entry: sembr --in-place
+  language: rust
+  types_or: [org, tex, markdown, plain-text]

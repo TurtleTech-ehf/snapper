@@ -1,0 +1,5 @@
+This is a simple example of text before semantic line breaking. It has multiple sentences that are all wrapped on the same line. The formatter will break these into one sentence per line. This makes git diffs much cleaner when collaborating on documents.
+
+Here is a second paragraph. Dr. Smith published his findings in 2024. The results were promising, e.g. a 20% improvement over baseline methods. See Fig. 3 for the experimental setup.
+
+A third paragraph with questions. Does this work? Yes! It handles various punctuation marks correctly.
