@@ -33,6 +33,8 @@ html_theme_options = {
     "globaltoc_expand_depth": 2,
     "github_url": "https://github.com/TurtleTech-ehf/snapper",
     "logo_url": "https://snapper.turtletech.us/",
+    "og_description": "Semantic line break formatter for Org-mode, LaTeX, Markdown, and plaintext. Clean git diffs for collaborative academic writing.",
+    "og_image": "https://snapper.turtletech.us/snapper_logo.png",
 }
 
 # Shibuya native language selector (renders in nav bar automatically)

@@ -4,9 +4,47 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>snapper &mdash; Semantic Line Breaks for Academic Writing</title>
+<meta name="description" content="A fast, format-aware semantic line break formatter for Org-mode, LaTeX, Markdown, and plaintext. Produces clean git diffs for collaborative academic writing.">
+<meta name="author" content="TurtleTech ehf">
+<meta name="keywords" content="semantic line breaks, formatter, LaTeX, Org-mode, Markdown, git diff, academic writing, sentence splitting, pre-commit">
+<link rel="canonical" href="https://snapper.turtletech.us/">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://snapper.turtletech.us/">
+<meta property="og:title" content="snapper - Semantic Line Breaks for Academic Writing">
+<meta property="og:description" content="A fast, format-aware semantic line break formatter. Produces clean git diffs for collaborative academic writing.">
+<meta property="og:image" content="https://snapper.turtletech.us/snapper_logo.png">
+<meta property="og:site_name" content="snapper">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="snapper - Semantic Line Breaks">
+<meta name="twitter:description" content="Format prose so each sentence occupies its own line. Clean git diffs for collaborative writing.">
+<meta name="twitter:image" content="https://snapper.turtletech.us/snapper_logo.png">
 <link rel="icon" href="favicon.ico" type="image/x-icon">
 <link rel="apple-touch-icon" href="apple-touch-icon.png">
 <script defer data-website-id="af8c1286-06aa-414b-958c-e015bed1e569" src="https://analytics.turtletech.us/script.js"></script>
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "SoftwareApplication",
+  "name": "snapper",
+  "description": "Semantic line break formatter for Org-mode, LaTeX, Markdown, and plaintext",
+  "applicationCategory": "DeveloperApplication",
+  "operatingSystem": "Linux, macOS, Windows",
+  "url": "https://snapper.turtletech.us",
+  "downloadUrl": "https://crates.io/crates/snapper-fmt",
+  "softwareVersion": "0.2.1",
+  "license": "https://opensource.org/licenses/MIT",
+  "author": {
+    "@type": "Organization",
+    "name": "TurtleTech ehf",
+    "url": "https://turtletech.us"
+  },
+  "offers": {
+    "@type": "Offer",
+    "price": "0",
+    "priceCurrency": "USD"
+  }
+}
+</script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Jost:ital,wght@0,300;0,400;0,500;0,600;0,700;0,800;1,400&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
@@ -679,7 +717,7 @@ footer a:hover { color: var(--teal); }
 <!-- ============ HERO ============ -->
 <section class="hero">
   <div class="hero-inner">
-    <img src="snapper_logo.png" alt="snapper logo" class="hero-logo">
+    <img src="snapper_logo.png" alt="snapper - semantic line break formatter" class="hero-logo" width="260" height="260" loading="eager">
     <h1 data-i18n="hero_title">Snap your prose into<br>clean, <span>diff-friendly</span> lines</h1>
     <p class="hero-tagline" data-i18n="hero_tagline">A fast, format-aware semantic line break formatter for academic papers and collaborative writing.</p>
     <div class="hero-ctas">
@@ -810,6 +848,30 @@ We present a method for formatting prose documents with semantic line breaks, wh
         <h3 data-i18n="feat6_title">Git smudge/clean filter</h3>
         <p data-i18n="feat6_desc">Auto-format on commit, transparent to collaborators. Add to <code>.gitattributes</code> and formatting happens silently.</p>
       </div>
+
+      <div class="feature-card">
+        <div class="feature-icon">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2a4 4 0 0 1 4 4c0 1.1-.5 2.1-1.3 2.8l-.7.6V12h-4V9.4l-.7-.6A4 4 0 0 1 12 2z"/><path d="M9 12h6M10 15h4M10 18h4"/></svg>
+        </div>
+        <h3 data-i18n="feat7_title">Neural sentence detection</h3>
+        <p data-i18n="feat7_desc">Optional ML-based splitting via nnsplit for 9 languages. Use <code>--neural --lang de</code> for non-English text where rules fall short.</p>
+      </div>
+
+      <div class="feature-card">
+        <div class="feature-icon">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18M6 6l12 12"/></svg>
+        </div>
+        <h3 data-i18n="feat8_title">Skip regions with pragmas</h3>
+        <p data-i18n="feat8_desc">Mark hand-formatted text with <code>snapper:off</code> / <code>snapper:on</code> comments. Poetry, aligned text, and ASCII art pass through untouched.</p>
+      </div>
+
+      <div class="feature-card">
+        <div class="feature-icon">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 22h16a2 2 0 0 0 2-2V4a2 2 0 0 0-2-2H8a2 2 0 0 0-2 2v16a2 2 0 0 1-2 2zm0 0a2 2 0 0 1-2-2v-9c0-1.1.9-2 2-2h2"/></svg>
+        </div>
+        <h3 data-i18n="feat9_title">One-command setup</h3>
+        <p data-i18n="feat9_desc"><code>snapper init</code> detects your formats and generates config, pre-commit hooks, gitattributes, and editor snippets.</p>
+      </div>
     </div>
   </div>
 </section>
@@ -842,7 +904,7 @@ We present a method for formatting prose documents with semantic line breaks, wh
         <div class="install-card-header">Pre-commit</div>
         <pre><span class="comment"># .pre-commit-config.yaml</span>
 - <span class="flag">repo</span>: https://github.com/TurtleTech-ehf/snapper
-  <span class="flag">rev</span>: v0.1.0
+  <span class="flag">rev</span>: v0.2.1
   <span class="flag">hooks</span>:
     - <span class="flag">id</span>: snapper</pre>
       </div>
@@ -891,6 +953,12 @@ const I18N = {
     feat5_desc: 'Bundled vale rules flag lines with multiple sentences in your editor. Use <code>--check</code> for precise CI enforcement.',
     feat6_title: 'Git smudge/clean filter',
     feat6_desc: 'Auto-format on commit, transparent to collaborators. Add to <code>.gitattributes</code> and formatting happens silently.',
+    feat7_title: 'Neural sentence detection',
+    feat7_desc: 'Optional ML-based splitting via nnsplit for 9 languages. Use <code>--neural --lang de</code> for non-English text where rules fall short.',
+    feat8_title: 'Skip regions with pragmas',
+    feat8_desc: 'Mark hand-formatted text with <code>snapper:off</code> / <code>snapper:on</code> comments. Poetry, aligned text, and ASCII art pass through untouched.',
+    feat9_title: 'One-command setup',
+    feat9_desc: '<code>snapper init</code> detects your formats and generates config, pre-commit hooks, gitattributes, and editor snippets.',
     install_label: 'Get started',
     install_title: 'Install in seconds',
     footer_provided: 'provided by',
@@ -921,6 +989,12 @@ const I18N = {
     feat5_desc: 'Innbyggðar vale-reglur merkja linur með mörgum setningum i ritlinum. Notið <code>--check</code> fyrir naekvaema CI-eftirfylgni.',
     feat6_title: 'Git smudge/clean sia',
     feat6_desc: 'Sjálfvirk sniðmotun vi&eth; commit, gagnsae samstarfsmönnum. Baettu vi&eth; <code>.gitattributes</code> og sniðmotun gerist &thorn;egjandi.',
+    feat7_title: 'Taugakerfis-setningargreining',
+    feat7_desc: 'Valfrj&aacute;ls ML-greining me&eth; nnsplit fyrir 9 tungum&aacute;l. Nota&eth;u <code>--neural --lang de</code> fyrir texta &aacute; &ouml;&eth;rum tungum&aacute;lum.',
+    feat8_title: 'Sleppa sv&aelig;&eth;um me&eth; pragma',
+    feat8_desc: 'Merktu handsnidinn texta me&eth; <code>snapper:off</code> / <code>snapper:on</code>. Lj&oacute;&eth;, j&ouml;fnu&eth;ur texti og ASCII-myndir fara &iacute; gegn &oacute;breyttar.',
+    feat9_title: 'Uppsetning me&eth; einni skipun',
+    feat9_desc: '<code>snapper init</code> greinir sni&eth;in &thorn;&iacute;n og b&yacute;r til stillingar, pre-commit hooks, gitattributes og ritilsuppskriftir.',
     install_label: 'Byrjaðu',
     install_title: 'Uppsetning a nokkrum sekundum',
     footer_provided: 'gert af',
@@ -951,6 +1025,12 @@ const I18N = {
     feat5_desc: 'Do&lstrok;aczone regu&lstrok;y vale oznaczaja linie z wieloma zdaniami w edytorze. U&zdot;yj <code>--check</code> do precyzyjnego wymuszania w CI.',
     feat6_title: 'Filtr git smudge/clean',
     feat6_desc: 'Automatyczne formatowanie przy zatwierdzeniu, przezroczyste dla wspo&lstrok;pracownikow. Dodaj do <code>.gitattributes</code> -- formatowanie dzieje sie cicho.',
+    feat7_title: 'Neuronowe wykrywanie zda&nacute;',
+    feat7_desc: 'Opcjonalne dzielenie ML przez nnsplit dla 9 j&eogon;zyk&oacute;w. U&zdot;yj <code>--neural --lang de</code> dla tekstu nieangloj&eogon;zycznego.',
+    feat8_title: 'Pomijanie region&oacute;w z pragmami',
+    feat8_desc: 'Oznacz r&eogon;cznie sformatowany tekst za pomoc&aogon; <code>snapper:off</code> / <code>snapper:on</code>. Poezja, wyr&oacute;wnany tekst i ASCII art przechodz&aogon; bez zmian.',
+    feat9_title: 'Konfiguracja jedn&aogon; komend&aogon;',
+    feat9_desc: '<code>snapper init</code> wykrywa formaty i generuje konfiguracj&eogon;, hooki pre-commit, gitattributes i snippety dla edytora.',
     install_label: 'Rozpocznij',
     install_title: 'Instalacja w kilka sekund',
     footer_provided: 'dostarczone przez',

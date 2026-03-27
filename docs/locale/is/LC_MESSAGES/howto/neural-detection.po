@@ -1,0 +1,208 @@
+# SOME DESCRIPTIVE TITLE.
+# Copyright (C) 2026--present, <a href="https://rgoswami.me">Rohit
+# Goswami</a>
+# This file is distributed under the same license as the snapper package.
+# FIRST AUTHOR <EMAIL@ADDRESS>, 2026.
+#
+msgid ""
+msgstr ""
+"Project-Id-Version: snapper \n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2026-03-27 23:21+0100\n"
+"PO-Revision-Date: 2026-03-27 23:00+0100\n"
+"Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
+"Language: is\n"
+"Language-Team: is <LL@li.org>\n"
+"Plural-Forms: nplurals=2; plural=(n%10==1 && n%100!=11 ? 0 : 1);\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=utf-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Generated-By: Babel 2.18.0\n"
+
+#: ../../source/howto/neural-detection.rst:3
+msgid "Neural Sentence Detection"
+msgstr "Taugakerfisgreining setninga"
+
+#: ../../source/howto/neural-detection.rst:8
+msgid "Overview"
+msgstr "Yfirlit"
+
+#: ../../source/howto/neural-detection.rst:10
+msgid ""
+"Snapper includes a neural sentence boundary detector via `nnsplit "
+"<https://github.com/bminixhofer/nnsplit>`_, a byte-level LSTM model "
+"running on `tract <https://github.com/sonos/tract>`_ (pure Rust ONNX "
+"inference)."
+msgstr ""
+"Snapper inniheldur taugakerfisstuðða setningamörkagreini gegnum `nnsplit "
+"<https://github.com/bminixhofer/nnsplit>`_, bæta-stigs LSTM "
+"erelíkan sem keyrir á `tract <https://github.com/sonos/tract>`_ "
+"(hreint Rust ONNX ályktunarvél)."
+
+#: ../../source/howto/neural-detection.rst:12
+msgid ""
+"The rule-based detector (default) handles English academic text well: "
+"abbreviations (Dr., Fig., Eq.), inline tokens (links, math), and standard"
+" punctuation. The neural detector handles languages where rule-based "
+"splitting falls short."
+msgstr ""
+"Reglubundni greinarinn (sjálfgefinn) meðhöndlar enskan fræðitexta vel: "
+"skammstafanir (Dr., Fig., Eq.), innlínueiningar (tenglar, stærðfræði) og "
+"staðlað greinarmerki. Taugakerfisgreinarinn meðhöndlar tungumál þar sem "
+"reglubundin skipting dugir ekki."
+
+#: ../../source/howto/neural-detection.rst:16
+msgid "When to use neural"
+msgstr "Hvenær á að nota taugakerfisgreiningu"
+
+#: ../../source/howto/neural-detection.rst:18
+msgid "Non-English text (German, French, Chinese, Russian, Turkish, etc.)"
+msgstr "Texti á öðrum tungumálum en ensku (þýska, franska, kínverska, rússneska, tyrkneska o.s.frv.)"
+
+#: ../../source/howto/neural-detection.rst:20
+msgid "Text with unusual punctuation patterns"
+msgstr "Texti með óvenjulegum greinarmerkjamynstrum"
+
+#: ../../source/howto/neural-detection.rst:22
+msgid ""
+"Mixed-language documents where abbreviation lists do not cover all "
+"languages"
+msgstr ""
+"Fjöltyngd skjöl þar sem skammstöfunarlistar ná ekki yfir öll "
+"tungumál"
+
+#: ../../source/howto/neural-detection.rst:24
+msgid ""
+"For English academic papers, the rule-based detector produces better "
+"results (faster, no false breaks on abbreviations like \"Fig.\")."
+msgstr ""
+"Fyrir enskar fræðigreinar gefur reglubundni greinarinn betri "
+"niðurstöður (hraðvirkari, engin röng skil á skammstöfunum eins og \"Fig.\")."
+
+#: ../../source/howto/neural-detection.rst:27
+msgid "Basic usage"
+msgstr "Grunnnotkun"
+
+#: ../../source/howto/neural-detection.rst:33
+msgid ""
+"On first run, the English model (~4MB) downloads and caches to "
+"``~/.cache/nnsplit/en/``. Subsequent runs load from cache."
+msgstr ""
+"Við fyrstu keyrslu hleðst enska erelíkanið (~4MB) niður og vistast í "
+"``~/.cache/nnsplit/en/``. Síðari keyrslur hlaða úr skyndiminni."
+
+#: ../../source/howto/neural-detection.rst:37
+msgid "Non-English languages"
+msgstr "Önnur tungumál en enska"
+
+#: ../../source/howto/neural-detection.rst:39
+msgid "Use ``--lang`` to select a language model:"
+msgstr "Notaðu ``--lang`` til að velja tungumálalíkan:"
+
+#: ../../source/howto/neural-detection.rst:47
+msgid ""
+"Available languages: ``en``, ``de``, ``fr``, ``no``, ``sv``, ``zh``, "
+"``tr``, ``ru``, ``uk``."
+msgstr ""
+"Tiltæk tungumál: ``en``, ``de``, ``fr``, ``no``, ``sv``, ``zh``, "
+"``tr``, ``ru``, ``uk``."
+
+#: ../../source/howto/neural-detection.rst:49
+msgid ""
+"Each model downloads on first use (~4MB each) and caches to "
+"``~/.cache/nnsplit/<lang>/``."
+msgstr ""
+"Hvert erelíkan hleðst niður við fyrstu notkun (~4MB hvert) og vistast í "
+"``~/.cache/nnsplit/<lang>/``."
+
+#: ../../source/howto/neural-detection.rst:52
+msgid "Custom models"
+msgstr "Sérsniðin erelíkön"
+
+#: ../../source/howto/neural-detection.rst:54
+msgid "Load a custom ONNX model file:"
+msgstr "Hlaða sérsniðinni ONNX erelíkansskrá:"
+
+#: ../../source/howto/neural-detection.rst:60
+msgid ""
+"Custom models must follow the nnsplit ONNX format (byte-level input, "
+"sigmoid output, ``split_sequence`` metadata)."
+msgstr ""
+"Sérsniðin erelíkön verða að fylgja nnsplit ONNX sniðinu (bæta-stigs "
+"inntak, sigmoid-úttak, ``split_sequence`` lýsigögn)."
+
+#: ../../source/howto/neural-detection.rst:63
+msgid "Performance comparison"
+msgstr "Afkastasamanburður"
+
+#: ../../source/howto/neural-detection.rst:68
+msgid "Mode"
+msgstr "Stilling"
+
+#: ../../source/howto/neural-detection.rst:68
+msgid "Speed"
+msgstr "Hraði"
+
+#: ../../source/howto/neural-detection.rst:68
+msgid "Abbreviation handling"
+msgstr "Meðhöndlun skammstafana"
+
+#: ../../source/howto/neural-detection.rst:68
+msgid "Best for"
+msgstr "Best fyrir"
+
+#: ../../source/howto/neural-detection.rst:70
+msgid "Rule-based (default)"
+msgstr "Reglubundið (sjálfgefið)"
+
+#: ../../source/howto/neural-detection.rst:70
+msgid "~5ms/file"
+msgstr "~5ms/skrá"
+
+#: ../../source/howto/neural-detection.rst:70
+msgid "Excellent (80+ rules)"
+msgstr "Framúrskarandi (80+ reglur)"
+
+#: ../../source/howto/neural-detection.rst:70
+msgid "English academic text"
+msgstr "Enskur fræðitexti"
+
+#: ../../source/howto/neural-detection.rst:72
+msgid "Neural (``--neural``)"
+msgstr "Taugakerfi (``--neural``)"
+
+#: ../../source/howto/neural-detection.rst:72
+msgid "~200ms/file"
+msgstr "~200ms/skrá"
+
+#: ../../source/howto/neural-detection.rst:72
+msgid "Model-dependent"
+msgstr "Háð erelíkani"
+
+#: ../../source/howto/neural-detection.rst:72
+msgid "Non-English, mixed text"
+msgstr "Ekki-enskur, blandaður texti"
+
+#: ../../source/howto/neural-detection.rst:75
+msgid ""
+"The rule-based detector starts instantly. The neural detector loads the "
+"model on first invocation (~100-500ms), then processes text at ~200ms per"
+" typical academic file."
+msgstr ""
+"Reglubundni greinarinn ræsist samstundis. Taugakerfisgreinarinn hleður "
+"erelíkaninu við fyrstu kvaðningu (~100-500ms) og vinnur síðan úr texta á "
+"~200ms fyrir dæmigerða fræðiskrá."
+
+#: ../../source/howto/neural-detection.rst:79
+msgid "Combining with format-aware parsing"
+msgstr "Samþætting við sniðmeðvitaðan þáttara"
+
+#: ../../source/howto/neural-detection.rst:81
+msgid ""
+"Neural detection replaces only the sentence splitting step. Format-aware "
+"parsing (code blocks, math, drawers, tables) still applies. Inline token "
+"protection (links, math, code) still applies."
+msgstr ""
+"Taugakerfisgreining kemur aðeins í stað setningaskiptingarinnar. "
+"Sniðmeðvitaður þáttur (kóðablokkir, stærðfræði, skúffur, töflur) gildir "
+"enn. Innlínuvernd eininga (tenglar, stærðfræði, kóði) gildir enn."
