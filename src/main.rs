@@ -43,6 +43,19 @@ fn run() -> Result<()> {
                 }
                 return Ok(());
             }
+            Commands::GitDiff {
+                git_ref,
+                files,
+                format,
+                no_color,
+            } => {
+                let fmt = format.map(Format::from_arg);
+                let has_diff = snapper_fmt::git_diff::run_git_diff(git_ref, files, fmt, !no_color)?;
+                if has_diff {
+                    process::exit(1);
+                }
+                return Ok(());
+            }
             Commands::Lsp => {
                 let rt = tokio::runtime::Runtime::new().expect("failed to create tokio runtime");
                 rt.block_on(snapper_fmt::lsp::run_lsp());

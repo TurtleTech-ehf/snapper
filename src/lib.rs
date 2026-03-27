@@ -39,6 +39,7 @@ pub mod config;
 pub mod diff;
 pub mod files;
 pub mod format;
+pub mod git_diff;
 pub mod init;
 pub mod lsp;
 pub mod output;

@@ -1,18 +1,38 @@
 use std::path::{Path, PathBuf};
 
 use anyhow::Result;
+use serde::Deserialize;
+
+/// Per-format overrides in .snapperrc.toml.
+#[derive(Debug, Default, Deserialize)]
+#[serde(default)]
+pub struct FormatOverrides {
+    pub extra_abbreviations: Vec<String>,
+    pub max_width: Option<usize>,
+}
 
 /// Per-project configuration loaded from `.snapperrc.toml`.
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Deserialize)]
+#[serde(default)]
 pub struct ProjectConfig {
     /// Additional abbreviations that should not trigger sentence breaks.
     pub extra_abbreviations: Vec<String>,
     /// File patterns to ignore (glob syntax).
+    #[serde(alias = "ignore")]
     pub ignore_patterns: Vec<String>,
     /// Default format override.
+    #[serde(alias = "format")]
     pub default_format: Option<String>,
     /// Default max width.
     pub max_width: Option<usize>,
+    /// Default language for abbreviation sets.
+    pub lang: Option<String>,
+
+    /// Per-format overrides.
+    pub org: Option<FormatOverrides>,
+    pub latex: Option<FormatOverrides>,
+    pub markdown: Option<FormatOverrides>,
+    pub plaintext: Option<FormatOverrides>,
 }
 
 impl ProjectConfig {
@@ -39,41 +59,7 @@ impl ProjectConfig {
     }
 
     fn parse(toml_str: &str) -> Result<Self> {
-        let mut config = Self::default();
-
-        // Simple TOML parsing without pulling in a full TOML crate.
-        // We only support flat key = value and key = ["array"] forms.
-        for line in toml_str.lines() {
-            let line = line.trim();
-            if line.is_empty() || line.starts_with('#') {
-                continue;
-            }
-
-            if let Some((key, value)) = line.split_once('=') {
-                let key = key.trim();
-                let value = value.trim();
-
-                match key {
-                    "extra_abbreviations" => {
-                        config.extra_abbreviations = parse_string_array(value);
-                    }
-                    "ignore_patterns" | "ignore" => {
-                        config.ignore_patterns = parse_string_array(value);
-                    }
-                    "default_format" | "format" => {
-                        config.default_format =
-                            Some(value.trim_matches('"').trim_matches('\'').to_string());
-                    }
-                    "max_width" => {
-                        if let Ok(w) = value.parse::<usize>() {
-                            config.max_width = Some(w);
-                        }
-                    }
-                    _ => {} // Ignore unknown keys
-                }
-            }
-        }
-
+        let config: ProjectConfig = toml::from_str(toml_str)?;
         Ok(config)
     }
 
@@ -86,20 +72,35 @@ impl ProjectConfig {
             Self::find_and_load(&cwd)
         }
     }
-}
 
-/// Parse a TOML-style string array: ["foo", "bar", "baz"]
-fn parse_string_array(s: &str) -> Vec<String> {
-    let s = s.trim();
-    if !s.starts_with('[') || !s.ends_with(']') {
-        return vec![];
+    /// Get merged extra_abbreviations for a specific format, combining
+    /// top-level abbreviations with per-format overrides.
+    pub fn abbreviations_for_format(&self, format: &str) -> Vec<String> {
+        let mut abbrevs = self.extra_abbreviations.clone();
+        let overrides = match format {
+            "org" => self.org.as_ref(),
+            "latex" => self.latex.as_ref(),
+            "markdown" => self.markdown.as_ref(),
+            "plaintext" => self.plaintext.as_ref(),
+            _ => None,
+        };
+        if let Some(ov) = overrides {
+            abbrevs.extend(ov.extra_abbreviations.iter().cloned());
+        }
+        abbrevs
     }
-    let inner = &s[1..s.len() - 1];
-    inner
-        .split(',')
-        .map(|item| item.trim().trim_matches('"').trim_matches('\'').to_string())
-        .filter(|s| !s.is_empty())
-        .collect()
+
+    /// Get max_width for a specific format (per-format overrides top-level).
+    pub fn max_width_for_format(&self, format: &str) -> Option<usize> {
+        let overrides = match format {
+            "org" => self.org.as_ref(),
+            "latex" => self.latex.as_ref(),
+            "markdown" => self.markdown.as_ref(),
+            "plaintext" => self.plaintext.as_ref(),
+            _ => None,
+        };
+        overrides.and_then(|ov| ov.max_width).or(self.max_width)
+    }
 }
 
 #[cfg(test)]
@@ -123,12 +124,14 @@ extra_abbreviations = ["Dept", "Univ", "Corp"]
 ignore = ["*.bib", "*.cls"]
 format = "org"
 max_width = 80
+lang = "de"
 "#;
         let config = ProjectConfig::parse(toml).unwrap();
         assert_eq!(config.extra_abbreviations, vec!["Dept", "Univ", "Corp"]);
         assert_eq!(config.ignore_patterns, vec!["*.bib", "*.cls"]);
         assert_eq!(config.default_format, Some("org".to_string()));
         assert_eq!(config.max_width, Some(80));
+        assert_eq!(config.lang, Some("de".to_string()));
     }
 
     #[test]
@@ -136,5 +139,27 @@ max_width = 80
         let toml = "# comment\n\nextra_abbreviations = [\"Fig\"]\n";
         let config = ProjectConfig::parse(toml).unwrap();
         assert_eq!(config.extra_abbreviations, vec!["Fig"]);
+    }
+
+    #[test]
+    fn parse_per_format_overrides() {
+        let toml = r#"
+extra_abbreviations = ["Global"]
+max_width = 80
+
+[org]
+extra_abbreviations = ["PROPERTIES", "DEADLINE"]
+
+[latex]
+extra_abbreviations = ["Thm", "Lem"]
+max_width = 100
+"#;
+        let config = ProjectConfig::parse(toml).unwrap();
+        let org_abbrevs = config.abbreviations_for_format("org");
+        assert!(org_abbrevs.contains(&"Global".to_string()));
+        assert!(org_abbrevs.contains(&"PROPERTIES".to_string()));
+        assert_eq!(config.max_width_for_format("org"), Some(80));
+        assert_eq!(config.max_width_for_format("latex"), Some(100));
+        assert_eq!(config.max_width_for_format("plaintext"), Some(80));
     }
 }

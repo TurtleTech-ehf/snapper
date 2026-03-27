@@ -102,6 +102,21 @@ pub enum Commands {
         #[arg(long)]
         no_color: bool,
     },
+    /// Sentence-level diff against a git ref.
+    GitDiff {
+        /// Git ref to compare against (default: HEAD).
+        #[arg(default_value = "HEAD")]
+        git_ref: String,
+        /// Files to diff. If omitted, diffs all changed prose files.
+        #[arg()]
+        files: Vec<PathBuf>,
+        /// Input format (auto-detected from extension if omitted).
+        #[arg(short, long)]
+        format: Option<FormatArg>,
+        /// Disable colored output.
+        #[arg(long)]
+        no_color: bool,
+    },
     /// Start the LSP server (stdin/stdout).
     Lsp,
     /// Watch files and reformat on change.

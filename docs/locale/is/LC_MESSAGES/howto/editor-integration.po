@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: snapper \n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-03-27 21:56+0100\n"
+"POT-Creation-Date: 2026-03-28 00:41+0100\n"
 "PO-Revision-Date: 2026-03-27 23:00+0100\n"
 "Last-Translator: Rohit Goswami <rgoswami@ieee.org>\n"
 "Language: is\n"
@@ -33,7 +33,8 @@ msgid ""
 "formatters on buffer save, preserving cursor position."
 msgstr ""
 "`Apheleia <https://github.com/radian-software/apheleia>`_ keyrir ytri "
-"sníðmótunartól við vistun minnissvæðis og varðveitir staðsetningu bendils."
+"sníðmótunartól við vistun minnissvæðis og varðveitir staðsetningu "
+"bendils."
 
 #: ../../source/howto/editor-integration.rst:21
 msgid ""
@@ -56,14 +57,15 @@ msgid ""
 "Then ``gq`` to reformat selected text, or ``gggqG`` to reformat the "
 "entire buffer."
 msgstr ""
-"Síðan ``gq`` til að endursníða valinn texta, eða ``gggqG`` til að endursníða "
-"allt minnissvæðið."
+"Síðan ``gq`` til að endursníða valinn texta, eða ``gggqG`` til að "
+"endursníða allt minnissvæðið."
 
 #: ../../source/howto/editor-integration.rst:36
 msgid "For Neovim with ``conform.nvim``:"
 msgstr "Fyrir Neovim með ``conform.nvim``:"
 
 #: ../../source/howto/editor-integration.rst:56
+#: ../../source/howto/editor-integration.rst:109
 msgid "VS Code"
 msgstr "VS Code"
 
@@ -72,13 +74,50 @@ msgid "Use the \"Run on Save\" extension with a custom command:"
 msgstr "Notaðu \"Run on Save\" viðbótina með sérsniðinni skipun:"
 
 #: ../../source/howto/editor-integration.rst:74
+msgid "LSP (any editor with LSP support)"
+msgstr ""
+
+#: ../../source/howto/editor-integration.rst:76
+msgid "Snapper ships a Language Server Protocol implementation. Start it with:"
+msgstr ""
+
+#: ../../source/howto/editor-integration.rst:83
+msgid ""
+"This provides document formatting, range formatting, and diagnostics "
+"(flags lines with multiple sentences) over the standard LSP protocol on "
+"stdin/stdout."
+msgstr ""
+
+#: ../../source/howto/editor-integration.rst:86
+msgid "Neovim (native LSP)"
+msgstr ""
+
+#: ../../source/howto/editor-integration.rst:101
+#, fuzzy
+msgid "Emacs (eglot)"
+msgstr "Emacs (Apheleia)"
+
+#: ../../source/howto/editor-integration.rst:111
+msgid "Add to ``settings.json`` (requires a generic LSP client extension):"
+msgstr ""
+
+#: ../../source/howto/editor-integration.rst:126
+msgid "Helix"
+msgstr ""
+
+#: ../../source/howto/editor-integration.rst:128
+msgid "Add to ``~/.config/helix/languages.toml``:"
+msgstr ""
+
+#: ../../source/howto/editor-integration.rst:141
 msgid "Generic (any editor)"
 msgstr "Almennt (hvaða ritill sem er)"
 
-#: ../../source/howto/editor-integration.rst:76
+#: ../../source/howto/editor-integration.rst:143
 msgid ""
 "Snapper reads stdin and writes stdout by default. Any editor that "
 "supports piping through an external program works:"
 msgstr ""
 "Snapper les af stdin og skrifar á stdout sjálfgefið. Sérhver ritill sem "
 "styður að síga í gegnum ytra forrit virkar:"
+

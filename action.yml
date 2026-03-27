@@ -1,0 +1,58 @@
+name: 'snapper check'
+description: 'Check semantic line breaks in prose files'
+author: 'TurtleTech ehf'
+branding:
+  icon: 'file-text'
+  color: 'green'
+
+inputs:
+  files:
+    description: 'Files or glob patterns to check'
+    required: false
+    default: '**/*.org **/*.tex **/*.md'
+  format:
+    description: 'Force format (org, latex, markdown, plaintext). Auto-detected if omitted.'
+    required: false
+  sarif:
+    description: 'Upload SARIF results to GitHub Code Scanning'
+    required: false
+    default: 'false'
+  version:
+    description: 'snapper version to install'
+    required: false
+    default: 'latest'
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Install snapper
+      shell: bash
+      run: |
+        if [ "${{ inputs.version }}" = "latest" ]; then
+          curl --proto '=https' --tlsv1.2 -LsSf \
+            https://github.com/TurtleTech-ehf/snapper/releases/latest/download/snapper-installer.sh | sh
+        else
+          curl --proto '=https' --tlsv1.2 -LsSf \
+            https://github.com/TurtleTech-ehf/snapper/releases/download/v${{ inputs.version }}/snapper-installer.sh | sh
+        fi
+
+    - name: Check formatting
+      shell: bash
+      run: |
+        FORMAT_ARG=""
+        if [ -n "${{ inputs.format }}" ]; then
+          FORMAT_ARG="--format ${{ inputs.format }}"
+        fi
+
+        if [ "${{ inputs.sarif }}" = "true" ]; then
+          snapper --check --output-format sarif $FORMAT_ARG ${{ inputs.files }} > snapper.sarif 2>/dev/null || true
+        else
+          snapper --check $FORMAT_ARG ${{ inputs.files }}
+        fi
+
+    - name: Upload SARIF
+      if: inputs.sarif == 'true'
+      uses: github/codeql-action/upload-sarif@v3
+      with:
+        sarif_file: snapper.sarif
+        category: snapper

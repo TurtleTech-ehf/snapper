@@ -1,0 +1,31 @@
+[build-system]
+requires = ["maturin>=1.0,<2.0"]
+build-backend = "maturin"
+
+[project]
+name = "snapper-fmt"
+version = "0.2.1"
+description = "Semantic line break formatter for Org, LaTeX, Markdown, and plaintext"
+readme = "README.md"
+license = {text = "MIT"}
+requires-python = ">=3.8"
+authors = [{name = "Rohit Goswami", email = "rgoswami@ieee.org"}]
+keywords = ["semantic", "linebreak", "formatter", "latex", "orgmode", "git", "diff"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: Console",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Rust",
+    "Topic :: Text Processing :: Linguistic",
+    "Topic :: Software Development :: Version Control :: Git",
+]
+
+[project.urls]
+Homepage = "https://snapper.turtletech.us"
+Repository = "https://github.com/TurtleTech-ehf/snapper"
+Documentation = "https://snapper.turtletech.us/docs/"
+
+[tool.maturin]
+bindings = "bin"
+strip = true
