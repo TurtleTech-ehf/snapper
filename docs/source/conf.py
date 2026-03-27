@@ -15,6 +15,7 @@ exclude_patterns = []
 
 html_theme = "shibuya"
 html_static_path = ["_static"]
+html_favicon = "_static/favicon.ico"
 html_css_files = ["custom.css"]
 
 html_baseurl = "https://snapper.turtletech.us/docs/"
