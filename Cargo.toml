@@ -28,6 +28,8 @@ serde_json = "1"
 ec4rs = "1"
 notify = "7"
 glob = "0.3"
+tower-lsp = "0.20"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "io-std"] }
 
 nnsplit = { version = "0.5", features = ["tract-backend", "model-loader"] }
 
