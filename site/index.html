@@ -31,6 +31,43 @@
   --sans: 'Jost', system-ui, sans-serif;
 }
 
+[data-theme="dark"] {
+  --teal: #26a69a;
+  --teal-light: #4db6ac;
+  --coral: #ff8a80;
+  --yellow: #F1DB4B;
+  --green-dark: #a5d6a7;
+  --green-mid: #81c784;
+  --green-light: #66bb6a;
+  --cream: #1a2e1f;
+  --cream-light: #152218;
+  --bg: #0d1a12;
+  --text: #e0e8e2;
+  --text-muted: #8fa898;
+  --code-bg: #0a140e;
+  --diff-add: rgba(107,175,91,0.15);
+  --diff-add-strong: #4caf50;
+  --diff-rm: rgba(255,101,93,0.12);
+  --diff-rm-strong: #ef5350;
+}
+
+[data-theme="dark"] .feature-card {
+  background: #152218;
+  border-color: rgba(165,214,167,0.1);
+}
+
+[data-theme="dark"] .feature-card:hover {
+  border-color: rgba(165,214,167,0.2);
+  box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+}
+
+[data-theme="dark"] .pane-before { background: #152218; }
+[data-theme="dark"] .demo-tab { border-color: var(--green-dark); color: var(--green-dark); }
+[data-theme="dark"] .demo-tab.active { background: var(--green-dark); color: var(--bg); }
+[data-theme="dark"] .demo-panel { border-color: var(--green-dark); }
+[data-theme="dark"] .pane-before { border-right-color: var(--green-dark); }
+[data-theme="dark"] .install-card { background: var(--code-bg); }
+
 *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
 
 html { scroll-behavior: smooth; }
@@ -167,6 +204,37 @@ body::before {
 }
 
 /* ---- SCROLL HINT ---- */
+/* ---- THEME TOGGLE ---- */
+.theme-toggle {
+  position: fixed;
+  top: 1.25rem;
+  right: 1.25rem;
+  z-index: 100;
+  background: var(--cream);
+  border: 1px solid rgba(0,77,64,0.12);
+  border-radius: 50%;
+  width: 42px;
+  height: 42px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: background 0.2s, border-color 0.2s, transform 0.2s;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+  color: var(--text);
+}
+
+.theme-toggle:hover {
+  transform: scale(1.1);
+  border-color: rgba(0,77,64,0.25);
+}
+
+.theme-toggle svg { width: 20px; height: 20px; }
+.theme-toggle .icon-moon { display: none; }
+[data-theme="dark"] .theme-toggle .icon-sun { display: none; }
+[data-theme="dark"] .theme-toggle .icon-moon { display: block; }
+[data-theme="dark"] .theme-toggle { background: #1a2e1f; border-color: rgba(165,214,167,0.15); }
+
 .scroll-hint {
   position: absolute;
   bottom: 2rem;
@@ -557,6 +625,12 @@ footer a:hover { color: var(--teal); }
 </head>
 <body>
 
+<!-- ============ THEME TOGGLE ============ -->
+<button class="theme-toggle" aria-label="Toggle dark mode" onclick="toggleTheme()">
+  <svg class="icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="5"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg>
+  <svg class="icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+</button>
+
 <!-- ============ HERO ============ -->
 <section class="hero">
   <div class="hero-inner">
@@ -744,6 +818,24 @@ We present a method for formatting prose documents with semantic line breaks, wh
 </footer>
 
 <script>
+// Theme toggle
+function toggleTheme() {
+  const current = document.documentElement.getAttribute('data-theme');
+  const next = current === 'dark' ? 'light' : 'dark';
+  document.documentElement.setAttribute('data-theme', next);
+  localStorage.setItem('snapper-theme', next);
+}
+
+// Restore saved theme or respect system preference
+(function() {
+  const saved = localStorage.getItem('snapper-theme');
+  if (saved) {
+    document.documentElement.setAttribute('data-theme', saved);
+  } else if (window.matchMedia('(prefers-color-scheme: dark)').matches) {
+    document.documentElement.setAttribute('data-theme', 'dark');
+  }
+})();
+
 // Tab switching
 document.querySelectorAll('.demo-tab').forEach(tab => {
   tab.addEventListener('click', () => {
