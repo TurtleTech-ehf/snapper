@@ -2,6 +2,31 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 - - -
+## v0.2.0 - 2026-03-27
+#### Documentation
+- full Sphinx docs structure matching bless pattern - (9960580) - *HaoZeke*
+- document snapper-fmt crate name, add crate-level docs - (951da2f) - *HaoZeke*
+#### Features
+- add 7 new features for v0.2 - (40cef57) - *HaoZeke*
+- translate doc headers and nav for Icelandic and Polish, gettext .po structure for incremental prose translation - (4df21a4) - *HaoZeke*
+- multi-language docs (en/is/pl) via Sphinx gettext + Shibuya language selector - (9785ec6) - *HaoZeke*
+- favicons for landing page and sphinx docs - (4c38882) - *HaoZeke*
+- i18n (en/is/pl) with locale detection, fix docs logo link to landing page - (e9d4757) - *HaoZeke*
+- switch to Cloudflare Pages, add pixi deploy task with docs build - (b1c6b12) - *HaoZeke*
+- light/dark toggle with system preference, Umami analytics on landing page - (ccb7d2b) - *HaoZeke*
+- bigger logo, docs link, Umami analytics, Shibuya color scheme - (393a2bc) - *HaoZeke*
+- deploy landing page to snapper.rgoswami.me via GitHub Pages - (b346115) - *HaoZeke*
+#### Bug Fixes
+- repair broken .po header line endings from translate script - (fe3818c) - *HaoZeke*
+- gitignore build artifacts, fix DNS to CF Pages instead of GitHub Pages - (fdcff70) - *HaoZeke*
+- hermetic ox-rst install via git clone (no MELPA dependency) - (7d21601) - *HaoZeke*
+#### Miscellaneous Chores
+- bump version to 0.2.0 - (d71832c) - *HaoZeke*
+- transfer to TurtleTech-ehf, switch site to snapper.turtletech.us - (e4f37b7) - *HaoZeke*
+- rename crate to snapper-fmt for crates.io (binary stays snapper) - (0590fc0) - *HaoZeke*
+
+- - -
+
 ## v0.1.0 - 2026-03-27
 #### Features
 - add landing page with interactive before/after diff demo - (e7d4dab) - *HaoZeke*
