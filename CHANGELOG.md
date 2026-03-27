@@ -2,6 +2,14 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 - - -
+## v0.2.1 - 2026-03-27
+#### Features
+- add cargo-dist release CI for cross-platform binaries and binstall support - (dfffb56) - *HaoZeke*
+#### Miscellaneous Chores
+- bump to 0.2.1 for first binary release - (d9c591b) - *HaoZeke*
+
+- - -
+
 ## v0.2.0 - 2026-03-27
 #### Documentation
 - full Sphinx docs structure matching bless pattern - (9960580) - *HaoZeke*
