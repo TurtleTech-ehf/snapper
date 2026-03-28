@@ -2,6 +2,27 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 - - -
+## v0.3.0 - 2026-03-28
+#### Documentation
+- LSP editor integration docs (Neovim, Emacs eglot, VS Code, Helix), translated quickstart updates - (ce60558) - *HaoZeke*
+- update CLI reference for v0.2, add neural detection and pragmas howto guides - (48afc73) - *HaoZeke*
+#### Features
+- multi-language abbreviations (de/fr/is/pl), proper TOML config with serde, git-diff, GitHub Action, Homebrew tap, pip/maturin package - (af2c2cd) - *HaoZeke*
+- git-diff, proper TOML config, GitHub Action, Homebrew tap, pip package - (b52bd83) - *HaoZeke*
+- LSP server (snapper lsp) with formatting, range formatting, and diagnostics - (8c44eea) - *HaoZeke*
+- sdiff demo tab on landing page, updated quickstart and README with sdiff/watch/init - (e59ecc3) - *HaoZeke*
+- sentence-level diff (snapper sdiff) and watch mode (snapper watch) - (d241c1e) - *HaoZeke*
+- add lychee link checker, typos spell check, and dogfood CI; close snapper-3sx - (f25a6d5) - *HaoZeke*
+- SEO audit fixes (meta/OG/Twitter/JSON-LD/sitemap/robots), 3 new feature cards, compressed logo, v0.2 feature i18n - (7708fdf) - *HaoZeke*
+- neural sentence detection via nnsplit (always-on, no feature flag) - (0322a17) - *HaoZeke*
+#### Bug Fixes
+- binstall metadata (correct archive names and format), add PyPI maturin wheel CI - (e8e46be) - *HaoZeke*
+#### Miscellaneous Chores
+- bump to 0.3.0 - (1611299) - *HaoZeke*
+- gitignore overrides for lychee and typos configs - (fdaa53b) - *HaoZeke*
+
+- - -
+
 ## v0.2.1 - 2026-03-27
 #### Features
 - add cargo-dist release CI for cross-platform binaries and binstall support - (dfffb56) - *HaoZeke*
