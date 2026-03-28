@@ -3,9 +3,9 @@
 # This file is distributed under the same license as the snapper package.
 msgid ""
 msgstr ""
-"Project-Id-Version: snapper\n"
+"Project-Id-Version:  snapper\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-03-27 21:56+0100\n"
+"POT-Creation-Date: 2026-03-28 02:18+0100\n"
 "PO-Revision-Date: 2026-03-27 23:00+0100\n"
 "Last-Translator: Rohit Goswami <rgoswami@ieee.org>\n"
 "Language: pl\n"
@@ -15,6 +15,7 @@ msgstr ""
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=utf-8\n"
 "Content-Transfer-Encoding: 8bit\n"
+"Generated-By: Babel 2.18.0\n"
 
 #: ../../source/faq/index.rst:3
 msgid "FAQ"
@@ -31,8 +32,8 @@ msgid ""
 "actual edit. Sentence-per-line formatting means a one-word change "
 "produces a one-line diff."
 msgstr ""
-"Zawijanie kolumnowe powoduje przepływ całego akapitu przy zmianie jednego "
-"słowa. Recenzenci widzą cały akapit w diff-ie, co zasłania rzeczywistą "
+"Zawijanie kolumnowe powoduje przepływ całego akapitu przy zmianie jednego"
+" słowa. Recenzenci widzą cały akapit w diff-ie, co zasłania rzeczywistą "
 "zmianę. Formatowanie jedno-zdanie-na-linię sprawia, że zmiana jednego "
 "słowa daje jednolinijkowy diff."
 
@@ -41,17 +42,18 @@ msgid "Does this affect how the document renders?"
 msgstr "Czy wpływa to na wygląd wyrenderowanego dokumentu?"
 
 #: ../../source/faq/index.rst:17
+#, fuzzy
 msgid ""
-"No. LaTeX, Org-mode, Markdown, and most prose formats treat single "
+"No. LaTeX, Org-mode, Markdown, RST, and most prose formats treat single "
 "newlines as whitespace. Two consecutive newlines start a new paragraph. "
 "Snapper preserves paragraph breaks (blank lines) and only changes where "
 "single newlines occur within a paragraph."
 msgstr ""
 "Nie. LaTeX, Org-mode, Markdown i większość formatów tekstowych traktuje "
 "pojedyncze znaki nowej linii jako spacje. Dwa kolejne znaki nowej linii "
-"rozpoczynają nowy akapit. Snapper zachowuje podziały akapitów (puste linie) "
-"i zmienia tylko miejsca, gdzie pojedyncze znaki nowej linii występują "
-"wewnątrz akapitu."
+"rozpoczynają nowy akapit. Snapper zachowuje podziały akapitów (puste "
+"linie) i zmienia tylko miejsca, gdzie pojedyncze znaki nowej linii "
+"występują wewnątrz akapitu."
 
 #: ../../source/faq/index.rst:22
 msgid "My collaborators don't use snapper."
@@ -69,54 +71,75 @@ msgid ""
 "how-to guide)."
 msgstr ""
 "Nie. Formatowanie wpływa tylko na białe znaki wewnątrz akapitów. "
-"Współpracownicy mogą edytować normalnie, a ich zmiany będą się łączyć "
-"bez konfliktów. Dla w pełni przezroczystej integracji użyj filtra git "
+"Współpracownicy mogą edytować normalnie, a ich zmiany będą się łączyć bez"
+" konfliktów. Dla w pełni przezroczystej integracji użyj filtra git "
 "smudge/clean (zobacz przewodnik)."
 
 #: ../../source/faq/index.rst:31
-msgid "Why does snapper split \"Dr."
+#, fuzzy
+msgid "Why does snapper handle \"Dr. Smith\" correctly?"
 msgstr "Dlaczego snapper dzieli \"Dr."
 
 #: ../../source/faq/index.rst:33
-msgid "Smith\" correctly?"
-msgstr "Smith\" poprawnie?"
-
-#: ../../source/faq/index.rst:35
+#, fuzzy
 msgid ""
-"Snapper maintains a curated list of 80+ abbreviations (titles, Latin "
-"terms, academic references, single-letter initials). After Unicode "
-"sentence boundary detection, it merges any splits that occurred at known "
-"abbreviation periods. You can add project-specific abbreviations via "
-"``.snapperrc.toml``."
+"Snapper maintains curated abbreviation lists for English (80+), German, "
+"French, Icelandic, and Polish. After Unicode sentence boundary detection,"
+" it merges any splits that occurred at known abbreviation periods. Select"
+" a language with ``--lang de`` (or set ``lang = \"de\"`` in "
+"``.snapperrc.toml``). You can also add project-specific abbreviations via"
+" ``extra_abbreviations`` in the config file."
 msgstr ""
-"Snapper utrzymuje starannie dobraną listę ponad 80 skrótów (tytuły, terminy "
-"łacińskie, odniesienia naukowe, jednoliterowe inicjały). Po wykryciu granic "
-"zdań Unicode łączy podziały, które wystąpiły przy znanych kropkach skrótów. "
-"Możesz dodać skróty specyficzne dla projektu w ``.snapperrc.toml``."
+"Snapper utrzymuje starannie dobraną listę ponad 80 skrótów (tytuły, "
+"terminy łacińskie, odniesienia naukowe, jednoliterowe inicjały). Po "
+"wykryciu granic zdań Unicode łączy podziały, które wystąpiły przy znanych"
+" kropkach skrótów. Możesz dodać skróty specyficzne dla projektu w "
+"``.snapperrc.toml``."
 
-#: ../../source/faq/index.rst:40
+#: ../../source/faq/index.rst:38
 msgid "What about non-English text?"
 msgstr "Co z tekstem w językach innych niż angielski?"
 
+#: ../../source/faq/index.rst:40
+msgid "Snapper supports non-English text in two ways:"
+msgstr ""
+
 #: ../../source/faq/index.rst:42
 msgid ""
-"The Unicode UAX #29 sentence boundary algorithm works across languages. "
-"The abbreviation list currently covers English. A ``--lang`` flag and "
-"multi-language abbreviation sets are planned. For languages where rule-"
-"based splitting performs poorly, a neural mode (``--neural``, via "
-"nnsplit) is planned behind a feature flag."
+"**Rule-based abbreviation sets** for German (``de``), French (``fr``), "
+"Icelandic (``is``), and Polish (``pl``)."
 msgstr ""
-"Algorytm granic zdań Unicode UAX #29 działa we wszystkich językach. "
-"Lista skrótów obejmuje obecnie angielski. Flaga ``--lang`` i wielojęzyczne "
-"zestawy skrótów są planowane. Dla języków, w których dzielenie oparte na "
-"regułach działa słabo, tryb neuronowy (``--neural``, przez nnsplit) "
-"jest planowany za flagą funkcji."
 
-#: ../../source/faq/index.rst:48
+#: ../../source/faq/index.rst:44
+msgid ""
+"Select with ``--lang de``. The Unicode UAX #29 sentence boundary "
+"algorithm works across all languages."
+msgstr ""
+
+#: ../../source/faq/index.rst:47
+msgid ""
+"**Neural sentence detection** via nnsplit for 9 languages (en, de, fr, "
+"no, sv, zh, tr, ru, uk)."
+msgstr ""
+
+#: ../../source/faq/index.rst:49
+msgid ""
+"Enable with ``--neural --lang de``. Models download on first use (~4MB, "
+"cached)."
+msgstr ""
+
+#: ../../source/faq/index.rst:52
+msgid ""
+"The rule-based approach handles most academic text well and runs 18x "
+"faster. Use neural for languages where abbreviation rules fall short "
+"(Chinese, Turkish, etc.)."
+msgstr ""
+
+#: ../../source/faq/index.rst:56
 msgid "Can I use snapper as a library?"
 msgstr "Czy mogę używać snappera jako biblioteki?"
 
-#: ../../source/faq/index.rst:50
+#: ../../source/faq/index.rst:58
 msgid ""
 "Yes. The crate (``snapper-fmt``) exposes ``format_text()`` and all "
 "internal modules:"
@@ -124,43 +147,139 @@ msgstr ""
 "Tak. Crate (``snapper-fmt``) udostępnia ``format_text()`` i wszystkie "
 "wewnętrzne moduły:"
 
-#: ../../source/faq/index.rst:67
+#: ../../source/faq/index.rst:77
 msgid "How fast is it?"
 msgstr "Jak szybki jest snapper?"
 
-#: ../../source/faq/index.rst:69
+#: ../../source/faq/index.rst:79
 msgid ""
-"Snapper processes typical academic papers (10-50 pages) in under 10ms. No"
-" runtime dependencies, no network calls, no model loading. The neural "
-"mode (when implemented) adds startup cost for model loading."
+"Snapper processes typical academic papers (10-50 pages) in under 10ms "
+"with the rule-based splitter. Neural mode adds ~200ms per file (model "
+"load + inference via tract, pure Rust ONNX). No external runtime "
+"dependencies."
 msgstr ""
-"Snapper przetwarza typowe artykuły naukowe (10-50 stron) w mniej niż 10ms. "
-"Bez zależności uruchomieniowych, bez połączeń sieciowych, bez ładowania "
-"modeli. Tryb neuronowy (po wdrożeniu) dodaje koszt uruchomienia "
-"związany z ładowaniem modelu."
 
-#: ../../source/faq/index.rst:74
+#: ../../source/faq/index.rst:84
 msgid "What about CRLF line endings?"
 msgstr "Co ze znakami końca linii CRLF?"
 
-#: ../../source/faq/index.rst:76
+#: ../../source/faq/index.rst:86
 msgid ""
 "Snapper detects the input's line ending convention (LF or CRLF) and "
 "preserves it in the output. Internally, processing normalizes to LF and "
 "converts back before writing."
 msgstr ""
 "Snapper wykrywa konwencję znaków końca linii wejścia (LF lub CRLF) i "
-"zachowuje ją na wyjściu. Wewnętrznie przetwarzanie normalizuje do LF "
-"i konwertuje z powrotem przed zapisem."
+"zachowuje ją na wyjściu. Wewnętrznie przetwarzanie normalizuje do LF i "
+"konwertuje z powrotem przed zapisem."
 
-#: ../../source/faq/index.rst:80
+#: ../../source/faq/index.rst:90
+msgid "Can I skip formatting for specific sections?"
+msgstr ""
+
+#: ../../source/faq/index.rst:92
+msgid "Yes. Use ``snapper:off`` and ``snapper:on`` pragmas in comments:"
+msgstr ""
+
+#: ../../source/faq/index.rst:95
+msgid "Org: ``# snapper:off`` / ``# snapper:on``"
+msgstr ""
+
+#: ../../source/faq/index.rst:97
+#, python-format
+msgid "LaTeX: ``% snapper:off`` / ``% snapper:on``"
+msgstr ""
+
+#: ../../source/faq/index.rst:99
+msgid "Markdown: ``<!-- snapper:off -->`` / ``<!-- snapper:on -->``"
+msgstr ""
+
+#: ../../source/faq/index.rst:101
+msgid "RST/Plaintext: ``snapper:off`` / ``snapper:on`` on their own line"
+msgstr ""
+
+#: ../../source/faq/index.rst:103
+msgid ""
+"Text between these markers passes through unchanged. Useful for poetry, "
+"aligned text, or ASCII art."
+msgstr ""
+
+#: ../../source/faq/index.rst:107
+#, fuzzy
+msgid "What formats does snapper support?"
+msgstr "Dlaczego snapper dzieli \"Dr."
+
+#: ../../source/faq/index.rst:109
+msgid ""
+"Org-mode, LaTeX, Markdown, reStructuredText, and plaintext. Format auto-"
+"detects from the file extension. Override with ``--format rst`` (or "
+"``org``, ``latex``, ``markdown``, ``plaintext``)."
+msgstr ""
+
+#: ../../source/faq/index.rst:114
+msgid "How do I compare versions at the sentence level?"
+msgstr ""
+
+#: ../../source/faq/index.rst:116
+msgid "Use ``snapper sdiff`` to diff two files at sentence granularity:"
+msgstr ""
+
+#: ../../source/faq/index.rst:122
+msgid "Or diff against a git ref:"
+msgstr ""
+
+#: ../../source/faq/index.rst:128
+msgid "Whitespace reflow produces zero diff. Only actual content changes appear."
+msgstr ""
+
+#: ../../source/faq/index.rst:132
 msgid "How do I report a bug or request a feature?"
 msgstr "Jak zgłosić błąd lub poprosić o nową funkcję?"
 
-#: ../../source/faq/index.rst:82
+#: ../../source/faq/index.rst:134
 msgid ""
 "File an issue at `github.com/TurtleTech-ehf/snapper/issues "
 "<https://github.com/TurtleTech-ehf/snapper/issues>`_."
 msgstr ""
 "Zgłoś problem na `github.com/TurtleTech-ehf/snapper/issues "
 "<https://github.com/TurtleTech-ehf/snapper/issues>`_."
+
+#~ msgid "Smith\" correctly?"
+#~ msgstr "Smith\" poprawnie?"
+
+#~ msgid ""
+#~ "The Unicode UAX #29 sentence boundary"
+#~ " algorithm works across languages. The "
+#~ "abbreviation list currently covers English."
+#~ " A ``--lang`` flag and multi-language"
+#~ " abbreviation sets are planned. For "
+#~ "languages where rule-based splitting "
+#~ "performs poorly, a neural mode "
+#~ "(``--neural``, via nnsplit) is planned "
+#~ "behind a feature flag."
+#~ msgstr ""
+#~ "Algorytm granic zdań Unicode UAX #29 "
+#~ "działa we wszystkich językach. Lista "
+#~ "skrótów obejmuje obecnie angielski. Flaga "
+#~ "``--lang`` i wielojęzyczne zestawy skrótów "
+#~ "są planowane. Dla języków, w których "
+#~ "dzielenie oparte na regułach działa "
+#~ "słabo, tryb neuronowy (``--neural``, przez "
+#~ "nnsplit) jest planowany za flagą "
+#~ "funkcji."
+
+#~ msgid ""
+#~ "Snapper processes typical academic papers "
+#~ "(10-50 pages) in under 10ms. No "
+#~ "runtime dependencies, no network calls, "
+#~ "no model loading. The neural mode "
+#~ "(when implemented) adds startup cost for"
+#~ " model loading."
+#~ msgstr ""
+#~ "Snapper przetwarza typowe artykuły naukowe "
+#~ "(10-50 stron) w mniej niż 10ms. "
+#~ "Bez zależności uruchomieniowych, bez połączeń"
+#~ " sieciowych, bez ładowania modeli. Tryb "
+#~ "neuronowy (po wdrożeniu) dodaje koszt "
+#~ "uruchomienia związany z ładowaniem modelu."
+

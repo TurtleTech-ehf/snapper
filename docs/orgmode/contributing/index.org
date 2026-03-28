@@ -34,23 +34,34 @@ pixi run -e dev dogfood
 
 #+begin_example
 src/
-  main.rs             -- Entry point, CLI dispatch
-  lib.rs              -- Public API: format_text(), FormatConfig
-  cli.rs              -- Clap derive CLI definition
-  config.rs           -- .snapperrc.toml project config loader
+  main.rs             -- Entry point, CLI dispatch, subcommand routing
+  lib.rs              -- Public API: format_text(), FormatConfig, build_splitter()
+  cli.rs              -- Clap derive CLI + subcommands (init, sdiff, git-diff, watch, lsp)
+  config.rs           -- .snapperrc.toml serde-based config with per-format sections
   format.rs           -- Format enum + auto-detection from extension
   diff.rs             -- Unified diff output for --diff mode
-  abbreviations.rs    -- Built-in abbreviation lists
+  sdiff.rs            -- Sentence-level diff (snapper sdiff)
+  git_diff.rs         -- Git-aware sentence diff (snapper git-diff)
+  init.rs             -- Project initialization (snapper init)
+  lsp.rs              -- LSP server (snapper lsp) via tower-lsp
+  watch.rs            -- File watcher (snapper watch) via notify
+  output.rs           -- JSON/SARIF output for --check mode
+  abbreviations.rs    -- Multi-language abbreviation lists (en, de, fr, is, pl)
   reflow.rs           -- Core reflow engine (regions + splitter -> output)
+  files.rs            -- File-level formatting utilities
   sentence/
     mod.rs            -- SentenceSplitter trait
     unicode.rs        -- UAX #29 + abbreviation merge + placeholder system
+    neural.rs         -- nnsplit LSTM sentence detection (9 languages)
   parser/
-    mod.rs            -- Region enum, FormatParser trait
+    mod.rs            -- Region enum, FormatParser trait, pragma support
     org.rs            -- Org-mode parser
     latex.rs          -- LaTeX parser
     markdown.rs       -- Markdown parser
+    rst.rs            -- reStructuredText parser
     plaintext.rs      -- Plaintext parser (everything is prose)
+editors/
+  vscode/             -- VS Code extension (LSP client)
 tests/
   integration.rs      -- Integration tests (format, check, idempotency, stdin)
   fixtures/           -- Sample input/expected output pairs per format

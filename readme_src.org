@@ -21,19 +21,31 @@ Existing tools fall short: latexindent.pl only handles LaTeX, SemBr requires Pyt
 Structure regions (code blocks, math environments, tables, front matter, drawers, comments) pass through unchanged.
 Sentence detection relies on Unicode UAX #29 segmentation with abbreviation-aware post-processing that avoids false breaks at titles (Dr., Prof.), references (Fig., Eq.), and Latin terms (e.g., i.e., et al.).
 * Installation
-From [[https://crates.io/crates/snapper-fmt][crates.io]] (the crate is =snapper-fmt=, the binary it installs is =snapper=):
+Pre-built binary (fastest):
+#+begin_src bash
+cargo binstall snapper-fmt
+#+end_src
+Shell one-liner (Linux/macOS):
+#+begin_src bash
+curl -LsSf https://github.com/TurtleTech-ehf/snapper/releases/latest/download/snapper-fmt-installer.sh | sh
+#+end_src
+Homebrew:
+#+begin_src bash
+brew install TurtleTech-ehf/tap/snapper-fmt
+#+end_src
+pip:
+#+begin_src bash
+pip install snapper-fmt
+#+end_src
+Compile from source:
 #+begin_src bash
 cargo install snapper-fmt
 #+end_src
-From source:
-#+begin_src bash
-cargo build --release
-# Binary at ./target/release/snapper
-#+end_src
-With Nix:
+Nix:
 #+begin_src bash
 nix build github:TurtleTech-ehf/snapper
 #+end_src
+The crate is =snapper-fmt= on all registries; the binary it installs is =snapper=.
 * Usage
 Format a file (output to stdout):
 #+begin_src bash

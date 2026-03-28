@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: snapper \n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-03-27 23:21+0100\n"
+"POT-Creation-Date: 2026-03-28 02:18+0100\n"
 "PO-Revision-Date: 2026-03-27 23:00+0100\n"
 "Last-Translator: Rohit Goswami <rgoswami@ieee.org>\n"
 "Language: is\n"
@@ -27,23 +27,23 @@ msgstr "CLI tilvísun"
 msgid "Synopsis"
 msgstr "Yfirlit"
 
-#: ../../source/reference/cli.rst:14
+#: ../../source/reference/cli.rst:18
 msgid "If no files are given, ``snapper`` reads from stdin and writes to stdout."
 msgstr "Ef engar skrár eru gefnar les ``snapper`` af stdin og skrifar á stdout."
 
-#: ../../source/reference/cli.rst:17
+#: ../../source/reference/cli.rst:21
 msgid "Options"
 msgstr "Valkostir"
 
-#: ../../source/reference/cli.rst:20
+#: ../../source/reference/cli.rst:24
 msgid "``-f``, ``--format <FORMAT>``"
 msgstr "``-f``, ``--format <FORMAT>``"
 
-#: ../../source/reference/cli.rst:22
+#: ../../source/reference/cli.rst:26
 msgid "Input format. One of: ``org``, ``latex``, ``markdown``, ``plaintext``."
 msgstr "Inntakssnið. Eitt af: ``org``, ``latex``, ``markdown``, ``plaintext``."
 
-#: ../../source/reference/cli.rst:25
+#: ../../source/reference/cli.rst:29
 msgid ""
 "Auto-detected from file extension when omitted. Defaults to ``plaintext``"
 " for stdin."
@@ -51,11 +51,11 @@ msgstr ""
 "Sjálfgreinist frá skráarendingu þegar sleppt er. Sjálfgefið er "
 "``plaintext`` fyrir stdin."
 
-#: ../../source/reference/cli.rst:29
+#: ../../source/reference/cli.rst:33
 msgid "``--stdin-filepath <PATH>``"
 msgstr "``--stdin-filepath <PATH>``"
 
-#: ../../source/reference/cli.rst:31
+#: ../../source/reference/cli.rst:35
 msgid ""
 "Assume this filename when reading stdin, for format auto-detection. "
 "Useful for editor integrations that pipe buffer contents."
@@ -64,45 +64,45 @@ msgstr ""
 "sjálfvirka sniðgreiningu. Gagnlegt fyrir samþættingu ritla sem pípa "
 "innihald biðminnis."
 
-#: ../../source/reference/cli.rst:34
+#: ../../source/reference/cli.rst:38
 msgid "Example: ``cat paper.org | snapper --stdin-filepath paper.org``"
 msgstr "Dæmi: ``cat paper.org | snapper --stdin-filepath paper.org``"
 
-#: ../../source/reference/cli.rst:37
+#: ../../source/reference/cli.rst:41
 msgid "``-o``, ``--output <FILE>``"
 msgstr "``-o``, ``--output <FILE>``"
 
-#: ../../source/reference/cli.rst:39
+#: ../../source/reference/cli.rst:43
 msgid "Write output to a file instead of stdout."
 msgstr "Skrifa úttak í skrá í stað stdout."
 
-#: ../../source/reference/cli.rst:42
+#: ../../source/reference/cli.rst:46
 msgid "``-i``, ``--in-place``"
 msgstr "``-i``, ``--in-place``"
 
-#: ../../source/reference/cli.rst:44
+#: ../../source/reference/cli.rst:48
 msgid "Modify input files in place. Requires file arguments (not stdin)."
 msgstr "Breyta inntaksskrám á staðnum. Krefst skráarviðfanga (ekki stdin)."
 
-#: ../../source/reference/cli.rst:48
+#: ../../source/reference/cli.rst:52
 msgid "``-w``, ``--max-width <N>``"
 msgstr "``-w``, ``--max-width <N>``"
 
-#: ../../source/reference/cli.rst:50
+#: ../../source/reference/cli.rst:54
 msgid ""
 "Maximum line width. Sentences exceeding this width are wrapped at word "
 "boundaries using ``textwrap``. Default: ``0`` (unlimited). Also respects "
 "``max_line_length`` from ``.editorconfig`` if present."
 msgstr ""
-"Hámarkslínubreidd. Setningar sem fara yfir þessa breidd eru umbrotnar við "
-"orðamörk með ``textwrap``. Sjálfgefið: ``0`` (ótakmarkað). Virðir einnig "
-"``max_line_length`` úr ``.editorconfig`` ef til staðar."
+"Hámarkslínubreidd. Setningar sem fara yfir þessa breidd eru umbrotnar við"
+" orðamörk með ``textwrap``. Sjálfgefið: ``0`` (ótakmarkað). Virðir einnig"
+" ``max_line_length`` úr ``.editorconfig`` ef til staðar."
 
-#: ../../source/reference/cli.rst:56
+#: ../../source/reference/cli.rst:60
 msgid "``--check``"
 msgstr "``--check``"
 
-#: ../../source/reference/cli.rst:58
+#: ../../source/reference/cli.rst:62
 msgid ""
 "Check mode for CI. Exits with code 1 if any file would change, without "
 "modifying anything. Prints the paths of files that would be reformatted "
@@ -112,11 +112,11 @@ msgstr ""
 "breytast, án þess að breyta neinu. Prentar slóðir skráa sem myndu "
 "endursníðast á stderr."
 
-#: ../../source/reference/cli.rst:63
+#: ../../source/reference/cli.rst:67
 msgid "``--diff``"
 msgstr "``--diff``"
 
-#: ../../source/reference/cli.rst:65
+#: ../../source/reference/cli.rst:69
 msgid ""
 "Show a unified diff of what would change, without modifying anything. "
 "Useful for reviewing before committing. Exits with code 1 if any file "
@@ -126,29 +126,29 @@ msgstr ""
 "Gagnlegt til rýni áður en lagt er inn. Hættir með kóða 1 ef einhver skrá "
 "myndi breytast."
 
-#: ../../source/reference/cli.rst:70
+#: ../../source/reference/cli.rst:74
 msgid "``--range <START:END>``"
 msgstr "``--range <START:END>``"
 
-#: ../../source/reference/cli.rst:72
+#: ../../source/reference/cli.rst:76
 msgid ""
 "Only format lines in the given range (1-indexed, inclusive). Lines "
 "outside the range pass through unchanged. Useful for editor format-"
 "selection integrations."
 msgstr ""
-"Aðeins sníða línur innan tiltekins bils (1-númerað, meðtalið). Línur "
-"utan bilsins fara í gegn óbreyttar. Gagnlegt fyrir samþættingu "
-"sniðvals í ritli."
+"Aðeins sníða línur innan tiltekins bils (1-númerað, meðtalið). Línur utan"
+" bilsins fara í gegn óbreyttar. Gagnlegt fyrir samþættingu sniðvals í "
+"ritli."
 
-#: ../../source/reference/cli.rst:76
+#: ../../source/reference/cli.rst:80
 msgid "Example: ``snapper --range 10:20 paper.org``"
 msgstr "Dæmi: ``snapper --range 10:20 paper.org``"
 
-#: ../../source/reference/cli.rst:79
+#: ../../source/reference/cli.rst:83
 msgid "``--output-format <text|json|sarif>``"
 msgstr "``--output-format <text|json|sarif>``"
 
-#: ../../source/reference/cli.rst:81
+#: ../../source/reference/cli.rst:85
 msgid ""
 "Output format for ``--check`` mode. Default: ``text`` (prints filenames "
 "to stderr)."
@@ -156,19 +156,19 @@ msgstr ""
 "Úttakssnið fyrir ``--check`` stillingu. Sjálfgefið: ``text`` (prentar "
 "skráarnöfn á stderr)."
 
-#: ../../source/reference/cli.rst:84
+#: ../../source/reference/cli.rst:88
 msgid "``json`` : outputs a JSON array with file paths and line counts"
 msgstr "``json`` : skilar JSON-fylki með skráarslóðum og línufjölda"
 
-#: ../../source/reference/cli.rst:86
+#: ../../source/reference/cli.rst:90
 msgid "``sarif`` : outputs SARIF v2.1.0 for GitHub Code Scanning integration"
 msgstr "``sarif`` : skilar SARIF v2.1.0 fyrir GitHub Code Scanning samþættingu"
 
-#: ../../source/reference/cli.rst:89
+#: ../../source/reference/cli.rst:93
 msgid "``--neural``"
 msgstr "``--neural``"
 
-#: ../../source/reference/cli.rst:91
+#: ../../source/reference/cli.rst:95
 msgid ""
 "Use neural sentence detection via nnsplit (byte-level LSTM, tract "
 "backend). Downloads and caches the model (~4MB) to ``~/.cache/nnsplit/`` "
@@ -177,28 +177,27 @@ msgid ""
 msgstr ""
 "Nota taugakerfisstuðða setningargreiningu gegnum nnsplit (bæta-stigs "
 "LSTM, tract-bakendi). Hleður niður og vistar eredlíkanið (~4MB) í "
-"``~/.cache/nnsplit/`` við fyrstu notkun. Reglubundin greining er "
-"áfram sjálfgefin (hraðvirkari, betri meðhöndlun skammstafana). "
+"``~/.cache/nnsplit/`` við fyrstu notkun. Reglubundin greining er áfram "
+"sjálfgefin (hraðvirkari, betri meðhöndlun skammstafana). "
 "Taugakerfisgreining er yfirburða fyrir texta á öðrum tungumálum en ensku."
 
-#: ../../source/reference/cli.rst:97
+#: ../../source/reference/cli.rst:101
 msgid "``--lang <CODE>``"
 msgstr "``--lang <CODE>``"
 
-#: ../../source/reference/cli.rst:99
+#: ../../source/reference/cli.rst:103
 msgid ""
 "Language for neural sentence detection. Default: ``en``. Available: "
 "``en``, ``de``, ``fr``, ``no``, ``sv``, ``zh``, ``tr``, ``ru``, ``uk``."
 msgstr ""
-"Tungumál fyrir taugakerfissetningargreiningu. Sjálfgefið: ``en``. "
-"Tiltæk: ``en``, ``de``, ``fr``, ``no``, ``sv``, ``zh``, ``tr``, "
-"``ru``, ``uk``."
+"Tungumál fyrir taugakerfissetningargreiningu. Sjálfgefið: ``en``. Tiltæk:"
+" ``en``, ``de``, ``fr``, ``no``, ``sv``, ``zh``, ``tr``, ``ru``, ``uk``."
 
-#: ../../source/reference/cli.rst:104
+#: ../../source/reference/cli.rst:108
 msgid "``--model-path <PATH>``"
 msgstr "``--model-path <PATH>``"
 
-#: ../../source/reference/cli.rst:106
+#: ../../source/reference/cli.rst:110
 msgid ""
 "Path to a custom ONNX model file for neural detection. Overrides "
 "``--lang``."
@@ -206,11 +205,11 @@ msgstr ""
 "Slóð að sérsniðinni ONNX eredlíkansskrá fyrir taugakerfisgreiningu. "
 "Yfirgegnir ``--lang``."
 
-#: ../../source/reference/cli.rst:110
+#: ../../source/reference/cli.rst:114
 msgid "``--config <PATH>``"
 msgstr "``--config <PATH>``"
 
-#: ../../source/reference/cli.rst:112
+#: ../../source/reference/cli.rst:116
 msgid ""
 "Path to a ``.snapperrc.toml`` config file. When omitted, ``snapper`` "
 "searches from the current directory upward."
@@ -218,67 +217,115 @@ msgstr ""
 "Slóð að ``.snapperrc.toml`` stillingarskrá. Þegar sleppt er leitar "
 "``snapper`` frá núverandi möppu og upp á við."
 
-#: ../../source/reference/cli.rst:116
+#: ../../source/reference/cli.rst:120
 msgid "``-h``, ``--help``"
 msgstr "``-h``, ``--help``"
 
-#: ../../source/reference/cli.rst:118
+#: ../../source/reference/cli.rst:122
 msgid "Print help message."
 msgstr "Prenta hjálparskilaboð."
 
-#: ../../source/reference/cli.rst:121
+#: ../../source/reference/cli.rst:125
 msgid "``-V``, ``--version``"
 msgstr "``-V``, ``--version``"
 
-#: ../../source/reference/cli.rst:123
+#: ../../source/reference/cli.rst:127
 msgid "Print version."
 msgstr "Prenta útgáfunúmer."
 
-#: ../../source/reference/cli.rst:126
+#: ../../source/reference/cli.rst:130
 msgid "Subcommands"
 msgstr "Undirskipanir"
 
-#: ../../source/reference/cli.rst:129
+#: ../../source/reference/cli.rst:133
 msgid "``snapper init``"
 msgstr "``snapper init``"
 
-#: ../../source/reference/cli.rst:131
+#: ../../source/reference/cli.rst:135
 msgid ""
 "Initialize snapper for a project. Detects which prose formats exist in "
 "the directory tree and generates:"
 msgstr ""
-"Frumstilla snapper fyrir verkefni. Greinir hvaða textasnið eru til "
-"staðar í möpputrénu og býr til:"
+"Frumstilla snapper fyrir verkefni. Greinir hvaða textasnið eru til staðar"
+" í möpputrénu og býr til:"
 
-#: ../../source/reference/cli.rst:134
+#: ../../source/reference/cli.rst:138
 msgid "``.snapperrc.toml`` with sensible defaults"
 msgstr "``.snapperrc.toml`` með skynsamlegum sjálfgildum"
 
-#: ../../source/reference/cli.rst:136
+#: ../../source/reference/cli.rst:140
 msgid "``.gitattributes`` entries for the git smudge/clean filter"
 msgstr "``.gitattributes`` færslur fyrir git smudge/clean síuna"
 
-#: ../../source/reference/cli.rst:138
+#: ../../source/reference/cli.rst:142
 msgid "pre-commit hook snippet"
 msgstr "pre-commit hook bútur"
 
-#: ../../source/reference/cli.rst:140
+#: ../../source/reference/cli.rst:144
 msgid "Apheleia (Emacs) configuration snippet"
 msgstr "Apheleia (Emacs) stillingabútur"
 
-#: ../../source/reference/cli.rst:142
+#: ../../source/reference/cli.rst:146
 msgid "Use ``--dry-run`` to preview without writing files."
 msgstr "Notaðu ``--dry-run`` til að forskoða án þess að skrifa skrár."
 
-#: ../../source/reference/cli.rst:145
+#: ../../source/reference/cli.rst:149
+#, fuzzy
+msgid "``snapper sdiff <OLD> <NEW>``"
+msgstr "``snapper init``"
+
+#: ../../source/reference/cli.rst:151
+msgid ""
+"Sentence-level diff between two files. Parses both files, extracts "
+"sentences, diffs at sentence granularity. Whitespace reflow produces zero"
+" diff. Colored output by default; use ``--no-color`` to disable. Exits "
+"with code 1 if differences found."
+msgstr ""
+
+#: ../../source/reference/cli.rst:158
+msgid "``snapper git-diff [REF] [FILE...]``"
+msgstr ""
+
+#: ../../source/reference/cli.rst:160
+msgid ""
+"Sentence-level diff against a git ref. Default ref: ``HEAD``. If no files"
+" specified, diffs all changed prose files (``.org``, ``.tex``, ``.md``). "
+"Uses ``git show REF:path`` to retrieve the old version."
+msgstr ""
+
+#: ../../source/reference/cli.rst:166
+msgid "``snapper watch <PATTERNS...>``"
+msgstr ""
+
+#: ../../source/reference/cli.rst:168
+msgid ""
+"Watch files and auto-reformat on save. Accepts file paths or glob "
+"patterns. 200ms debounce to avoid reformatting during rapid saves. Press "
+"Ctrl+C to stop."
+msgstr ""
+
+#: ../../source/reference/cli.rst:173
+#, fuzzy
+msgid "``snapper lsp``"
+msgstr "``snapper init``"
+
+#: ../../source/reference/cli.rst:175
+msgid ""
+"Start the Language Server Protocol server on stdin/stdout. Provides "
+"document formatting, range formatting, and diagnostics (flags lines with "
+"multiple sentences). Works with any LSP-compatible editor (Neovim, Emacs "
+"eglot, VS Code, Helix)."
+msgstr ""
+
+#: ../../source/reference/cli.rst:180
 msgid "Exit codes"
 msgstr "Útgangskóðar"
 
-#: ../../source/reference/cli.rst:147
+#: ../../source/reference/cli.rst:182
 msgid "``0`` : Success (or ``--check`` / ``--diff`` with no changes needed)"
 msgstr "``0`` : Tókst (eða ``--check`` / ``--diff`` án breytinga)"
 
-#: ../../source/reference/cli.rst:149
+#: ../../source/reference/cli.rst:184
 msgid ""
 "``1`` : ``--check`` or ``--diff`` found files that would change, or any "
 "error"
@@ -299,3 +346,4 @@ msgstr ""
 #~ "öðrum tungumálum en ensku þar sem "
 #~ "reglubundin skipting gefur lélegar "
 #~ "niðurstöður."
+

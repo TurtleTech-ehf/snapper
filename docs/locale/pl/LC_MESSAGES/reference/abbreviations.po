@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: snapper \n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-03-27 21:56+0100\n"
+"POT-Creation-Date: 2026-03-28 02:18+0100\n"
 "PO-Revision-Date: 2026-03-27 23:00+0100\n"
 "Last-Translator: Rohit Goswami <rgoswami@ieee.org>\n"
 "Language: pl\n"
@@ -35,20 +35,31 @@ msgid ""
 "than sentence endings. Snapper post-processes the split results, merging "
 "segments where the break occurred at a known abbreviation."
 msgstr ""
-"Snapper używa wykrywania granic zdań Unicode UAX #29 jako punktu wyjścia. "
-"UAX #29 czasem dzieli tekst przy kropkach należących do skrótów, a nie "
-"zakończeń zdań. Snapper przetwarza wyniki dzielenia, łącząc segmenty, "
-"w których podział wystąpił przy znanym skrócie."
+"Snapper używa wykrywania granic zdań Unicode UAX #29 jako punktu wyjścia."
+" UAX #29 czasem dzieli tekst przy kropkach należących do skrótów, a nie "
+"zakończeń zdań. Snapper przetwarza wyniki dzielenia, łącząc segmenty, w "
+"których podział wystąpił przy znanym skrócie."
 
-#: ../../source/reference/abbreviations.rst:15
-msgid "Built-in abbreviations"
+#: ../../source/reference/abbreviations.rst:14
+msgid "Select a language with ``--lang`` to use the appropriate abbreviation set:"
+msgstr ""
+
+#: ../../source/reference/abbreviations.rst:21
+msgid ""
+"Available languages: ``en`` (default), ``de``, ``fr``, ``is``, ``pl``. "
+"Set in config: ``lang = \"de\"`` in ``.snapperrc.toml``."
+msgstr ""
+
+#: ../../source/reference/abbreviations.rst:25
+#, fuzzy
+msgid "Built-in abbreviations (English, default)"
 msgstr "Wbudowane skróty"
 
-#: ../../source/reference/abbreviations.rst:18
+#: ../../source/reference/abbreviations.rst:28
 msgid "Titles and honorifics"
 msgstr "Tytuły i zwroty grzecznościowe"
 
-#: ../../source/reference/abbreviations.rst:20
+#: ../../source/reference/abbreviations.rst:30
 msgid ""
 "Mr., Mrs., Ms., Dr., Prof., Sr., Jr., St., Rev., Gen., Gov., Sgt., Cpl., "
 "Pvt., Capt., Lt., Col., Maj., Cmdr., Adm."
@@ -56,11 +67,11 @@ msgstr ""
 "Mr., Mrs., Ms., Dr., Prof., Sr., Jr., St., Rev., Gen., Gov., Sgt., Cpl., "
 "Pvt., Capt., Lt., Col., Maj., Cmdr., Adm."
 
-#: ../../source/reference/abbreviations.rst:23
+#: ../../source/reference/abbreviations.rst:33
 msgid "Academic and scientific"
 msgstr "Naukowe"
 
-#: ../../source/reference/abbreviations.rst:25
+#: ../../source/reference/abbreviations.rst:35
 msgid ""
 "Fig., Figs., Eq., Eqs., Ref., Refs., Tab., Sec., Ch., Vol., No., Nos., "
 "Ed., Eds., Trans., Dept., Thm., Lem., Prop., Def., Cor., Rem., Ex."
@@ -68,19 +79,19 @@ msgstr ""
 "Fig., Figs., Eq., Eqs., Ref., Refs., Tab., Sec., Ch., Vol., No., Nos., "
 "Ed., Eds., Trans., Dept., Thm., Lem., Prop., Def., Cor., Rem., Ex."
 
-#: ../../source/reference/abbreviations.rst:28
+#: ../../source/reference/abbreviations.rst:38
 msgid "Latin"
 msgstr "Łacińskie"
 
-#: ../../source/reference/abbreviations.rst:30
+#: ../../source/reference/abbreviations.rst:40
 msgid "e.g., i.e., et al., cf., etc., viz., ibid., ca., approx., v.s."
 msgstr "e.g., i.e., et al., cf., etc., viz., ibid., ca., approx., v.s."
 
-#: ../../source/reference/abbreviations.rst:33
+#: ../../source/reference/abbreviations.rst:43
 msgid "Time and dates"
 msgstr "Czas i daty"
 
-#: ../../source/reference/abbreviations.rst:35
+#: ../../source/reference/abbreviations.rst:45
 msgid ""
 "Jan., Feb., Mar., Apr., Jun., Jul., Aug., Sep., Oct., Nov., Dec., Mon., "
 "Tue., Wed., Thu., Fri., Sat., Sun., a.m., p.m."
@@ -88,11 +99,11 @@ msgstr ""
 "Jan., Feb., Mar., Apr., Jun., Jul., Aug., Sep., Oct., Nov., Dec., Mon., "
 "Tue., Wed., Thu., Fri., Sat., Sun., a.m., p.m."
 
-#: ../../source/reference/abbreviations.rst:38
+#: ../../source/reference/abbreviations.rst:48
 msgid "Common"
 msgstr "Popularne"
 
-#: ../../source/reference/abbreviations.rst:40
+#: ../../source/reference/abbreviations.rst:50
 msgid ""
 "vs., misc., est., govt., dept., univ., inc., corp., ltd., Ave., Blvd., "
 "Rd., pp., pg., pt., pts."
@@ -100,64 +111,119 @@ msgstr ""
 "vs., misc., est., govt., dept., univ., inc., corp., ltd., Ave., Blvd., "
 "Rd., pp., pg., pt., pts."
 
-#: ../../source/reference/abbreviations.rst:43
+#: ../../source/reference/abbreviations.rst:53
 msgid "Single-letter initials"
 msgstr "Jednoliterowe inicjały"
 
-#: ../../source/reference/abbreviations.rst:45
+#: ../../source/reference/abbreviations.rst:55
 msgid "through Z. (for names like J. K. Rowling)."
 msgstr "od A. do Z. (dla nazwisk typu J. K. Rowling)."
 
-#: ../../source/reference/abbreviations.rst:48
+#: ../../source/reference/abbreviations.rst:58
+msgid "German abbreviations (``--lang de``)"
+msgstr ""
+
+#: ../../source/reference/abbreviations.rst:60
+msgid ""
+"Hr., Fr., Dr., Prof., Abb., Bd., Hrsg., Kap., Nr., S., Verl., Aufl., Jg.,"
+" Anm., Anh., Beil., Tab., Gl., Abschn., Bsp., Str., Pl., bzw., ca., etc.,"
+" evtl., ggf., vgl., usw."
+msgstr ""
+
+#: ../../source/reference/abbreviations.rst:62
+msgid "Multi-word: z.B., d.h., u.a., o.g., s.o., u.U."
+msgstr ""
+
+#: ../../source/reference/abbreviations.rst:65
+msgid "French abbreviations (``--lang fr``)"
+msgstr ""
+
+#: ../../source/reference/abbreviations.rst:67
+msgid ""
+"M., Mme., Mlle., Dr., Prof., Me., fig., eq., chap., vol., p., pp., ed., "
+"trad., n., t., av., apr., env., cf., etc."
+msgstr ""
+
+#: ../../source/reference/abbreviations.rst:69
+msgid "Multi-word: c.-a-d., p.ex."
+msgstr ""
+
+#: ../../source/reference/abbreviations.rst:72
+msgid "Icelandic abbreviations (``--lang is``)"
+msgstr ""
+
+#: ../../source/reference/abbreviations.rst:74
+msgid "Hr., Fr., Dr., sbr., frk., sk., nr."
+msgstr ""
+
+#: ../../source/reference/abbreviations.rst:76
+msgid "Multi-word: m.a., o.fl."
+msgstr ""
+
+#: ../../source/reference/abbreviations.rst:79
+msgid "Polish abbreviations (``--lang pl``)"
+msgstr ""
+
+#: ../../source/reference/abbreviations.rst:81
+msgid ""
+"dr., mgr., prof., doc., rys., tab., wyd., red., t., s., nr., poz., zob., "
+"por., ul., al., pl., os."
+msgstr ""
+
+#: ../../source/reference/abbreviations.rst:83
+msgid "Multi-word: m.in., t.j., j.w., t.zw., b.r."
+msgstr ""
+
+#: ../../source/reference/abbreviations.rst:86
 msgid "Adding project-specific abbreviations"
 msgstr "Dodawanie skrótów specyficznych dla projektu"
 
-#: ../../source/reference/abbreviations.rst:50
+#: ../../source/reference/abbreviations.rst:88
 msgid "Create a ``.snapperrc.toml`` in your project root:"
 msgstr "Utwórz plik ``.snapperrc.toml`` w katalogu głównym projektu:"
 
-#: ../../source/reference/abbreviations.rst:56
+#: ../../source/reference/abbreviations.rst:94
 msgid "These merge with the built-in list at runtime."
 msgstr "Są one łączone z wbudowaną listą w czasie wykonywania."
 
-#: ../../source/reference/abbreviations.rst:59
+#: ../../source/reference/abbreviations.rst:97
 msgid "Inline token protection"
 msgstr "Ochrona tokenów inline"
 
-#: ../../source/reference/abbreviations.rst:61
+#: ../../source/reference/abbreviations.rst:99
 msgid ""
 "Periods inside inline tokens never trigger sentence breaks, regardless of"
 " abbreviation lists:"
 msgstr ""
-"Kropki wewnątrz tokenów inline nigdy nie powodują podziału zdań, niezależnie "
-"od list skrótów:"
+"Kropki wewnątrz tokenów inline nigdy nie powodują podziału zdań, "
+"niezależnie od list skrótów:"
 
-#: ../../source/reference/abbreviations.rst:63
+#: ../../source/reference/abbreviations.rst:101
 msgid "Org links: ``[[https://example.com][Ex. Site]]``"
 msgstr "Linki Org: ``[[https://example.com][Ex. Site]]``"
 
-#: ../../source/reference/abbreviations.rst:65
+#: ../../source/reference/abbreviations.rst:103
 msgid "LaTeX math: ``$x = 3.14$``"
 msgstr "Wzory LaTeX: ``$x = 3.14$``"
 
-#: ../../source/reference/abbreviations.rst:67
+#: ../../source/reference/abbreviations.rst:105
 #, python-brace-format
 msgid "LaTeX commands: ``\\cite{smith.2024}``"
 msgstr "Polecenia LaTeX: ``\\cite{smith.2024}``"
 
-#: ../../source/reference/abbreviations.rst:69
+#: ../../source/reference/abbreviations.rst:107
 msgid "Markdown links: ``[Example Inc.](url)``"
 msgstr "Linki Markdown: ``[Example Inc.](url)``"
 
-#: ../../source/reference/abbreviations.rst:71
+#: ../../source/reference/abbreviations.rst:109
 msgid "Inline code: ``~std.io.Read~``,"
 msgstr "Kod inline: ``~std.io.Read~``,"
 
-#: ../../source/reference/abbreviations.rst:73
+#: ../../source/reference/abbreviations.rst:111
 msgid ""
 "These tokens get replaced with safe placeholders before sentence "
 "detection and restored afterward."
 msgstr ""
-"Tokeny te są zastępowane bezpiecznymi symbolami zastępczymi przed wykryciem "
-"zdań i przywracane po zakończeniu."
+"Tokeny te są zastępowane bezpiecznymi symbolami zastępczymi przed "
+"wykryciem zdań i przywracane po zakończeniu."
 

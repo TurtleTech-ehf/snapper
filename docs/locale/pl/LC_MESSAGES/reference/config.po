@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: snapper \n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-03-27 21:56+0100\n"
+"POT-Creation-Date: 2026-03-28 02:18+0100\n"
 "PO-Revision-Date: 2026-03-27 23:00+0100\n"
 "Last-Translator: Rohit Goswami <rgoswami@ieee.org>\n"
 "Language: pl\n"
@@ -34,82 +34,127 @@ msgid ""
 " and walking up to the filesystem root. Override the search with "
 "``--config path/to/config.toml``."
 msgstr ""
-"Snapper szuka pliku ``.snapperrc.toml`` począwszy od bieżącego katalogu "
-"w górę aż do korzenia systemu plików. Przesłoń wyszukiwanie za pomocą "
+"Snapper szuka pliku ``.snapperrc.toml`` począwszy od bieżącego katalogu w"
+" górę aż do korzenia systemu plików. Przesłoń wyszukiwanie za pomocą "
 "``--config path/to/config.toml``."
 
-#: ../../source/reference/config.rst:14
+#: ../../source/reference/config.rst:13
+msgid "Or generate one with ``snapper init``."
+msgstr ""
+
+#: ../../source/reference/config.rst:16
 msgid "Config format"
 msgstr "Format konfiguracji"
 
-#: ../../source/reference/config.rst:31
+#: ../../source/reference/config.rst:44
 msgid "Fields"
 msgstr "Pola"
 
-#: ../../source/reference/config.rst:34
+#: ../../source/reference/config.rst:47
+msgid "lang"
+msgstr ""
+
+#: ../../source/reference/config.rst:49
+msgid ""
+"String. Language code for the built-in abbreviation set used by the rule-"
+"based splitter. One of: ``en`` (default), ``de``, ``fr``, ``is``, ``pl``."
+" Also selectable via ``--lang`` CLI flag."
+msgstr ""
+
+#: ../../source/reference/config.rst:55
 msgid "extra\\ :sub:`abbreviations`"
 msgstr "extra\\ :sub:`abbreviations`"
 
-#: ../../source/reference/config.rst:36
+#: ../../source/reference/config.rst:57
+#, fuzzy
 msgid ""
 "String array. Each entry names an abbreviation that should not trigger a "
-"sentence break when followed by a period. Useful for domain-specific "
-"terms your papers use frequently."
+"sentence break when followed by a period. Merged with the built-in list "
+"for the selected language. Useful for domain-specific terms your papers "
+"use frequently."
 msgstr ""
 "Tablica ciągów znaków. Każdy wpis określa skrót, który nie powinien "
-"powodować podziału zdania po kropce. Przydatne dla terminów dziedzinowych "
-"często używanych w artykułach."
+"powodować podziału zdania po kropce. Przydatne dla terminów dziedzinowych"
+" często używanych w artykułach."
 
-#: ../../source/reference/config.rst:41
+#: ../../source/reference/config.rst:63
 msgid "ignore"
 msgstr "ignore"
 
-#: ../../source/reference/config.rst:43
+#: ../../source/reference/config.rst:65
 msgid ""
 "String array of glob patterns. Files matching these patterns get skipped "
 "during ``--in-place`` and ``--check`` operations. Does not affect "
 "stdin/stdout mode."
 msgstr ""
-"Tablica ciągów znaków ze wzorcami glob. Pliki pasujące do tych wzorców "
-"są pomijane podczas operacji ``--in-place`` i ``--check``. Nie wpływa "
-"na tryb stdin/stdout."
+"Tablica ciągów znaków ze wzorcami glob. Pliki pasujące do tych wzorców są"
+" pomijane podczas operacji ``--in-place`` i ``--check``. Nie wpływa na "
+"tryb stdin/stdout."
 
-#: ../../source/reference/config.rst:48
+#: ../../source/reference/config.rst:70
 msgid "format"
 msgstr "format"
 
-#: ../../source/reference/config.rst:50
+#: ../../source/reference/config.rst:72
+#, fuzzy
 msgid ""
 "String. Default format when auto-detection from file extension does not "
-"apply. One of: ``org``, ``latex``, ``markdown``, ``plaintext``."
+"apply. One of: ``org``, ``latex``, ``markdown``, ``rst``, ``plaintext``."
 msgstr ""
 "Ciąg znaków. Domyślny format, gdy automatyczne wykrywanie na podstawie "
 "rozszerzenia pliku nie ma zastosowania. Jeden z: ``org``, ``latex``, "
 "``markdown``, ``plaintext``."
 
-#: ../../source/reference/config.rst:55
+#: ../../source/reference/config.rst:77
 msgid "max\\ :sub:`width`"
 msgstr "max\\ :sub:`width`"
 
-#: ../../source/reference/config.rst:57
+#: ../../source/reference/config.rst:79
+#, fuzzy
 msgid ""
 "Integer. Sentences exceeding this width get wrapped at word boundaries. "
-"Set to ``0`` for unlimited (the default)."
+"Set to ``0`` for unlimited (the default). Also respects "
+"``max_line_length`` from ``.editorconfig`` if present."
 msgstr ""
 "Liczba całkowita. Zdania przekraczające tę szerokość są zawijane na "
 "granicach słów. Ustaw na ``0`` dla braku limitu (wartość domyślna)."
 
-#: ../../source/reference/config.rst:62
+#: ../../source/reference/config.rst:85
+msgid "Per-format sections"
+msgstr ""
+
+#: ../../source/reference/config.rst:87
+msgid ""
+"Add ``[org]``, ``[latex]``, ``[markdown]``, ``[rst]``, or ``[plaintext]``"
+" sections to override settings for specific formats."
+msgstr ""
+
+#: ../../source/reference/config.rst:89
+msgid ""
+"Per-format ``extra_abbreviations`` merge with the top-level list. Per-"
+"format ``max_width`` overrides the top-level value."
+msgstr ""
+
+#: ../../source/reference/config.rst:93
 msgid "Precedence"
 msgstr "Kolejność priorytetów"
 
-#: ../../source/reference/config.rst:64
+#: ../../source/reference/config.rst:95
 msgid ""
-"CLI flags override config file values. Config file values override built-"
-"in defaults. Explicitly passing ``--format`` or ``--max-width`` always "
-"wins."
+"CLI flags override config file values. Per-format sections override top-"
+"level config values. Config file values override ``.editorconfig`` "
+"values. ``.editorconfig`` overrides built-in defaults."
 msgstr ""
-"Flagi CLI nadpisują wartości z pliku konfiguracyjnego. Wartości z pliku "
-"konfiguracyjnego nadpisują wbudowane wartości domyślne. Jawne podanie "
-"``--format`` lub ``--max-width`` zawsze ma pierwszeństwo."
+
+#~ msgid ""
+#~ "CLI flags override config file values."
+#~ " Config file values override built-in"
+#~ " defaults. Explicitly passing ``--format`` "
+#~ "or ``--max-width`` always wins."
+#~ msgstr ""
+#~ "Flagi CLI nadpisują wartości z pliku "
+#~ "konfiguracyjnego. Wartości z pliku "
+#~ "konfiguracyjnego nadpisują wbudowane wartości "
+#~ "domyślne. Jawne podanie ``--format`` lub "
+#~ "``--max-width`` zawsze ma pierwszeństwo."
 

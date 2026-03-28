@@ -3,25 +3,25 @@
 
 # Table of Contents
 
--   [About](#orgb08cad9)
-    -   [Why?](#orgfebd000)
-    -   [Design](#org51a0ff5)
--   [Installation](#org3430e63)
--   [Usage](#orgb4aa596)
-    -   [Supported formats](#orgd855533)
-    -   [Pre-commit hook](#org145a7b1)
-    -   [Emacs (Apheleia)](#orgc311ef8)
-    -   [Git smudge/clean filter](#org68d512c)
-    -   [Vale integration](#org3bd8246)
-    -   [Project config](#orge6d4f1e)
--   [Documentation](#orgbb7c65e)
--   [Development](#orgaffe808)
-    -   [Key dependencies](#orgfb05481)
-    -   [Conventions](#org8af507d)
--   [License](#org859ed67)
+-   [About](#org76bc3c0)
+    -   [Why?](#org0047894)
+    -   [Design](#org3454061)
+-   [Installation](#org900d0fa)
+-   [Usage](#org594b639)
+    -   [Supported formats](#org268ed59)
+    -   [Pre-commit hook](#org3ce2824)
+    -   [Emacs (Apheleia)](#orgf69b85a)
+    -   [Git smudge/clean filter](#orgfa88e8f)
+    -   [Vale integration](#org106768b)
+    -   [Project config](#org1d4f25b)
+-   [Documentation](#org7a0b3f0)
+-   [Development](#org5031af5)
+    -   [Key dependencies](#org396c2ab)
+    -   [Conventions](#org3acf337)
+-   [License](#orgaf85195)
 
 
-<a id="orgb08cad9"></a>
+<a id="org76bc3c0"></a>
 
 # About
 
@@ -29,7 +29,7 @@ A fast, format-aware semantic line break formatter.
 Reformats prose so each sentence occupies its own line, producing minimal and meaningful git diffs when collaborating on documents.
 
 
-<a id="orgfebd000"></a>
+<a id="org0047894"></a>
 
 ## Why?
 
@@ -42,7 +42,7 @@ Existing tools fall short: latexindent.pl only handles LaTeX, SemBr requires Pyt
 `snapper` solves this as a standalone Rust binary with no runtime dependencies, handling Org-mode, LaTeX, Markdown, and plaintext.
 
 
-<a id="org51a0ff5"></a>
+<a id="org3454061"></a>
 
 ## Design
 
@@ -56,25 +56,38 @@ Structure regions (code blocks, math environments, tables, front matter, drawers
 Sentence detection relies on Unicode UAX #29 segmentation with abbreviation-aware post-processing that avoids false breaks at titles (Dr., Prof.), references (Fig., Eq.), and Latin terms (e.g., i.e., et al.).
 
 
-<a id="org3430e63"></a>
+<a id="org900d0fa"></a>
 
 # Installation
 
-From [crates.io](https://crates.io/crates/snapper-fmt) (the crate is `snapper-fmt`, the binary it installs is `snapper`):
+Pre-built binary (fastest):
+
+    cargo binstall snapper-fmt
+
+Shell one-liner (Linux/macOS):
+
+    curl -LsSf https://github.com/TurtleTech-ehf/snapper/releases/latest/download/snapper-fmt-installer.sh | sh
+
+Homebrew:
+
+    brew install TurtleTech-ehf/tap/snapper-fmt
+
+pip:
+
+    pip install snapper-fmt
+
+Compile from source:
 
     cargo install snapper-fmt
 
-From source:
-
-    cargo build --release
-    # Binary at ./target/release/snapper
-
-With Nix:
+Nix:
 
     nix build github:TurtleTech-ehf/snapper
 
+The crate is `snapper-fmt` on all registries; the binary it installs is `snapper`.
 
-<a id="orgb4aa596"></a>
+
+<a id="org594b639"></a>
 
 # Usage
 
@@ -115,7 +128,7 @@ Initialize a project (generates config, pre-commit, gitattributes):
     snapper init
 
 
-<a id="orgd855533"></a>
+<a id="org268ed59"></a>
 
 ## Supported formats
 
@@ -164,7 +177,7 @@ Initialize a project (generates config, pre-commit, gitattributes):
 </table>
 
 
-<a id="org145a7b1"></a>
+<a id="org3ce2824"></a>
 
 ## Pre-commit hook
 
@@ -174,7 +187,7 @@ Initialize a project (generates config, pre-commit, gitattributes):
         - id: snapper
 
 
-<a id="orgc311ef8"></a>
+<a id="orgf69b85a"></a>
 
 ## Emacs (Apheleia)
 
@@ -183,7 +196,7 @@ Initialize a project (generates config, pre-commit, gitattributes):
       (push '(org-mode . snapper) apheleia-mode-alist))
 
 
-<a id="org68d512c"></a>
+<a id="orgfa88e8f"></a>
 
 ## Git smudge/clean filter
 
@@ -197,7 +210,7 @@ Then add to `.gitattributes`:
     *.org filter=snapper
 
 
-<a id="org3bd8246"></a>
+<a id="org106768b"></a>
 
 ## Vale integration
 
@@ -211,7 +224,7 @@ Add to your `.vale.ini`:
 For precise CI checks, use `snapper --check` directly.
 
 
-<a id="orge6d4f1e"></a>
+<a id="org1d4f25b"></a>
 
 ## Project config
 
@@ -225,7 +238,7 @@ Drop a `.snapperrc.toml` in your project root:
 `snapper` walks up from the current directory to find it.
 
 
-<a id="orgbb7c65e"></a>
+<a id="org7a0b3f0"></a>
 
 # Documentation
 
@@ -234,12 +247,12 @@ Build the docs site with:
     pixi run docbld
 
 
-<a id="orgaffe808"></a>
+<a id="org5031af5"></a>
 
 # Development
 
 
-<a id="orgfb05481"></a>
+<a id="org396c2ab"></a>
 
 ## Key dependencies
 
@@ -250,7 +263,7 @@ Build the docs site with:
 -   **thiserror:** Typed error handling
 
 
-<a id="org8af507d"></a>
+<a id="org3acf337"></a>
 
 ## Conventions
 
@@ -264,7 +277,7 @@ Construct the `readme` via:
     ./scripts/org_to_md.sh readme_src.org README.md
 
 
-<a id="org859ed67"></a>
+<a id="orgaf85195"></a>
 
 # License
 

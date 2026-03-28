@@ -1,32 +1,63 @@
 #+title: CI Enforcement
 #+options: num:nil toc:nil
 
+* GitHub Action (recommended)
+
+The easiest way to enforce semantic line breaks in CI.
+Add to your workflow:
+
+#+begin_src yaml
+- uses: TurtleTech-ehf/snapper@v0.3.1
+  with:
+    files: '**/*.org **/*.tex **/*.md'
+#+end_src
+
+This installs snapper and runs =--check= on the specified files.
+
+For GitHub Code Scanning integration (SARIF annotations on PRs):
+
+#+begin_src yaml
+- uses: TurtleTech-ehf/snapper@v0.3.1
+  with:
+    files: '**/*.org **/*.tex **/*.md'
+    sarif: 'true'
+#+end_src
+
 * Pre-commit hook
 
-The simplest CI integration.
 Add to =.pre-commit-config.yaml=:
 
 #+begin_src yaml
 - repo: https://github.com/TurtleTech-ehf/snapper
-  rev: v0.1.0
+  rev: v0.3.1
   hooks:
     - id: snapper
 #+end_src
 
 This runs =snapper --in-place= on changed files matching =.org=, =.tex=, =.md=, and =.txt=.
 
-* GitHub Actions
+* Manual GitHub Actions
 
-Add a formatting check step to your CI workflow:
+If you prefer manual setup over the composite action:
 
 #+begin_src yaml
-- name: Check semantic line breaks
-  run: |
-    cargo install snapper-fmt
-    snapper --check paper.org sections/*.org
+- name: Install snapper
+  run: cargo binstall -y snapper-fmt
+
+- name: Check formatting
+  run: snapper --check paper.org sections/*.org
 #+end_src
 
-The =--check= flag exits with code 1 if any file needs reformatting, without modifying anything.
+For structured output:
+
+#+begin_src yaml
+- name: Check with SARIF
+  run: snapper --check --output-format sarif **/*.org > snapper.sarif || true
+
+- uses: github/codeql-action/upload-sarif@v3
+  with:
+    sarif_file: snapper.sarif
+#+end_src
 
 * Preview changes in CI
 
@@ -37,15 +68,13 @@ Use =--diff= to show what would change:
   run: snapper --diff paper.org sections/*.org
 #+end_src
 
-This prints a unified diff to stdout, useful for PR review comments.
-
 * GitLab CI
 
 #+begin_src yaml
 format-check:
   image: rust:latest
   script:
-    - cargo install snapper-fmt
+    - cargo binstall -y snapper-fmt
     - snapper --check **/*.org **/*.tex **/*.md
   allow_failure: false
 #+end_src

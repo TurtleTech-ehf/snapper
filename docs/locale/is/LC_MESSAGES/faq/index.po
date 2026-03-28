@@ -3,9 +3,9 @@
 # This file is distributed under the same license as the snapper package.
 msgid ""
 msgstr ""
-"Project-Id-Version: snapper\n"
+"Project-Id-Version:  snapper\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-03-27 21:56+0100\n"
+"POT-Creation-Date: 2026-03-28 02:18+0100\n"
 "PO-Revision-Date: 2026-03-27 23:00+0100\n"
 "Last-Translator: Rohit Goswami <rgoswami@ieee.org>\n"
 "Language: is\n"
@@ -14,6 +14,7 @@ msgstr ""
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=utf-8\n"
 "Content-Transfer-Encoding: 8bit\n"
+"Generated-By: Babel 2.18.0\n"
 
 #: ../../source/faq/index.rst:3
 msgid "FAQ"
@@ -31,24 +32,26 @@ msgid ""
 "produces a one-line diff."
 msgstr ""
 "Dálkaumbrot valda endurflæði á allri málsgreininni þegar eitt orð "
-"breytist. Rýfjarar sjá alla málsgreinina í diff-inu, sem hylur raunverulega "
-"breytinguna. Með einni setningu á línu gefur eins orðs breyting eins línu diff."
+"breytist. Rýfjarar sjá alla málsgreinina í diff-inu, sem hylur "
+"raunverulega breytinguna. Með einni setningu á línu gefur eins orðs "
+"breyting eins línu diff."
 
 #: ../../source/faq/index.rst:15
 msgid "Does this affect how the document renders?"
 msgstr "Hefur þetta áhrif á hvernig skjalið birtist?"
 
 #: ../../source/faq/index.rst:17
+#, fuzzy
 msgid ""
-"No. LaTeX, Org-mode, Markdown, and most prose formats treat single "
+"No. LaTeX, Org-mode, Markdown, RST, and most prose formats treat single "
 "newlines as whitespace. Two consecutive newlines start a new paragraph. "
 "Snapper preserves paragraph breaks (blank lines) and only changes where "
 "single newlines occur within a paragraph."
 msgstr ""
-"Nei. LaTeX, Org-mode, Markdown og flest textasnið meða einföldum línuskiptum "
-"sem bil. Tvö línuskipti í röð byrja nýja málsgrein. Snapper varðveitir "
-"málsgreinaskil (auðar línur) og breytir aðeins hvar einföldum línuskiptum "
-"koma fyrir innan málsgreinar."
+"Nei. LaTeX, Org-mode, Markdown og flest textasnið meða einföldum "
+"línuskiptum sem bil. Tvö línuskipti í röð byrja nýja málsgrein. Snapper "
+"varðveitir málsgreinaskil (auðar línur) og breytir aðeins hvar einföldum "
+"línuskiptum koma fyrir innan málsgreinar."
 
 #: ../../source/faq/index.rst:22
 msgid "My collaborators don't use snapper."
@@ -65,98 +68,217 @@ msgid ""
 " fully transparent integration, use a git smudge/clean filter (see the "
 "how-to guide)."
 msgstr ""
-"Nei. Sníðmótunin hefur aðeins áhrif á bil innan málsgreina. "
-"Samstarfsfólk getur breytt eins og venjulega og breytingar þeirra sameinast "
-"hreint. Notaðu git smudge/clean síu (sjá leiðbeiningar) til fullkomlega "
+"Nei. Sníðmótunin hefur aðeins áhrif á bil innan málsgreina. Samstarfsfólk"
+" getur breytt eins og venjulega og breytingar þeirra sameinast hreint. "
+"Notaðu git smudge/clean síu (sjá leiðbeiningar) til fullkomlega "
 "gagnsærrar samþættingar."
 
 #: ../../source/faq/index.rst:31
-msgid "Why does snapper split \"Dr."
+#, fuzzy
+msgid "Why does snapper handle \"Dr. Smith\" correctly?"
 msgstr "Af hverju klippir snapper \"Dr."
 
 #: ../../source/faq/index.rst:33
-msgid "Smith\" correctly?"
-msgstr "Smith\" rétt?"
-
-#: ../../source/faq/index.rst:35
+#, fuzzy
 msgid ""
-"Snapper maintains a curated list of 80+ abbreviations (titles, Latin "
-"terms, academic references, single-letter initials). After Unicode "
-"sentence boundary detection, it merges any splits that occurred at known "
-"abbreviation periods. You can add project-specific abbreviations via "
-"``.snapperrc.toml``."
+"Snapper maintains curated abbreviation lists for English (80+), German, "
+"French, Icelandic, and Polish. After Unicode sentence boundary detection,"
+" it merges any splits that occurred at known abbreviation periods. Select"
+" a language with ``--lang de`` (or set ``lang = \"de\"`` in "
+"``.snapperrc.toml``). You can also add project-specific abbreviations via"
+" ``extra_abbreviations`` in the config file."
 msgstr ""
 "Snapper hefur umsjónarskrá með 80+ skammstöfunum (titlar, latneskar "
-"skammstafanir, fræðilegar tilvísanir, eins stafs upphafsstafir). Eftir Unicode "
-"setningarmarkaskil sameinir það skiptingar sem voru við þekkt skammstöfunarpunkta. "
-"Þú getur bætt við verkefnasértækum skammstöfunum í gegnum ``.snapperrc.toml``."
+"skammstafanir, fræðilegar tilvísanir, eins stafs upphafsstafir). Eftir "
+"Unicode setningarmarkaskil sameinir það skiptingar sem voru við þekkt "
+"skammstöfunarpunkta. Þú getur bætt við verkefnasértækum skammstöfunum í "
+"gegnum ``.snapperrc.toml``."
 
-#: ../../source/faq/index.rst:40
+#: ../../source/faq/index.rst:38
 msgid "What about non-English text?"
 msgstr "Hvað með texta á öðrum tungumáli en ensku?"
 
+#: ../../source/faq/index.rst:40
+msgid "Snapper supports non-English text in two ways:"
+msgstr ""
+
 #: ../../source/faq/index.rst:42
 msgid ""
-"The Unicode UAX #29 sentence boundary algorithm works across languages. "
-"The abbreviation list currently covers English. A ``--lang`` flag and "
-"multi-language abbreviation sets are planned. For languages where rule-"
-"based splitting performs poorly, a neural mode (``--neural``, via "
-"nnsplit) is planned behind a feature flag."
+"**Rule-based abbreviation sets** for German (``de``), French (``fr``), "
+"Icelandic (``is``), and Polish (``pl``)."
 msgstr ""
-"Unicode UAX #29 setningaskila-reikniritið virkar þvert á tungumálamörk. "
-"Skammstöfunarlisti nær aðeins yfir ensku eins og stendur. ``--lang`` flagg og "
-"fjöltyngd skammstöfunarsett eru í áætlunarmörkun. Fyrir tungumál þar sem "
-"reglubundin skipting virkar illa er taugakerfisstilling (``--neural``, í gegnum "
-"nnsplit) áætluð á bak við eiginleikaflagg."
 
-#: ../../source/faq/index.rst:48
+#: ../../source/faq/index.rst:44
+msgid ""
+"Select with ``--lang de``. The Unicode UAX #29 sentence boundary "
+"algorithm works across all languages."
+msgstr ""
+
+#: ../../source/faq/index.rst:47
+msgid ""
+"**Neural sentence detection** via nnsplit for 9 languages (en, de, fr, "
+"no, sv, zh, tr, ru, uk)."
+msgstr ""
+
+#: ../../source/faq/index.rst:49
+msgid ""
+"Enable with ``--neural --lang de``. Models download on first use (~4MB, "
+"cached)."
+msgstr ""
+
+#: ../../source/faq/index.rst:52
+msgid ""
+"The rule-based approach handles most academic text well and runs 18x "
+"faster. Use neural for languages where abbreviation rules fall short "
+"(Chinese, Turkish, etc.)."
+msgstr ""
+
+#: ../../source/faq/index.rst:56
 msgid "Can I use snapper as a library?"
 msgstr "Get ég notað snapper sem forritasafn?"
 
-#: ../../source/faq/index.rst:50
+#: ../../source/faq/index.rst:58
 msgid ""
 "Yes. The crate (``snapper-fmt``) exposes ``format_text()`` and all "
 "internal modules:"
 msgstr ""
-"Já. Crate-ið (``snapper-fmt``) birtir ``format_text()`` og allar "
-"innri einingar:"
+"Já. Crate-ið (``snapper-fmt``) birtir ``format_text()`` og allar innri "
+"einingar:"
 
-#: ../../source/faq/index.rst:67
+#: ../../source/faq/index.rst:77
 msgid "How fast is it?"
 msgstr "Hversu hratt er það?"
 
-#: ../../source/faq/index.rst:69
+#: ../../source/faq/index.rst:79
 msgid ""
-"Snapper processes typical academic papers (10-50 pages) in under 10ms. No"
-" runtime dependencies, no network calls, no model loading. The neural "
-"mode (when implemented) adds startup cost for model loading."
+"Snapper processes typical academic papers (10-50 pages) in under 10ms "
+"with the rule-based splitter. Neural mode adds ~200ms per file (model "
+"load + inference via tract, pure Rust ONNX). No external runtime "
+"dependencies."
 msgstr ""
-"Snapper vinnur dæmigerðar fræðigreinar (10-50 síður) á minna en 10ms. "
-"Engin keyrsluháð, engin netsamskipti, engin módelhleðsla. Taugakerfis"
-"stillingin (þegar hún er útfærð) bætir við ræsitíma vegna módelhleðslu."
 
-#: ../../source/faq/index.rst:74
+#: ../../source/faq/index.rst:84
 msgid "What about CRLF line endings?"
 msgstr "Hvað með CRLF línuendingar?"
 
-#: ../../source/faq/index.rst:76
+#: ../../source/faq/index.rst:86
 msgid ""
 "Snapper detects the input's line ending convention (LF or CRLF) and "
 "preserves it in the output. Internally, processing normalizes to LF and "
 "converts back before writing."
 msgstr ""
 "Snapper greinir línuendingarvenju inntaksins (LF eða CRLF) og varðveitir "
-"hana í úttaki. Innbyrðis staðlar vinnslan á LF og umbreytir aftur "
-"áður en skrifað er."
+"hana í úttaki. Innbyrðis staðlar vinnslan á LF og umbreytir aftur áður en"
+" skrifað er."
 
-#: ../../source/faq/index.rst:80
+#: ../../source/faq/index.rst:90
+msgid "Can I skip formatting for specific sections?"
+msgstr ""
+
+#: ../../source/faq/index.rst:92
+msgid "Yes. Use ``snapper:off`` and ``snapper:on`` pragmas in comments:"
+msgstr ""
+
+#: ../../source/faq/index.rst:95
+msgid "Org: ``# snapper:off`` / ``# snapper:on``"
+msgstr ""
+
+#: ../../source/faq/index.rst:97
+#, python-format
+msgid "LaTeX: ``% snapper:off`` / ``% snapper:on``"
+msgstr ""
+
+#: ../../source/faq/index.rst:99
+msgid "Markdown: ``<!-- snapper:off -->`` / ``<!-- snapper:on -->``"
+msgstr ""
+
+#: ../../source/faq/index.rst:101
+msgid "RST/Plaintext: ``snapper:off`` / ``snapper:on`` on their own line"
+msgstr ""
+
+#: ../../source/faq/index.rst:103
+msgid ""
+"Text between these markers passes through unchanged. Useful for poetry, "
+"aligned text, or ASCII art."
+msgstr ""
+
+#: ../../source/faq/index.rst:107
+#, fuzzy
+msgid "What formats does snapper support?"
+msgstr "Af hverju klippir snapper \"Dr."
+
+#: ../../source/faq/index.rst:109
+msgid ""
+"Org-mode, LaTeX, Markdown, reStructuredText, and plaintext. Format auto-"
+"detects from the file extension. Override with ``--format rst`` (or "
+"``org``, ``latex``, ``markdown``, ``plaintext``)."
+msgstr ""
+
+#: ../../source/faq/index.rst:114
+msgid "How do I compare versions at the sentence level?"
+msgstr ""
+
+#: ../../source/faq/index.rst:116
+msgid "Use ``snapper sdiff`` to diff two files at sentence granularity:"
+msgstr ""
+
+#: ../../source/faq/index.rst:122
+msgid "Or diff against a git ref:"
+msgstr ""
+
+#: ../../source/faq/index.rst:128
+msgid "Whitespace reflow produces zero diff. Only actual content changes appear."
+msgstr ""
+
+#: ../../source/faq/index.rst:132
 msgid "How do I report a bug or request a feature?"
 msgstr "Hvernig tilkynni ég villu eða bið um nýjan eiginleika?"
 
-#: ../../source/faq/index.rst:82
+#: ../../source/faq/index.rst:134
 msgid ""
 "File an issue at `github.com/TurtleTech-ehf/snapper/issues "
 "<https://github.com/TurtleTech-ehf/snapper/issues>`_."
 msgstr ""
 "Skráðu mál á `github.com/TurtleTech-ehf/snapper/issues "
 "<https://github.com/TurtleTech-ehf/snapper/issues>`_."
+
+#~ msgid "Smith\" correctly?"
+#~ msgstr "Smith\" rétt?"
+
+#~ msgid ""
+#~ "The Unicode UAX #29 sentence boundary"
+#~ " algorithm works across languages. The "
+#~ "abbreviation list currently covers English."
+#~ " A ``--lang`` flag and multi-language"
+#~ " abbreviation sets are planned. For "
+#~ "languages where rule-based splitting "
+#~ "performs poorly, a neural mode "
+#~ "(``--neural``, via nnsplit) is planned "
+#~ "behind a feature flag."
+#~ msgstr ""
+#~ "Unicode UAX #29 setningaskila-reikniritið "
+#~ "virkar þvert á tungumálamörk. "
+#~ "Skammstöfunarlisti nær aðeins yfir ensku "
+#~ "eins og stendur. ``--lang`` flagg og "
+#~ "fjöltyngd skammstöfunarsett eru í "
+#~ "áætlunarmörkun. Fyrir tungumál þar sem "
+#~ "reglubundin skipting virkar illa er "
+#~ "taugakerfisstilling (``--neural``, í gegnum "
+#~ "nnsplit) áætluð á bak við "
+#~ "eiginleikaflagg."
+
+#~ msgid ""
+#~ "Snapper processes typical academic papers "
+#~ "(10-50 pages) in under 10ms. No "
+#~ "runtime dependencies, no network calls, "
+#~ "no model loading. The neural mode "
+#~ "(when implemented) adds startup cost for"
+#~ " model loading."
+#~ msgstr ""
+#~ "Snapper vinnur dæmigerðar fræðigreinar (10-50"
+#~ " síður) á minna en 10ms. Engin "
+#~ "keyrsluháð, engin netsamskipti, engin "
+#~ "módelhleðsla. Taugakerfisstillingin (þegar hún "
+#~ "er útfærð) bætir við ræsitíma vegna "
+#~ "módelhleðslu."
+

@@ -47,7 +47,21 @@ require("conform").setup({
 })
 #+end_src
 
-* VS Code
+* VS Code extension (recommended)
+
+Install the snapper extension from the VS Code Marketplace (or from the repo at =editors/vscode/=).
+It uses the LSP server for format-on-save, range formatting, and diagnostics.
+
+Configure the path to the snapper binary in settings:
+
+#+begin_src json
+{
+  "snapper.path": "snapper",
+  "snapper.formatOnSave": true
+}
+#+end_src
+
+** Manual VS Code setup (without extension)
 
 Use the "Run on Save" extension with a custom command:
 
@@ -56,7 +70,7 @@ Use the "Run on Save" extension with a custom command:
   "emeraldwalk.runonsave": {
     "commands": [
       {
-        "match": "\\.(org|tex|md)$",
+        "match": "\\.(org|tex|md|rst)$",
         "cmd": "snapper --in-place ${file}"
       }
     ]
