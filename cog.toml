@@ -17,3 +17,9 @@ gen = { changelog_title = "Generated" }
 [changelog]
 path = "CHANGELOG.md"
 authors = [{ username = "HaoZeke", signature = "Rohit Goswami" }]
+
+# Bump version in pyproject.toml alongside Cargo.toml
+pre_bump_hooks = [
+    "sed -i 's/^version = \".*\"/version = \"{{version}}\"/' pyproject.toml",
+    "cargo generate-lockfile",
+]
