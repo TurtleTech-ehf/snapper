@@ -1,0 +1,56 @@
+{
+  "name": "snapper",
+  "displayName": "snapper - Semantic Line Breaks",
+  "description": "Format prose with semantic line breaks for clean git diffs",
+  "version": "0.3.1",
+  "publisher": "TurtleTech",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/TurtleTech-ehf/snapper"
+  },
+  "homepage": "https://snapper.turtletech.us",
+  "icon": "icon.png",
+  "engines": {
+    "vscode": "^1.75.0"
+  },
+  "categories": ["Formatters", "Linters"],
+  "keywords": ["semantic", "line breaks", "latex", "orgmode", "markdown", "academic", "formatter"],
+  "activationEvents": [
+    "onLanguage:org",
+    "onLanguage:latex",
+    "onLanguage:markdown",
+    "onLanguage:plaintext",
+    "onLanguage:restructuredtext"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "configuration": {
+      "title": "snapper",
+      "properties": {
+        "snapper.path": {
+          "type": "string",
+          "default": "snapper",
+          "description": "Path to the snapper binary"
+        },
+        "snapper.formatOnSave": {
+          "type": "boolean",
+          "default": false,
+          "description": "Format files with snapper on save"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "compile": "tsc -p ./",
+    "package": "vsce package"
+  },
+  "devDependencies": {
+    "@types/vscode": "^1.75.0",
+    "typescript": "^5.0.0",
+    "vscode-languageclient": "^9.0.0"
+  },
+  "dependencies": {
+    "vscode-languageclient": "^9.0.0"
+  }
+}
