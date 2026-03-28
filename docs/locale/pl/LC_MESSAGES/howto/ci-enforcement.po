@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: snapper \n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-03-27 21:56+0100\n"
+"POT-Creation-Date: 2026-03-28 02:26+0100\n"
 "PO-Revision-Date: 2026-03-27 23:00+0100\n"
 "Last-Translator: Rohit Goswami <rgoswami@ieee.org>\n"
 "Language: pl\n"
@@ -25,14 +25,34 @@ msgid "CI Enforcement"
 msgstr "Wymuszanie w CI"
 
 #: ../../source/howto/ci-enforcement.rst:8
+#, fuzzy
+msgid "GitHub Action (recommended)"
+msgstr "GitHub Actions"
+
+#: ../../source/howto/ci-enforcement.rst:10
+msgid ""
+"The easiest way to enforce semantic line breaks in CI. Add to your "
+"workflow:"
+msgstr ""
+
+#: ../../source/howto/ci-enforcement.rst:19
+msgid "This installs snapper and runs ``--check`` on the specified files."
+msgstr ""
+
+#: ../../source/howto/ci-enforcement.rst:21
+msgid "For GitHub Code Scanning integration (SARIF annotations on PRs):"
+msgstr ""
+
+#: ../../source/howto/ci-enforcement.rst:31
 msgid "Pre-commit hook"
 msgstr "Hook pre-commit"
 
-#: ../../source/howto/ci-enforcement.rst:10
-msgid "The simplest CI integration. Add to ``.pre-commit-config.yaml``:"
+#: ../../source/howto/ci-enforcement.rst:33
+#, fuzzy
+msgid "Add to ``.pre-commit-config.yaml``:"
 msgstr "Najprostsza integracja z CI. Dodaj do ``.pre-commit-config.yaml``:"
 
-#: ../../source/howto/ci-enforcement.rst:20
+#: ../../source/howto/ci-enforcement.rst:42
 msgid ""
 "This runs ``snapper --in-place`` on changed files matching ``.org``, "
 "``.tex``, ``.md``, and ``.txt``."
@@ -40,38 +60,51 @@ msgstr ""
 "Uruchamia ``snapper --in-place`` na zmienionych plikach pasujących do "
 "``.org``, ``.tex``, ``.md`` i ``.txt``."
 
-#: ../../source/howto/ci-enforcement.rst:23
-msgid "GitHub Actions"
+#: ../../source/howto/ci-enforcement.rst:45
+#, fuzzy
+msgid "Manual GitHub Actions"
 msgstr "GitHub Actions"
 
-#: ../../source/howto/ci-enforcement.rst:25
-msgid "Add a formatting check step to your CI workflow:"
-msgstr "Dodaj krok sprawdzania formatowania do swojego workflow CI:"
-
-#: ../../source/howto/ci-enforcement.rst:34
-msgid ""
-"The ``--check`` flag exits with code 1 if any file needs reformatting, "
-"without modifying anything."
+#: ../../source/howto/ci-enforcement.rst:47
+msgid "If you prefer manual setup over the composite action:"
 msgstr ""
-"Flaga ``--check`` kończy działanie z kodem 1, jeśli jakikolwiek plik "
-"wymaga przeformatowania, bez modyfikowania czegokolwiek."
 
-#: ../../source/howto/ci-enforcement.rst:37
+#: ../../source/howto/ci-enforcement.rst:57
+msgid "For structured output:"
+msgstr ""
+
+#: ../../source/howto/ci-enforcement.rst:69
 msgid "Preview changes in CI"
 msgstr "Podgląd zmian w CI"
 
-#: ../../source/howto/ci-enforcement.rst:39
+#: ../../source/howto/ci-enforcement.rst:71
 msgid "Use ``--diff`` to show what would change:"
 msgstr "Użyj ``--diff``, aby wyświetlić planowane zmiany:"
 
-#: ../../source/howto/ci-enforcement.rst:46
-msgid "This prints a unified diff to stdout, useful for PR review comments."
-msgstr "Wypisuje ujednolicony diff na stdout, przydatny do komentarzy w przeglądzie PR."
-
-#: ../../source/howto/ci-enforcement.rst:49
+#: ../../source/howto/ci-enforcement.rst:79
 msgid "GitLab CI"
 msgstr "GitLab CI"
 
-#: ../../source/howto/ci-enforcement.rst:61
+#: ../../source/howto/ci-enforcement.rst:91
 msgid "Makefile integration"
 msgstr "Integracja z Makefile"
+
+#~ msgid "Add a formatting check step to your CI workflow:"
+#~ msgstr "Dodaj krok sprawdzania formatowania do swojego workflow CI:"
+
+#~ msgid ""
+#~ "The ``--check`` flag exits with code "
+#~ "1 if any file needs reformatting, "
+#~ "without modifying anything."
+#~ msgstr ""
+#~ "Flaga ``--check`` kończy działanie z "
+#~ "kodem 1, jeśli jakikolwiek plik wymaga"
+#~ " przeformatowania, bez modyfikowania "
+#~ "czegokolwiek."
+
+#~ msgid "This prints a unified diff to stdout, useful for PR review comments."
+#~ msgstr ""
+#~ "Wypisuje ujednolicony diff na stdout, "
+#~ "przydatny do komentarzy w przeglądzie "
+#~ "PR."
+
