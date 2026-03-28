@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: snapper \n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-03-28 00:25+0100\n"
+"POT-Creation-Date: 2026-03-28 02:26+0100\n"
 "PO-Revision-Date: 2026-03-27 23:00+0100\n"
 "Last-Translator: Rohit Goswami <rgoswami@ieee.org>\n"
 "Language: pl\n"
@@ -29,50 +29,69 @@ msgid "Installation"
 msgstr "Instalacja"
 
 #: ../../source/tutorials/quickstart.rst:9
+msgid "Pre-built binary (fastest, no compilation):"
+msgstr ""
+
+#: ../../source/tutorials/quickstart.rst:15
+#, fuzzy
+msgid "Or compile from source:"
+msgstr "Lub zbuduj ze źródeł:"
+
+#: ../../source/tutorials/quickstart.rst:21
+msgid "Shell one-liner (Linux/macOS):"
+msgstr ""
+
+#: ../../source/tutorials/quickstart.rst:27
+msgid "Homebrew (macOS/Linux):"
+msgstr ""
+
+#: ../../source/tutorials/quickstart.rst:33
+msgid "pip:"
+msgstr ""
+
+#: ../../source/tutorials/quickstart.rst:39
+#, fuzzy
+msgid "Nix:"
+msgstr "Z Nix:"
+
+#: ../../source/tutorials/quickstart.rst:45
+#, fuzzy
 msgid ""
-"From `crates.io <https://crates.io/crates/snapper-fmt>`_ (the crate is "
-"``snapper-fmt``, the binary it installs is ``snapper``):"
+"The crate is ``snapper-fmt`` on all registries; the binary it installs is"
+" ``snapper``."
 msgstr ""
 "Z `crates.io <https://crates.io/crates/snapper-fmt>`_ (crate to "
 "``snapper-fmt``, instalowany plik binarny to ``snapper``):"
 
-#: ../../source/tutorials/quickstart.rst:15
-msgid "Or build from source:"
-msgstr "Lub zbuduj ze źródeł:"
-
-#: ../../source/tutorials/quickstart.rst:22
-msgid "With Nix:"
-msgstr "Z Nix:"
-
-#: ../../source/tutorials/quickstart.rst:29
+#: ../../source/tutorials/quickstart.rst:48
 msgid "Basic usage"
 msgstr "Podstawowe użycie"
 
-#: ../../source/tutorials/quickstart.rst:31
+#: ../../source/tutorials/quickstart.rst:50
 msgid "Format a file, printing to stdout:"
 msgstr "Sformatuj plik, wypisz na stdout:"
 
-#: ../../source/tutorials/quickstart.rst:37
+#: ../../source/tutorials/quickstart.rst:56
 msgid "Format in place:"
 msgstr "Sformatuj w miejscu:"
 
-#: ../../source/tutorials/quickstart.rst:43
+#: ../../source/tutorials/quickstart.rst:62
 msgid "Pipe through stdin (for editor integration):"
 msgstr "Prześlij przez stdin (dla integracji z edytorem):"
 
-#: ../../source/tutorials/quickstart.rst:50
+#: ../../source/tutorials/quickstart.rst:69
 msgid "What it does"
 msgstr "Co robi"
 
-#: ../../source/tutorials/quickstart.rst:52
+#: ../../source/tutorials/quickstart.rst:71
 msgid "Given a paragraph like this:"
 msgstr "Mając akapit taki jak ten:"
 
-#: ../../source/tutorials/quickstart.rst:58
+#: ../../source/tutorials/quickstart.rst:77
 msgid "``snapper`` produces:"
 msgstr "``snapper`` generuje:"
 
-#: ../../source/tutorials/quickstart.rst:66
+#: ../../source/tutorials/quickstart.rst:85
 msgid ""
 "Each sentence occupies its own line. Structural elements like code "
 "blocks, tables, drawers, math environments, and front matter pass through"
@@ -82,39 +101,39 @@ msgstr ""
 " kodu, tabele, szuflady, środowiska matematyczne i front matter, "
 "przechodzą bez zmian."
 
-#: ../../source/tutorials/quickstart.rst:70
+#: ../../source/tutorials/quickstart.rst:89
 msgid "Format detection"
 msgstr "Wykrywanie formatu"
 
-#: ../../source/tutorials/quickstart.rst:72
+#: ../../source/tutorials/quickstart.rst:91
 msgid "``snapper`` auto-detects the format from the file extension:"
 msgstr "``snapper`` automatycznie wykrywa format na podstawie rozszerzenia pliku:"
 
-#: ../../source/tutorials/quickstart.rst:74
+#: ../../source/tutorials/quickstart.rst:93
 msgid "``.org`` -- Org-mode"
 msgstr "``.org`` -- Org-mode"
 
-#: ../../source/tutorials/quickstart.rst:76
+#: ../../source/tutorials/quickstart.rst:95
 msgid "``.tex``, ``.latex`` -- LaTeX"
 msgstr "``.tex``, ``.latex`` -- LaTeX"
 
-#: ../../source/tutorials/quickstart.rst:78
+#: ../../source/tutorials/quickstart.rst:97
 msgid "``.md``, ``.markdown`` -- Markdown"
 msgstr "``.md``, ``.markdown`` -- Markdown"
 
-#: ../../source/tutorials/quickstart.rst:80
+#: ../../source/tutorials/quickstart.rst:99
 msgid "Everything else -- plaintext"
 msgstr "Wszystko inne -- zwykły tekst"
 
-#: ../../source/tutorials/quickstart.rst:82
+#: ../../source/tutorials/quickstart.rst:101
 msgid "Override with ``--format``:"
 msgstr "Nadpisz za pomocą ``--format``:"
 
-#: ../../source/tutorials/quickstart.rst:89
+#: ../../source/tutorials/quickstart.rst:108
 msgid "Sentence-level diff"
 msgstr "Diff zdaniowy"
 
-#: ../../source/tutorials/quickstart.rst:91
+#: ../../source/tutorials/quickstart.rst:110
 msgid ""
 "Compare two versions of a file at the sentence level, ignoring whitespace"
 " reflow:"
@@ -122,7 +141,7 @@ msgstr ""
 "Porównaj dwie wersje pliku na poziomie zdań, ignorując przeformatowanie "
 "białych znaków:"
 
-#: ../../source/tutorials/quickstart.rst:97
+#: ../../source/tutorials/quickstart.rst:116
 msgid ""
 "Only actual content changes appear. Reformatting (rewrapping) the same "
 "text produces zero diff. Useful for reviewing collaborator edits on "
@@ -132,15 +151,15 @@ msgstr ""
 "(przełamanie wierszy) tego samego tekstu daje zerowy diff. Przydatne do "
 "przeglądania edycji współpracowników we wspólnych artykułach."
 
-#: ../../source/tutorials/quickstart.rst:102
+#: ../../source/tutorials/quickstart.rst:121
 msgid "Watch mode"
 msgstr "Tryb obserwacji"
 
-#: ../../source/tutorials/quickstart.rst:104
+#: ../../source/tutorials/quickstart.rst:123
 msgid "Auto-reformat files on save:"
 msgstr "Automatyczne przeformatowanie plików przy zapisie:"
 
-#: ../../source/tutorials/quickstart.rst:110
+#: ../../source/tutorials/quickstart.rst:129
 msgid ""
 "Monitors files and runs ``--in-place`` on change (200ms debounce). Press "
 "Ctrl+C to stop."
@@ -148,29 +167,29 @@ msgstr ""
 "Monitoruje pliki i uruchamia ``--in-place`` przy zmianie (200ms "
 "opóźnienia). Naciśnij Ctrl+C, aby zatrzymać."
 
-#: ../../source/tutorials/quickstart.rst:114
+#: ../../source/tutorials/quickstart.rst:133
 msgid "Project setup"
 msgstr "Konfiguracja projektu"
 
-#: ../../source/tutorials/quickstart.rst:116
+#: ../../source/tutorials/quickstart.rst:135
 msgid "Initialize snapper for a new project:"
 msgstr "Zainicjalizuj snapper dla nowego projektu:"
 
-#: ../../source/tutorials/quickstart.rst:122
+#: ../../source/tutorials/quickstart.rst:141
 msgid ""
 "Detects which formats exist and generates ``.snapperrc.toml``, "
 "``.gitattributes``, pre-commit config, and Apheleia snippets. Use "
 "``--dry-run`` to preview."
 msgstr ""
 "Wykrywa, które formaty istnieją, i generuje ``.snapperrc.toml``, "
-"``.gitattributes``, konfigurację pre-commit oraz fragmenty Apheleia. Użyj "
-"``--dry-run``, aby wyświetlić podgląd."
+"``.gitattributes``, konfigurację pre-commit oraz fragmenty Apheleia. Użyj"
+" ``--dry-run``, aby wyświetlić podgląd."
 
-#: ../../source/tutorials/quickstart.rst:126
+#: ../../source/tutorials/quickstart.rst:145
 msgid "CI integration"
 msgstr "Integracja z CI"
 
-#: ../../source/tutorials/quickstart.rst:128
+#: ../../source/tutorials/quickstart.rst:147
 msgid ""
 "Use ``--check`` mode to verify formatting without modifying files. Exits "
 "with code 1 if any file would change:"
@@ -179,27 +198,27 @@ msgstr ""
 "plików. Kończy działanie z kodem 1, jeśli jakikolwiek plik uległby "
 "zmianie:"
 
-#: ../../source/tutorials/quickstart.rst:135
+#: ../../source/tutorials/quickstart.rst:154
 msgid "For GitHub Code Scanning, use SARIF output:"
 msgstr "Dla GitHub Code Scanning użyj wyjścia SARIF:"
 
-#: ../../source/tutorials/quickstart.rst:142
+#: ../../source/tutorials/quickstart.rst:161
 msgid "Pre-commit hook"
 msgstr "Hook pre-commit"
 
-#: ../../source/tutorials/quickstart.rst:144
+#: ../../source/tutorials/quickstart.rst:163
 msgid "Add to your ``.pre-commit-config.yaml``:"
 msgstr "Dodaj do swojego ``.pre-commit-config.yaml``:"
 
-#: ../../source/tutorials/quickstart.rst:154
+#: ../../source/tutorials/quickstart.rst:173
 msgid "Emacs (Apheleia)"
 msgstr "Emacs (Apheleia)"
 
-#: ../../source/tutorials/quickstart.rst:156
+#: ../../source/tutorials/quickstart.rst:175
 msgid "Add to your Emacs config:"
 msgstr "Dodaj do swojej konfiguracji Emacsa:"
 
-#: ../../source/tutorials/quickstart.rst:164
+#: ../../source/tutorials/quickstart.rst:183
 msgid "This runs ``snapper`` on save for Org-mode buffers."
 msgstr "Uruchamia ``snapper`` przy zapisie buforów Org-mode."
 

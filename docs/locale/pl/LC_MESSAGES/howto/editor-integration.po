@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: snapper \n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-03-28 00:41+0100\n"
+"POT-Creation-Date: 2026-03-28 02:26+0100\n"
 "PO-Revision-Date: 2026-03-27 23:00+0100\n"
 "Last-Translator: Rohit Goswami <rgoswami@ieee.org>\n"
 "Language: pl\n"
@@ -65,55 +65,73 @@ msgid "For Neovim with ``conform.nvim``:"
 msgstr "Dla Neovima z ``conform.nvim``:"
 
 #: ../../source/howto/editor-integration.rst:56
-#: ../../source/howto/editor-integration.rst:109
-msgid "VS Code"
-msgstr "VS Code"
+msgid "VS Code extension (recommended)"
+msgstr ""
 
 #: ../../source/howto/editor-integration.rst:58
+msgid ""
+"Install the snapper extension from the VS Code Marketplace (or from the "
+"repo at ``editors/vscode/``). It uses the LSP server for format-on-save, "
+"range formatting, and diagnostics."
+msgstr ""
+
+#: ../../source/howto/editor-integration.rst:61
+msgid "Configure the path to the snapper binary in settings:"
+msgstr ""
+
+#: ../../source/howto/editor-integration.rst:71
+msgid "Manual VS Code setup (without extension)"
+msgstr ""
+
+#: ../../source/howto/editor-integration.rst:73
 msgid "Use the \"Run on Save\" extension with a custom command:"
 msgstr "Użyj rozszerzenia \"Run on Save\" z własnym poleceniem:"
 
-#: ../../source/howto/editor-integration.rst:74
+#: ../../source/howto/editor-integration.rst:89
 msgid "LSP (any editor with LSP support)"
 msgstr ""
 
-#: ../../source/howto/editor-integration.rst:76
+#: ../../source/howto/editor-integration.rst:91
 msgid "Snapper ships a Language Server Protocol implementation. Start it with:"
 msgstr ""
 
-#: ../../source/howto/editor-integration.rst:83
+#: ../../source/howto/editor-integration.rst:98
 msgid ""
 "This provides document formatting, range formatting, and diagnostics "
 "(flags lines with multiple sentences) over the standard LSP protocol on "
 "stdin/stdout."
 msgstr ""
 
-#: ../../source/howto/editor-integration.rst:86
+#: ../../source/howto/editor-integration.rst:101
 msgid "Neovim (native LSP)"
 msgstr ""
 
-#: ../../source/howto/editor-integration.rst:101
+#: ../../source/howto/editor-integration.rst:116
 #, fuzzy
 msgid "Emacs (eglot)"
 msgstr "Emacs (Apheleia)"
 
-#: ../../source/howto/editor-integration.rst:111
+#: ../../source/howto/editor-integration.rst:124
+msgid "VS Code"
+msgstr "VS Code"
+
+#: ../../source/howto/editor-integration.rst:126
 msgid "Add to ``settings.json`` (requires a generic LSP client extension):"
 msgstr ""
 
-#: ../../source/howto/editor-integration.rst:126
+#: ../../source/howto/editor-integration.rst:141
 msgid "Helix"
 msgstr ""
 
-#: ../../source/howto/editor-integration.rst:128
+#: ../../source/howto/editor-integration.rst:143
 msgid "Add to ``~/.config/helix/languages.toml``:"
 msgstr ""
 
-#: ../../source/howto/editor-integration.rst:141
+#: ../../source/howto/editor-integration.rst:156
 msgid "Generic (any editor)"
 msgstr "Ogólne (dowolny edytor)"
 
-#: ../../source/howto/editor-integration.rst:143
+#: ../../source/howto/editor-integration.rst:158
 msgid ""
 "Snapper reads stdin and writes stdout by default. Any editor that "
 "supports piping through an external program works:"

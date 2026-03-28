@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: snapper \n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-03-27 21:56+0100\n"
+"POT-Creation-Date: 2026-03-28 02:26+0100\n"
 "PO-Revision-Date: 2026-03-27 23:00+0100\n"
 "Last-Translator: Rohit Goswami <rgoswami@ieee.org>\n"
 "Language: is\n"
@@ -24,53 +24,85 @@ msgid "CI Enforcement"
 msgstr "CI-framfylgd"
 
 #: ../../source/howto/ci-enforcement.rst:8
+#, fuzzy
+msgid "GitHub Action (recommended)"
+msgstr "GitHub Actions"
+
+#: ../../source/howto/ci-enforcement.rst:10
+msgid ""
+"The easiest way to enforce semantic line breaks in CI. Add to your "
+"workflow:"
+msgstr ""
+
+#: ../../source/howto/ci-enforcement.rst:19
+msgid "This installs snapper and runs ``--check`` on the specified files."
+msgstr ""
+
+#: ../../source/howto/ci-enforcement.rst:21
+msgid "For GitHub Code Scanning integration (SARIF annotations on PRs):"
+msgstr ""
+
+#: ../../source/howto/ci-enforcement.rst:31
 msgid "Pre-commit hook"
 msgstr "Pre-commit hook"
 
-#: ../../source/howto/ci-enforcement.rst:10
-msgid "The simplest CI integration. Add to ``.pre-commit-config.yaml``:"
+#: ../../source/howto/ci-enforcement.rst:33
+#, fuzzy
+msgid "Add to ``.pre-commit-config.yaml``:"
 msgstr "Einfaldasta CI samþættingin. Bættu við í ``.pre-commit-config.yaml``:"
 
-#: ../../source/howto/ci-enforcement.rst:20
+#: ../../source/howto/ci-enforcement.rst:42
 msgid ""
 "This runs ``snapper --in-place`` on changed files matching ``.org``, "
 "``.tex``, ``.md``, and ``.txt``."
 msgstr ""
-"Þetta keyrir ``snapper --in-place`` á breyttum skrám sem passa við ``.org``, "
-"``.tex``, ``.md`` og ``.txt``."
+"Þetta keyrir ``snapper --in-place`` á breyttum skrám sem passa við "
+"``.org``, ``.tex``, ``.md`` og ``.txt``."
 
-#: ../../source/howto/ci-enforcement.rst:23
-msgid "GitHub Actions"
+#: ../../source/howto/ci-enforcement.rst:45
+#, fuzzy
+msgid "Manual GitHub Actions"
 msgstr "GitHub Actions"
 
-#: ../../source/howto/ci-enforcement.rst:25
-msgid "Add a formatting check step to your CI workflow:"
-msgstr "Bættu sníðmótunarprófunarskrefinu við CI vinnuflæðið:"
-
-#: ../../source/howto/ci-enforcement.rst:34
-msgid ""
-"The ``--check`` flag exits with code 1 if any file needs reformatting, "
-"without modifying anything."
+#: ../../source/howto/ci-enforcement.rst:47
+msgid "If you prefer manual setup over the composite action:"
 msgstr ""
-"``--check`` flaggið hættir með kóða 1 ef einhver skrá þarfnast endursníðmótunar, "
-"án þess að breyta neinu."
 
-#: ../../source/howto/ci-enforcement.rst:37
+#: ../../source/howto/ci-enforcement.rst:57
+msgid "For structured output:"
+msgstr ""
+
+#: ../../source/howto/ci-enforcement.rst:69
 msgid "Preview changes in CI"
 msgstr "Forskoða breytingar í CI"
 
-#: ../../source/howto/ci-enforcement.rst:39
+#: ../../source/howto/ci-enforcement.rst:71
 msgid "Use ``--diff`` to show what would change:"
 msgstr "Notaðu ``--diff`` til að sýna hvað myndi breytast:"
 
-#: ../../source/howto/ci-enforcement.rst:46
-msgid "This prints a unified diff to stdout, useful for PR review comments."
-msgstr "Þetta prentar sameinaðan diff á stdout, gagnlegt fyrir athugasemdir við PR rýni."
-
-#: ../../source/howto/ci-enforcement.rst:49
+#: ../../source/howto/ci-enforcement.rst:79
 msgid "GitLab CI"
 msgstr "GitLab CI"
 
-#: ../../source/howto/ci-enforcement.rst:61
+#: ../../source/howto/ci-enforcement.rst:91
 msgid "Makefile integration"
 msgstr "Makefile samþætting"
+
+#~ msgid "Add a formatting check step to your CI workflow:"
+#~ msgstr "Bættu sníðmótunarprófunarskrefinu við CI vinnuflæðið:"
+
+#~ msgid ""
+#~ "The ``--check`` flag exits with code "
+#~ "1 if any file needs reformatting, "
+#~ "without modifying anything."
+#~ msgstr ""
+#~ "``--check`` flaggið hættir með kóða 1"
+#~ " ef einhver skrá þarfnast endursníðmótunar,"
+#~ " án þess að breyta neinu."
+
+#~ msgid "This prints a unified diff to stdout, useful for PR review comments."
+#~ msgstr ""
+#~ "Þetta prentar sameinaðan diff á stdout,"
+#~ " gagnlegt fyrir athugasemdir við PR "
+#~ "rýni."
+
