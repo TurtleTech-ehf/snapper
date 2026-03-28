@@ -2,6 +2,23 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 - - -
+## v0.3.2 - 2026-03-28
+#### Documentation
+- comprehensive update -- all install methods, VS Code extension, GitHub Action, SARIF, git-diff/sdiff/watch/lsp subcommands, RST, multi-lang abbreviations, correct project structure - (93545dc) - *HaoZeke*
+- fix stale docs (FAQ, abbreviations, config, CLI) -- add multi-lang support, RST, all subcommands, correct FormatConfig fields - (b9f0686) - *HaoZeke*
+- add RST to formats reference, update landing page install section (binstall/brew/pip/shell), mention RST in feature cards - (1696339) - *HaoZeke*
+#### Features
+- VS Code extension scaffold, fix PyPI aarch64 manylinux_2_28 for ring crate - (7d7af5e) - *HaoZeke*
+- add RST format support (line-based parser for directives, literal blocks, sections, field lists, tables) - (058abe7) - *HaoZeke*
+#### Bug Fixes
+- move pre_bump_hooks to top-level in cog.toml (was under [changelog] table) - (d3f6048) - *HaoZeke*
+- remove unnecessary pragma workaround from FAQ Dr. Smith headline - (87d85b0) - *HaoZeke*
+#### Miscellaneous Chores
+- stage updated .po files from doc changes - (a47f609) - *HaoZeke*
+- cog pre_bump_hooks to sync pyproject.toml version - (cd054bb) - *HaoZeke*
+
+- - -
+
 ## v0.3.1 - 2026-03-28
 #### Bug Fixes
 - proper maturin wheel CI matching readcon-core pattern (sdist + manylinux wheels + OIDC publish) - (10d8c63) - *HaoZeke*
