@@ -20,9 +20,7 @@ No. The formatting affects only whitespace within paragraphs.
 Collaborators can edit normally and their changes will merge cleanly.
 For fully transparent integration, use a git smudge/clean filter (see the how-to guide).
 
-# snapper:off
 * Why does snapper handle "Dr. Smith" correctly?
-# snapper:on
 
 Snapper maintains curated abbreviation lists for English (80+), German, French, Icelandic, and Polish.
 After Unicode sentence boundary detection, it merges any splits that occurred at known abbreviation periods.
