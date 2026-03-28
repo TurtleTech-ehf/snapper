@@ -2,6 +2,14 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 - - -
+## v0.3.1 - 2026-03-28
+#### Bug Fixes
+- proper maturin wheel CI matching readcon-core pattern (sdist + manylinux wheels + OIDC publish) - (10d8c63) - *HaoZeke*
+#### Miscellaneous Chores
+- bump to 0.3.1 for PyPI first publish - (08f5c2c) - *HaoZeke*
+
+- - -
+
 ## v0.3.0 - 2026-03-28
 #### Documentation
 - LSP editor integration docs (Neovim, Emacs eglot, VS Code, Helix), translated quickstart updates - (ce60558) - *HaoZeke*
