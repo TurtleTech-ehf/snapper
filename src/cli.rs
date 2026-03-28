@@ -7,6 +7,7 @@ pub enum FormatArg {
     Org,
     Latex,
     Markdown,
+    Rst,
     Plaintext,
 }
 
