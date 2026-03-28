@@ -7,6 +7,7 @@ pub enum Format {
     Org,
     Latex,
     Markdown,
+    Rst,
     Plaintext,
 }
 
@@ -17,6 +18,7 @@ impl Format {
             Some("org") => Format::Org,
             Some("tex" | "latex" | "ltx" | "sty" | "cls") => Format::Latex,
             Some("md" | "markdown" | "mkd" | "mdx") => Format::Markdown,
+            Some("rst" | "rest") => Format::Rst,
             _ => Format::Plaintext,
         }
     }
@@ -26,6 +28,7 @@ impl Format {
             FormatArg::Org => Format::Org,
             FormatArg::Latex => Format::Latex,
             FormatArg::Markdown => Format::Markdown,
+            FormatArg::Rst => Format::Rst,
             FormatArg::Plaintext => Format::Plaintext,
         }
     }

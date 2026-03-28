@@ -104,6 +104,7 @@ pub fn format_text_with_splitter(
         Format::Org => Box::new(OrgParser),
         Format::Latex => Box::new(LatexParser),
         Format::Markdown => Box::new(MarkdownParser),
+        Format::Rst => Box::new(parser::rst::RstParser),
         Format::Plaintext => Box::new(PlaintextParser),
     };
 

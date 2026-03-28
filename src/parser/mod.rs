@@ -2,6 +2,7 @@ pub mod latex;
 pub mod markdown;
 pub mod org;
 pub mod plaintext;
+pub mod rst;
 
 /// A region of text classified by a format parser.
 #[derive(Debug, Clone, PartialEq, Eq)]

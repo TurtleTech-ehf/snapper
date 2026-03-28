@@ -19,6 +19,7 @@ fn extract_sentences(input: &str, format: Format) -> Vec<String> {
         Format::Org => Box::new(OrgParser),
         Format::Latex => Box::new(LatexParser),
         Format::Markdown => Box::new(MarkdownParser),
+        Format::Rst => Box::new(crate::parser::rst::RstParser),
         Format::Plaintext => Box::new(PlaintextParser),
     };
 
