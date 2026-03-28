@@ -4,6 +4,12 @@ disable_changelog = false
 generate_mono_repository_global_tag = true
 tag_prefix = "v"
 
+# Bump version in pyproject.toml alongside Cargo.toml
+pre_bump_hooks = [
+    "sed -i 's/^version = \".*\"/version = \"{{version}}\"/' pyproject.toml",
+    "cargo generate-lockfile",
+]
+
 [commit_types]
 enh = { changelog_title = "Enhancements" }
 bug = { changelog_title = "Bugfixes" }
@@ -17,9 +23,3 @@ gen = { changelog_title = "Generated" }
 [changelog]
 path = "CHANGELOG.md"
 authors = [{ username = "HaoZeke", signature = "Rohit Goswami" }]
-
-# Bump version in pyproject.toml alongside Cargo.toml
-pre_bump_hooks = [
-    "sed -i 's/^version = \".*\"/version = \"{{version}}\"/' pyproject.toml",
-    "cargo generate-lockfile",
-]
