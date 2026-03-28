@@ -51,6 +51,6 @@ inherits = "release"
 lto = "thin"
 
 [package.metadata.binstall]
-pkg-url = "{ repo }/releases/download/v{ version }/snapper-{ target }{ archive-suffix }"
-bin-dir = "snapper-{ target }/{ bin }{ binary-ext }"
-pkg-fmt = "tgz"
+pkg-url = "{ repo }/releases/download/v{ version }/snapper-fmt-{ target }.tar.xz"
+bin-dir = "snapper-fmt-{ target }/{ bin }{ binary-ext }"
+pkg-fmt = "txz"
