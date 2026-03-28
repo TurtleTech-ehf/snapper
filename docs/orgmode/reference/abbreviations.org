@@ -7,7 +7,17 @@ Snapper uses Unicode UAX #29 sentence boundary detection as a baseline.
 UAX #29 sometimes splits at periods that belong to abbreviations rather than sentence endings.
 Snapper post-processes the split results, merging segments where the break occurred at a known abbreviation.
 
-* Built-in abbreviations
+Select a language with =--lang= to use the appropriate abbreviation set:
+
+#+begin_src bash
+snapper --lang de paper.tex    # German abbreviations
+snapper --lang fr article.md   # French abbreviations
+#+end_src
+
+Available languages: =en= (default), =de=, =fr=, =is=, =pl=.
+Set in config: =lang = "de"= in =.snapperrc.toml=.
+
+* Built-in abbreviations (English, default)
 
 ** Titles and honorifics
 
@@ -32,6 +42,30 @@ vs., misc., est., govt., dept., univ., inc., corp., ltd., Ave., Blvd., Rd., pp.,
 ** Single-letter initials
 
 A. through Z. (for names like J. K. Rowling).
+
+* German abbreviations (=--lang de=)
+
+Hr., Fr., Dr., Prof., Abb., Bd., Hrsg., Kap., Nr., S., Verl., Aufl., Jg., Anm., Anh., Beil., Tab., Gl., Abschn., Bsp., Str., Pl., bzw., ca., etc., evtl., ggf., vgl., usw.
+
+Multi-word: z.B., d.h., u.a., o.g., s.o., u.U.
+
+* French abbreviations (=--lang fr=)
+
+M., Mme., Mlle., Dr., Prof., Me., fig., eq., chap., vol., p., pp., ed., trad., n., t., av., apr., env., cf., etc.
+
+Multi-word: c.-a-d., p.ex.
+
+* Icelandic abbreviations (=--lang is=)
+
+Hr., Fr., Dr., sbr., frk., sk., nr.
+
+Multi-word: m.a., o.fl.
+
+* Polish abbreviations (=--lang pl=)
+
+dr., mgr., prof., doc., rys., tab., wyd., red., t., s., nr., poz., zob., por., ul., al., pl., os.
+
+Multi-word: m.in., t.j., j.w., t.zw., b.r.
 
 * Adding project-specific abbreviations
 

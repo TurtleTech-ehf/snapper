@@ -7,6 +7,10 @@
 #+begin_src text
 snapper [OPTIONS] [FILE...]
 snapper init [--dry-run]
+snapper sdiff [--no-color] [-f FORMAT] <OLD> <NEW>
+snapper git-diff [--no-color] [-f FORMAT] [REF] [FILE...]
+snapper watch [-f FORMAT] <PATTERNS...>
+snapper lsp
 #+end_src
 
 If no files are given, ~snapper~ reads from stdin and writes to stdout.
@@ -116,6 +120,33 @@ Detects which prose formats exist in the directory tree and generates:
 - Apheleia (Emacs) configuration snippet
 
 Use =--dry-run= to preview without writing files.
+
+*** =snapper sdiff <OLD> <NEW>=
+
+Sentence-level diff between two files.
+Parses both files, extracts sentences, diffs at sentence granularity.
+Whitespace reflow produces zero diff.
+Colored output by default; use =--no-color= to disable.
+Exits with code 1 if differences found.
+
+*** =snapper git-diff [REF] [FILE...]=
+
+Sentence-level diff against a git ref.
+Default ref: =HEAD=.
+If no files specified, diffs all changed prose files (=.org=, =.tex=, =.md=).
+Uses =git show REF:path= to retrieve the old version.
+
+*** =snapper watch <PATTERNS...>=
+
+Watch files and auto-reformat on save.
+Accepts file paths or glob patterns. 200ms debounce to avoid reformatting during rapid saves.
+Press Ctrl+C to stop.
+
+*** =snapper lsp=
+
+Start the Language Server Protocol server on stdin/stdout.
+Provides document formatting, range formatting, and diagnostics (flags lines with multiple sentences).
+Works with any LSP-compatible editor (Neovim, Emacs eglot, VS Code, Helix).
 
 ** Exit codes
 

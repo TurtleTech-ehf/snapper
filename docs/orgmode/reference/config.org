@@ -6,10 +6,15 @@
 Snapper looks for =.snapperrc.toml= starting from the current directory and walking up to the filesystem root.
 Override the search with =--config path/to/config.toml=.
 
+Or generate one with =snapper init=.
+
 * Config format
 
 #+begin_src toml
-# Extra abbreviations (merged with built-in list)
+# Language for abbreviation sets (en, de, fr, is, pl)
+lang = "en"
+
+# Extra abbreviations (merged with built-in list for the selected language)
 extra_abbreviations = ["GROMACS", "LAMMPS", "DFT"]
 
 # File patterns to ignore (glob syntax)
@@ -20,14 +25,30 @@ format = "org"
 
 # Maximum line width (0 = unlimited, overridden by --max-width flag)
 max_width = 0
+
+# Per-format overrides
+[org]
+extra_abbreviations = ["PROPERTIES", "DEADLINE"]
+
+[latex]
+extra_abbreviations = ["Thm", "Lem"]
+max_width = 100
 #+end_src
 
 * Fields
+
+** lang
+
+String.
+Language code for the built-in abbreviation set used by the rule-based splitter.
+One of: =en= (default), =de=, =fr=, =is=, =pl=.
+Also selectable via =--lang= CLI flag.
 
 ** extra_abbreviations
 
 String array.
 Each entry names an abbreviation that should not trigger a sentence break when followed by a period.
+Merged with the built-in list for the selected language.
 Useful for domain-specific terms your papers use frequently.
 
 ** ignore
@@ -40,16 +61,25 @@ Does not affect stdin/stdout mode.
 
 String.
 Default format when auto-detection from file extension does not apply.
-One of: =org=, =latex=, =markdown=, =plaintext=.
+One of: =org=, =latex=, =markdown=, =rst=, =plaintext=.
 
 ** max_width
 
 Integer.
 Sentences exceeding this width get wrapped at word boundaries.
 Set to =0= for unlimited (the default).
+Also respects =max_line_length= from =.editorconfig= if present.
+
+* Per-format sections
+
+Add =[org]=, =[latex]=, =[markdown]=, =[rst]=, or =[plaintext]= sections to override settings for specific formats.
+
+Per-format =extra_abbreviations= merge with the top-level list.
+Per-format =max_width= overrides the top-level value.
 
 * Precedence
 
 CLI flags override config file values.
-Config file values override built-in defaults.
-Explicitly passing =--format= or =--max-width= always wins.
+Per-format sections override top-level config values.
+Config file values override =.editorconfig= values.
+=.editorconfig= overrides built-in defaults.
