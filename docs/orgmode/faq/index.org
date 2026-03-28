@@ -9,7 +9,7 @@ Sentence-per-line formatting means a one-word change produces a one-line diff.
 
 * Does this affect how the document renders?
 
-No. LaTeX, Org-mode, Markdown, and most prose formats treat single newlines as whitespace.
+No. LaTeX, Org-mode, Markdown, RST, and most prose formats treat single newlines as whitespace.
 Two consecutive newlines start a new paragraph.
 Snapper preserves paragraph breaks (blank lines) and only changes where single newlines occur within a paragraph.
 
@@ -20,19 +20,28 @@ No. The formatting affects only whitespace within paragraphs.
 Collaborators can edit normally and their changes will merge cleanly.
 For fully transparent integration, use a git smudge/clean filter (see the how-to guide).
 
-* Why does snapper split "Dr.
-Smith" correctly?
+# snapper:off
+* Why does snapper handle "Dr. Smith" correctly?
+# snapper:on
 
-Snapper maintains a curated list of 80+ abbreviations (titles, Latin terms, academic references, single-letter initials).
+Snapper maintains curated abbreviation lists for English (80+), German, French, Icelandic, and Polish.
 After Unicode sentence boundary detection, it merges any splits that occurred at known abbreviation periods.
-You can add project-specific abbreviations via =.snapperrc.toml=.
+Select a language with =--lang de= (or set =lang = "de"= in =.snapperrc.toml=). You can also add project-specific abbreviations via =extra_abbreviations= in the config file.
 
 * What about non-English text?
 
-The Unicode UAX #29 sentence boundary algorithm works across languages.
-The abbreviation list currently covers English.
-A =--lang= flag and multi-language abbreviation sets are planned.
-For languages where rule-based splitting performs poorly, a neural mode (=--neural=, via nnsplit) is planned behind a feature flag.
+Snapper supports non-English text in two ways:
+
+1. *Rule-based abbreviation sets* for German (=de=), French (=fr=), Icelandic (=is=), and Polish (=pl=).
+Select with =--lang de=.
+The Unicode UAX #29 sentence boundary algorithm works across all languages.
+
+2. *Neural sentence detection* via nnsplit for 9 languages (en, de, fr, no, sv, zh, tr, ru, uk).
+Enable with =--neural --lang de=.
+Models download on first use (~4MB, cached).
+
+The rule-based approach handles most academic text well and runs 18x faster.
+Use neural for languages where abbreviation rules fall short (Chinese, Turkish, etc.).
 
 * Can I use snapper as a library?
 
@@ -47,6 +56,8 @@ let config = FormatConfig {
     format: Format::Org,
     max_width: 0,
     use_neural: false,
+    neural_lang: "en".to_string(),
+    neural_model_path: None,
     extra_abbreviations: vec![],
 };
 let output = format_text(input, &config).unwrap();
@@ -54,14 +65,50 @@ let output = format_text(input, &config).unwrap();
 
 * How fast is it?
 
-Snapper processes typical academic papers (10-50 pages) in under 10ms.
-No runtime dependencies, no network calls, no model loading.
-The neural mode (when implemented) adds startup cost for model loading.
+Snapper processes typical academic papers (10-50 pages) in under 10ms with the rule-based splitter.
+Neural mode adds ~200ms per file (model load + inference via tract, pure Rust ONNX).
+No external runtime dependencies.
 
 * What about CRLF line endings?
 
 Snapper detects the input's line ending convention (LF or CRLF) and preserves it in the output.
 Internally, processing normalizes to LF and converts back before writing.
+
+* Can I skip formatting for specific sections?
+
+Yes.
+Use =snapper:off= and =snapper:on= pragmas in comments:
+
+- Org: =# snapper:off= / =# snapper:on=
+- LaTeX: =% snapper:off= / =% snapper:on=
+- Markdown: =<!-- snapper:off -->= / =<!-- snapper:on -->=
+- RST/Plaintext: =snapper:off= / =snapper:on= on their own line
+
+Text between these markers passes through unchanged.
+Useful for poetry, aligned text, or ASCII art.
+
+* What formats does snapper support?
+
+Org-mode, LaTeX, Markdown, reStructuredText, and plaintext.
+Format auto-detects from the file extension.
+Override with =--format rst= (or =org=, =latex=, =markdown=, =plaintext=).
+
+* How do I compare versions at the sentence level?
+
+Use =snapper sdiff= to diff two files at sentence granularity:
+
+#+begin_src bash
+snapper sdiff paper_v1.org paper_v2.org
+#+end_src
+
+Or diff against a git ref:
+
+#+begin_src bash
+snapper git-diff HEAD~1 paper.org
+#+end_src
+
+Whitespace reflow produces zero diff.
+Only actual content changes appear.
 
 * How do I report a bug or request a feature?
 
