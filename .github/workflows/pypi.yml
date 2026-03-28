@@ -1,28 +1,62 @@
-name: PyPI
+name: Python wheels
 
 on:
   push:
-    tags: ["v*"]
+    tags:
+      - 'v*'
+  pull_request:
+    paths:
+      - 'src/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - 'pyproject.toml'
+  workflow_dispatch:
+
+concurrency:
+  group: python-wheels-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 permissions:
   contents: read
 
 jobs:
-  build:
+  sdist:
+    name: Build sdist
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build sdist
+        uses: PyO3/maturin-action@v1
+        with:
+          command: sdist
+          args: --out dist
+
+      - name: Validate sdist
+        run: pipx run twine check --strict dist/*
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sdist
+          path: dist/*.tar.gz
+
+  wheels:
+    name: Build wheels (${{ matrix.os }}, ${{ matrix.target }})
+    runs-on: ${{ matrix.os }}
     strategy:
+      fail-fast: false
       matrix:
         include:
           - os: ubuntu-latest
             target: x86_64
-          - os: ubuntu-latest
+          - os: ubuntu-22.04
             target: aarch64
-          - os: macos-latest
+          - os: macos-15
             target: x86_64
-          - os: macos-latest
+          - os: macos-14
             target: aarch64
-
-    runs-on: ${{ matrix.os }}
-
+          - os: windows-latest
+            target: x86_64
     steps:
       - uses: actions/checkout@v4
 
@@ -30,31 +64,38 @@ jobs:
         with:
           python-version: '3.12'
 
-      - name: Build wheel
+      - name: Build wheels
         uses: PyO3/maturin-action@v1
         with:
           target: ${{ matrix.target }}
-          args: --release --out dist
+          args: --release --out dist --find-interpreter
           manylinux: auto
+
+      - name: Validate wheels
+        if: matrix.target != 'aarch64' || runner.os != 'Linux'
+        run: pipx run twine check --strict dist/*
 
       - uses: actions/upload-artifact@v4
         with:
-          name: wheel-${{ matrix.os }}-${{ matrix.target }}
+          name: wheels-${{ matrix.os }}-${{ matrix.target }}
           path: dist/*.whl
 
   publish:
-    needs: build
+    name: Publish to PyPI
+    needs: [sdist, wheels]
     runs-on: ubuntu-latest
-    environment: pypi
+    if: startsWith(github.ref, 'refs/tags/v')
+    environment:
+      name: pypi
+      url: https://pypi.org/p/snapper-fmt
     permissions:
       id-token: write
     steps:
       - uses: actions/download-artifact@v4
         with:
-          path: dist
+          pattern: '{sdist,wheels-*}'
           merge-multiple: true
+          path: dist/
 
       - name: Publish to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1
-        with:
-          packages-dir: dist/
