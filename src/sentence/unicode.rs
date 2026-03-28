@@ -2,7 +2,7 @@ use regex::Regex;
 use std::sync::LazyLock;
 use unicode_segmentation::UnicodeSegmentation;
 
-use crate::abbreviations::{ABBREVIATIONS, MULTI_ABBREVS};
+use crate::abbreviations;
 use crate::sentence::SentenceSplitter;
 
 /// Patterns for inline tokens that should not be split across sentences.
@@ -25,42 +25,55 @@ static INLINE_TOKEN_RE: LazyLock<Regex> = LazyLock::new(|| {
     .expect("valid inline token regex")
 });
 
-static ABBREV_PATTERN: LazyLock<Regex> = LazyLock::new(|| {
-    let alts = ABBREVIATIONS.to_vec();
-    // Allow quotes, parens, brackets before the abbreviation (not just whitespace)
-    let pattern = format!(r#"(?:^|[\s"'`(\[])(?:{})$"#, alts.join("|"));
-    Regex::new(&pattern).expect("valid abbreviation regex")
-});
-
-static MULTI_ABBREV_PATTERN: LazyLock<Regex> = LazyLock::new(|| {
-    let alts: Vec<String> = MULTI_ABBREVS.iter().map(|a| regex::escape(a)).collect();
-    let pattern = format!(r"(?:^|\s)(?:{})$", alts.join("|"));
-    Regex::new(&pattern).expect("valid multi-abbreviation regex")
-});
+// Static patterns removed -- now compiled per-instance in UnicodeSentenceSplitter::for_lang().
 
 /// Sentence splitter using Unicode UAX #29 with abbreviation-aware merging.
 pub struct UnicodeSentenceSplitter {
     /// Compiled regex for extra user-provided abbreviations, if any.
     extra_pattern: Option<Regex>,
+    /// Compiled abbreviation pattern for the selected language.
+    lang_abbrev_pattern: Regex,
+    /// Compiled multi-abbreviation pattern for the selected language.
+    lang_multi_pattern: Regex,
 }
 
 impl UnicodeSentenceSplitter {
-    /// Create a splitter with only built-in abbreviations.
+    /// Create a splitter with only built-in English abbreviations.
     pub fn new() -> Self {
-        Self {
-            extra_pattern: None,
-        }
+        Self::for_lang("en", &[])
     }
 
     /// Create a splitter with additional user-provided abbreviations.
     pub fn with_extra_abbreviations(extras: &[String]) -> Self {
-        if extras.is_empty() {
-            return Self::new();
-        }
-        let alts: Vec<String> = extras.iter().map(|a| regex::escape(a)).collect();
-        let pattern = format!(r"(?:^|\s)(?:{})$", alts.join("|"));
+        Self::for_lang("en", extras)
+    }
+
+    /// Create a splitter for a specific language, optionally with extra abbreviations.
+    pub fn for_lang(lang: &str, extras: &[String]) -> Self {
+        let abbrevs = abbreviations::abbreviations_for_lang(lang);
+        let multi = abbreviations::multi_abbrevs_for_lang(lang);
+
+        let alts: Vec<&str> = abbrevs.to_vec();
+        let pattern = format!(r#"(?:^|[\s"'`(\[])(?:{})$"#, alts.join("|"));
+        let lang_abbrev_pattern = Regex::new(&pattern).expect("valid abbreviation regex");
+
+        let multi_alts: Vec<String> = multi.iter().map(|a| regex::escape(a)).collect();
+        let multi_pattern = format!(r"(?:^|\s)(?:{})$", multi_alts.join("|"));
+        let lang_multi_pattern =
+            Regex::new(&multi_pattern).expect("valid multi-abbreviation regex");
+
+        let extra_pattern = if extras.is_empty() {
+            None
+        } else {
+            let alts: Vec<String> = extras.iter().map(|a| regex::escape(a)).collect();
+            let pattern = format!(r"(?:^|\s)(?:{})$", alts.join("|"));
+            Some(Regex::new(&pattern).expect("valid extra abbreviation regex"))
+        };
+
         Self {
-            extra_pattern: Some(Regex::new(&pattern).expect("valid extra abbreviation regex")),
+            extra_pattern,
+            lang_abbrev_pattern,
+            lang_multi_pattern,
         }
     }
 }
@@ -94,7 +107,12 @@ impl SentenceSplitter for UnicodeSentenceSplitter {
             return vec![text.to_string()];
         }
 
-        let merged = merge_abbreviation_splits(&raw_segments, self.extra_pattern.as_ref());
+        let merged = merge_abbreviation_splits(
+            &raw_segments,
+            &self.lang_abbrev_pattern,
+            &self.lang_multi_pattern,
+            self.extra_pattern.as_ref(),
+        );
 
         // Restore placeholders and clean up
         merged
@@ -112,12 +130,17 @@ impl SentenceSplitter for UnicodeSentenceSplitter {
     }
 }
 
-fn merge_abbreviation_splits(segments: &[&str], extra: Option<&Regex>) -> Vec<String> {
+fn merge_abbreviation_splits(
+    segments: &[&str],
+    abbrev_re: &Regex,
+    multi_re: &Regex,
+    extra: Option<&Regex>,
+) -> Vec<String> {
     let mut result: Vec<String> = Vec::with_capacity(segments.len());
 
     for &segment in segments {
         let should_merge = if let Some(prev) = result.last() {
-            is_abbreviation_ending(prev, extra)
+            is_abbreviation_ending(prev, abbrev_re, multi_re, extra)
         } else {
             false
         };
@@ -133,18 +156,23 @@ fn merge_abbreviation_splits(segments: &[&str], extra: Option<&Regex>) -> Vec<St
     result
 }
 
-fn is_abbreviation_ending(s: &str, extra: Option<&Regex>) -> bool {
+fn is_abbreviation_ending(
+    s: &str,
+    abbrev_re: &Regex,
+    multi_re: &Regex,
+    extra: Option<&Regex>,
+) -> bool {
     let trimmed = s.trim_end();
     if !trimmed.ends_with('.') {
         return false;
     }
     let before_dot = &trimmed[..trimmed.len() - 1];
 
-    if ABBREV_PATTERN.is_match(before_dot) {
+    if abbrev_re.is_match(before_dot) {
         return true;
     }
 
-    if MULTI_ABBREV_PATTERN.is_match(before_dot) {
+    if multi_re.is_match(before_dot) {
         return true;
     }
 

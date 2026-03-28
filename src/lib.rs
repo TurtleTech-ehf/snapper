@@ -80,10 +80,9 @@ pub fn build_splitter(config: &FormatConfig) -> Result<Box<dyn SentenceSplitter>
             sentence::neural::NeuralSentenceSplitter::new(&config.neural_lang)
         };
         Ok(Box::new(neural.map_err(|e| anyhow::anyhow!("{e}"))?))
-    } else if config.extra_abbreviations.is_empty() {
-        Ok(Box::new(UnicodeSentenceSplitter::new()))
     } else {
-        Ok(Box::new(UnicodeSentenceSplitter::with_extra_abbreviations(
+        Ok(Box::new(UnicodeSentenceSplitter::for_lang(
+            &config.neural_lang,
             &config.extra_abbreviations,
         )))
     }
