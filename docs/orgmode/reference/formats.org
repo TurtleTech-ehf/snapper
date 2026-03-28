@@ -53,6 +53,22 @@ These tokens within prose are not split across lines:
 - Heading text (after the marker)
 - List item text (after the marker)
 
+** reStructuredText (=--format rst=)
+
+*** Structure regions (preserved)
+- Directives (=.. code-block::=, =.. math::=, =.. image::=, etc.) and their indented bodies
+- Literal blocks (text after =::= with indented content)
+- Section titles and underlines (=====, =-----=, etc.)
+- Field lists (=:Author:=, =:Date:=, etc.)
+- Comments (=..= without a directive)
+- Grid and simple tables (lines starting with =|= or =+=)
+
+*** Prose regions (reflowed)
+- Paragraph text between structural elements
+
+*** Auto-detection
+Extensions: =.rst=, =.rest=
+
 ** Plaintext (=--format plaintext=)
 
 Everything is prose.
