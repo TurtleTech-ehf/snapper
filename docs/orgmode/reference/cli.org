@@ -7,8 +7,9 @@
 #+begin_src text
 snapper [OPTIONS] [FILE...]
 snapper init [--dry-run]
-snapper sdiff [--no-color] [-f FORMAT] <OLD> <NEW>
-snapper git-diff [--no-color] [-f FORMAT] [REF] [FILE...]
+snapper sdiff [--no-color] [--word-level] [-f FORMAT] <OLD> <NEW>
+snapper git-diff [--no-color] [--word-level] [-f FORMAT] [REF] [FILE...]
+snapper wdiff [--output-format FORMAT] [-f FORMAT] <OLD> <NEW>
 snapper watch [-f FORMAT] <PATTERNS...>
 snapper lsp
 #+end_src
@@ -94,6 +95,13 @@ Available: =en=, =de=, =fr=, =no=, =sv=, =zh=, =tr=, =ru=, =uk=.
 Path to a custom ONNX model file for neural detection.
 Overrides =--lang=.
 
+*** =--use-pandoc=
+
+Use pandoc as the parser backend instead of built-in parsers.
+Requires pandoc on PATH.
+Enables support for typst, asciidoc, docx, html, and all other pandoc-supported formats.
+Falls back silently if pandoc is unavailable (unless this flag is explicit).
+
 *** =--config <PATH>=
 
 Path to a =.snapperrc.toml= config file.
@@ -141,6 +149,15 @@ Uses =git show REF:path= to retrieve the old version.
 Watch files and auto-reformat on save.
 Accepts file paths or glob patterns. 200ms debounce to avoid reformatting during rapid saves.
 Press Ctrl+C to stop.
+
+*** =snapper wdiff <OLD> <NEW>=
+
+Word-level diff between two files (latexdiff-style).
+Compares sentences, then highlights which words changed within each modified sentence.
+
+Use =--output-format= to select markup style: =terminal= (default), =plaintext=, =latex=, =markdown=, =org=, =typst=.
+
+LaTeX output generates =\DIFadd{}= / =\DIFdel{}= compatible with latexdiff's DIF style.
 
 *** =snapper lsp=
 

@@ -1,0 +1,58 @@
+#+title: Pandoc Backend
+#+options: num:nil toc:nil
+
+* Overview
+
+Snapper includes a universal parser backend powered by [[https://pandoc.org][pandoc]].
+When enabled with =--use-pandoc=, snapper shells out to pandoc to parse the document into a JSON AST, then walks the AST to extract prose and structure regions.
+
+This gives snapper support for every format pandoc handles: typst, asciidoc, docx, html, epub, and more.
+
+* Requirements
+
+Pandoc 2.x or 3.x must be installed and on your PATH.
+Verify with:
+
+#+begin_src bash
+pandoc --version
+#+end_src
+
+When pandoc is not available, snapper falls back to its built-in parsers silently.
+If you explicitly pass =--use-pandoc= and pandoc is missing, snapper reports an error.
+
+* Usage
+
+#+begin_src bash
+# Typst (requires pandoc with typst support)
+snapper --use-pandoc paper.typ
+
+# AsciiDoc
+snapper --use-pandoc guide.adoc
+
+# HTML
+snapper --use-pandoc article.html
+
+# Any format pandoc supports
+snapper --use-pandoc -f rst document.rst
+#+end_src
+
+Format auto-detects from the file extension.
+Override with =-f= when needed.
+
+* When to use pandoc vs built-in parsers
+
+The built-in parsers (Org, LaTeX, Markdown, RST) handle their formats well and run faster since they avoid spawning a subprocess.
+Use the pandoc backend when:
+
+- Working with typst, asciidoc, docx, html, or other formats without a built-in parser
+- You want consistent parsing across many formats in one project
+- The built-in parser mishandles an edge case that pandoc gets right
+
+The built-in parsers preserve more source-level structure (pragmas, inline tokens).
+The pandoc backend strips format-specific markup since it works through the abstract AST.
+
+* Limitations
+
+- Pandoc strips comments, so =snapper:off= / =snapper:on= pragmas do not work through the pandoc backend
+- Table content is not preserved verbatim (pandoc normalizes table structure)
+- Some format-specific markup (Org drawers, LaTeX preamble) gets simplified in the AST
