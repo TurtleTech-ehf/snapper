@@ -22,3 +22,8 @@ docs/source/tutorials/
 docs/locale/pot/
 docs/locale/**/*.mo
 dist/
+
+# SvelteKit build artifacts
+site-svelte/.svelte-kit/
+site-svelte/node_modules/
+site-svelte/build/
