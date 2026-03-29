@@ -28,13 +28,16 @@ jobs:
           cache: true
           environments: docs
 
-      - name: Link ttech-ui for SvelteKit build
+      - name: Install SvelteKit deps and link ttech-ui
         run: |
-          mkdir -p site-svelte/node_modules/@turtletech
-          ln -sf ${{ github.workspace }}/ttech-ui site-svelte/node_modules/@turtletech/ui
+          cd site-svelte
+          pixi run -e docs npm install --legacy-peer-deps
+          mkdir -p node_modules/@turtletech
+          rm -rf node_modules/@turtletech/ui
+          ln -sf ${{ github.workspace }}/ttech-ui node_modules/@turtletech/ui
 
-      - name: Install SvelteKit deps
-        run: cd site-svelte && pixi run -e docs npm install --legacy-peer-deps
+      - name: Build ttech-ui svelte output
+        run: cd ${{ github.workspace }}/ttech-ui && npm run build:svelte 2>/dev/null || true
 
       - name: Build SvelteKit landing page
         run: cd site-svelte && pixi run -e docs npm run build
