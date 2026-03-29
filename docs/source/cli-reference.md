@@ -8,7 +8,6 @@ This document contains the help content for the `snapper` command-line program.
 * [`snapper init`↴](#snapper-init)
 * [`snapper sdiff`↴](#snapper-sdiff)
 * [`snapper git-diff`↴](#snapper-git-diff)
-* [`snapper wdiff`↴](#snapper-wdiff)
 * [`snapper lsp`↴](#snapper-lsp)
 * [`snapper watch`↴](#snapper-watch)
 
@@ -23,7 +22,6 @@ Semantic line break formatter
 * `init` — Initialize snapper for a project (generate config, pre-commit, gitattributes)
 * `sdiff` — Sentence-level diff between two files
 * `git-diff` — Sentence-level diff against a git ref
-* `wdiff` — Word-level diff between two files (latexdiff-style)
 * `lsp` — Start the LSP server (stdin/stdout)
 * `watch` — Watch files and reformat on change
 
@@ -92,7 +90,6 @@ Sentence-level diff between two files
   Possible values: `org`, `latex`, `markdown`, `rst`, `plaintext`
 
 * `--no-color` — Disable colored output
-* `--word-level` — Show word-level changes within modified sentences
 
 
 
@@ -116,33 +113,6 @@ Sentence-level diff against a git ref
   Possible values: `org`, `latex`, `markdown`, `rst`, `plaintext`
 
 * `--no-color` — Disable colored output
-* `--word-level` — Show word-level changes within modified sentences
-
-
-
-## `snapper wdiff`
-
-Word-level diff between two files (latexdiff-style)
-
-**Usage:** `snapper wdiff [OPTIONS] <OLD> <NEW>`
-
-###### **Arguments:**
-
-* `<OLD>` — Original file
-* `<NEW>` — Modified file
-
-###### **Options:**
-
-* `-f`, `--format <FORMAT>` — Input format (auto-detected from extension if omitted)
-
-  Possible values: `org`, `latex`, `markdown`, `rst`, `plaintext`
-
-* `--output-format <OUTPUT_FORMAT>` — Output format for diff markup
-
-  Default value: `terminal`
-
-  Possible values: `terminal`, `plaintext`, `latex`, `markdown`, `org`, `typst`
-
 
 
 

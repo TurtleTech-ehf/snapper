@@ -32,7 +32,6 @@ Reformats prose so each sentence occupies its own line, producing minimal and me
    howto/neural-detection
    howto/pragmas
    howto/pandoc-backend
-   howto/word-diff
 
 .. toctree::
    :maxdepth: 2
