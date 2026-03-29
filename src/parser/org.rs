@@ -152,6 +152,16 @@ impl FormatParser for OrgParser {
                 continue;
             }
 
+            // Bare file/http links on their own line -- treat as structure
+            if line.trim_start().starts_with("file:")
+                || line.trim_start().starts_with("http://")
+                || line.trim_start().starts_with("https://")
+            {
+                flush_prose(&mut current_prose, &mut regions);
+                regions.push(Region::Structure(format!("{line}\n")));
+                continue;
+            }
+
             // Headline: stars + optional keyword are structure, rest is prose
             if let Some(caps) = HEADLINE_RE.captures(line) {
                 flush_prose(&mut current_prose, &mut regions);

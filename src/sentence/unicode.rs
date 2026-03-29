@@ -19,6 +19,8 @@ static INLINE_TOKEN_RE: LazyLock<Regex> = LazyLock::new(|| {
             r"~[^~]+~",                  // Org inline code: ~code~
             r"=[^=]+=",                  // Org verbatim: =text=
             r"`[^`]+`",                  // Markdown inline code: `code`
+            r"https?://\S+",             // URLs
+            r"file:\S+",                 // Org file: links
         ]
         .join("|"),
     )
