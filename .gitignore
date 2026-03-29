@@ -27,3 +27,6 @@ dist/
 site-svelte/.svelte-kit/
 site-svelte/node_modules/
 site-svelte/build/
+editors/vscode/node_modules/
+editors/vscode/out/
+*.vsix
