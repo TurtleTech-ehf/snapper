@@ -15,11 +15,6 @@ use crate::sentence::unicode::UnicodeSentenceSplitter;
 
 /// Extract all sentences from a document, preserving their order.
 fn extract_sentences(input: &str, format: Format) -> Vec<String> {
-    extract_sentences_pub(input, format)
-}
-
-/// Public version of extract_sentences for use by wdiff.
-pub fn extract_sentences_pub(input: &str, format: Format) -> Vec<String> {
     let parser: Box<dyn FormatParser> = match format {
         Format::Org => Box::new(OrgParser),
         Format::Latex => Box::new(LatexParser),

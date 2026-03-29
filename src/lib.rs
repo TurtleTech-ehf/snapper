@@ -50,7 +50,6 @@ pub mod reflow;
 pub mod sdiff;
 pub mod sentence;
 pub mod watch;
-pub mod wdiff;
 
 use anyhow::Result;
 

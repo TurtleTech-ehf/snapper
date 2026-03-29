@@ -32,7 +32,6 @@ fn run() -> Result<()> {
                 new,
                 format,
                 no_color,
-                word_level: _,
             } => {
                 let fmt = format.map(Format::from_arg);
                 let result = snapper_fmt::sdiff::sentence_diff(old, new, fmt, !no_color)?;
@@ -49,62 +48,10 @@ fn run() -> Result<()> {
                 files,
                 format,
                 no_color,
-                word_level: _,
             } => {
                 let fmt = format.map(Format::from_arg);
                 let has_diff = snapper_fmt::git_diff::run_git_diff(git_ref, files, fmt, !no_color)?;
                 if has_diff {
-                    process::exit(1);
-                }
-                return Ok(());
-            }
-            Commands::Wdiff {
-                old,
-                new,
-                format,
-                output_format,
-            } => {
-                use snapper_fmt::cli::WdiffFormat;
-                // Read both files, extract sentences, word-diff changed pairs
-                let old_text = fs::read_to_string(old.as_path())
-                    .with_context(|| format!("failed to read {}", old.display()))?;
-                let new_text = fs::read_to_string(new.as_path())
-                    .with_context(|| format!("failed to read {}", new.display()))?;
-
-                let fmt = format
-                    .map(Format::from_arg)
-                    .unwrap_or_else(|| Format::from_path(old.as_path()));
-
-                // Extract sentences from both
-                let old_sents = snapper_fmt::sdiff::extract_sentences_pub(&old_text, fmt);
-                let new_sents = snapper_fmt::sdiff::extract_sentences_pub(&new_text, fmt);
-
-                // Diff sentences, then word-diff changed pairs
-                let render = match output_format {
-                    WdiffFormat::Terminal => snapper_fmt::wdiff::render_terminal,
-                    WdiffFormat::Plaintext => snapper_fmt::wdiff::render_plaintext,
-                    WdiffFormat::Latex => snapper_fmt::wdiff::render_latex,
-                    WdiffFormat::Markdown => snapper_fmt::wdiff::render_markdown,
-                    WdiffFormat::Org => snapper_fmt::wdiff::render_org,
-                    WdiffFormat::Typst => snapper_fmt::wdiff::render_typst,
-                };
-
-                let mut any_diff = false;
-                // Simple approach: pair sentences by index, word-diff any that differ
-                let max_len = old_sents.len().max(new_sents.len());
-                for i in 0..max_len {
-                    let old_s = old_sents.get(i).map(|s| s.as_str()).unwrap_or("");
-                    let new_s = new_sents.get(i).map(|s| s.as_str()).unwrap_or("");
-                    if old_s != new_s {
-                        let words = snapper_fmt::wdiff::word_diff(old_s, new_s);
-                        println!("{}", render(&words));
-                        any_diff = true;
-                    }
-                }
-
-                if !any_diff {
-                    eprintln!("No word-level differences.");
-                } else {
                     process::exit(1);
                 }
                 return Ok(());

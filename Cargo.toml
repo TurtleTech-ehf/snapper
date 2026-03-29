@@ -15,6 +15,10 @@ homepage = "https://snapper.turtletech.us"
 name = "snapper"
 path = "src/main.rs"
 
+[[bin]]
+name = "snapper-gen-docs"
+path = "src/gen_docs.rs"
+
 [dependencies]
 clap = { version = "4", features = ["derive", "string"] }
 unicode-segmentation = "1"
@@ -29,6 +33,7 @@ serde_json = "1"
 ec4rs = "1"
 toml = "0.8"
 pandoc_ast = "0.8"
+clap-markdown = "0.1"
 notify = "7"
 glob = "0.3"
 tempfile = "3"
