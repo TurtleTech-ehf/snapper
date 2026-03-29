@@ -6,6 +6,7 @@ tag_prefix = "v"
 
 # Bump version in pyproject.toml alongside Cargo.toml
 pre_bump_hooks = [
+    "sed -i '0,/^version = /s/^version = \".*\"/version = \"{{version}}\"/' Cargo.toml",
     "sed -i 's/^version = \".*\"/version = \"{{version}}\"/' pyproject.toml",
     "cargo generate-lockfile",
 ]

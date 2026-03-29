@@ -2,6 +2,19 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 - - -
+## v0.4.0 - 2026-03-29
+#### Documentation
+- add pandoc backend and word-diff howto guides, update CLI reference, fix landing page feature descriptions, remove SvelteKit build artifacts - (f25febb) - *HaoZeke*
+#### Features
+- pandoc AST backend + word-level diff (latexdiff-style) - (f377e2b) - *HaoZeke*
+#### Bug Fixes
+- bare file:/http: links treated as structure in Org parser, URLs/file paths protected in inline token regex - (d1b492b) - *HaoZeke*
+- remove 30MB of SvelteKit build artifacts from repo, gitignore node_modules/.svelte-kit/build - (b32ce42) - *HaoZeke*
+#### Refactoring
+- remove wdiff/markup/compile (belongs in separate snapdiff tool), keep pandoc parser and clap-markdown CLI docs - (984ffdc) - *HaoZeke*
+
+- - -
+
 ## v0.3.2 - 2026-03-28
 #### Documentation
 - comprehensive update -- all install methods, VS Code extension, GitHub Action, SARIF, git-diff/sdiff/watch/lsp subcommands, RST, multi-lang abbreviations, correct project structure - (93545dc) - *HaoZeke*
