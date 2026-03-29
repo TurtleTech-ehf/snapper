@@ -1,6 +1,7 @@
 pub mod latex;
 pub mod markdown;
 pub mod org;
+pub mod pandoc;
 pub mod plaintext;
 pub mod rst;
 

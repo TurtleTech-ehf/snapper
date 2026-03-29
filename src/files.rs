@@ -18,6 +18,8 @@ pub fn format_file(path: &str, max_width: usize) -> Result<String> {
         neural_lang: "en".to_string(),
         neural_model_path: None,
         extra_abbreviations: Vec::new(),
+        use_pandoc: false,
+        pandoc_format: None,
     };
     crate::format_text(&content, &config)
 }
@@ -38,6 +40,8 @@ pub fn format_file_with(
         neural_lang: "en".to_string(),
         neural_model_path: None,
         extra_abbreviations,
+        use_pandoc: false,
+        pandoc_format: None,
     };
     crate::format_text(&content, &config)
 }

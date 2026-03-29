@@ -1255,6 +1255,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "384b8ab6d37215f3c5301a95a4accb5d64aa607f1fcb26a11b5303878451b4fe"
 
 [[package]]
+name = "pandoc_ast"
+version = "0.8.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e1ff7a92f9fb2cac7cb4b8b697efaf3a30abcb64003d4cd34a67cc1ae35194ce"
+dependencies = [
+ "serde",
+ "serde_derive",
+ "serde_json",
+]
+
+[[package]]
 name = "parking_lot_core"
 version = "0.9.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1798,6 +1809,7 @@ dependencies = [
  "imara-diff",
  "nnsplit",
  "notify",
+ "pandoc_ast",
  "pretty_assertions",
  "rayon",
  "regex",
