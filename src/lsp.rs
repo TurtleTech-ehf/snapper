@@ -29,6 +29,8 @@ impl SnapperLsp {
             neural_lang: "en".to_string(),
             neural_model_path: None,
             extra_abbreviations: vec![],
+            use_pandoc: false,
+            pandoc_format: None,
         }
     }
 

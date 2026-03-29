@@ -113,6 +113,8 @@ fn format_file_in_place(
         neural_lang: "en".to_string(),
         neural_model_path: None,
         extra_abbreviations: project_config.extra_abbreviations.clone(),
+        use_pandoc: false,
+        pandoc_format: None,
     };
 
     let output = format_text(&input, &config)?;

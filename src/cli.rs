@@ -18,6 +18,16 @@ pub enum OutputFormat {
     Sarif,
 }
 
+#[derive(Debug, Clone, Copy, ValueEnum)]
+pub enum WdiffFormat {
+    Terminal,
+    Plaintext,
+    Latex,
+    Markdown,
+    Org,
+    Typst,
+}
+
 #[derive(Debug, Parser)]
 #[command(name = "snapper", version, about = "Semantic line break formatter")]
 pub struct Cli {
@@ -61,6 +71,10 @@ pub struct Cli {
     #[arg(long)]
     pub model_path: Option<PathBuf>,
 
+    /// Use pandoc as parser backend (universal format support).
+    #[arg(long)]
+    pub use_pandoc: bool,
+
     /// Exit with code 1 if any file would change.
     #[arg(long)]
     pub check: bool,
@@ -102,6 +116,9 @@ pub enum Commands {
         /// Disable colored output.
         #[arg(long)]
         no_color: bool,
+        /// Show word-level changes within modified sentences.
+        #[arg(long)]
+        word_level: bool,
     },
     /// Sentence-level diff against a git ref.
     GitDiff {
@@ -117,6 +134,22 @@ pub enum Commands {
         /// Disable colored output.
         #[arg(long)]
         no_color: bool,
+        /// Show word-level changes within modified sentences.
+        #[arg(long)]
+        word_level: bool,
+    },
+    /// Word-level diff between two files (latexdiff-style).
+    Wdiff {
+        /// Original file.
+        old: PathBuf,
+        /// Modified file.
+        new: PathBuf,
+        /// Input format (auto-detected from extension if omitted).
+        #[arg(short, long)]
+        format: Option<FormatArg>,
+        /// Output format for diff markup.
+        #[arg(long, default_value = "terminal")]
+        output_format: WdiffFormat,
     },
     /// Start the LSP server (stdin/stdout).
     Lsp,

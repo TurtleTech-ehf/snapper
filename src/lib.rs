@@ -28,6 +28,8 @@
 //!     neural_lang: "en".to_string(),
 //!     neural_model_path: None,
 //!     extra_abbreviations: vec![],
+//!     use_pandoc: false,
+//!     pandoc_format: None,
 //! };
 //! let output = format_text(input, &config).unwrap();
 //! assert_eq!(output, "Hello world.\nThis is a test.\nAnother sentence.");
@@ -48,6 +50,7 @@ pub mod reflow;
 pub mod sdiff;
 pub mod sentence;
 pub mod watch;
+pub mod wdiff;
 
 use anyhow::Result;
 
@@ -69,6 +72,9 @@ pub struct FormatConfig {
     pub neural_lang: String,
     pub neural_model_path: Option<std::path::PathBuf>,
     pub extra_abbreviations: Vec<String>,
+    pub use_pandoc: bool,
+    /// Pandoc input format string (for pandoc backend).
+    pub pandoc_format: Option<String>,
 }
 
 /// Build the appropriate sentence splitter from config.
@@ -100,12 +106,27 @@ pub fn format_text_with_splitter(
     config: &FormatConfig,
     splitter: &dyn SentenceSplitter,
 ) -> Result<String> {
-    let parser: Box<dyn FormatParser> = match config.format {
-        Format::Org => Box::new(OrgParser),
-        Format::Latex => Box::new(LatexParser),
-        Format::Markdown => Box::new(MarkdownParser),
-        Format::Rst => Box::new(parser::rst::RstParser),
-        Format::Plaintext => Box::new(PlaintextParser),
+    let parser: Box<dyn FormatParser> = if config.use_pandoc {
+        // Use pandoc backend -- determine the pandoc format string
+        let pandoc_fmt = config
+            .pandoc_format
+            .as_deref()
+            .unwrap_or(match config.format {
+                Format::Org => "org",
+                Format::Latex => "latex",
+                Format::Markdown => "markdown",
+                Format::Rst => "rst",
+                Format::Plaintext => "markdown",
+            });
+        Box::new(parser::pandoc::PandocParser::new(pandoc_fmt))
+    } else {
+        match config.format {
+            Format::Org => Box::new(OrgParser),
+            Format::Latex => Box::new(LatexParser),
+            Format::Markdown => Box::new(MarkdownParser),
+            Format::Rst => Box::new(parser::rst::RstParser),
+            Format::Plaintext => Box::new(PlaintextParser),
+        }
     };
 
     let had_trailing_newline = input.ends_with('\n');
