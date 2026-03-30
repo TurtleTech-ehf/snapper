@@ -2,6 +2,20 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 - - -
+## v0.5.0 - 2026-03-30
+#### Maintenance
+- code quality improvements across the codebase - (5df1ac6) - *HaoZeke*
+#### Features
+- (**vscode**) overhaul extension UX and fix LSP config loading - (70a9e1e) - *HaoZeke*
+- add Antics analytics tracker - (5aad5e1) - *HaoZeke*
+- publish VS Code extension to marketplace (TurtleTech.snapper v0.4.0) - (40618d1) - *HaoZeke*
+#### Bug Fixes
+- add security headers for CF Pages - (83161fe) - *HaoZeke*
+- add README to VS Code extension for marketplace listing - (fa333c1) - *HaoZeke*
+- remove stale wdiff/word-level references from docs and CLI reference, update editor integration feature card for VS Code marketplace - (b5d5296) - *HaoZeke*
+
+- - -
+
 ## v0.4.0 - 2026-03-29
 #### Documentation
 - add pandoc backend and word-diff howto guides, update CLI reference, fix landing page feature descriptions, remove SvelteKit build artifacts - (f25febb) - *HaoZeke*
