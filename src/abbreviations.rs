@@ -69,10 +69,6 @@ pub static FR_MULTI_ABBREVS: &[&str] = &["c.-a-d", "p.ex"];
 pub static IS_MULTI_ABBREVS: &[&str] = &["m.a", "o.fl"];
 pub static PL_MULTI_ABBREVS: &[&str] = &["m.in", "t.j", "j.w", "t.zw", "b.r"];
 
-/// Backward-compatible aliases.
-pub static ABBREVIATIONS: &[&str] = EN_ABBREVIATIONS;
-pub static MULTI_ABBREVS: &[&str] = EN_MULTI_ABBREVS;
-
 /// Get abbreviations for a language code.
 pub fn abbreviations_for_lang(lang: &str) -> &'static [&'static str] {
     match lang {

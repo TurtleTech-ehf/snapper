@@ -1,6 +1,6 @@
 use serde_json::{Value, json};
 
-/// A file that would change under --check mode.
+/// Summary of a file that needs reformatting, used by `--check` output modes.
 pub struct CheckResult {
     pub file: String,
     pub original_lines: usize,

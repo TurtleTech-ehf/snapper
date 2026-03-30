@@ -1,7 +1,7 @@
 use regex::Regex;
 use std::sync::LazyLock;
 
-use crate::parser::{FormatParser, Region};
+use crate::parser::{FormatParser, Region, flush_prose};
 
 static HEADING_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^(#{1,6}\s+)(.*)$").unwrap());
 
@@ -22,13 +22,6 @@ impl FormatParser for MarkdownParser {
         let mut frontmatter_fence = String::new();
         let mut line_number = 0;
         let mut pragma_off = false;
-
-        let flush_prose = |prose: &mut String, regions: &mut Vec<Region>| {
-            if !prose.is_empty() {
-                regions.push(Region::Prose(prose.clone()));
-                prose.clear();
-            }
-        };
 
         for line in input.lines() {
             line_number += 1;

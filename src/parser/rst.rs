@@ -1,4 +1,4 @@
-use crate::parser::{FormatParser, Region};
+use crate::parser::{FormatParser, Region, flush_prose};
 
 pub struct RstParser;
 
@@ -18,13 +18,6 @@ fn parse_line_based(input: &str) -> Vec<Region> {
     let mut in_directive = false;
     let mut directive_indent: usize = 0;
     let mut pragma_off = false;
-
-    let flush_prose = |prose: &mut String, regions: &mut Vec<Region>| {
-        if !prose.is_empty() {
-            regions.push(Region::Prose(prose.clone()));
-            prose.clear();
-        }
-    };
 
     let lines: Vec<&str> = input.lines().collect();
     let total = lines.len();

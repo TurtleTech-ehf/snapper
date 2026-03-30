@@ -1,4 +1,4 @@
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use anyhow::Result;
 use serde::Deserialize;
@@ -64,7 +64,7 @@ impl ProjectConfig {
     }
 
     /// Get the config file path if explicitly provided, otherwise search.
-    pub fn resolve(explicit_path: Option<&PathBuf>) -> Result<Self> {
+    pub fn resolve(explicit_path: Option<&Path>) -> Result<Self> {
         if let Some(path) = explicit_path {
             Self::load(path)
         } else {

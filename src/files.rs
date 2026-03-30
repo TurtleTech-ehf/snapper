@@ -14,12 +14,7 @@ pub fn format_file(path: &str, max_width: usize) -> Result<String> {
     let config = FormatConfig {
         format: fmt,
         max_width,
-        use_neural: false,
-        neural_lang: "en".to_string(),
-        neural_model_path: None,
-        extra_abbreviations: Vec::new(),
-        use_pandoc: false,
-        pandoc_format: None,
+        ..Default::default()
     };
     crate::format_text(&content, &config)
 }
@@ -36,12 +31,8 @@ pub fn format_file_with(
     let config = FormatConfig {
         format: fmt,
         max_width,
-        use_neural: false,
-        neural_lang: "en".to_string(),
-        neural_model_path: None,
         extra_abbreviations,
-        use_pandoc: false,
-        pandoc_format: None,
+        ..Default::default()
     };
     crate::format_text(&content, &config)
 }

@@ -1,4 +1,4 @@
-use crate::parser::{FormatParser, Region};
+use crate::parser::{FormatParser, Region, flush_prose};
 
 /// Trivial parser: everything is prose, blank lines are preserved.
 pub struct PlaintextParser;
@@ -12,30 +12,20 @@ impl FormatParser for PlaintextParser {
         for line in input.lines() {
             // Check for snapper:off/on pragmas
             if let Some(on) = super::check_pragma(line) {
-                if !current_prose.is_empty() {
-                    regions.push(Region::Prose(current_prose.clone()));
-                    current_prose.clear();
-                }
+                flush_prose(&mut current_prose, &mut regions);
                 pragma_off = !on;
                 regions.push(Region::Structure(format!("{line}\n")));
                 continue;
             }
 
             if pragma_off {
-                if !current_prose.is_empty() {
-                    regions.push(Region::Prose(current_prose.clone()));
-                    current_prose.clear();
-                }
+                flush_prose(&mut current_prose, &mut regions);
                 regions.push(Region::Structure(format!("{line}\n")));
                 continue;
             }
 
             if line.trim().is_empty() {
-                // Flush accumulated prose
-                if !current_prose.is_empty() {
-                    regions.push(Region::Prose(current_prose.clone()));
-                    current_prose.clear();
-                }
+                flush_prose(&mut current_prose, &mut regions);
                 regions.push(Region::BlankLines(format!("{line}\n")));
             } else {
                 if !current_prose.is_empty() {
@@ -45,11 +35,7 @@ impl FormatParser for PlaintextParser {
             }
         }
 
-        // Flush remaining prose
-        if !current_prose.is_empty() {
-            regions.push(Region::Prose(current_prose));
-        }
-
+        flush_prose(&mut current_prose, &mut regions);
         regions
     }
 }

@@ -23,13 +23,7 @@
 //! let input = "Hello world. This is a test. Another sentence.";
 //! let config = FormatConfig {
 //!     format: Format::Plaintext,
-//!     max_width: 0,
-//!     use_neural: false,
-//!     neural_lang: "en".to_string(),
-//!     neural_model_path: None,
-//!     extra_abbreviations: vec![],
-//!     use_pandoc: false,
-//!     pandoc_format: None,
+//!     ..Default::default()
 //! };
 //! let output = format_text(input, &config).unwrap();
 //! assert_eq!(output, "Hello world.\nThis is a test.\nAnother sentence.");
@@ -54,11 +48,6 @@ pub mod watch;
 use anyhow::Result;
 
 use crate::format::Format;
-use crate::parser::FormatParser;
-use crate::parser::latex::LatexParser;
-use crate::parser::markdown::MarkdownParser;
-use crate::parser::org::OrgParser;
-use crate::parser::plaintext::PlaintextParser;
 use crate::reflow::{ReflowConfig, reflow};
 use crate::sentence::SentenceSplitter;
 use crate::sentence::unicode::UnicodeSentenceSplitter;
@@ -74,6 +63,21 @@ pub struct FormatConfig {
     pub use_pandoc: bool,
     /// Pandoc input format string (for pandoc backend).
     pub pandoc_format: Option<String>,
+}
+
+impl Default for FormatConfig {
+    fn default() -> Self {
+        Self {
+            format: Format::Plaintext,
+            max_width: 0,
+            use_neural: false,
+            neural_lang: "en".to_string(),
+            neural_model_path: None,
+            extra_abbreviations: vec![],
+            use_pandoc: false,
+            pandoc_format: None,
+        }
+    }
 }
 
 /// Build the appropriate sentence splitter from config.
@@ -105,7 +109,7 @@ pub fn format_text_with_splitter(
     config: &FormatConfig,
     splitter: &dyn SentenceSplitter,
 ) -> Result<String> {
-    let parser: Box<dyn FormatParser> = if config.use_pandoc {
+    let parser: Box<dyn parser::FormatParser> = if config.use_pandoc {
         // Use pandoc backend -- determine the pandoc format string
         let pandoc_fmt = config
             .pandoc_format
@@ -119,13 +123,7 @@ pub fn format_text_with_splitter(
             });
         Box::new(parser::pandoc::PandocParser::new(pandoc_fmt))
     } else {
-        match config.format {
-            Format::Org => Box::new(OrgParser),
-            Format::Latex => Box::new(LatexParser),
-            Format::Markdown => Box::new(MarkdownParser),
-            Format::Rst => Box::new(parser::rst::RstParser),
-            Format::Plaintext => Box::new(PlaintextParser),
-        }
+        parser::parser_for_format(config.format)
     };
 
     let had_trailing_newline = input.ends_with('\n');

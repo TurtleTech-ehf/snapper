@@ -24,17 +24,12 @@ impl SnapperLsp {
     fn make_config(&self, format: Format) -> FormatConfig {
         FormatConfig {
             format,
-            max_width: 0,
-            use_neural: false,
-            neural_lang: "en".to_string(),
-            neural_model_path: None,
-            extra_abbreviations: vec![],
-            use_pandoc: false,
-            pandoc_format: None,
+            ..Default::default()
         }
     }
 
     fn format_document(&self, uri: &Url) -> Option<Vec<TextEdit>> {
+        // Returns None if lock is poisoned (graceful degradation)
         let docs = self.documents.lock().ok()?;
         let (text, format) = docs.get(uri)?;
         let config = self.make_config(*format);
@@ -54,7 +49,7 @@ impl SnapperLsp {
     }
 
     fn compute_diagnostics(&self, uri: &Url) -> Vec<Diagnostic> {
-        let docs = self.documents.lock().ok().unwrap();
+        let docs = self.documents.lock().expect("document store poisoned");
         let Some((text, _)) = docs.get(uri) else {
             return vec![];
         };
@@ -128,7 +123,7 @@ impl LanguageServer for SnapperLsp {
         let format = detect_format_from_uri(&uri, &params.text_document.language_id);
         self.documents
             .lock()
-            .unwrap()
+            .expect("document store poisoned")
             .insert(uri.clone(), (text, format));
 
         let diagnostics = self.compute_diagnostics(&uri);
@@ -141,12 +136,12 @@ impl LanguageServer for SnapperLsp {
         let uri = params.text_document.uri.clone();
         if let Some(change) = params.content_changes.into_iter().last() {
             let format = {
-                let docs = self.documents.lock().unwrap();
+                let docs = self.documents.lock().expect("document store poisoned");
                 docs.get(&uri).map_or(Format::Plaintext, |(_, f)| *f)
             };
             self.documents
                 .lock()
-                .unwrap()
+                .expect("document store poisoned")
                 .insert(uri.clone(), (change.text, format));
 
             let diagnostics = self.compute_diagnostics(&uri);
@@ -159,7 +154,7 @@ impl LanguageServer for SnapperLsp {
     async fn did_close(&self, params: DidCloseTextDocumentParams) {
         self.documents
             .lock()
-            .unwrap()
+            .expect("document store poisoned")
             .remove(&params.text_document.uri);
     }
 
@@ -173,7 +168,7 @@ impl LanguageServer for SnapperLsp {
     ) -> Result<Option<Vec<TextEdit>>> {
         let uri = &params.text_document.uri;
         let range = params.range;
-        let docs = self.documents.lock().unwrap();
+        let docs = self.documents.lock().expect("document store poisoned");
         let Some((text, format)) = docs.get(uri) else {
             return Ok(None);
         };

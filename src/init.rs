@@ -169,3 +169,36 @@ pub fn run_init(dry_run: bool) -> Result<()> {
 
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn generate_config_with_org() {
+        let config = generate_config(&["org"]);
+        assert!(config.contains("format = \"org\""));
+        assert!(config.contains("max_width = 0"));
+    }
+
+    #[test]
+    fn generate_config_empty_defaults_to_plaintext() {
+        let config = generate_config(&[]);
+        assert!(config.contains("format = \"plaintext\""));
+    }
+
+    #[test]
+    fn generate_gitattributes_multiple_formats() {
+        let ga = generate_gitattributes(&["org", "latex", "markdown"]);
+        assert!(ga.contains("*.org filter=snapper"));
+        assert!(ga.contains("*.tex filter=snapper"));
+        assert!(ga.contains("*.md filter=snapper"));
+    }
+
+    #[test]
+    fn generate_gitattributes_empty() {
+        let ga = generate_gitattributes(&[]);
+        assert!(ga.contains("# snapper"));
+        assert!(!ga.contains("filter=snapper"));
+    }
+}

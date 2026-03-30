@@ -1,7 +1,7 @@
 use regex::Regex;
 use std::sync::LazyLock;
 
-use crate::parser::{FormatParser, Region};
+use crate::parser::{FormatParser, Region, flush_prose};
 
 static HEADLINE_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"^(\*+\s+(?:TODO\s+|DONE\s+|NEXT\s+|WAIT\s+)?)(.*)$").unwrap());
@@ -63,13 +63,6 @@ impl FormatParser for OrgParser {
         // Track list item context: indent level of the marker text.
         // Continuation lines indented at or beyond this level belong to the item.
         let mut list_item_indent: Option<usize> = None;
-
-        let flush_prose = |prose: &mut String, regions: &mut Vec<Region>| {
-            if !prose.is_empty() {
-                regions.push(Region::Prose(prose.clone()));
-                prose.clear();
-            }
-        };
 
         for line in input.lines() {
             // Check for snapper:off/on pragmas

@@ -1,3 +1,9 @@
+//! Document format detection and representation.
+//!
+//! The [`Format`] enum identifies the markup language of a document,
+//! enabling format-specific parsing in the pipeline. Format is detected
+//! from file extensions or can be specified explicitly via CLI flags.
+
 use std::path::Path;
 
 use crate::cli::FormatArg;

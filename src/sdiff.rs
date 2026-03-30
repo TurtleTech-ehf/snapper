@@ -4,24 +4,13 @@ use anyhow::{Context, Result};
 use imara_diff::{Algorithm, BasicLineDiffPrinter, Diff, InternedInput, UnifiedDiffConfig};
 
 use crate::format::Format;
-use crate::parser::FormatParser;
 use crate::parser::Region;
-use crate::parser::latex::LatexParser;
-use crate::parser::markdown::MarkdownParser;
-use crate::parser::org::OrgParser;
-use crate::parser::plaintext::PlaintextParser;
 use crate::sentence::SentenceSplitter;
 use crate::sentence::unicode::UnicodeSentenceSplitter;
 
 /// Extract all sentences from a document, preserving their order.
 fn extract_sentences(input: &str, format: Format) -> Vec<String> {
-    let parser: Box<dyn FormatParser> = match format {
-        Format::Org => Box::new(OrgParser),
-        Format::Latex => Box::new(LatexParser),
-        Format::Markdown => Box::new(MarkdownParser),
-        Format::Rst => Box::new(crate::parser::rst::RstParser),
-        Format::Plaintext => Box::new(PlaintextParser),
-    };
+    let parser = crate::parser::parser_for_format(format);
 
     let splitter = UnicodeSentenceSplitter::new();
     let regions = parser.parse(input);

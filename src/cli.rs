@@ -148,3 +148,37 @@ pub fn parse_range(s: &str) -> Option<(usize, usize)> {
     }
     Some((start, end))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_range_valid() {
+        assert_eq!(parse_range("1:10"), Some((1, 10)));
+        assert_eq!(parse_range("5:5"), Some((5, 5)));
+        assert_eq!(parse_range("1:1"), Some((1, 1)));
+    }
+
+    #[test]
+    fn parse_range_zero_rejected() {
+        assert_eq!(parse_range("0:5"), None);
+        assert_eq!(parse_range("5:0"), None);
+        assert_eq!(parse_range("0:0"), None);
+    }
+
+    #[test]
+    fn parse_range_reversed_rejected() {
+        assert_eq!(parse_range("10:5"), None);
+    }
+
+    #[test]
+    fn parse_range_bad_format() {
+        assert_eq!(parse_range("abc"), None);
+        assert_eq!(parse_range("1:2:3"), None);
+        assert_eq!(parse_range(""), None);
+        assert_eq!(parse_range("a:b"), None);
+        assert_eq!(parse_range(":5"), None);
+        assert_eq!(parse_range("5:"), None);
+    }
+}

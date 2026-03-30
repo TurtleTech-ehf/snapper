@@ -68,7 +68,8 @@ fn run() -> Result<()> {
         }
     }
 
-    let project_config = ProjectConfig::resolve(cli.config.as_ref()).unwrap_or_default();
+    let project_config =
+        ProjectConfig::resolve(cli.config.as_deref()).unwrap_or_default();
 
     if cli.files.is_empty() {
         // Read from stdin
@@ -98,7 +99,7 @@ fn run() -> Result<()> {
             neural_model_path: cli.model_path.clone(),
             extra_abbreviations: project_config.extra_abbreviations.clone(),
             use_pandoc: cli.use_pandoc,
-            pandoc_format: None,
+            ..Default::default()
         };
 
         let output = if let Some(ref range_str) = cli.range {
@@ -209,7 +210,7 @@ fn process_file(
         neural_model_path: cli.model_path.clone(),
         extra_abbreviations: project_config.extra_abbreviations.clone(),
         use_pandoc: cli.use_pandoc,
-        pandoc_format: None,
+        ..Default::default()
     };
 
     let output = if let Some(ref range_str) = cli.range {
@@ -253,4 +254,25 @@ fn resolve_max_width(
     }
 
     0
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn cli_width_wins() {
+        assert_eq!(resolve_max_width(80, Some(120), None), 80);
+    }
+
+    #[test]
+    fn config_width_when_cli_zero() {
+        assert_eq!(resolve_max_width(0, Some(120), None), 120);
+    }
+
+    #[test]
+    fn both_zero_returns_zero() {
+        assert_eq!(resolve_max_width(0, None, None), 0);
+        assert_eq!(resolve_max_width(0, Some(0), None), 0);
+    }
 }

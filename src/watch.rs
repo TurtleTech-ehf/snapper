@@ -109,12 +109,8 @@ fn format_file_in_place(
     let config = FormatConfig {
         format,
         max_width: project_config.max_width.unwrap_or(0),
-        use_neural: false,
-        neural_lang: "en".to_string(),
-        neural_model_path: None,
         extra_abbreviations: project_config.extra_abbreviations.clone(),
-        use_pandoc: false,
-        pandoc_format: None,
+        ..Default::default()
     };
 
     let output = format_text(&input, &config)?;

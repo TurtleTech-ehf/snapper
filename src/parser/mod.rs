@@ -21,6 +21,26 @@ pub trait FormatParser {
     fn parse(&self, input: &str) -> Vec<Region>;
 }
 
+/// Create the appropriate parser for a given format.
+pub fn parser_for_format(format: crate::format::Format) -> Box<dyn FormatParser> {
+    use crate::format::Format;
+    match format {
+        Format::Org => Box::new(org::OrgParser),
+        Format::Latex => Box::new(latex::LatexParser),
+        Format::Markdown => Box::new(markdown::MarkdownParser),
+        Format::Rst => Box::new(rst::RstParser),
+        Format::Plaintext => Box::new(plaintext::PlaintextParser),
+    }
+}
+
+/// Flush accumulated prose into the region list, clearing the buffer.
+pub fn flush_prose(prose: &mut String, regions: &mut Vec<Region>) {
+    if !prose.is_empty() {
+        regions.push(Region::Prose(prose.clone()));
+        prose.clear();
+    }
+}
+
 /// Check if a line contains a snapper pragma.
 /// Returns Some(false) for "snapper:off", Some(true) for "snapper:on", None otherwise.
 pub fn check_pragma(line: &str) -> Option<bool> {

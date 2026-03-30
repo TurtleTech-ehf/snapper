@@ -1,7 +1,7 @@
 use regex::Regex;
 use std::sync::LazyLock;
 
-use crate::parser::{FormatParser, Region};
+use crate::parser::{FormatParser, Region, flush_prose};
 
 // Environments whose content is NOT prose (math, code, figures, tables)
 static NON_PROSE_ENVS: &[&str] = &[
@@ -60,13 +60,6 @@ impl FormatParser for LatexParser {
         let mut in_non_prose_env: Option<String> = None;
         let mut in_display_math = false;
         let mut pragma_off = false;
-
-        let flush_prose = |prose: &mut String, regions: &mut Vec<Region>| {
-            if !prose.is_empty() {
-                regions.push(Region::Prose(prose.clone()));
-                prose.clear();
-            }
-        };
 
         for line in input.lines() {
             // Check for snapper:off/on pragmas
