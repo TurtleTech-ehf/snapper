@@ -1,0 +1,123 @@
+# SOME DESCRIPTIVE TITLE.
+# Copyright (C) 2026--present, <a href="https://rgoswami.me">Rohit
+# Goswami</a>
+# This file is distributed under the same license as the snapper package.
+# FIRST AUTHOR <EMAIL@ADDRESS>, 2026.
+#
+#, fuzzy
+msgid ""
+msgstr ""
+"Project-Id-Version: snapper \n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2026-03-29 03:12+0200\n"
+"PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
+"Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
+"Language: is\n"
+"Language-Team: is <LL@li.org>\n"
+"Plural-Forms: nplurals=2; plural=(n%10==1 && n%100!=11 ? 0 : 1);\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=utf-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Generated-By: Babel 2.18.0\n"
+
+#: ../../source/howto/pandoc-backend.rst:3
+msgid "Pandoc Backend"
+msgstr ""
+
+#: ../../source/howto/pandoc-backend.rst:8
+msgid "Overview"
+msgstr ""
+
+#: ../../source/howto/pandoc-backend.rst:10
+msgid ""
+"Snapper includes a universal parser backend powered by `pandoc "
+"<https://pandoc.org>`_. When enabled with ``--use-pandoc``, snapper "
+"shells out to pandoc to parse the document into a JSON AST, then walks "
+"the AST to extract prose and structure regions."
+msgstr ""
+
+#: ../../source/howto/pandoc-backend.rst:13
+msgid ""
+"This gives snapper support for every format pandoc handles: typst, "
+"asciidoc, docx, html, epub, and more."
+msgstr ""
+
+#: ../../source/howto/pandoc-backend.rst:16
+msgid "Requirements"
+msgstr ""
+
+#: ../../source/howto/pandoc-backend.rst:18
+msgid "Pandoc 2.x or 3.x must be installed and on your PATH. Verify with:"
+msgstr ""
+
+#: ../../source/howto/pandoc-backend.rst:25
+msgid ""
+"When pandoc is not available, snapper falls back to its built-in parsers "
+"silently. If you explicitly pass ``--use-pandoc`` and pandoc is missing, "
+"snapper reports an error."
+msgstr ""
+
+#: ../../source/howto/pandoc-backend.rst:29
+msgid "Usage"
+msgstr ""
+
+#: ../../source/howto/pandoc-backend.rst:45
+msgid ""
+"Format auto-detects from the file extension. Override with ``-f`` when "
+"needed."
+msgstr ""
+
+#: ../../source/howto/pandoc-backend.rst:49
+msgid "When to use pandoc vs built-in parsers"
+msgstr ""
+
+#: ../../source/howto/pandoc-backend.rst:51
+msgid ""
+"The built-in parsers (Org, LaTeX, Markdown, RST) handle their formats "
+"well and run faster since they avoid spawning a subprocess. Use the "
+"pandoc backend when:"
+msgstr ""
+
+#: ../../source/howto/pandoc-backend.rst:54
+msgid ""
+"Working with typst, asciidoc, docx, html, or other formats without a "
+"built-in parser"
+msgstr ""
+
+#: ../../source/howto/pandoc-backend.rst:56
+msgid "You want consistent parsing across many formats in one project"
+msgstr ""
+
+#: ../../source/howto/pandoc-backend.rst:58
+msgid "The built-in parser mishandles an edge case that pandoc gets right"
+msgstr ""
+
+#: ../../source/howto/pandoc-backend.rst:60
+msgid ""
+"The built-in parsers preserve more source-level structure (pragmas, "
+"inline tokens). The pandoc backend strips format-specific markup since it"
+" works through the abstract AST."
+msgstr ""
+
+#: ../../source/howto/pandoc-backend.rst:64
+msgid "Limitations"
+msgstr ""
+
+#: ../../source/howto/pandoc-backend.rst:66
+msgid ""
+"Pandoc strips comments, so ``snapper:off`` / ``snapper:on`` pragmas do "
+"not work through the pandoc backend"
+msgstr ""
+
+#: ../../source/howto/pandoc-backend.rst:68
+msgid ""
+"Table content is not preserved verbatim (pandoc normalizes table "
+"structure)"
+msgstr ""
+
+#: ../../source/howto/pandoc-backend.rst:70
+msgid ""
+"Some format-specific markup (Org drawers, LaTeX preamble) gets simplified"
+" in the AST"
+msgstr ""
+

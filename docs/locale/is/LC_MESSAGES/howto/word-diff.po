@@ -1,0 +1,166 @@
+# SOME DESCRIPTIVE TITLE.
+# Copyright (C) 2026--present, <a href="https://rgoswami.me">Rohit
+# Goswami</a>
+# This file is distributed under the same license as the snapper package.
+# FIRST AUTHOR <EMAIL@ADDRESS>, 2026.
+#
+#, fuzzy
+msgid ""
+msgstr ""
+"Project-Id-Version: snapper \n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2026-03-29 03:12+0200\n"
+"PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
+"Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
+"Language: is\n"
+"Language-Team: is <LL@li.org>\n"
+"Plural-Forms: nplurals=2; plural=(n%10==1 && n%100!=11 ? 0 : 1);\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=utf-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Generated-By: Babel 2.18.0\n"
+
+#: ../../source/howto/word-diff.rst:3
+msgid "Word-Level Diff (latexdiff-style)"
+msgstr ""
+
+#: ../../source/howto/word-diff.rst:8
+msgid "Overview"
+msgstr ""
+
+#: ../../source/howto/word-diff.rst:10
+msgid ""
+"``snapper wdiff`` compares two files at the word level within sentences, "
+"highlighting exactly which words changed. This gives latexdiff-style "
+"output but works for any format, not just LaTeX."
+msgstr ""
+
+#: ../../source/howto/word-diff.rst:14
+msgid "Basic usage"
+msgstr ""
+
+#: ../../source/howto/word-diff.rst:20
+msgid ""
+"Terminal output (default) uses ANSI colors: red strikethrough for deleted"
+" words, green bold for added words."
+msgstr ""
+
+#: ../../source/howto/word-diff.rst:23
+msgid "Output formats"
+msgstr ""
+
+#: ../../source/howto/word-diff.rst:25
+msgid "Control the markup style with ``--output-format``:"
+msgstr ""
+
+#: ../../source/howto/word-diff.rst:50
+msgid "LaTeX PDF output"
+msgstr ""
+
+#: ../../source/howto/word-diff.rst:52
+msgid "Generate a compilable LaTeX document with change markup:"
+msgstr ""
+
+#: ../../source/howto/word-diff.rst:58
+#, python-brace-format
+msgid ""
+"The ``\\DIFadd{}`` and ``\\DIFdel{}`` commands are compatible with "
+"latexdiff's DIF style. Add this preamble to compile:"
+msgstr ""
+
+#: ../../source/howto/word-diff.rst:69
+msgid "Comparison with latexdiff"
+msgstr ""
+
+#: ../../source/howto/word-diff.rst:74
+msgid "Feature"
+msgstr ""
+
+#: ../../source/howto/word-diff.rst:74
+msgid "latexdiff"
+msgstr ""
+
+#: ../../source/howto/word-diff.rst:74
+msgid "snapper wdiff"
+msgstr ""
+
+#: ../../source/howto/word-diff.rst:76
+msgid "Formats"
+msgstr ""
+
+#: ../../source/howto/word-diff.rst:76 ../../source/howto/word-diff.rst:82
+msgid "LaTeX only"
+msgstr ""
+
+#: ../../source/howto/word-diff.rst:76
+msgid "Org, LaTeX, Markdown, RST, typst, plaintext"
+msgstr ""
+
+#: ../../source/howto/word-diff.rst:78
+msgid "Installation"
+msgstr ""
+
+#: ../../source/howto/word-diff.rst:78
+msgid "Perl + TeX Live"
+msgstr ""
+
+#: ../../source/howto/word-diff.rst:78
+msgid "Single binary"
+msgstr ""
+
+#: ../../source/howto/word-diff.rst:80
+msgid "Speed"
+msgstr ""
+
+#: ../../source/howto/word-diff.rst:80
+msgid "Slow (Perl)"
+msgstr ""
+
+#: ../../source/howto/word-diff.rst:80
+msgid "Fast (Rust)"
+msgstr ""
+
+#: ../../source/howto/word-diff.rst:82
+msgid "Output"
+msgstr ""
+
+#: ../../source/howto/word-diff.rst:82
+msgid "6 formats (terminal, plaintext, LaTeX, Markdown, Org, typst)"
+msgstr ""
+
+#: ../../source/howto/word-diff.rst:84
+msgid "Sentence awareness"
+msgstr ""
+
+#: ../../source/howto/word-diff.rst:84
+msgid "No"
+msgstr ""
+
+#: ../../source/howto/word-diff.rst:84
+msgid "Yes (sentence-level + word-level)"
+msgstr ""
+
+#: ../../source/howto/word-diff.rst:86
+msgid "Git integration"
+msgstr ""
+
+#: ../../source/howto/word-diff.rst:86
+msgid "Manual"
+msgstr ""
+
+#: ../../source/howto/word-diff.rst:86
+msgid "``snapper git-diff --word-level``"
+msgstr ""
+
+#: ../../source/howto/word-diff.rst:90
+msgid "Integration with sdiff and git-diff"
+msgstr ""
+
+#: ../../source/howto/word-diff.rst:92
+msgid ""
+"The ``--word-level`` flag on ``snapper sdiff`` and ``snapper git-diff`` "
+"enables word-level highlighting within changed sentences (planned, "
+"currently wired but rendering through the dedicated ``wdiff`` "
+"subcommand)."
+msgstr ""
+

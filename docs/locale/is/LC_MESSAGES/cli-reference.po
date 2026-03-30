@@ -1,0 +1,304 @@
+# SOME DESCRIPTIVE TITLE.
+# Copyright (C) 2026--present, <a href="https://rgoswami.me">Rohit
+# Goswami</a>
+# This file is distributed under the same license as the snapper package.
+# FIRST AUTHOR <EMAIL@ADDRESS>, 2026.
+#
+#, fuzzy
+msgid ""
+msgstr ""
+"Project-Id-Version: snapper \n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2026-03-29 10:14+0200\n"
+"PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
+"Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
+"Language: is\n"
+"Language-Team: is <LL@li.org>\n"
+"Plural-Forms: nplurals=2; plural=(n%10==1 && n%100!=11 ? 0 : 1);\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=utf-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Generated-By: Babel 2.18.0\n"
+
+#: ../../source/cli-reference.md:1
+msgid "Command-Line Help for `snapper`"
+msgstr ""
+
+#: ../../source/cli-reference.md:3
+msgid ""
+"This document contains the help content for the `snapper` command-line "
+"program."
+msgstr ""
+
+#: ../../source/cli-reference.md:5
+msgid "**Command Overview:**"
+msgstr ""
+
+#: ../../source/cli-reference.md:7
+msgid "[`snapper`↴](#snapper)"
+msgstr ""
+
+#: ../../source/cli-reference.md:8
+msgid "[`snapper init`↴](#snapper-init)"
+msgstr ""
+
+#: ../../source/cli-reference.md:9
+msgid "[`snapper sdiff`↴](#snapper-sdiff)"
+msgstr ""
+
+#: ../../source/cli-reference.md:10
+msgid "[`snapper git-diff`↴](#snapper-git-diff)"
+msgstr ""
+
+#: ../../source/cli-reference.md:11
+msgid "[`snapper lsp`↴](#snapper-lsp)"
+msgstr ""
+
+#: ../../source/cli-reference.md:12
+msgid "[`snapper watch`↴](#snapper-watch)"
+msgstr ""
+
+#: ../../source/cli-reference.md:14
+msgid "`snapper`"
+msgstr ""
+
+#: ../../source/cli-reference.md:16
+msgid "Semantic line break formatter"
+msgstr ""
+
+#: ../../source/cli-reference.md:18
+msgid "**Usage:** `snapper [OPTIONS] [FILES]... [COMMAND]`"
+msgstr ""
+
+#: ../../source/cli-reference.md:20
+msgid "**Subcommands:**"
+msgstr ""
+
+#: ../../source/cli-reference.md:22
+msgid ""
+"`init` — Initialize snapper for a project (generate config, pre-commit, "
+"gitattributes)"
+msgstr ""
+
+#: ../../source/cli-reference.md:23
+msgid "`sdiff` — Sentence-level diff between two files"
+msgstr ""
+
+#: ../../source/cli-reference.md:24
+msgid "`git-diff` — Sentence-level diff against a git ref"
+msgstr ""
+
+#: ../../source/cli-reference.md:25
+msgid "`lsp` — Start the LSP server (stdin/stdout)"
+msgstr ""
+
+#: ../../source/cli-reference.md:26
+msgid "`watch` — Watch files and reformat on change"
+msgstr ""
+
+#: ../../source/cli-reference.md:28 ../../source/cli-reference.md:81
+#: ../../source/cli-reference.md:102 ../../source/cli-reference.md:133
+msgid "**Arguments:**"
+msgstr ""
+
+#: ../../source/cli-reference.md:30
+msgid "`<FILES>` — Input files. Reads stdin if omitted"
+msgstr ""
+
+#: ../../source/cli-reference.md:32 ../../source/cli-reference.md:69
+#: ../../source/cli-reference.md:86 ../../source/cli-reference.md:109
+#: ../../source/cli-reference.md:137
+msgid "**Options:**"
+msgstr ""
+
+#: ../../source/cli-reference.md:34 ../../source/cli-reference.md:88
+#: ../../source/cli-reference.md:111 ../../source/cli-reference.md:139
+msgid ""
+"`-f`, `--format <FORMAT>` — Input format (auto-detected from extension if"
+" omitted)"
+msgstr ""
+
+#: ../../source/cli-reference.md:36 ../../source/cli-reference.md:90
+#: ../../source/cli-reference.md:113 ../../source/cli-reference.md:141
+msgid "Possible values: `org`, `latex`, `markdown`, `rst`, `plaintext`"
+msgstr ""
+
+#: ../../source/cli-reference.md:38
+msgid ""
+"`--stdin-filepath <STDIN_FILEPATH>` — Assume this filename when reading "
+"stdin (for format auto-detection)"
+msgstr ""
+
+#: ../../source/cli-reference.md:39
+msgid "`-o`, `--output <OUTPUT>` — Output file (stdout if omitted)"
+msgstr ""
+
+#: ../../source/cli-reference.md:40
+msgid "`-i`, `--in-place` — Modify files in place"
+msgstr ""
+
+#: ../../source/cli-reference.md:41
+msgid "`-w`, `--max-width <MAX_WIDTH>` — Maximum line width (0 = unlimited)"
+msgstr ""
+
+#: ../../source/cli-reference.md:43
+msgid "Default value: `0`"
+msgstr ""
+
+#: ../../source/cli-reference.md:44
+msgid "`--neural` — Use neural sentence detection (nnsplit LSTM model)"
+msgstr ""
+
+#: ../../source/cli-reference.md:45
+msgid ""
+"`--lang <LANG>` — Language for neural sentence detection (default: en). "
+"Available: en, de, fr, no, sv, zh, tr, ru, uk"
+msgstr ""
+
+#: ../../source/cli-reference.md:47
+msgid "Default value: `en`"
+msgstr ""
+
+#: ../../source/cli-reference.md:48
+msgid ""
+"`--model-path <MODEL_PATH>` — Path to custom ONNX model file for neural "
+"detection"
+msgstr ""
+
+#: ../../source/cli-reference.md:49
+msgid "`--use-pandoc` — Use pandoc as parser backend (universal format support)"
+msgstr ""
+
+#: ../../source/cli-reference.md:50
+msgid "`--check` — Exit with code 1 if any file would change"
+msgstr ""
+
+#: ../../source/cli-reference.md:51
+msgid "`--diff` — Show a unified diff of what would change"
+msgstr ""
+
+#: ../../source/cli-reference.md:52
+msgid ""
+"`--config <CONFIG>` — Path to config file (default: .snapperrc.toml in "
+"current or parent dirs)"
+msgstr ""
+
+#: ../../source/cli-reference.md:53
+msgid ""
+"`--range <RANGE>` — Only format lines in this range (1-indexed, "
+"inclusive). Format: START:END"
+msgstr ""
+
+#: ../../source/cli-reference.md:54
+msgid "`--output-format <OUTPUT_FORMAT>` — Output format for --check mode"
+msgstr ""
+
+#: ../../source/cli-reference.md:56
+msgid "Default value: `text`"
+msgstr ""
+
+#: ../../source/cli-reference.md:58
+msgid "Possible values: `text`, `json`, `sarif`"
+msgstr ""
+
+#: ../../source/cli-reference.md:63
+msgid "`snapper init`"
+msgstr ""
+
+#: ../../source/cli-reference.md:65
+msgid ""
+"Initialize snapper for a project (generate config, pre-commit, "
+"gitattributes)"
+msgstr ""
+
+#: ../../source/cli-reference.md:67
+msgid "**Usage:** `snapper init [OPTIONS]`"
+msgstr ""
+
+#: ../../source/cli-reference.md:71
+msgid "`--dry-run` — Preview what would be generated without writing files"
+msgstr ""
+
+#: ../../source/cli-reference.md:75
+msgid "`snapper sdiff`"
+msgstr ""
+
+#: ../../source/cli-reference.md:77
+msgid "Sentence-level diff between two files"
+msgstr ""
+
+#: ../../source/cli-reference.md:79
+msgid "**Usage:** `snapper sdiff [OPTIONS] <OLD> <NEW>`"
+msgstr ""
+
+#: ../../source/cli-reference.md:83
+msgid "`<OLD>` — Original file"
+msgstr ""
+
+#: ../../source/cli-reference.md:84
+msgid "`<NEW>` — Modified file"
+msgstr ""
+
+#: ../../source/cli-reference.md:92 ../../source/cli-reference.md:115
+msgid "`--no-color` — Disable colored output"
+msgstr ""
+
+#: ../../source/cli-reference.md:96
+msgid "`snapper git-diff`"
+msgstr ""
+
+#: ../../source/cli-reference.md:98
+msgid "Sentence-level diff against a git ref"
+msgstr ""
+
+#: ../../source/cli-reference.md:100
+msgid "**Usage:** `snapper git-diff [OPTIONS] [GIT_REF] [FILES]...`"
+msgstr ""
+
+#: ../../source/cli-reference.md:104
+msgid "`<GIT_REF>` — Git ref to compare against (default: HEAD)"
+msgstr ""
+
+#: ../../source/cli-reference.md:106
+msgid "Default value: `HEAD`"
+msgstr ""
+
+#: ../../source/cli-reference.md:107
+msgid "`<FILES>` — Files to diff. If omitted, diffs all changed prose files"
+msgstr ""
+
+#: ../../source/cli-reference.md:119
+msgid "`snapper lsp`"
+msgstr ""
+
+#: ../../source/cli-reference.md:121
+msgid "Start the LSP server (stdin/stdout)"
+msgstr ""
+
+#: ../../source/cli-reference.md:123
+msgid "**Usage:** `snapper lsp`"
+msgstr ""
+
+#: ../../source/cli-reference.md:127
+msgid "`snapper watch`"
+msgstr ""
+
+#: ../../source/cli-reference.md:129
+msgid "Watch files and reformat on change"
+msgstr ""
+
+#: ../../source/cli-reference.md:131
+msgid "**Usage:** `snapper watch [OPTIONS] <PATTERNS>...`"
+msgstr ""
+
+#: ../../source/cli-reference.md:135
+msgid "`<PATTERNS>` — Files or glob patterns to watch"
+msgstr ""
+
+#: ../../source/cli-reference.md:148
+msgid ""
+"<small><i>     This document was generated automatically by     <a "
+"href=\"https://crates.io/crates/clap-markdown\"><code>clap-"
+"markdown</code></a>. </i></small>"
+msgstr ""
+

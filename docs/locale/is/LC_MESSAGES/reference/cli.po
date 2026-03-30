@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: snapper \n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-03-28 02:18+0100\n"
+"POT-Creation-Date: 2026-03-29 10:14+0200\n"
 "PO-Revision-Date: 2026-03-27 23:00+0100\n"
 "Last-Translator: Rohit Goswami <rgoswami@ieee.org>\n"
 "Language: is\n"
@@ -206,10 +206,22 @@ msgstr ""
 "Yfirgegnir ``--lang``."
 
 #: ../../source/reference/cli.rst:114
+msgid "``--use-pandoc``"
+msgstr ""
+
+#: ../../source/reference/cli.rst:116
+msgid ""
+"Use pandoc as the parser backend instead of built-in parsers. Requires "
+"pandoc on PATH. Enables support for typst, asciidoc, docx, html, and all "
+"other pandoc-supported formats. Falls back silently if pandoc is "
+"unavailable (unless this flag is explicit)."
+msgstr ""
+
+#: ../../source/reference/cli.rst:122
 msgid "``--config <PATH>``"
 msgstr "``--config <PATH>``"
 
-#: ../../source/reference/cli.rst:116
+#: ../../source/reference/cli.rst:124
 msgid ""
 "Path to a ``.snapperrc.toml`` config file. When omitted, ``snapper`` "
 "searches from the current directory upward."
@@ -217,31 +229,31 @@ msgstr ""
 "Slóð að ``.snapperrc.toml`` stillingarskrá. Þegar sleppt er leitar "
 "``snapper`` frá núverandi möppu og upp á við."
 
-#: ../../source/reference/cli.rst:120
+#: ../../source/reference/cli.rst:128
 msgid "``-h``, ``--help``"
 msgstr "``-h``, ``--help``"
 
-#: ../../source/reference/cli.rst:122
+#: ../../source/reference/cli.rst:130
 msgid "Print help message."
 msgstr "Prenta hjálparskilaboð."
 
-#: ../../source/reference/cli.rst:125
+#: ../../source/reference/cli.rst:133
 msgid "``-V``, ``--version``"
 msgstr "``-V``, ``--version``"
 
-#: ../../source/reference/cli.rst:127
+#: ../../source/reference/cli.rst:135
 msgid "Print version."
 msgstr "Prenta útgáfunúmer."
 
-#: ../../source/reference/cli.rst:130
+#: ../../source/reference/cli.rst:138
 msgid "Subcommands"
 msgstr "Undirskipanir"
 
-#: ../../source/reference/cli.rst:133
+#: ../../source/reference/cli.rst:141
 msgid "``snapper init``"
 msgstr "``snapper init``"
 
-#: ../../source/reference/cli.rst:135
+#: ../../source/reference/cli.rst:143
 msgid ""
 "Initialize snapper for a project. Detects which prose formats exist in "
 "the directory tree and generates:"
@@ -249,32 +261,32 @@ msgstr ""
 "Frumstilla snapper fyrir verkefni. Greinir hvaða textasnið eru til staðar"
 " í möpputrénu og býr til:"
 
-#: ../../source/reference/cli.rst:138
+#: ../../source/reference/cli.rst:146
 msgid "``.snapperrc.toml`` with sensible defaults"
 msgstr "``.snapperrc.toml`` með skynsamlegum sjálfgildum"
 
-#: ../../source/reference/cli.rst:140
+#: ../../source/reference/cli.rst:148
 msgid "``.gitattributes`` entries for the git smudge/clean filter"
 msgstr "``.gitattributes`` færslur fyrir git smudge/clean síuna"
 
-#: ../../source/reference/cli.rst:142
+#: ../../source/reference/cli.rst:150
 msgid "pre-commit hook snippet"
 msgstr "pre-commit hook bútur"
 
-#: ../../source/reference/cli.rst:144
+#: ../../source/reference/cli.rst:152
 msgid "Apheleia (Emacs) configuration snippet"
 msgstr "Apheleia (Emacs) stillingabútur"
 
-#: ../../source/reference/cli.rst:146
+#: ../../source/reference/cli.rst:154
 msgid "Use ``--dry-run`` to preview without writing files."
 msgstr "Notaðu ``--dry-run`` til að forskoða án þess að skrifa skrár."
 
-#: ../../source/reference/cli.rst:149
+#: ../../source/reference/cli.rst:157
 #, fuzzy
 msgid "``snapper sdiff <OLD> <NEW>``"
 msgstr "``snapper init``"
 
-#: ../../source/reference/cli.rst:151
+#: ../../source/reference/cli.rst:159
 msgid ""
 "Sentence-level diff between two files. Parses both files, extracts "
 "sentences, diffs at sentence granularity. Whitespace reflow produces zero"
@@ -282,34 +294,34 @@ msgid ""
 "with code 1 if differences found."
 msgstr ""
 
-#: ../../source/reference/cli.rst:158
+#: ../../source/reference/cli.rst:166
 msgid "``snapper git-diff [REF] [FILE...]``"
 msgstr ""
 
-#: ../../source/reference/cli.rst:160
+#: ../../source/reference/cli.rst:168
 msgid ""
 "Sentence-level diff against a git ref. Default ref: ``HEAD``. If no files"
 " specified, diffs all changed prose files (``.org``, ``.tex``, ``.md``). "
 "Uses ``git show REF:path`` to retrieve the old version."
 msgstr ""
 
-#: ../../source/reference/cli.rst:166
+#: ../../source/reference/cli.rst:174
 msgid "``snapper watch <PATTERNS...>``"
 msgstr ""
 
-#: ../../source/reference/cli.rst:168
+#: ../../source/reference/cli.rst:176
 msgid ""
 "Watch files and auto-reformat on save. Accepts file paths or glob "
 "patterns. 200ms debounce to avoid reformatting during rapid saves. Press "
 "Ctrl+C to stop."
 msgstr ""
 
-#: ../../source/reference/cli.rst:173
+#: ../../source/reference/cli.rst:181
 #, fuzzy
 msgid "``snapper lsp``"
 msgstr "``snapper init``"
 
-#: ../../source/reference/cli.rst:175
+#: ../../source/reference/cli.rst:183
 msgid ""
 "Start the Language Server Protocol server on stdin/stdout. Provides "
 "document formatting, range formatting, and diagnostics (flags lines with "
@@ -317,15 +329,15 @@ msgid ""
 "eglot, VS Code, Helix)."
 msgstr ""
 
-#: ../../source/reference/cli.rst:180
+#: ../../source/reference/cli.rst:188
 msgid "Exit codes"
 msgstr "Útgangskóðar"
 
-#: ../../source/reference/cli.rst:182
+#: ../../source/reference/cli.rst:190
 msgid "``0`` : Success (or ``--check`` / ``--diff`` with no changes needed)"
 msgstr "``0`` : Tókst (eða ``--check`` / ``--diff`` án breytinga)"
 
-#: ../../source/reference/cli.rst:184
+#: ../../source/reference/cli.rst:192
 msgid ""
 "``1`` : ``--check`` or ``--diff`` found files that would change, or any "
 "error"
