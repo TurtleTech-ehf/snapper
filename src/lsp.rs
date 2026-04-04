@@ -60,12 +60,15 @@ impl SnapperLsp {
         let (text, format) = docs.get(uri)?;
         let config = self.make_config(*format);
         let formatted = format_text(text, &config).ok()?;
+
         if formatted == *text {
             return None;
         }
+
         let lines_count = text.lines().count();
         let end_line = lines_count.saturating_sub(1);
         let last_line_len = text.lines().last().map_or(0, |l| l.len());
+
         Some(vec![TextEdit {
             range: Range {
                 start: Position::new(0, 0),
@@ -82,36 +85,31 @@ impl SnapperLsp {
         };
 
         let mut diagnostics = Vec::new();
+        // Flag lines that contain multiple sentences (period + space + capital)
         for (i, line) in text.lines().enumerate() {
-            // Flag lines that contain multiple sentences (period + space + capital)
-            let trimmed = line.trim();
-            if trimmed.is_empty() {
+            let chars: Vec<char> = line.chars().collect();
+            if chars.is_empty() {
                 continue;
             }
-            let mut sentence_boundaries = 0;
-            let chars: Vec<char> = trimmed.chars().collect();
+
+            // Highlight the exact space character where a split should occur
             for j in 1..chars.len().saturating_sub(1) {
                 if (chars[j - 1] == '.' || chars[j - 1] == '!' || chars[j - 1] == '?')
                     && chars[j] == ' '
                     && chars.get(j + 1).is_some_and(|c| c.is_uppercase())
                 {
-                    sentence_boundaries += 1;
+                    diagnostics.push(Diagnostic {
+                        range: Range {
+                            start: Position::new(i as u32, j as u32),
+                            end: Position::new(i as u32, (j + 1) as u32),
+                        },
+                        severity: Some(DiagnosticSeverity::HINT),
+                        source: Some("snapper".to_string()),
+                        message: "Semantic line break recommended here. Consider running snapper."
+                            .to_string(),
+                        ..Default::default()
+                    });
                 }
-            }
-            if sentence_boundaries >= 1 {
-                diagnostics.push(Diagnostic {
-                    range: Range {
-                        start: Position::new(i as u32, 0),
-                        end: Position::new(i as u32, line.len() as u32),
-                    },
-                    severity: Some(DiagnosticSeverity::HINT),
-                    source: Some("snapper".to_string()),
-                    message: format!(
-                        "Line contains {} sentence boundary(ies). Consider running snapper.",
-                        sentence_boundaries
-                    ),
-                    ..Default::default()
-                });
             }
         }
         diagnostics
@@ -121,7 +119,6 @@ impl SnapperLsp {
 #[tower_lsp::async_trait]
 impl LanguageServer for SnapperLsp {
     async fn initialize(&self, params: InitializeParams) -> Result<InitializeResult> {
-        // Determine workspace root from init params
         let root = params
             .workspace_folders
             .as_ref()
@@ -145,6 +142,23 @@ impl LanguageServer for SnapperLsp {
                 document_formatting_provider: Some(OneOf::Left(true)),
                 document_range_formatting_provider: Some(OneOf::Left(true)),
                 code_action_provider: Some(CodeActionProviderCapability::Simple(true)),
+                code_lens_provider: Some(CodeLensOptions {
+                    resolve_provider: Some(false),
+                }),
+                document_on_type_formatting_provider: Some(DocumentOnTypeFormattingOptions {
+                    first_trigger_character: ".".to_string(),
+                    more_trigger_character: Some(vec![
+                        " ".to_string(),
+                        "?".to_string(),
+                        "!".to_string(),
+                        "\n".to_string(),
+                    ]),
+                }),
+                hover_provider: Some(HoverProviderCapability::Simple(true)),
+                execute_command_provider: Some(ExecuteCommandOptions {
+                    commands: vec!["snapper.reloadConfig".to_string()],
+                    ..Default::default()
+                }),
                 ..Default::default()
             },
             ..Default::default()
@@ -160,7 +174,6 @@ impl LanguageServer for SnapperLsp {
                 config.max_width.unwrap_or(0),
             )
         };
-
         self.client.log_message(MessageType::INFO, msg).await;
     }
 
@@ -172,6 +185,7 @@ impl LanguageServer for SnapperLsp {
         let uri = params.text_document.uri.clone();
         let text = params.text_document.text.clone();
         let format = detect_format_from_uri(&uri, &params.text_document.language_id);
+
         self.documents
             .lock()
             .expect("document store poisoned")
@@ -210,13 +224,11 @@ impl LanguageServer for SnapperLsp {
     }
 
     async fn did_change_watched_files(&self, _params: DidChangeWatchedFilesParams) {
-        // .snapperrc.toml changed -- reload config
         self.reload_config();
         self.client
             .log_message(MessageType::INFO, "Reloaded .snapperrc.toml")
             .await;
 
-        // Recompute diagnostics for all open documents
         let uris: Vec<Url> = {
             let docs = self.documents.lock().expect("document store poisoned");
             docs.keys().cloned().collect()
@@ -239,6 +251,7 @@ impl LanguageServer for SnapperLsp {
     ) -> Result<Option<Vec<TextEdit>>> {
         let uri = &params.text_document.uri;
         let range = params.range;
+
         let docs = self.documents.lock().expect("document store poisoned");
         let Some((text, format)) = docs.get(uri) else {
             return Ok(None);
@@ -272,8 +285,29 @@ impl LanguageServer for SnapperLsp {
 
     async fn code_action(&self, params: CodeActionParams) -> Result<Option<CodeActionResponse>> {
         let uri = &params.text_document.uri;
+        let mut actions = Vec::new();
 
-        // Only offer code actions for snapper diagnostics
+        // Global Source Action: Format Document
+        let wants_source_action = params.context.only.as_ref().map_or(true, |only| {
+            only.contains(&CodeActionKind::SOURCE_FIX_ALL) || only.contains(&CodeActionKind::SOURCE)
+        });
+
+        if wants_source_action {
+            if let Some(edits) = self.format_document(uri) {
+                let mut changes = HashMap::new();
+                changes.insert(uri.clone(), edits);
+                actions.push(CodeActionOrCommand::CodeAction(CodeAction {
+                    title: "Format document with snapper".to_string(),
+                    kind: Some(CodeActionKind::SOURCE_FIX_ALL),
+                    edit: Some(WorkspaceEdit {
+                        changes: Some(changes),
+                        ..Default::default()
+                    }),
+                    ..Default::default()
+                }));
+            }
+        }
+
         let snapper_diags: Vec<&Diagnostic> = params
             .context
             .diagnostics
@@ -281,25 +315,26 @@ impl LanguageServer for SnapperLsp {
             .filter(|d| d.source.as_deref() == Some("snapper"))
             .collect();
 
-        if snapper_diags.is_empty() {
-            return Ok(None);
-        }
-
         let docs = self.documents.lock().expect("document store poisoned");
         let Some((text, format)) = docs.get(uri) else {
-            return Ok(None);
+            return Ok(if actions.is_empty() {
+                None
+            } else {
+                Some(actions)
+            });
         };
 
         let config = self.make_config(*format);
-        let mut actions = Vec::new();
 
         for diag in &snapper_diags {
             let lines: Vec<&str> = text.lines().collect();
             let start = diag.range.start.line as usize;
             let end = diag.range.end.line as usize;
+
             if start >= lines.len() {
                 continue;
             }
+
             let end = end.min(lines.len().saturating_sub(1));
             let range_text = lines[start..=end].join("\n");
 
@@ -313,7 +348,6 @@ impl LanguageServer for SnapperLsp {
             }
 
             let last_col = lines.get(end).map_or(0, |l| l.len());
-
             let edit = TextEdit {
                 range: Range {
                     start: Position::new(start as u32, 0),
@@ -326,7 +360,7 @@ impl LanguageServer for SnapperLsp {
             changes.insert(uri.clone(), vec![edit]);
 
             actions.push(CodeActionOrCommand::CodeAction(CodeAction {
-                title: "Split into semantic line breaks".to_string(),
+                title: "Apply semantic line break".to_string(),
                 kind: Some(CodeActionKind::QUICKFIX),
                 diagnostics: Some(vec![(*diag).clone()]),
                 edit: Some(WorkspaceEdit {
@@ -344,10 +378,96 @@ impl LanguageServer for SnapperLsp {
             Ok(Some(actions))
         }
     }
+
+    async fn code_lens(&self, params: CodeLensParams) -> Result<Option<Vec<CodeLens>>> {
+        let uri = &params.text_document.uri;
+        let docs = self.documents.lock().expect("document store poisoned");
+        let Some((_, format)) = docs.get(uri) else {
+            return Ok(None);
+        };
+
+        let config = self.make_config(*format);
+        let width_display = if config.max_width == 0 {
+            "unlimited".to_string()
+        } else {
+            config.max_width.to_string()
+        };
+
+        let title = format!("snapper: {:?} | width: {}", config.format, width_display);
+
+        Ok(Some(vec![CodeLens {
+            range: Range {
+                start: Position::new(0, 0),
+                end: Position::new(0, 0),
+            },
+            command: Some(Command {
+                title,
+                command: "snapper.showOutputChannel".to_string(),
+                arguments: None,
+            }),
+            data: None,
+        }]))
+    }
+
+    async fn on_type_formatting(
+        &self,
+        params: DocumentOnTypeFormattingParams,
+    ) -> Result<Option<Vec<TextEdit>>> {
+        let position = params.text_document_position.position;
+        self.range_formatting(DocumentRangeFormattingParams {
+            text_document: params.text_document_position.text_document,
+            range: Range {
+                start: Position::new(position.line, 0),
+                end: Position::new(position.line, position.character),
+            },
+            options: params.options,
+            work_done_progress_params: Default::default(),
+        })
+        .await
+    }
+
+    async fn hover(&self, params: HoverParams) -> Result<Option<Hover>> {
+        let uri = &params.text_document_position_params.text_document.uri;
+        let pos = params.text_document_position_params.position;
+
+        let docs = self.documents.lock().expect("document store poisoned");
+        let Some((text, format)) = docs.get(uri) else {
+            return Ok(None);
+        };
+
+        let line = text.lines().nth(pos.line as usize).unwrap_or("");
+        let config = self.make_config(*format);
+        let formatted = format_text(line, &config).unwrap_or_default();
+
+        // Show hover preview only if the line actually needs formatting
+        if formatted.trim() != line.trim() && formatted.lines().count() > 1 {
+            return Ok(Some(Hover {
+                contents: HoverContents::Markup(MarkupContent {
+                    kind: MarkupKind::Markdown,
+                    value: format!("**snapper preview:**\n```text\n{}\n```", formatted.trim()),
+                }),
+                range: None,
+            }));
+        }
+
+        Ok(None)
+    }
+
+    async fn execute_command(
+        &self,
+        params: ExecuteCommandParams,
+    ) -> Result<Option<serde_json::Value>> {
+        if params.command == "snapper.reloadConfig" {
+            self.reload_config();
+            self.client
+                .log_message(MessageType::INFO, "Manually reloaded .snapperrc.toml")
+                .await;
+        }
+        Ok(None)
+    }
 }
 
 fn detect_format_from_uri(uri: &Url, language_id: &str) -> Format {
-    // Try language ID first
     match language_id {
         "org" => return Format::Org,
         "latex" | "tex" => return Format::Latex,
@@ -356,7 +476,6 @@ fn detect_format_from_uri(uri: &Url, language_id: &str) -> Format {
         "restructuredtext" => return Format::Rst,
         _ => {}
     }
-    // Fall back to file extension
     if let Ok(path) = uri.to_file_path() {
         Format::from_path(&path)
     } else {
