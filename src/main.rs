@@ -68,8 +68,7 @@ fn run() -> Result<()> {
         }
     }
 
-    let project_config =
-        ProjectConfig::resolve(cli.config.as_deref()).unwrap_or_default();
+    let project_config = ProjectConfig::resolve(cli.config.as_deref()).unwrap_or_default();
 
     if cli.files.is_empty() {
         // Read from stdin
