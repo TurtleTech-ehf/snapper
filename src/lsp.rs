@@ -8,7 +8,7 @@ use tower_lsp::{Client, LanguageServer, LspService, Server};
 
 use crate::config::ProjectConfig;
 use crate::format::Format;
-use crate::{FormatConfig, format_text};
+use crate::{format_text, FormatConfig};
 
 pub struct SnapperLsp {
     client: Client,
@@ -63,12 +63,13 @@ impl SnapperLsp {
         if formatted == *text {
             return None;
         }
-        let lines = text.lines().count();
+        let lines_count = text.lines().count();
+        let end_line = lines_count.saturating_sub(1);
         let last_line_len = text.lines().last().map_or(0, |l| l.len());
         Some(vec![TextEdit {
             range: Range {
                 start: Position::new(0, 0),
-                end: Position::new(lines as u32, last_line_len as u32),
+                end: Position::new(end_line as u32, last_line_len as u32),
             },
             new_text: formatted,
         }])
@@ -352,6 +353,7 @@ fn detect_format_from_uri(uri: &Url, language_id: &str) -> Format {
         "latex" | "tex" => return Format::Latex,
         "markdown" => return Format::Markdown,
         "plaintext" => return Format::Plaintext,
+        "restructuredtext" => return Format::Rst,
         _ => {}
     }
     // Fall back to file extension
