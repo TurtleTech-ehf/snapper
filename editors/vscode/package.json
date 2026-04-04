@@ -2,7 +2,7 @@
   "name": "snapper",
   "displayName": "snapper - Semantic Line Breaks",
   "description": "Format prose with semantic line breaks for clean git diffs",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "publisher": "TurtleTech",
   "license": "MIT",
   "repository": {

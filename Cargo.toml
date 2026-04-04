@@ -1,6 +1,6 @@
 [package]
 name = "snapper-fmt"
-version = "0.5.0"
+version = "0.6.0"
 edition = "2024"
 rust-version = "1.85"
 description = "Semantic line break formatter for Org, LaTeX, Markdown, and plaintext"

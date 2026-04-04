@@ -2,6 +2,21 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 - - -
+## v0.6.0 - 2026-04-04
+#### Features
+- (**lsp**) add features now that it works - (15a285f) - *HaoZeke*
+- (**vsx**) fix lsp extension - (f7f222d) - *HaoZeke*
+#### Miscellaneous Chores
+- (**ci**) remove gratuitous pointless checks - (3c30012) - *HaoZeke*
+- (**clippy**) apply - (32c0f9f) - *HaoZeke*
+- (**cog**) setup for releasing vsx - (317023c) - *HaoZeke*
+- (**fmt**) set edition for aphelia - (3507bad) - *HaoZeke*
+- (**lint**) apply - (c0a84c1) - *HaoZeke*
+- (**lsp**) reformat and be more targetted - (5d4d01f) - *HaoZeke*
+- (**vscodeignore**) initialize - (72545ce) - *HaoZeke*
+
+- - -
+
 ## v0.5.0 - 2026-03-30
 #### Maintenance
 - code quality improvements across the codebase - (5df1ac6) - *HaoZeke*
