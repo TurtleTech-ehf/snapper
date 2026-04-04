@@ -8,7 +8,7 @@ use tower_lsp::{Client, LanguageServer, LspService, Server};
 
 use crate::config::ProjectConfig;
 use crate::format::Format;
-use crate::{format_text, FormatConfig};
+use crate::{FormatConfig, format_text};
 
 pub struct SnapperLsp {
     client: Client,
