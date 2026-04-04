@@ -288,7 +288,7 @@ impl LanguageServer for SnapperLsp {
         let mut actions = Vec::new();
 
         // Global Source Action: Format Document
-        let wants_source_action = params.context.only.as_ref().map_or(true, |only| {
+        let wants_source_action = params.context.only.as_ref().is_none_or(|only| {
             only.contains(&CodeActionKind::SOURCE_FIX_ALL) || only.contains(&CodeActionKind::SOURCE)
         });
 
