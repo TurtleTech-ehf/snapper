@@ -14,8 +14,19 @@
   "engines": {
     "vscode": "^1.75.0"
   },
-  "categories": ["Formatters", "Linters"],
-  "keywords": ["semantic", "line breaks", "latex", "orgmode", "markdown", "academic", "formatter"],
+  "categories": [
+    "Formatters",
+    "Linters"
+  ],
+  "keywords": [
+    "semantic",
+    "line breaks",
+    "latex",
+    "orgmode",
+    "markdown",
+    "academic",
+    "formatter"
+  ],
   "activationEvents": [
     "onLanguage:org",
     "onLanguage:latex",
@@ -67,12 +78,23 @@
         },
         "snapper.trace.server": {
           "type": "string",
-          "enum": ["off", "messages", "verbose"],
+          "enum": [
+            "off",
+            "messages",
+            "verbose"
+          ],
           "default": "off",
           "description": "Trace communication between VS Code and the snapper language server"
         }
       }
-    }
+    },
+    "keybindings": [
+      {
+        "command": "snapper.formatDocument",
+        "key": "shift+alt+f",
+        "when": "resourceLangId == 'markdown' || resourceLangId == 'org' || resourceLangId == 'latex' || resourceLangId == 'plaintext' || resourceLangId == 'restructuredtext'"
+      }
+    ]
   },
   "scripts": {
     "compile": "tsc -p ./",
@@ -80,6 +102,7 @@
   },
   "devDependencies": {
     "@types/vscode": "^1.75.0",
+    "esbuild": "^0.28.0",
     "typescript": "^5.0.0",
     "vscode-languageclient": "^9.0.0"
   },

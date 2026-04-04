@@ -1,5 +1,5 @@
-import { execFile, execFileSync } from 'child_process';
-import { promisify } from 'util';
+import { execFile, execFileSync } from "child_process";
+import { promisify } from "util";
 import {
     commands,
     env,
@@ -10,15 +10,16 @@ import {
     Uri,
     window,
     workspace,
-} from 'vscode';
+} from "vscode";
 import {
     CloseAction,
     ErrorAction,
     LanguageClient,
     LanguageClientOptions,
     ServerOptions,
+    Executable,
     State,
-} from 'vscode-languageclient/node';
+} from "vscode-languageclient/node";
 
 const execFileAsync = promisify(execFile);
 
@@ -26,14 +27,17 @@ let client: LanguageClient | undefined;
 let statusBarItem: StatusBarItem;
 
 function getSnapperPath(): string {
-    return workspace.getConfiguration('snapper').get<string>('path', 'snapper');
+    return workspace.getConfiguration("snapper").get<string>("path", "snapper");
 }
 
-function checkBinary(snapperPath: string, outputChannel: LogOutputChannel): boolean {
+function checkBinary(
+    snapperPath: string,
+    outputChannel: LogOutputChannel,
+): boolean {
     try {
-        const version = execFileSync(snapperPath, ['--version'], {
+        const version = execFileSync(snapperPath, ["--version"], {
             timeout: 5000,
-            encoding: 'utf-8',
+            encoding: "utf-8",
         }).trim();
         outputChannel.appendLine(`Found ${version} at: ${snapperPath}`);
         return true;
@@ -45,14 +49,21 @@ function checkBinary(snapperPath: string, outputChannel: LogOutputChannel): bool
 
 async function showBinaryNotFound(): Promise<void> {
     const action = await window.showErrorMessage(
-        'snapper binary not found. Install it or set a custom path.',
-        'Install snapper',
-        'Set Custom Path',
+        "snapper binary not found. Install it or set a custom path.",
+        "Install snapper",
+        "Set Custom Path",
     );
-    if (action === 'Install snapper') {
-        env.openExternal(Uri.parse('https://snapper.turtletech.us/docs/tutorials/quickstart.html'));
-    } else if (action === 'Set Custom Path') {
-        commands.executeCommand('workbench.action.openSettings', 'snapper.path');
+    if (action === "Install snapper") {
+        env.openExternal(
+            Uri.parse(
+                "https://snapper.turtletech.us/docs/tutorials/quickstart.html",
+            ),
+        );
+    } else if (action === "Set Custom Path") {
+        commands.executeCommand(
+            "workbench.action.openSettings",
+            "snapper.path",
+        );
     }
 }
 
@@ -63,33 +74,38 @@ async function startClient(
     const snapperPath = getSnapperPath();
 
     if (!checkBinary(snapperPath, outputChannel)) {
-        statusBarItem.text = '$(warning) snapper';
-        statusBarItem.tooltip = 'snapper: binary not found';
+        statusBarItem.text = "$(warning) snapper";
+        statusBarItem.tooltip = "snapper: binary not found";
         showBinaryNotFound();
         return;
     }
 
-    const serverOptions: ServerOptions = {
+    const runExecutable: Executable = {
         command: snapperPath,
-        args: ['lsp'],
+        args: ["lsp"],
+    };
+
+    const serverOptions: ServerOptions = {
+        run: runExecutable,
+        debug: runExecutable,
     };
 
     const clientOptions: LanguageClientOptions = {
         documentSelector: [
-            { scheme: 'file', language: 'org' },
-            { scheme: 'file', language: 'latex' },
-            { scheme: 'file', language: 'markdown' },
-            { scheme: 'file', language: 'plaintext' },
-            { scheme: 'file', language: 'restructuredtext' },
+            { scheme: "file", language: "org" },
+            { scheme: "file", language: "latex" },
+            { scheme: "file", language: "markdown" },
+            { scheme: "file", language: "plaintext" },
+            { scheme: "file", language: "restructuredtext" },
         ],
         synchronize: {
-            fileEvents: workspace.createFileSystemWatcher('**/.snapperrc.toml'),
+            fileEvents: workspace.createFileSystemWatcher("**/.snapperrc.toml"),
         },
         outputChannel,
         initializationFailedHandler: (error) => {
             outputChannel.appendLine(`LSP initialization failed: ${error}`);
             window.showErrorMessage(
-                'snapper LSP failed to start. Check Output > snapper for details.',
+                "snapper LSP failed to start. Check Output > snapper for details.",
             );
             return false;
         },
@@ -102,17 +118,26 @@ async function startClient(
                 return { action: ErrorAction.Continue };
             },
             closed() {
-                outputChannel.appendLine('LSP connection closed');
-                statusBarItem.text = '$(warning) snapper';
-                statusBarItem.tooltip = 'snapper: LSP stopped';
+                outputChannel.appendLine("LSP connection closed");
+                statusBarItem.text = "$(warning) snapper";
+                statusBarItem.tooltip = "snapper: LSP stopped";
                 return { action: CloseAction.DoNotRestart };
             },
         },
+        middleware: {
+            provideDocumentFormattingEdits: async (
+                document,
+                options,
+                token,
+                next,
+            ) => {
+                return next(document, options, token);
+            },
+        },
     };
-
     client = new LanguageClient(
-        'snapper',
-        'snapper Language Server',
+        "snapper",
+        "snapper Language Server",
         serverOptions,
         clientOptions,
     );
@@ -120,16 +145,16 @@ async function startClient(
     client.onDidChangeState(({ newState }) => {
         switch (newState) {
             case State.Starting:
-                statusBarItem.text = '$(sync~spin) snapper';
-                statusBarItem.tooltip = 'snapper: starting...';
+                statusBarItem.text = "$(sync~spin) snapper";
+                statusBarItem.tooltip = "snapper: starting...";
                 break;
             case State.Running:
-                statusBarItem.text = '$(check) snapper';
-                statusBarItem.tooltip = 'snapper: running';
+                statusBarItem.text = "$(check) snapper";
+                statusBarItem.tooltip = "snapper: running";
                 break;
             case State.Stopped:
-                statusBarItem.text = '$(warning) snapper';
-                statusBarItem.tooltip = 'snapper: stopped';
+                statusBarItem.text = "$(warning) snapper";
+                statusBarItem.tooltip = "snapper: stopped";
                 break;
         }
     });
@@ -138,24 +163,24 @@ async function startClient(
 }
 
 export function activate(context: ExtensionContext): void {
-    const outputChannel = window.createOutputChannel('snapper', { log: true });
+    const outputChannel = window.createOutputChannel("snapper", { log: true });
     context.subscriptions.push(outputChannel);
 
     // Status bar
     statusBarItem = window.createStatusBarItem(StatusBarAlignment.Right, 100);
-    statusBarItem.text = '$(loading~spin) snapper';
-    statusBarItem.tooltip = 'snapper: initializing...';
-    statusBarItem.command = 'snapper.showOutputChannel';
+    statusBarItem.text = "$(loading~spin) snapper";
+    statusBarItem.tooltip = "snapper: initializing...";
+    statusBarItem.command = "snapper.showOutputChannel";
     statusBarItem.show();
     context.subscriptions.push(statusBarItem);
 
     // Commands
     context.subscriptions.push(
-        commands.registerCommand('snapper.showOutputChannel', () => {
+        commands.registerCommand("snapper.showOutputChannel", () => {
             outputChannel.show();
         }),
 
-        commands.registerCommand('snapper.restartServer', async () => {
+        commands.registerCommand("snapper.restartServer", async () => {
             if (client) {
                 await client.stop();
                 client = undefined;
@@ -163,26 +188,43 @@ export function activate(context: ExtensionContext): void {
             await startClient(context, outputChannel);
         }),
 
-        commands.registerCommand('snapper.formatDocument', () => {
-            commands.executeCommand('editor.action.formatDocument');
+        commands.registerCommand("snapper.formatDocument", async () => {
+            // Wait for the LSP client to be ready before attempting to format
+            if (client && client.state === State.Running) {
+                await commands.executeCommand("editor.action.formatDocument");
+            } else {
+                window.showErrorMessage(
+                    "snapper LSP server is not running. Please wait for initialization or check the output panel.",
+                );
+            }
         }),
 
-        commands.registerCommand('snapper.initProject', async () => {
+        commands.registerCommand("snapper.initProject", async () => {
             const folder = workspace.workspaceFolders?.[0];
             if (!folder) {
-                window.showWarningMessage('Open a folder first to initialize snapper.');
+                window.showWarningMessage(
+                    "Open a folder first to initialize snapper.",
+                );
                 return;
             }
             const snapperPath = getSnapperPath();
             try {
-                const { stdout, stderr } = await execFileAsync(snapperPath, ['init'], {
-                    cwd: folder.uri.fsPath,
-                    timeout: 10000,
-                });
-                if (stdout) { outputChannel.appendLine(stdout); }
-                if (stderr) { outputChannel.appendLine(stderr); }
+                const { stdout, stderr } = await execFileAsync(
+                    snapperPath,
+                    ["init"],
+                    {
+                        cwd: folder.uri.fsPath,
+                        timeout: 10000,
+                    },
+                );
+                if (stdout) {
+                    outputChannel.appendLine(stdout);
+                }
+                if (stderr) {
+                    outputChannel.appendLine(stderr);
+                }
                 window.showInformationMessage(
-                    'Created .snapperrc.toml and .gitattributes in workspace root.',
+                    "Created .snapperrc.toml and .gitattributes in workspace root.",
                 );
             } catch (err: unknown) {
                 const msg = err instanceof Error ? err.message : String(err);
@@ -190,66 +232,77 @@ export function activate(context: ExtensionContext): void {
             }
         }),
 
-        commands.registerCommand('snapper.checkFile', async () => {
+        commands.registerCommand("snapper.checkFile", async () => {
             const editor = window.activeTextEditor;
             if (!editor) {
-                window.showWarningMessage('No active file to check.');
+                window.showWarningMessage("No active file to check.");
                 return;
             }
             const filePath = editor.document.uri.fsPath;
             const snapperPath = getSnapperPath();
             try {
-                await execFileAsync(snapperPath, ['--check', filePath], {
+                await execFileAsync(snapperPath, ["--check", filePath], {
                     timeout: 30000,
                 });
-                window.showInformationMessage('File is already formatted.');
+                window.showInformationMessage("File is already formatted.");
             } catch (err: unknown) {
                 // Exit code 1 means file needs formatting
-                if (err && typeof err === 'object' && 'code' in err && err.code === 1) {
+                if (
+                    err &&
+                    typeof err === "object" &&
+                    "code" in err &&
+                    err.code === 1
+                ) {
                     const action = await window.showWarningMessage(
-                        'File needs formatting.',
-                        'Format Now',
+                        "File needs formatting.",
+                        "Format Now",
                     );
-                    if (action === 'Format Now') {
-                        commands.executeCommand('editor.action.formatDocument');
+                    if (action === "Format Now") {
+                        commands.executeCommand("editor.action.formatDocument");
                     }
                 } else {
-                    const msg = err instanceof Error ? err.message : String(err);
+                    const msg =
+                        err instanceof Error ? err.message : String(err);
                     window.showErrorMessage(`snapper check failed: ${msg}`);
                 }
             }
         }),
 
-        commands.registerCommand('snapper.showDiff', async () => {
+        commands.registerCommand("snapper.showDiff", async () => {
             const editor = window.activeTextEditor;
             if (!editor) {
-                window.showWarningMessage('No active file.');
+                window.showWarningMessage("No active file.");
                 return;
             }
             const filePath = editor.document.uri.fsPath;
             const snapperPath = getSnapperPath();
             try {
-                const { stdout } = await execFileAsync(snapperPath, ['--diff', filePath], {
-                    timeout: 30000,
-                });
+                const { stdout } = await execFileAsync(
+                    snapperPath,
+                    ["--diff", filePath],
+                    {
+                        timeout: 30000,
+                    },
+                );
                 if (stdout) {
-                    outputChannel.appendLine('--- Diff preview ---');
+                    outputChannel.appendLine("--- Diff preview ---");
                     outputChannel.appendLine(stdout);
                     outputChannel.show();
                 } else {
-                    window.showInformationMessage('No changes needed.');
+                    window.showInformationMessage("No changes needed.");
                 }
             } catch (err: unknown) {
                 // Exit code 1 means there are diffs to show
-                if (err && typeof err === 'object' && 'stdout' in err) {
+                if (err && typeof err === "object" && "stdout" in err) {
                     const stdout = (err as { stdout: string }).stdout;
                     if (stdout) {
-                        outputChannel.appendLine('--- Diff preview ---');
+                        outputChannel.appendLine("--- Diff preview ---");
                         outputChannel.appendLine(stdout);
                         outputChannel.show();
                     }
                 } else {
-                    const msg = err instanceof Error ? err.message : String(err);
+                    const msg =
+                        err instanceof Error ? err.message : String(err);
                     window.showErrorMessage(`snapper diff failed: ${msg}`);
                 }
             }
@@ -259,8 +312,8 @@ export function activate(context: ExtensionContext): void {
     // Watch for config changes
     context.subscriptions.push(
         workspace.onDidChangeConfiguration((e) => {
-            if (e.affectsConfiguration('snapper.path')) {
-                commands.executeCommand('snapper.restartServer');
+            if (e.affectsConfiguration("snapper.path")) {
+                commands.executeCommand("snapper.restartServer");
             }
         }),
     );
@@ -269,16 +322,20 @@ export function activate(context: ExtensionContext): void {
     startClient(context, outputChannel);
 
     // Welcome message (first activation only)
-    if (!context.globalState.get('snapper.welcomed')) {
-        window.showInformationMessage(
-            'snapper is active! Use "Format Document" (Shift+Alt+F) to format, or set editor.formatOnSave in settings.',
-            'Learn More',
-        ).then((action) => {
-            if (action === 'Learn More') {
-                env.openExternal(Uri.parse('https://snapper.turtletech.us/docs/'));
-            }
-        });
-        context.globalState.update('snapper.welcomed', true);
+    if (!context.globalState.get("snapper.welcomed")) {
+        window
+            .showInformationMessage(
+                'snapper is active! Use "Format Document" (Shift+Alt+F) to format, or set editor.formatOnSave in settings.',
+                "Learn More",
+            )
+            .then((action) => {
+                if (action === "Learn More") {
+                    env.openExternal(
+                        Uri.parse("https://snapper.turtletech.us/docs/"),
+                    );
+                }
+            });
+        context.globalState.update("snapper.welcomed", true);
     }
 }
 

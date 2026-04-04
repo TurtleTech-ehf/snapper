@@ -8,6 +8,7 @@ tag_prefix = "v"
 pre_bump_hooks = [
     "sed -i '0,/^version = /s/^version = \".*\"/version = \"{{version}}\"/' Cargo.toml",
     "sed -i 's/^version = \".*\"/version = \"{{version}}\"/' pyproject.toml",
+    "sed -i 's/\"version\": \".*\"/\"version\": \"{{version}}\"/' editors/vscode/package.json",
     "cargo generate-lockfile",
 ]
 
