@@ -30,7 +30,6 @@ fi
 # Run the tests
 echo "Running Neovim plugin tests..."
 nvim --headless -u editors/nvim/tests/minimal_init.lua \
-    -c "lua require('plenary.test_harness').test_directory('editors/nvim/tests/', {minimal_rc = 'editors/nvim/tests/minimal_init.lua'})" \
-    -c "qa"
+    -c "PlenaryBustedDirectory editors/nvim/tests/ {minimal_init = 'editors/nvim/tests/minimal_init.lua'}"
 
 echo "Neovim tests completed!"
