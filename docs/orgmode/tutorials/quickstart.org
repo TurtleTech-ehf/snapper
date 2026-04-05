@@ -151,14 +151,27 @@ Add to your =.pre-commit-config.yaml=:
 
 #+begin_src yaml
 - repo: https://github.com/TurtleTech-ehf/snapper
-  rev: v0.2.1
+  rev: v0.6.0
   hooks:
     - id: snapper
 #+end_src
 
-** Emacs (Apheleia)
+** Editor integration
 
-Add to your Emacs config:
+*** VS Code
+
+Install [[https://marketplace.visualstudio.com/items?itemName=TurtleTech.snapper][TurtleTech.snapper]] from the Marketplace.
+Provides format-on-save, range formatting, diagnostics, and code actions out of the box.
+
+*** Neovim
+
+See the [[https://github.com/TurtleTech-ehf/snapper/tree/main/editors/nvim][snapper.nvim plugin]] for full LSP integration, or use =formatprg=:
+
+#+begin_src vim
+autocmd FileType org setlocal formatprg=snapper\ --format\ org
+#+end_src
+
+*** Emacs (Apheleia)
 
 #+begin_src elisp
 (with-eval-after-load 'apheleia
@@ -166,4 +179,4 @@ Add to your Emacs config:
   (push '(org-mode . snapper) apheleia-mode-alist))
 #+end_src
 
-This runs ~snapper~ on save for Org-mode buffers.
+See [[file:../howto/editor-integration.org][Editor Integration]] for Vim, Helix, eglot, conform.nvim, and other setups.

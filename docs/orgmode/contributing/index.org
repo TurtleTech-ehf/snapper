@@ -61,6 +61,8 @@ src/
     rst.rs            -- reStructuredText parser
     plaintext.rs      -- Plaintext parser (everything is prose)
 editors/
+  nvim/               -- Neovim plugin (LSP, conform.nvim, format-on-save)
+  vim/                -- Vim plugin (formatprg, gq support)
   vscode/             -- VS Code extension (LSP client)
 tests/
   integration.rs      -- Integration tests (format, check, idempotency, stdin)
