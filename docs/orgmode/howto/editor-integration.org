@@ -2,6 +2,9 @@
 #+options: num:nil toc:nil
 
 * Emacs (Apheleia)
+:PROPERTIES:
+:CUSTOM_ID: emacs-apheleia
+:END:
 
 [[https://github.com/radian-software/apheleia][Apheleia]] runs external formatters on buffer save, preserving cursor position.
 
@@ -17,6 +20,9 @@
 The =--format= flag auto-detects from the file extension, so you can omit it if your files have standard extensions.
 
 * Vim / Neovim
+:PROPERTIES:
+:CUSTOM_ID: vim-neovim
+:END:
 
 Use =formatprg= to pipe through snapper:
 
@@ -48,20 +54,46 @@ require("conform").setup({
 #+end_src
 
 * VS Code extension (recommended)
+:PROPERTIES:
+:CUSTOM_ID: vscode
+:END:
 
-Install the snapper extension from the VS Code Marketplace (or from the repo at =editors/vscode/=).
-It uses the LSP server for format-on-save, range formatting, and diagnostics.
+Install [[https://marketplace.visualstudio.com/items?itemName=TurtleTech.snapper][TurtleTech.snapper]] from the VS Code Marketplace.
 
-Configure the path to the snapper binary in settings:
+The extension provides:
+- Format-on-save via the built-in LSP server
+- Range formatting (format just the selected text)
+- Diagnostics (flags lines with multiple sentences)
+- Code actions (quick fixes to split multi-sentence lines)
+- Status bar indicator showing LSP connection state
+- Project configuration via =.snapperrc.toml=
+
+To format on save, add to your =settings.json=:
 
 #+begin_src json
 {
-  "snapper.path": "snapper",
-  "snapper.formatOnSave": true
+  "editor.formatOnSave": true,
+  "[markdown]": { "editor.defaultFormatter": "TurtleTech.snapper" },
+  "[latex]": { "editor.defaultFormatter": "TurtleTech.snapper" },
+  "[org]": { "editor.defaultFormatter": "TurtleTech.snapper" }
 }
 #+end_src
 
+To use a custom binary path:
+
+#+begin_src json
+{
+  "snapper.path": "/path/to/snapper"
+}
+#+end_src
+
+The extension also works with VSCodium and code-oss (Arch Linux).
+Download the =.vsix= from [[https://github.com/TurtleTech-ehf/snapper/releases][GitHub Releases]] and install manually if the Marketplace is unavailable.
+
 ** Manual VS Code setup (without extension)
+:PROPERTIES:
+:CUSTOM_ID: vscode-manual
+:END:
 
 Use the "Run on Save" extension with a custom command:
 
@@ -79,6 +111,9 @@ Use the "Run on Save" extension with a custom command:
 #+end_src
 
 * LSP (any editor with LSP support)
+:PROPERTIES:
+:CUSTOM_ID: lsp
+:END:
 
 Snapper ships a Language Server Protocol implementation.
 Start it with:
@@ -89,7 +124,15 @@ snapper lsp
 
 This provides document formatting, range formatting, and diagnostics (flags lines with multiple sentences) over the standard LSP protocol on stdin/stdout.
 
-** Neovim (native LSP)
+** Neovim (snapper.nvim plugin)
+:PROPERTIES:
+:CUSTOM_ID: lsp-neovim
+:END:
+
+The =snapper.nvim= plugin (in =editors/nvim/=) handles LSP lifecycle, format-on-save, keymaps, and conform.nvim integration.
+See the [[https://github.com/TurtleTech-ehf/snapper/tree/main/editors/nvim][plugin README]] for installation and configuration.
+
+For manual LSP setup without the plugin:
 
 #+begin_src lua
 vim.api.nvim_create_autocmd("FileType", {
@@ -104,6 +147,9 @@ vim.api.nvim_create_autocmd("FileType", {
 #+end_src
 
 ** Emacs (eglot)
+:PROPERTIES:
+:CUSTOM_ID: lsp-eglot
+:END:
 
 #+begin_src elisp
 (add-to-list 'eglot-server-programs
@@ -111,6 +157,9 @@ vim.api.nvim_create_autocmd("FileType", {
 #+end_src
 
 ** VS Code
+:PROPERTIES:
+:CUSTOM_ID: lsp-vscode
+:END:
 
 Add to =settings.json= (requires a generic LSP client extension):
 
@@ -127,6 +176,9 @@ Add to =settings.json= (requires a generic LSP client extension):
 #+end_src
 
 ** Helix
+:PROPERTIES:
+:CUSTOM_ID: lsp-helix
+:END:
 
 Add to =~/.config/helix/languages.toml=:
 
@@ -141,6 +193,9 @@ args = ["lsp"]
 #+end_src
 
 * Generic (any editor)
+:PROPERTIES:
+:CUSTOM_ID: generic
+:END:
 
 Snapper reads stdin and writes stdout by default.
 Any editor that supports piping through an external program works:

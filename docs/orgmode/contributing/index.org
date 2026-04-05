@@ -2,6 +2,9 @@
 #+author: Rohit Goswami
 
 * Development setup
+:PROPERTIES:
+:CUSTOM_ID: dev-setup
+:END:
 
 #+begin_src bash
 git clone https://github.com/TurtleTech-ehf/snapper
@@ -17,6 +20,9 @@ pixi run -e dev check
 #+end_src
 
 * Running checks
+:PROPERTIES:
+:CUSTOM_ID: checks
+:END:
 
 #+begin_src bash
 cargo fmt --check
@@ -31,6 +37,9 @@ pixi run -e dev dogfood
 #+end_src
 
 * Project structure
+:PROPERTIES:
+:CUSTOM_ID: project-structure
+:END:
 
 #+begin_example
 src/
@@ -61,6 +70,8 @@ src/
     rst.rs            -- reStructuredText parser
     plaintext.rs      -- Plaintext parser (everything is prose)
 editors/
+  nvim/               -- Neovim plugin (LSP, conform.nvim, format-on-save)
+  vim/                -- Vim plugin (formatprg, gq support)
   vscode/             -- VS Code extension (LSP client)
 tests/
   integration.rs      -- Integration tests (format, check, idempotency, stdin)
@@ -75,6 +86,9 @@ docs/
 #+end_example
 
 * Commit conventions
+:PROPERTIES:
+:CUSTOM_ID: commits
+:END:
 
 Commits follow conventional commits, managed by =cocogitto= (=cog=):
 
@@ -86,6 +100,9 @@ Commits follow conventional commits, managed by =cocogitto= (=cog=):
 - =bld:= :: build system changes
 
 * Building documentation
+:PROPERTIES:
+:CUSTOM_ID: building-docs
+:END:
 
 #+begin_src bash
 pixi run -e docs docbld
@@ -99,6 +116,9 @@ sphinx-build docs/source docs/build -b html
 #+end_src
 
 * Adding a new format parser
+:PROPERTIES:
+:CUSTOM_ID: new-parser
+:END:
 
 1. Create =src/parser/yourformat.rs= implementing the =FormatParser= trait
 2. Add the variant to =Format= enum in =src/format.rs=

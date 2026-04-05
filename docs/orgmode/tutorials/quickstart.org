@@ -1,8 +1,14 @@
 #+OPTIONS: num:nil toc:nil
 
 * Quickstart
+:PROPERTIES:
+:CUSTOM_ID: quickstart
+:END:
 
 ** Installation
+:PROPERTIES:
+:CUSTOM_ID: installation
+:END:
 
 Pre-built binary (fastest, no compilation):
 
@@ -43,6 +49,9 @@ nix build github:TurtleTech-ehf/snapper
 The crate is =snapper-fmt= on all registries; the binary it installs is =snapper=.
 
 ** Basic usage
+:PROPERTIES:
+:CUSTOM_ID: basic-usage
+:END:
 
 Format a file, printing to stdout:
 
@@ -63,6 +72,9 @@ cat draft.org | snapper --format org
 #+end_src
 
 ** What it does
+:PROPERTIES:
+:CUSTOM_ID: what-it-does
+:END:
 
 Given a paragraph like this:
 
@@ -82,6 +94,9 @@ Each sentence occupies its own line.
 Structural elements like code blocks, tables, drawers, math environments, and front matter pass through unchanged.
 
 ** Format detection
+:PROPERTIES:
+:CUSTOM_ID: format-detection
+:END:
 
 ~snapper~ auto-detects the format from the file extension:
 
@@ -97,6 +112,9 @@ snapper --format latex draft.tex
 #+end_src
 
 ** Sentence-level diff
+:PROPERTIES:
+:CUSTOM_ID: sentence-level-diff
+:END:
 
 Compare two versions of a file at the sentence level, ignoring whitespace reflow:
 
@@ -109,6 +127,9 @@ Reformatting (rewrapping) the same text produces zero diff.
 Useful for reviewing collaborator edits on shared papers.
 
 ** Watch mode
+:PROPERTIES:
+:CUSTOM_ID: watch-mode
+:END:
 
 Auto-reformat files on save:
 
@@ -120,6 +141,9 @@ Monitors files and runs =--in-place= on change (200ms debounce).
 Press Ctrl+C to stop.
 
 ** Project setup
+:PROPERTIES:
+:CUSTOM_ID: project-setup
+:END:
 
 Initialize snapper for a new project:
 
@@ -131,6 +155,9 @@ Detects which formats exist and generates =.snapperrc.toml=, =.gitattributes=, p
 Use =--dry-run= to preview.
 
 ** CI integration
+:PROPERTIES:
+:CUSTOM_ID: ci-integration
+:END:
 
 Use =--check= mode to verify formatting without modifying files.
 Exits with code 1 if any file would change:
@@ -146,19 +173,47 @@ snapper --check --output-format sarif paper.org > snapper.sarif
 #+end_src
 
 ** Pre-commit hook
+:PROPERTIES:
+:CUSTOM_ID: pre-commit-hook
+:END:
 
 Add to your =.pre-commit-config.yaml=:
 
 #+begin_src yaml
 - repo: https://github.com/TurtleTech-ehf/snapper
-  rev: v0.2.1
+  rev: v0.6.0
   hooks:
     - id: snapper
 #+end_src
 
-** Emacs (Apheleia)
+** Editor integration
+:PROPERTIES:
+:CUSTOM_ID: editor-integration
+:END:
 
-Add to your Emacs config:
+*** VS Code
+:PROPERTIES:
+:CUSTOM_ID: vscode
+:END:
+
+Install [[https://marketplace.visualstudio.com/items?itemName=TurtleTech.snapper][TurtleTech.snapper]] from the Marketplace.
+Provides format-on-save, range formatting, diagnostics, and code actions out of the box.
+
+*** Neovim
+:PROPERTIES:
+:CUSTOM_ID: neovim
+:END:
+
+See the [[https://github.com/TurtleTech-ehf/snapper/tree/main/editors/nvim][snapper.nvim plugin]] for full LSP integration, or use =formatprg=:
+
+#+begin_src vim
+autocmd FileType org setlocal formatprg=snapper\ --format\ org
+#+end_src
+
+*** Emacs (Apheleia)
+:PROPERTIES:
+:CUSTOM_ID: emacs
+:END:
 
 #+begin_src elisp
 (with-eval-after-load 'apheleia
@@ -166,4 +221,4 @@ Add to your Emacs config:
   (push '(org-mode . snapper) apheleia-mode-alist))
 #+end_src
 
-This runs ~snapper~ on save for Org-mode buffers.
+See [[file:../howto/editor-integration.org][Editor Integration]] for Vim, Helix, eglot, conform.nvim, and other setups.
