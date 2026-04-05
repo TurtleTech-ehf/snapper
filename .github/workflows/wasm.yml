@@ -1,0 +1,105 @@
+name: WASM
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'src/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - 'packages/snapper-wasm/**'
+      - 'editors/obsidian/**'
+      - 'editors/word/**'
+      - '.github/workflows/wasm.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'src/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - 'packages/snapper-wasm/**'
+      - 'editors/obsidian/**'
+      - 'editors/word/**'
+
+jobs:
+  test-features:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - name: Test with all features
+        run: cargo test --all-features
+
+      - name: Test with no default features (lib only)
+        run: cargo test --no-default-features --lib
+
+      - name: Check WASM target compiles
+        run: cargo check --no-default-features --features wasm --target wasm32-unknown-unknown --lib
+
+  build-wasm:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - uses: jetli/wasm-pack-action@v0.4.0
+
+      - name: Build WASM package
+        run: wasm-pack build --target web --no-default-features --features wasm --release -- --lib
+
+      - name: Check WASM size
+        run: |
+          ls -lh pkg/snapper_fmt_bg.wasm
+          size=$(stat --format=%s pkg/snapper_fmt_bg.wasm)
+          echo "WASM size: $size bytes"
+          if [ "$size" -gt 1048576 ]; then
+            echo "::warning::WASM binary exceeds 1MB ($size bytes)"
+          fi
+
+      - name: Upload WASM artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: snapper-wasm
+          path: pkg/
+
+  build-obsidian:
+    needs: build-wasm
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - uses: actions/download-artifact@v4
+        with:
+          name: snapper-wasm
+          path: packages/snapper-wasm/pkg/
+
+      - name: Build Obsidian plugin
+        working-directory: editors/obsidian
+        run: |
+          npm ci
+          npm run build
+
+  build-word:
+    needs: build-wasm
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - uses: actions/download-artifact@v4
+        with:
+          name: snapper-wasm
+          path: packages/snapper-wasm/pkg/
+
+      - name: Build Word add-in
+        working-directory: editors/word
+        run: |
+          npm ci
+          npm run build
