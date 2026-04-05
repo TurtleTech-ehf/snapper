@@ -3,25 +3,28 @@
 
 # Table of Contents
 
--   [About](#org76bc3c0)
-    -   [Why?](#org0047894)
-    -   [Design](#org3454061)
--   [Installation](#org900d0fa)
--   [Usage](#org594b639)
-    -   [Supported formats](#org268ed59)
-    -   [Pre-commit hook](#org3ce2824)
-    -   [Emacs (Apheleia)](#orgf69b85a)
-    -   [Git smudge/clean filter](#orgfa88e8f)
-    -   [Vale integration](#org106768b)
-    -   [Project config](#org1d4f25b)
--   [Documentation](#org7a0b3f0)
--   [Development](#org5031af5)
-    -   [Key dependencies](#org396c2ab)
-    -   [Conventions](#org3acf337)
--   [License](#orgaf85195)
+-   [About](#org1402da2)
+    -   [Why?](#orgb0cccb7)
+    -   [Design](#org8972bf7)
+-   [Installation](#org01d917b)
+-   [Usage](#orga4b7c18)
+    -   [Supported formats](#org7d13b07)
+    -   [Pre-commit hook](#org388849b)
+    -   [Emacs (Apheleia)](#orga14e19d)
+    -   [VS Code](#orgf466223)
+    -   [Neovim](#org752628a)
+    -   [Vim](#org8d2ea4e)
+    -   [Git smudge/clean filter](#org185485c)
+    -   [Vale integration](#orge463738)
+    -   [Project config](#org37951f0)
+-   [Documentation](#org275143c)
+-   [Development](#org33cdcf4)
+    -   [Key dependencies](#org555ef3f)
+    -   [Conventions](#orgf24145d)
+-   [License](#org5d95286)
 
 
-<a id="org76bc3c0"></a>
+<a id="org1402da2"></a>
 
 # About
 
@@ -29,7 +32,7 @@ A fast, format-aware semantic line break formatter.
 Reformats prose so each sentence occupies its own line, producing minimal and meaningful git diffs when collaborating on documents.
 
 
-<a id="org0047894"></a>
+<a id="orgb0cccb7"></a>
 
 ## Why?
 
@@ -42,7 +45,7 @@ Existing tools fall short: latexindent.pl only handles LaTeX, SemBr requires Pyt
 `snapper` solves this as a standalone Rust binary with no runtime dependencies, handling Org-mode, LaTeX, Markdown, and plaintext.
 
 
-<a id="org3454061"></a>
+<a id="org8972bf7"></a>
 
 ## Design
 
@@ -56,7 +59,7 @@ Structure regions (code blocks, math environments, tables, front matter, drawers
 Sentence detection relies on Unicode UAX #29 segmentation with abbreviation-aware post-processing that avoids false breaks at titles (Dr., Prof.), references (Fig., Eq.), and Latin terms (e.g., i.e., et al.).
 
 
-<a id="org900d0fa"></a>
+<a id="org01d917b"></a>
 
 # Installation
 
@@ -87,7 +90,7 @@ Nix:
 The crate is `snapper-fmt` on all registries; the binary it installs is `snapper`.
 
 
-<a id="org594b639"></a>
+<a id="orga4b7c18"></a>
 
 # Usage
 
@@ -128,7 +131,7 @@ Initialize a project (generates config, pre-commit, gitattributes):
     snapper init
 
 
-<a id="org268ed59"></a>
+<a id="org7d13b07"></a>
 
 ## Supported formats
 
@@ -177,17 +180,17 @@ Initialize a project (generates config, pre-commit, gitattributes):
 </table>
 
 
-<a id="org3ce2824"></a>
+<a id="org388849b"></a>
 
 ## Pre-commit hook
 
     - repo: https://github.com/TurtleTech-ehf/snapper
-      rev: v0.1.0
+      rev: v0.6.0
       hooks:
         - id: snapper
 
 
-<a id="orgf69b85a"></a>
+<a id="orga14e19d"></a>
 
 ## Emacs (Apheleia)
 
@@ -196,7 +199,46 @@ Initialize a project (generates config, pre-commit, gitattributes):
       (push '(org-mode . snapper) apheleia-mode-alist))
 
 
-<a id="orgfa88e8f"></a>
+<a id="orgf466223"></a>
+
+## VS Code
+
+Install [TurtleTech.snapper](https://marketplace.visualstudio.com/items?itemName=TurtleTech.snapper) from the VS Code Marketplace.
+The extension uses the built-in LSP server for format-on-save, range formatting, diagnostics, and code actions.
+
+
+<a id="org752628a"></a>
+
+## Neovim
+
+With `lazy.nvim` (rocks support):
+
+    {
+      "TurtleTech-ehf/snapper",
+      ft = { "org", "tex", "markdown", "rst" },
+      config = function()
+        vim.opt.runtimepath:append(
+          vim.fn.stdpath("data") .. "/lazy/snapper/editors/nvim"
+        )
+        require("snapper").setup()
+      end,
+    }
+
+Or with `rocks.nvim`:
+
+    :Rocks install snapper.nvim
+
+
+<a id="org8d2ea4e"></a>
+
+## Vim
+
+    Plug 'TurtleTech-ehf/snapper', { 'rtp': 'editors/vim' }
+
+This provides `formatprg` support for automatic formatting with the `gq` operator.
+
+
+<a id="org185485c"></a>
 
 ## Git smudge/clean filter
 
@@ -210,7 +252,7 @@ Then add to `.gitattributes`:
     *.org filter=snapper
 
 
-<a id="org106768b"></a>
+<a id="orge463738"></a>
 
 ## Vale integration
 
@@ -224,7 +266,7 @@ Add to your `.vale.ini`:
 For precise CI checks, use `snapper --check` directly.
 
 
-<a id="org1d4f25b"></a>
+<a id="org37951f0"></a>
 
 ## Project config
 
@@ -238,7 +280,7 @@ Drop a `.snapperrc.toml` in your project root:
 `snapper` walks up from the current directory to find it.
 
 
-<a id="org7a0b3f0"></a>
+<a id="org275143c"></a>
 
 # Documentation
 
@@ -247,12 +289,12 @@ Build the docs site with:
     pixi run docbld
 
 
-<a id="org5031af5"></a>
+<a id="org33cdcf4"></a>
 
 # Development
 
 
-<a id="org396c2ab"></a>
+<a id="org555ef3f"></a>
 
 ## Key dependencies
 
@@ -263,7 +305,7 @@ Build the docs site with:
 -   **thiserror:** Typed error handling
 
 
-<a id="org3acf337"></a>
+<a id="orgf24145d"></a>
 
 ## Conventions
 
@@ -277,7 +319,7 @@ Construct the `readme` via:
     ./scripts/org_to_md.sh readme_src.org README.md
 
 
-<a id="orgaf85195"></a>
+<a id="org5d95286"></a>
 
 # License
 

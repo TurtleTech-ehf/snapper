@@ -93,7 +93,7 @@ snapper init
 ** Pre-commit hook
 #+begin_src yaml
 - repo: https://github.com/TurtleTech-ehf/snapper
-  rev: v0.1.0
+  rev: v0.6.0
   hooks:
     - id: snapper
 #+end_src
@@ -103,6 +103,32 @@ snapper init
   (push '(snapper . ("snapper" "--format" "org")) apheleia-formatters)
   (push '(org-mode . snapper) apheleia-mode-alist))
 #+end_src
+** VS Code
+Install [[https://marketplace.visualstudio.com/items?itemName=TurtleTech.snapper][TurtleTech.snapper]] from the VS Code Marketplace.
+The extension uses the built-in LSP server for format-on-save, range formatting, diagnostics, and code actions.
+** Neovim
+With =lazy.nvim= (rocks support):
+#+begin_src lua
+{
+  "TurtleTech-ehf/snapper",
+  ft = { "org", "tex", "markdown", "rst" },
+  config = function()
+    vim.opt.runtimepath:append(
+      vim.fn.stdpath("data") .. "/lazy/snapper/editors/nvim"
+    )
+    require("snapper").setup()
+  end,
+}
+#+end_src
+Or with =rocks.nvim=:
+#+begin_src vim
+:Rocks install snapper.nvim
+#+end_src
+** Vim
+#+begin_src vim
+Plug 'TurtleTech-ehf/snapper', { 'rtp': 'editors/vim' }
+#+end_src
+This provides =formatprg= support for automatic formatting with the =gq= operator.
 ** Git smudge/clean filter
 Auto-format on commit, transparent to collaborators:
 #+begin_src bash
