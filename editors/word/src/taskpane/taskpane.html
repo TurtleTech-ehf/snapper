@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Snapper</title>
+  <link rel="stylesheet" href="taskpane.css"/>
+  <script src="https://appsforoffice.microsoft.com/lib/1/hosted/office.js"></script>
+</head>
+<body>
+  <div class="snapper-taskpane">
+    <h2>Snapper</h2>
+    <p>Semantic line break formatter</p>
+
+    <div class="actions">
+      <button id="format-doc">Format Document</button>
+      <button id="format-sel">Format Selection</button>
+    </div>
+
+    <div class="settings">
+      <label>
+        Max width (0 = unlimited)
+        <input type="number" id="max-width" value="0" min="0"/>
+      </label>
+
+      <label>
+        Language
+        <select id="lang">
+          <option value="en" selected>English</option>
+          <option value="de">German</option>
+          <option value="fr">French</option>
+          <option value="is">Icelandic</option>
+          <option value="pl">Polish</option>
+        </select>
+      </label>
+
+      <label>
+        Extra abbreviations (comma-separated)
+        <input type="text" id="abbreviations" placeholder="GROMACS, LAMMPS"/>
+      </label>
+    </div>
+
+    <div id="status"></div>
+  </div>
+</body>
+</html>
