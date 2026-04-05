@@ -1,0 +1,60 @@
+name: Neovim Plugin Tests
+
+on:
+  push:
+    branches: [ main, develop ]
+    paths:
+      - 'editors/nvim/**'
+      - '.github/workflows/nvim_test.yml'
+  pull_request:
+    branches: [ main ]
+    paths:
+      - 'editors/nvim/**'
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        neovim-version: ['v0.10.0', 'stable', 'nightly']
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Install Neovim
+      uses: rhysd/action-setup-vim@v1
+      with:
+        neovim: true
+        version: ${{ matrix.neovim-version }}
+
+    - name: Cache cargo artifacts
+      uses: actions/cache@v4
+      with:
+        path: |
+          ~/.cargo/bin/
+          ~/.cargo/registry/index/
+          ~/.cargo/registry/cache/
+          ~/.cargo/git/db/
+          target/
+        key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+
+    - name: Install snapper binary
+      run: |
+        curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+        source ~/.cargo/env
+        cargo install --path .
+
+    - name: Install plenary.nvim for testing
+      run: |
+        NVIM_DATA="${XDG_DATA_HOME:-$HOME/.local/share}/nvim"
+        mkdir -p "$NVIM_DATA/site/pack/test/start"
+        git clone --depth 1 https://github.com/nvim-lua/plenary.nvim "$NVIM_DATA/site/pack/test/start/plenary.nvim"
+
+    - name: Run plugin tests
+      run: |
+        export PATH="$HOME/.cargo/bin:$PATH"
+        nvim --headless -u editors/nvim/tests/minimal_init.lua \
+          -c "lua require('plenary.test_harness').test_directory('editors/nvim/tests/', {minimal_rc = 'editors/nvim/tests/minimal_init.lua'})" \
+          -c "qa"
+      env:
+        NVIM: /usr/bin/nvim
