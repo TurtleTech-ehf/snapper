@@ -1,17 +1,25 @@
 #!/usr/bin/env node
 
-const { spawn } = require("child_process");
-const { execSync } = require("child_process");
+const { spawn, execSync } = require("child_process");
+
+const isWindows = process.platform === "win32";
+const binaryName = isWindows ? "snapper.exe" : "snapper";
 
 let snapperBinary;
 
 try {
-  const result = execSync("which snapper", { encoding: "utf-8" });
-  snapperBinary = result.trim();
+  const cmd = isWindows ? "where" : "which";
+  const result = execSync(`${cmd} ${binaryName}`, { encoding: "utf-8" });
+  snapperBinary = result.trim().split("\n")[0];
 } catch {
   console.error(
-    "snapper binary not found in PATH.\n" +
-      "Install: cargo binstall snapper-fmt  (or see https://snapper.turtletech.us)",
+    "snapper binary not found in PATH.\n\n" +
+      "Install one of:\n" +
+      "  cargo binstall snapper-fmt\n" +
+      "  cargo install snapper-fmt --features mcp\n" +
+      "  pip install snapper-fmt\n" +
+      "  brew install TurtleTech-ehf/tap/snapper-fmt\n\n" +
+      "See https://snapper.turtletech.us for all options.",
   );
   process.exit(1);
 }

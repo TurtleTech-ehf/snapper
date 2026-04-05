@@ -6,6 +6,9 @@
   "bin": {
     "snapper-mcp": "bin/run.js"
   },
+  "scripts": {
+    "postinstall": "node scripts/postinstall.js"
+  },
   "repository": {
     "type": "git",
     "url": "https://github.com/TurtleTech-ehf/snapper.git"

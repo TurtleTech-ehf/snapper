@@ -154,6 +154,26 @@ snapper init
 Detects which formats exist and generates =.snapperrc.toml=, =.gitattributes=, pre-commit config, and Apheleia snippets.
 Use =--dry-run= to preview.
 
+** MCP server (AI assistants)
+:PROPERTIES:
+:CUSTOM_ID: mcp
+:END:
+
+Expose snapper to Claude Desktop, Claude Code, and other MCP clients:
+
+#+begin_src json
+{
+  "mcpServers": {
+    "snapper": {
+      "command": "npx",
+      "args": ["@turtletech/snapper-mcp"]
+    }
+  }
+}
+#+end_src
+
+See [[file:../howto/mcp-integration.org][MCP Integration]] for details.
+
 ** CI integration
 :PROPERTIES:
 :CUSTOM_ID: ci-integration
