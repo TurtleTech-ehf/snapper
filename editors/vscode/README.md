@@ -133,9 +133,9 @@ the Marketplace:
    [GitHub Releases](https://github.com/TurtleTech-ehf/snapper/releases)
 2. Install manually:
    ```bash
-   codium --install-extension snapper-0.5.0.vsix
+   codium --install-extension snapper-VERSION.vsix
    # or for Arch code-oss:
-   code-oss --install-extension snapper-0.5.0.vsix
+   code-oss --install-extension snapper-VERSION.vsix
    ```
 3. You can also install from the Extensions view: click the `...` menu,
    select "Install from VSIX...", and pick the downloaded file.

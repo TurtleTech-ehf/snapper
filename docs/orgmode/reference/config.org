@@ -2,6 +2,9 @@
 #+options: num:nil toc:nil
 
 * Project config file
+:PROPERTIES:
+:CUSTOM_ID: project-config-file
+:END:
 
 Snapper looks for =.snapperrc.toml= starting from the current directory and walking up to the filesystem root.
 Override the search with =--config path/to/config.toml=.
@@ -9,6 +12,9 @@ Override the search with =--config path/to/config.toml=.
 Or generate one with =snapper init=.
 
 * Config format
+:PROPERTIES:
+:CUSTOM_ID: config-format
+:END:
 
 #+begin_src toml
 # Language for abbreviation sets (en, de, fr, is, pl)
@@ -36,8 +42,14 @@ max_width = 100
 #+end_src
 
 * Fields
+:PROPERTIES:
+:CUSTOM_ID: fields
+:END:
 
 ** lang
+:PROPERTIES:
+:CUSTOM_ID: field-lang
+:END:
 
 String.
 Language code for the built-in abbreviation set used by the rule-based splitter.
@@ -45,6 +57,9 @@ One of: =en= (default), =de=, =fr=, =is=, =pl=.
 Also selectable via =--lang= CLI flag.
 
 ** extra_abbreviations
+:PROPERTIES:
+:CUSTOM_ID: field-extra-abbreviations
+:END:
 
 String array.
 Each entry names an abbreviation that should not trigger a sentence break when followed by a period.
@@ -52,18 +67,27 @@ Merged with the built-in list for the selected language.
 Useful for domain-specific terms your papers use frequently.
 
 ** ignore
+:PROPERTIES:
+:CUSTOM_ID: field-ignore
+:END:
 
 String array of glob patterns.
 Files matching these patterns get skipped during =--in-place= and =--check= operations.
 Does not affect stdin/stdout mode.
 
 ** format
+:PROPERTIES:
+:CUSTOM_ID: field-format
+:END:
 
 String.
 Default format when auto-detection from file extension does not apply.
 One of: =org=, =latex=, =markdown=, =rst=, =plaintext=.
 
 ** max_width
+:PROPERTIES:
+:CUSTOM_ID: field-max-width
+:END:
 
 Integer.
 Sentences exceeding this width get wrapped at word boundaries.
@@ -71,6 +95,9 @@ Set to =0= for unlimited (the default).
 Also respects =max_line_length= from =.editorconfig= if present.
 
 * Per-format sections
+:PROPERTIES:
+:CUSTOM_ID: per-format-sections
+:END:
 
 Add =[org]=, =[latex]=, =[markdown]=, =[rst]=, or =[plaintext]= sections to override settings for specific formats.
 
@@ -78,6 +105,9 @@ Per-format =extra_abbreviations= merge with the top-level list.
 Per-format =max_width= overrides the top-level value.
 
 * Precedence
+:PROPERTIES:
+:CUSTOM_ID: precedence
+:END:
 
 CLI flags override config file values.
 Per-format sections override top-level config values.

@@ -2,9 +2,15 @@
 file:branding/logo/snapper_logo.png
 #+TOC: headlines 2
 * About
+:PROPERTIES:
+:CUSTOM_ID: about
+:END:
 A fast, format-aware semantic line break formatter.
 Reformats prose so each sentence occupies its own line, producing minimal and meaningful git diffs when collaborating on documents.
 ** Why?
+:PROPERTIES:
+:CUSTOM_ID: why
+:END:
 When multiple authors collaborate on a paper using Git, traditional line wrapping at a fixed column width causes problems.
 A single word change can trigger a diff that spans an entire paragraph.
 By breaking at sentence boundaries instead, each edit affects only the sentence that changed.
@@ -13,6 +19,9 @@ This convention, often called "semantic linefeeds," enjoys longstanding support 
 Existing tools fall short: latexindent.pl only handles LaTeX, SemBr requires Python and neural networks, and most lack multi-format awareness.
 ~snapper~ solves this as a standalone Rust binary with no runtime dependencies, handling Org-mode, LaTeX, Markdown, and plaintext.
 ** Design
+:PROPERTIES:
+:CUSTOM_ID: design
+:END:
 ~snapper~ runs a three-stage pipeline:
 - Parse :: Classify input into prose regions and structure regions
 - Split :: Detect sentence boundaries in prose regions
@@ -21,6 +30,9 @@ Existing tools fall short: latexindent.pl only handles LaTeX, SemBr requires Pyt
 Structure regions (code blocks, math environments, tables, front matter, drawers, comments) pass through unchanged.
 Sentence detection relies on Unicode UAX #29 segmentation with abbreviation-aware post-processing that avoids false breaks at titles (Dr., Prof.), references (Fig., Eq.), and Latin terms (e.g., i.e., et al.).
 * Installation
+:PROPERTIES:
+:CUSTOM_ID: installation
+:END:
 Pre-built binary (fastest):
 #+begin_src bash
 cargo binstall snapper-fmt
@@ -47,6 +59,9 @@ nix build github:TurtleTech-ehf/snapper
 #+end_src
 The crate is =snapper-fmt= on all registries; the binary it installs is =snapper=.
 * Usage
+:PROPERTIES:
+:CUSTOM_ID: usage
+:END:
 Format a file (output to stdout):
 #+begin_src bash
 snapper paper.org
@@ -84,6 +99,9 @@ Initialize a project (generates config, pre-commit, gitattributes):
 snapper init
 #+end_src
 ** Supported formats
+:PROPERTIES:
+:CUSTOM_ID: supported-formats
+:END:
 | Format    | Extensions             | Structure preserved                     |
 |-----------+------------------------+-----------------------------------------|
 | Org-mode  | =.org=                 | Blocks, drawers, tables, keywords       |
@@ -91,19 +109,63 @@ snapper init
 | Markdown  | =.md=, =.markdown=     | Code blocks, front matter, HTML         |
 | Plaintext | everything else        | (none; all text treated as prose)       |
 ** Pre-commit hook
+:PROPERTIES:
+:CUSTOM_ID: pre-commit-hook
+:END:
 #+begin_src yaml
 - repo: https://github.com/TurtleTech-ehf/snapper
-  rev: v0.1.0
+  rev: v0.6.0
   hooks:
     - id: snapper
 #+end_src
 ** Emacs (Apheleia)
+:PROPERTIES:
+:CUSTOM_ID: emacs
+:END:
 #+begin_src elisp
 (with-eval-after-load 'apheleia
   (push '(snapper . ("snapper" "--format" "org")) apheleia-formatters)
   (push '(org-mode . snapper) apheleia-mode-alist))
 #+end_src
+** VS Code
+:PROPERTIES:
+:CUSTOM_ID: vscode
+:END:
+Install [[https://marketplace.visualstudio.com/items?itemName=TurtleTech.snapper][TurtleTech.snapper]] from the VS Code Marketplace.
+The extension uses the built-in LSP server for format-on-save, range formatting, diagnostics, and code actions.
+** Neovim
+:PROPERTIES:
+:CUSTOM_ID: neovim
+:END:
+With =lazy.nvim= (rocks support):
+#+begin_src lua
+{
+  "TurtleTech-ehf/snapper",
+  ft = { "org", "tex", "markdown", "rst" },
+  config = function()
+    vim.opt.runtimepath:append(
+      vim.fn.stdpath("data") .. "/lazy/snapper/editors/nvim"
+    )
+    require("snapper").setup()
+  end,
+}
+#+end_src
+Or with =rocks.nvim=:
+#+begin_src vim
+:Rocks install snapper.nvim
+#+end_src
+** Vim
+:PROPERTIES:
+:CUSTOM_ID: vim
+:END:
+#+begin_src vim
+Plug 'TurtleTech-ehf/snapper', { 'rtp': 'editors/vim' }
+#+end_src
+This provides =formatprg= support for automatic formatting with the =gq= operator.
 ** Git smudge/clean filter
+:PROPERTIES:
+:CUSTOM_ID: git-filter
+:END:
 Auto-format on commit, transparent to collaborators:
 #+begin_src bash
 git config filter.snapper.clean "snapper --format org"
@@ -114,6 +176,9 @@ Then add to =.gitattributes=:
 *.org filter=snapper
 #+end_src
 ** Vale integration
+:PROPERTIES:
+:CUSTOM_ID: vale
+:END:
 ~snapper~ ships a vale style package for editor hints.
 Add to your =.vale.ini=:
 #+begin_src ini
@@ -123,6 +188,9 @@ BasedOnStyles = snapper
 #+end_src
 For precise CI checks, use ~snapper --check~ directly.
 ** Project config
+:PROPERTIES:
+:CUSTOM_ID: project-config
+:END:
 Drop a =.snapperrc.toml= in your project root:
 #+begin_src toml
 extra_abbreviations = ["GROMACS", "LAMMPS", "DFT"]
@@ -132,23 +200,41 @@ max_width = 0
 #+end_src
 ~snapper~ walks up from the current directory to find it.
 * Documentation
+:PROPERTIES:
+:CUSTOM_ID: documentation
+:END:
 Build the docs site with:
 #+begin_src bash
 pixi run docbld
 #+end_src
 * Development
+:PROPERTIES:
+:CUSTOM_ID: development
+:END:
 ** Key dependencies
+:PROPERTIES:
+:CUSTOM_ID: key-dependencies
+:END:
 - Clap 4 (derive) :: CLI argument parsing
 - unicode-segmentation :: UAX #29 sentence boundaries
 - regex :: Abbreviation and format pattern matching
 - textwrap :: Optional line width limiting
 - thiserror :: Typed error handling
 ** Conventions
+:PROPERTIES:
+:CUSTOM_ID: conventions
+:END:
 We use ~cocogitto~ via ~cog~ to handle commit conventions.
 *** Readme
+:PROPERTIES:
+:CUSTOM_ID: readme
+:END:
 Construct the ~readme~ via:
 #+begin_src bash
 ./scripts/org_to_md.sh readme_src.org README.md
 #+end_src
 * License
+:PROPERTIES:
+:CUSTOM_ID: license
+:END:
 MIT.

@@ -2,6 +2,9 @@
 #+options: num:nil toc:nil
 
 * Overview
+:PROPERTIES:
+:CUSTOM_ID: overview
+:END:
 
 Snapper includes a neural sentence boundary detector via [[https://github.com/bminixhofer/nnsplit][nnsplit]], a byte-level LSTM model running on [[https://github.com/sonos/tract][tract]] (pure Rust ONNX inference).
 
@@ -9,6 +12,9 @@ The rule-based detector (default) handles English academic text well: abbreviati
 The neural detector handles languages where rule-based splitting falls short.
 
 * When to use neural
+:PROPERTIES:
+:CUSTOM_ID: when-to-use
+:END:
 
 - Non-English text (German, French, Chinese, Russian, Turkish, etc.)
 - Text with unusual punctuation patterns
@@ -17,6 +23,9 @@ The neural detector handles languages where rule-based splitting falls short.
 For English academic papers, the rule-based detector produces better results (faster, no false breaks on abbreviations like "Fig.").
 
 * Basic usage
+:PROPERTIES:
+:CUSTOM_ID: basic-usage
+:END:
 
 #+begin_src bash
 snapper --neural paper.org
@@ -26,6 +35,9 @@ On first run, the English model (~4MB) downloads and caches to =~/.cache/nnsplit
 Subsequent runs load from cache.
 
 * Non-English languages
+:PROPERTIES:
+:CUSTOM_ID: non-english
+:END:
 
 Use =--lang= to select a language model:
 
@@ -40,6 +52,9 @@ Available languages: =en=, =de=, =fr=, =no=, =sv=, =zh=, =tr=, =ru=, =uk=.
 Each model downloads on first use (~4MB each) and caches to =~/.cache/nnsplit/<lang>/=.
 
 * Custom models
+:PROPERTIES:
+:CUSTOM_ID: custom-models
+:END:
 
 Load a custom ONNX model file:
 
@@ -50,6 +65,9 @@ snapper --neural --model-path /path/to/custom_model.onnx paper.org
 Custom models must follow the nnsplit ONNX format (byte-level input, sigmoid output, =split_sequence= metadata).
 
 * Performance comparison
+:PROPERTIES:
+:CUSTOM_ID: performance
+:END:
 
 | Mode | Speed | Abbreviation handling | Best for |
 |------+-------+-----------------------+----------|
@@ -60,6 +78,9 @@ The rule-based detector starts instantly.
 The neural detector loads the model on first invocation (~100-500ms), then processes text at ~200ms per typical academic file.
 
 * Combining with format-aware parsing
+:PROPERTIES:
+:CUSTOM_ID: combining
+:END:
 
 Neural detection replaces only the sentence splitting step.
 Format-aware parsing (code blocks, math, drawers, tables) still applies.

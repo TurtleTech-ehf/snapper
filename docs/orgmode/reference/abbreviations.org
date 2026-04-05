@@ -2,6 +2,9 @@
 #+options: num:nil toc:nil
 
 * How abbreviation detection works
+:PROPERTIES:
+:CUSTOM_ID: how-it-works
+:END:
 
 Snapper uses Unicode UAX #29 sentence boundary detection as a baseline.
 UAX #29 sometimes splits at periods that belong to abbreviations rather than sentence endings.
@@ -18,56 +21,92 @@ Available languages: =en= (default), =de=, =fr=, =is=, =pl=.
 Set in config: =lang = "de"= in =.snapperrc.toml=.
 
 * Built-in abbreviations (English, default)
+:PROPERTIES:
+:CUSTOM_ID: english
+:END:
 
 ** Titles and honorifics
+:PROPERTIES:
+:CUSTOM_ID: en-titles
+:END:
 
 Mr., Mrs., Ms., Dr., Prof., Sr., Jr., St., Rev., Gen., Gov., Sgt., Cpl., Pvt., Capt., Lt., Col., Maj., Cmdr., Adm.
 
 ** Academic and scientific
+:PROPERTIES:
+:CUSTOM_ID: en-academic
+:END:
 
 Fig., Figs., Eq., Eqs., Ref., Refs., Tab., Sec., Ch., Vol., No., Nos., Ed., Eds., Trans., Dept., Thm., Lem., Prop., Def., Cor., Rem., Ex.
 
 ** Latin
+:PROPERTIES:
+:CUSTOM_ID: en-latin
+:END:
 
 e.g., i.e., et al., cf., etc., viz., ibid., ca., approx., v.s.
 
 ** Time and dates
+:PROPERTIES:
+:CUSTOM_ID: en-time
+:END:
 
 Jan., Feb., Mar., Apr., Jun., Jul., Aug., Sep., Oct., Nov., Dec., Mon., Tue., Wed., Thu., Fri., Sat., Sun., a.m., p.m.
 
 ** Common
+:PROPERTIES:
+:CUSTOM_ID: en-common
+:END:
 
 vs., misc., est., govt., dept., univ., inc., corp., ltd., Ave., Blvd., Rd., pp., pg., pt., pts.
 
 ** Single-letter initials
+:PROPERTIES:
+:CUSTOM_ID: en-initials
+:END:
 
 A. through Z. (for names like J. K. Rowling).
 
 * German abbreviations (=--lang de=)
+:PROPERTIES:
+:CUSTOM_ID: german
+:END:
 
 Hr., Fr., Dr., Prof., Abb., Bd., Hrsg., Kap., Nr., S., Verl., Aufl., Jg., Anm., Anh., Beil., Tab., Gl., Abschn., Bsp., Str., Pl., bzw., ca., etc., evtl., ggf., vgl., usw.
 
 Multi-word: z.B., d.h., u.a., o.g., s.o., u.U.
 
 * French abbreviations (=--lang fr=)
+:PROPERTIES:
+:CUSTOM_ID: french
+:END:
 
 M., Mme., Mlle., Dr., Prof., Me., fig., eq., chap., vol., p., pp., ed., trad., n., t., av., apr., env., cf., etc.
 
 Multi-word: c.-a-d., p.ex.
 
 * Icelandic abbreviations (=--lang is=)
+:PROPERTIES:
+:CUSTOM_ID: icelandic
+:END:
 
 Hr., Fr., Dr., sbr., frk., sk., nr.
 
 Multi-word: m.a., o.fl.
 
 * Polish abbreviations (=--lang pl=)
+:PROPERTIES:
+:CUSTOM_ID: polish
+:END:
 
 dr., mgr., prof., doc., rys., tab., wyd., red., t., s., nr., poz., zob., por., ul., al., pl., os.
 
 Multi-word: m.in., t.j., j.w., t.zw., b.r.
 
 * Adding project-specific abbreviations
+:PROPERTIES:
+:CUSTOM_ID: project-specific
+:END:
 
 Create a =.snapperrc.toml= in your project root:
 
@@ -78,6 +117,9 @@ extra_abbreviations = ["GROMACS", "LAMMPS", "DFT", "VASP", "Abstr", "Suppl"]
 These merge with the built-in list at runtime.
 
 * Inline token protection
+:PROPERTIES:
+:CUSTOM_ID: inline-tokens
+:END:
 
 Periods inside inline tokens never trigger sentence breaks, regardless of abbreviation lists:
 

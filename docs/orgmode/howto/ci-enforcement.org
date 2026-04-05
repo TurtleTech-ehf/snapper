@@ -2,12 +2,15 @@
 #+options: num:nil toc:nil
 
 * GitHub Action (recommended)
+:PROPERTIES:
+:CUSTOM_ID: github-action
+:END:
 
 The easiest way to enforce semantic line breaks in CI.
 Add to your workflow:
 
 #+begin_src yaml
-- uses: TurtleTech-ehf/snapper@v0.3.1
+- uses: TurtleTech-ehf/snapper@v0.6.0
   with:
     files: '**/*.org **/*.tex **/*.md'
 #+end_src
@@ -17,19 +20,22 @@ This installs snapper and runs =--check= on the specified files.
 For GitHub Code Scanning integration (SARIF annotations on PRs):
 
 #+begin_src yaml
-- uses: TurtleTech-ehf/snapper@v0.3.1
+- uses: TurtleTech-ehf/snapper@v0.6.0
   with:
     files: '**/*.org **/*.tex **/*.md'
     sarif: 'true'
 #+end_src
 
 * Pre-commit hook
+:PROPERTIES:
+:CUSTOM_ID: pre-commit
+:END:
 
 Add to =.pre-commit-config.yaml=:
 
 #+begin_src yaml
 - repo: https://github.com/TurtleTech-ehf/snapper
-  rev: v0.3.1
+  rev: v0.6.0
   hooks:
     - id: snapper
 #+end_src
@@ -37,6 +43,9 @@ Add to =.pre-commit-config.yaml=:
 This runs =snapper --in-place= on changed files matching =.org=, =.tex=, =.md=, and =.txt=.
 
 * Manual GitHub Actions
+:PROPERTIES:
+:CUSTOM_ID: manual-github-actions
+:END:
 
 If you prefer manual setup over the composite action:
 
@@ -60,6 +69,9 @@ For structured output:
 #+end_src
 
 * Preview changes in CI
+:PROPERTIES:
+:CUSTOM_ID: preview-changes
+:END:
 
 Use =--diff= to show what would change:
 
@@ -69,6 +81,9 @@ Use =--diff= to show what would change:
 #+end_src
 
 * GitLab CI
+:PROPERTIES:
+:CUSTOM_ID: gitlab-ci
+:END:
 
 #+begin_src yaml
 format-check:
@@ -80,6 +95,9 @@ format-check:
 #+end_src
 
 * Makefile integration
+:PROPERTIES:
+:CUSTOM_ID: makefile
+:END:
 
 #+begin_src makefile
 .PHONY: fmt fmt-check

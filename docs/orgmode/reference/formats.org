@@ -1,13 +1,22 @@
 #+OPTIONS: num:nil toc:nil
 
 * Supported Formats
+:PROPERTIES:
+:CUSTOM_ID: supported-formats
+:END:
 
 ~snapper~ classifies text into /prose regions/ (reflowed at sentence boundaries) and /structure regions/ (passed through unchanged).
 The classification depends on the format.
 
 ** Org-mode (=--format org=)
+:PROPERTIES:
+:CUSTOM_ID: org-mode
+:END:
 
 *** Structure regions (preserved)
+:PROPERTIES:
+:CUSTOM_ID: org-structure
+:END:
 - =#+BEGIN_*= ...
 =#+END_*= blocks (source, example, quote, etc.)
 - =:PROPERTIES:= ...
@@ -19,18 +28,30 @@ The classification depends on the format.
 - List item markers (=-=, =+=, =1.=)
 
 *** Prose regions (reflowed)
+:PROPERTIES:
+:CUSTOM_ID: org-prose
+:END:
 - Paragraph text
 - Headline text (after the stars and keyword)
 - List item text (after the marker)
 
 *** Inline tokens (kept atomic)
+:PROPERTIES:
+:CUSTOM_ID: org-inline
+:END:
 These tokens within prose are not split across lines:
 - Links: =[[url][description]]=
 - Inline code: =~code~=, ===verbatim===
 
 ** LaTeX (=--format latex=)
+:PROPERTIES:
+:CUSTOM_ID: latex
+:END:
 
 *** Structure regions (preserved)
+:PROPERTIES:
+:CUSTOM_ID: latex-structure
+:END:
 - Preamble (everything before =\begin{document}=)
 - Non-prose environments: equation, align, figure, table, tabular, lstlisting, verbatim, minted, tikzpicture, and their starred variants
 - Display math: =\[...\]=
@@ -38,24 +59,42 @@ These tokens within prose are not split across lines:
 - =\end{document}=
 
 *** Prose regions (reflowed)
+:PROPERTIES:
+:CUSTOM_ID: latex-prose
+:END:
 - Body text between structural elements
 
 ** Markdown (=--format markdown=)
+:PROPERTIES:
+:CUSTOM_ID: markdown
+:END:
 
 *** Structure regions (preserved)
+:PROPERTIES:
+:CUSTOM_ID: markdown-structure
+:END:
 - Fenced code blocks (=```= or =~~~=)
 - Front matter (=---= or =+++=  delimited at file start)
 - Heading markers (=#=, =##=, etc.)
 - List item markers (=-=, =*=, =+=, =1.=)
 
 *** Prose regions (reflowed)
+:PROPERTIES:
+:CUSTOM_ID: markdown-prose
+:END:
 - Paragraph text
 - Heading text (after the marker)
 - List item text (after the marker)
 
 ** reStructuredText (=--format rst=)
+:PROPERTIES:
+:CUSTOM_ID: rst
+:END:
 
 *** Structure regions (preserved)
+:PROPERTIES:
+:CUSTOM_ID: rst-structure
+:END:
 - Directives (=.. code-block::=, =.. math::=, =.. image::=, etc.) and their indented bodies
 - Literal blocks (text after =::= with indented content)
 - Section titles and underlines (=====, =-----=, etc.)
@@ -64,32 +103,59 @@ These tokens within prose are not split across lines:
 - Grid and simple tables (lines starting with =|= or =+=)
 
 *** Prose regions (reflowed)
+:PROPERTIES:
+:CUSTOM_ID: rst-prose
+:END:
 - Paragraph text between structural elements
 
 *** Auto-detection
+:PROPERTIES:
+:CUSTOM_ID: rst-detection
+:END:
 Extensions: =.rst=, =.rest=
 
 ** Plaintext (=--format plaintext=)
+:PROPERTIES:
+:CUSTOM_ID: plaintext
+:END:
 
 Everything is prose.
 Blank lines are preserved as paragraph separators.
 
 ** Sentence Detection
+:PROPERTIES:
+:CUSTOM_ID: sentence-detection
+:END:
 
 ~snapper~ uses Unicode UAX #29 sentence boundary detection as a baseline, then merges false splits caused by known abbreviations:
 
 *** Titles
+:PROPERTIES:
+:CUSTOM_ID: abbr-titles
+:END:
 Mr., Mrs., Ms., Dr., Prof., Sr., Jr., St., Rev., Gen., etc.
 
 *** Academic
+:PROPERTIES:
+:CUSTOM_ID: abbr-academic
+:END:
 Fig., Figs., Eq., Eqs., Ref., Refs., Tab., Sec., Ch., Vol., No., Thm., Lem., Prop., Def., Cor., Rem., Ex.
 
 *** Latin
+:PROPERTIES:
+:CUSTOM_ID: abbr-latin
+:END:
 e.g., i.e., et al., cf., etc., viz., ibid., ca., approx.
 
 *** Single initials
+:PROPERTIES:
+:CUSTOM_ID: abbr-initials
+:END:
 A., B., C., ...
 Z.
 
 *** Date and time
+:PROPERTIES:
+:CUSTOM_ID: abbr-datetime
+:END:
 Jan., Feb., ..., Dec., Mon., Tue., ..., Sun., a.m., p.m.

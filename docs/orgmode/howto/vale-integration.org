@@ -2,11 +2,17 @@
 #+options: num:nil toc:nil
 
 * Overview
+:PROPERTIES:
+:CUSTOM_ID: overview
+:END:
 
 Snapper ships a vale style package with two rules that flag lines needing semantic line breaks.
 For precise enforcement, use =snapper --check= directly in CI.
 
 * Style package setup
+:PROPERTIES:
+:CUSTOM_ID: setup
+:END:
 
 Add the snapper vale style to your =.vale.ini=:
 
@@ -25,6 +31,9 @@ BasedOnStyles = snapper
 #+end_src
 
 * Bundled rules
+:PROPERTIES:
+:CUSTOM_ID: rules
+:END:
 
 - =SemanticLineBreaks= :: Flags lines containing multiple sentences (a period followed by a space and a capital letter on the same line).
 Level: warning.
@@ -32,6 +41,9 @@ Level: warning.
 Level: suggestion.
 
 * Precise CI enforcement
+:PROPERTIES:
+:CUSTOM_ID: ci-enforcement
+:END:
 
 The vale rules use regex heuristics.
 For accurate checking, use the formatter directly:
@@ -43,6 +55,9 @@ snapper --check paper.org
 This catches all cases the regex rules miss (abbreviations, inline tokens, etc.).
 
 * Combining vale and snapper
+:PROPERTIES:
+:CUSTOM_ID: combining
+:END:
 
 A typical workflow:
 
@@ -52,7 +67,7 @@ A typical workflow:
 
 #+begin_src yaml
 - repo: https://github.com/TurtleTech-ehf/snapper
-  rev: v0.1.0
+  rev: v0.6.0
   hooks:
     - id: snapper
 - repo: https://github.com/errata-ai/vale
