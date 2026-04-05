@@ -1,0 +1,26 @@
+{
+  "name": "@snapper/wasm",
+  "version": "0.6.0",
+  "description": "WebAssembly build of snapper semantic line break formatter",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": [
+    "dist/",
+    "pkg/"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "prepublishOnly": "npm run build"
+  },
+  "devDependencies": {
+    "typescript": "^5.4"
+  },
+  "keywords": ["snapper", "wasm", "formatter", "semantic-linebreaks"],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/TurtleTech-ehf/snapper",
+    "directory": "packages/snapper-wasm"
+  }
+}
