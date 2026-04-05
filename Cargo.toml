@@ -14,33 +14,53 @@ homepage = "https://snapper.turtletech.us"
 [[bin]]
 name = "snapper"
 path = "src/main.rs"
+required-features = ["cli"]
 
 [[bin]]
 name = "snapper-gen-docs"
 path = "src/gen_docs.rs"
+required-features = ["cli"]
+
+[features]
+default = ["cli", "neural", "lsp", "watch", "pandoc"]
+cli = ["dep:clap", "dep:clap-markdown", "dep:rayon", "dep:ec4rs", "dep:glob"]
+neural = ["dep:nnsplit"]
+lsp = ["dep:tower-lsp", "dep:tokio"]
+watch = ["dep:notify"]
+pandoc = ["dep:pandoc_ast"]
+wasm = ["dep:wasm-bindgen", "dep:serde-wasm-bindgen", "dep:js-sys"]
 
 [dependencies]
-clap = { version = "4", features = ["derive", "string"] }
+# Always-on (WASM-safe)
 unicode-segmentation = "1"
 regex = "1"
 textwrap = "0.16"
 thiserror = "2"
 anyhow = "1"
 imara-diff = "0.2"
-rayon = "1"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-ec4rs = "1"
 toml = "0.8"
-pandoc_ast = "0.8"
-clap-markdown = "0.1"
-notify = "7"
-glob = "0.3"
-tempfile = "3"
-tower-lsp = "0.20"
-tokio = { version = "1", features = ["rt-multi-thread", "macros", "io-std"] }
 
-nnsplit = { version = "0.5", features = ["tract-backend", "model-loader"] }
+# CLI-only
+clap = { version = "4", features = ["derive", "string"], optional = true }
+clap-markdown = { version = "0.1", optional = true }
+rayon = { version = "1", optional = true }
+ec4rs = { version = "1", optional = true }
+glob = { version = "0.3", optional = true }
+
+# Feature-gated
+nnsplit = { version = "0.5", features = ["tract-backend", "model-loader"], optional = true }
+tower-lsp = { version = "0.20", optional = true }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "io-std"], optional = true }
+notify = { version = "7", optional = true }
+pandoc_ast = { version = "0.8", optional = true }
+tempfile = "3"
+
+# WASM-only
+wasm-bindgen = { version = "0.2", optional = true }
+serde-wasm-bindgen = { version = "0.6", optional = true }
+js-sys = { version = "0.3", optional = true }
 
 [dev-dependencies]
 tempfile = "3"

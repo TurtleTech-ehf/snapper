@@ -6,8 +6,6 @@
 
 use std::path::Path;
 
-use crate::cli::FormatArg;
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Format {
     Org,
@@ -29,13 +27,25 @@ impl Format {
         }
     }
 
-    pub fn from_arg(arg: FormatArg) -> Self {
+    /// Detect format from a bare file extension string (without the dot).
+    pub fn from_extension(ext: &str) -> Self {
+        match ext {
+            "org" => Format::Org,
+            "tex" | "latex" | "ltx" | "sty" | "cls" => Format::Latex,
+            "md" | "markdown" | "mkd" | "mdx" => Format::Markdown,
+            "rst" | "rest" => Format::Rst,
+            _ => Format::Plaintext,
+        }
+    }
+
+    #[cfg(feature = "cli")]
+    pub fn from_arg(arg: crate::cli::FormatArg) -> Self {
         match arg {
-            FormatArg::Org => Format::Org,
-            FormatArg::Latex => Format::Latex,
-            FormatArg::Markdown => Format::Markdown,
-            FormatArg::Rst => Format::Rst,
-            FormatArg::Plaintext => Format::Plaintext,
+            crate::cli::FormatArg::Org => Format::Org,
+            crate::cli::FormatArg::Latex => Format::Latex,
+            crate::cli::FormatArg::Markdown => Format::Markdown,
+            crate::cli::FormatArg::Rst => Format::Rst,
+            crate::cli::FormatArg::Plaintext => Format::Plaintext,
         }
     }
 }
