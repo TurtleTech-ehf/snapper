@@ -221,4 +221,20 @@ autocmd FileType org setlocal formatprg=snapper\ --format\ org
   (push '(org-mode . snapper) apheleia-mode-alist))
 #+end_src
 
+*** Obsidian
+:PROPERTIES:
+:CUSTOM_ID: obsidian
+:END:
+
+Install from Community Plugins (search "Snapper").
+Uses WebAssembly -- no binary needed.
+
+*** Word
+:PROPERTIES:
+:CUSTOM_ID: word
+:END:
+
+Install the snapper add-in from AppSource (Insert > Get Add-ins > search "Snapper").
+Uses WebAssembly -- no binary needed.
+
 See [[file:../howto/editor-integration.org][Editor Integration]] for Vim, Helix, eglot, conform.nvim, and other setups.

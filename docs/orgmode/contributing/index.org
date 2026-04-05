@@ -73,6 +73,10 @@ editors/
   nvim/               -- Neovim plugin (LSP, conform.nvim, format-on-save)
   vim/                -- Vim plugin (formatprg, gq support)
   vscode/             -- VS Code extension (LSP client)
+  obsidian/           -- Obsidian plugin (WASM-powered)
+  word/               -- Microsoft Word add-in (WASM-powered)
+packages/
+  snapper-wasm/       -- Shared JS/TS wrapper for WASM module
 tests/
   integration.rs      -- Integration tests (format, check, idempotency, stdin)
   fixtures/           -- Sample input/expected output pairs per format

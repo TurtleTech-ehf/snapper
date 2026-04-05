@@ -192,6 +192,56 @@ command = "snapper"
 args = ["lsp"]
 #+end_src
 
+* Obsidian
+:PROPERTIES:
+:CUSTOM_ID: obsidian
+:END:
+
+Install the snapper plugin from Obsidian Community Plugins (Settings > Community Plugins > Browse > search "Snapper").
+
+The plugin uses a WebAssembly build of snapper -- no binary installation needed.
+
+Commands:
+- "Format entire note" -- formats the active note
+- "Format selection" -- formats the selected text
+
+Settings: format-on-save, max line width, language, extra abbreviations.
+Format auto-detects from the note's file extension.
+
+For manual installation (before the plugin is listed in Community Plugins):
+1. Download =main.js= and =manifest.json= from [[https://github.com/TurtleTech-ehf/snapper/releases][GitHub Releases]]
+2. Copy both files to =.obsidian/plugins/snapper/= in your vault
+3. Enable the plugin in Settings > Community Plugins
+
+* Microsoft Word
+:PROPERTIES:
+:CUSTOM_ID: word
+:END:
+
+The snapper Word add-in provides a task pane for formatting documents with semantic line breaks.
+It uses a WebAssembly build -- no binary installation needed.
+
+** Install from AppSource
+:PROPERTIES:
+:CUSTOM_ID: word-appsource
+:END:
+
+In Word: Insert > Get Add-ins > search "Snapper".
+
+** Sideloading (development)
+:PROPERTIES:
+:CUSTOM_ID: word-sideload
+:END:
+
+1. Download the add-in ZIP from [[https://github.com/TurtleTech-ehf/snapper/releases][GitHub Releases]]
+2. In Word: Insert > My Add-ins > Upload My Add-in
+3. Select the =manifest.xml= from the extracted ZIP
+
+The task pane provides:
+- "Format Document" -- formats all paragraphs
+- "Format Selection" -- formats the selected text
+- Settings for max width, language, and extra abbreviations
+
 * Generic (any editor)
 :PROPERTIES:
 :CUSTOM_ID: generic

@@ -14,6 +14,8 @@
     -   [VS Code](#vscode)
     -   [Neovim](#neovim)
     -   [Vim](#vim)
+    -   [Obsidian](#obsidian)
+    -   [Microsoft Word](#word)
     -   [Git smudge/clean filter](#git-filter)
     -   [Vale integration](#vale)
     -   [Project config](#project-config)
@@ -236,6 +238,22 @@ Or with `rocks.nvim`:
     Plug 'TurtleTech-ehf/snapper', { 'rtp': 'editors/vim' }
 
 This provides `formatprg` support for automatic formatting with the `gq` operator.
+
+
+<a id="obsidian"></a>
+
+## Obsidian
+
+Install the snapper plugin from Community Plugins (search "Snapper").
+Uses WebAssembly -- no binary installation required.
+
+
+<a id="word"></a>
+
+## Microsoft Word
+
+Install the snapper add-in from AppSource (Insert > Get Add-ins > search "Snapper").
+Uses WebAssembly -- no binary installation required.
 
 
 <a id="git-filter"></a>
