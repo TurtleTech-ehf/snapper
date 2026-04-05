@@ -15,6 +15,7 @@ jobs:
   test:
     runs-on: ubuntu-latest
     strategy:
+      fail-fast: false
       matrix:
         neovim-version: ['v0.10.0', 'stable', 'nightly']
 
@@ -42,7 +43,7 @@ jobs:
       run: |
         curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
         source ~/.cargo/env
-        cargo install --path .
+        cargo install --path . --force
 
     - name: Install plenary.nvim for testing
       run: |
