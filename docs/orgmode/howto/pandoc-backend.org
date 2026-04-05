@@ -2,6 +2,9 @@
 #+options: num:nil toc:nil
 
 * Overview
+:PROPERTIES:
+:CUSTOM_ID: overview
+:END:
 
 Snapper includes a universal parser backend powered by [[https://pandoc.org][pandoc]].
 When enabled with =--use-pandoc=, snapper shells out to pandoc to parse the document into a JSON AST, then walks the AST to extract prose and structure regions.
@@ -9,6 +12,9 @@ When enabled with =--use-pandoc=, snapper shells out to pandoc to parse the docu
 This gives snapper support for every format pandoc handles: typst, asciidoc, docx, html, epub, and more.
 
 * Requirements
+:PROPERTIES:
+:CUSTOM_ID: requirements
+:END:
 
 Pandoc 2.x or 3.x must be installed and on your PATH.
 Verify with:
@@ -21,6 +27,9 @@ When pandoc is not available, snapper falls back to its built-in parsers silentl
 If you explicitly pass =--use-pandoc= and pandoc is missing, snapper reports an error.
 
 * Usage
+:PROPERTIES:
+:CUSTOM_ID: usage
+:END:
 
 #+begin_src bash
 # Typst (requires pandoc with typst support)
@@ -40,6 +49,9 @@ Format auto-detects from the file extension.
 Override with =-f= when needed.
 
 * When to use pandoc vs built-in parsers
+:PROPERTIES:
+:CUSTOM_ID: when-to-use
+:END:
 
 The built-in parsers (Org, LaTeX, Markdown, RST) handle their formats well and run faster since they avoid spawning a subprocess.
 Use the pandoc backend when:
@@ -52,6 +64,9 @@ The built-in parsers preserve more source-level structure (pragmas, inline token
 The pandoc backend strips format-specific markup since it works through the abstract AST.
 
 * Limitations
+:PROPERTIES:
+:CUSTOM_ID: limitations
+:END:
 
 - Pandoc strips comments, so =snapper:off= / =snapper:on= pragmas do not work through the pandoc backend
 - Table content is not preserved verbatim (pandoc normalizes table structure)

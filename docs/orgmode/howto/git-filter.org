@@ -2,11 +2,17 @@
 #+options: num:nil toc:nil
 
 * Overview
+:PROPERTIES:
+:CUSTOM_ID: overview
+:END:
 
 A git smudge/clean filter auto-formats files on commit (clean) and optionally restores the original wrapping on checkout (smudge).
 This makes semantic line breaks transparent to collaborators who do not use snapper.
 
 * Setup
+:PROPERTIES:
+:CUSTOM_ID: setup
+:END:
 
 Configure the filter in your local git config:
 
@@ -19,6 +25,9 @@ The =smudge= filter uses =cat= (passthrough), meaning checked-out files retain s
 If you want to restore traditional wrapping on checkout, replace =cat= with a rewrapping command.
 
 * Activate via .gitattributes
+:PROPERTIES:
+:CUSTOM_ID: gitattributes
+:END:
 
 Add to your repository's =.gitattributes=:
 
@@ -32,6 +41,9 @@ Commit =.gitattributes= to share with collaborators.
 The filter only activates for people who have configured it locally.
 
 * Per-format filters
+:PROPERTIES:
+:CUSTOM_ID: per-format
+:END:
 
 If you need different settings per format:
 
@@ -49,6 +61,9 @@ git config filter.snapper-tex.smudge cat
 #+end_src
 
 * Verifying the filter works
+:PROPERTIES:
+:CUSTOM_ID: verify
+:END:
 
 After setting up, stage a file and check the diff:
 

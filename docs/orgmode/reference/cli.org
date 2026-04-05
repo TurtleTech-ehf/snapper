@@ -1,8 +1,14 @@
 #+OPTIONS: num:nil toc:nil
 
 * CLI Reference
+:PROPERTIES:
+:CUSTOM_ID: cli-reference
+:END:
 
 ** Synopsis
+:PROPERTIES:
+:CUSTOM_ID: synopsis
+:END:
 
 #+begin_src text
 snapper [OPTIONS] [FILE...]
@@ -16,8 +22,14 @@ snapper lsp
 If no files are given, ~snapper~ reads from stdin and writes to stdout.
 
 ** Options
+:PROPERTIES:
+:CUSTOM_ID: options
+:END:
 
 *** =-f=, =--format <FORMAT>=
+:PROPERTIES:
+:CUSTOM_ID: opt-format
+:END:
 
 Input format.
 One of: =org=, =latex=, =markdown=, =plaintext=.
@@ -26,6 +38,9 @@ Auto-detected from file extension when omitted.
 Defaults to =plaintext= for stdin.
 
 *** =--stdin-filepath <PATH>=
+:PROPERTIES:
+:CUSTOM_ID: opt-stdin-filepath
+:END:
 
 Assume this filename when reading stdin, for format auto-detection.
 Useful for editor integrations that pipe buffer contents.
@@ -33,15 +48,24 @@ Useful for editor integrations that pipe buffer contents.
 Example: =cat paper.org | snapper --stdin-filepath paper.org=
 
 *** =-o=, =--output <FILE>=
+:PROPERTIES:
+:CUSTOM_ID: opt-output
+:END:
 
 Write output to a file instead of stdout.
 
 *** =-i=, =--in-place=
+:PROPERTIES:
+:CUSTOM_ID: opt-in-place
+:END:
 
 Modify input files in place.
 Requires file arguments (not stdin).
 
 *** =-w=, =--max-width <N>=
+:PROPERTIES:
+:CUSTOM_ID: opt-max-width
+:END:
 
 Maximum line width.
 Sentences exceeding this width are wrapped at word boundaries using ~textwrap~.
@@ -49,18 +73,27 @@ Default: =0= (unlimited).
 Also respects =max_line_length= from =.editorconfig= if present.
 
 *** =--check=
+:PROPERTIES:
+:CUSTOM_ID: opt-check
+:END:
 
 Check mode for CI.
 Exits with code 1 if any file would change, without modifying anything.
 Prints the paths of files that would be reformatted to stderr.
 
 *** =--diff=
+:PROPERTIES:
+:CUSTOM_ID: opt-diff
+:END:
 
 Show a unified diff of what would change, without modifying anything.
 Useful for reviewing before committing.
 Exits with code 1 if any file would change.
 
 *** =--range <START:END>=
+:PROPERTIES:
+:CUSTOM_ID: opt-range
+:END:
 
 Only format lines in the given range (1-indexed, inclusive).
 Lines outside the range pass through unchanged.
@@ -69,6 +102,9 @@ Useful for editor format-selection integrations.
 Example: =snapper --range 10:20 paper.org=
 
 *** =--output-format <text|json|sarif>=
+:PROPERTIES:
+:CUSTOM_ID: opt-output-format
+:END:
 
 Output format for =--check= mode.
 Default: =text= (prints filenames to stderr).
@@ -77,6 +113,9 @@ Default: =text= (prints filenames to stderr).
 - =sarif= : outputs SARIF v2.1.0 for GitHub Code Scanning integration
 
 *** =--neural=
+:PROPERTIES:
+:CUSTOM_ID: opt-neural
+:END:
 
 Use neural sentence detection via nnsplit (byte-level LSTM, tract backend).
 Downloads and caches the model (~4MB) to =~/.cache/nnsplit/= on first use.
@@ -84,17 +123,26 @@ Rule-based detection remains the default (faster, better abbreviation handling).
 Neural excels for non-English text.
 
 *** =--lang <CODE>=
+:PROPERTIES:
+:CUSTOM_ID: opt-lang
+:END:
 
 Language for neural sentence detection.
 Default: =en=.
 Available: =en=, =de=, =fr=, =no=, =sv=, =zh=, =tr=, =ru=, =uk=.
 
 *** =--model-path <PATH>=
+:PROPERTIES:
+:CUSTOM_ID: opt-model-path
+:END:
 
 Path to a custom ONNX model file for neural detection.
 Overrides =--lang=.
 
 *** =--use-pandoc=
+:PROPERTIES:
+:CUSTOM_ID: opt-use-pandoc
+:END:
 
 Use pandoc as the parser backend instead of built-in parsers.
 Requires pandoc on PATH.
@@ -102,21 +150,36 @@ Enables support for typst, asciidoc, docx, html, and all other pandoc-supported 
 Falls back silently if pandoc is unavailable (unless this flag is explicit).
 
 *** =--config <PATH>=
+:PROPERTIES:
+:CUSTOM_ID: opt-config
+:END:
 
 Path to a =.snapperrc.toml= config file.
 When omitted, ~snapper~ searches from the current directory upward.
 
 *** =-h=, =--help=
+:PROPERTIES:
+:CUSTOM_ID: opt-help
+:END:
 
 Print help message.
 
 *** =-V=, =--version=
+:PROPERTIES:
+:CUSTOM_ID: opt-version
+:END:
 
 Print version.
 
 ** Subcommands
+:PROPERTIES:
+:CUSTOM_ID: subcommands
+:END:
 
 *** =snapper init=
+:PROPERTIES:
+:CUSTOM_ID: cmd-init
+:END:
 
 Initialize snapper for a project.
 Detects which prose formats exist in the directory tree and generates:
@@ -129,6 +192,9 @@ Detects which prose formats exist in the directory tree and generates:
 Use =--dry-run= to preview without writing files.
 
 *** =snapper sdiff <OLD> <NEW>=
+:PROPERTIES:
+:CUSTOM_ID: cmd-sdiff
+:END:
 
 Sentence-level diff between two files.
 Parses both files, extracts sentences, diffs at sentence granularity.
@@ -137,6 +203,9 @@ Colored output by default; use =--no-color= to disable.
 Exits with code 1 if differences found.
 
 *** =snapper git-diff [REF] [FILE...]=
+:PROPERTIES:
+:CUSTOM_ID: cmd-git-diff
+:END:
 
 Sentence-level diff against a git ref.
 Default ref: =HEAD=.
@@ -144,18 +213,27 @@ If no files specified, diffs all changed prose files (=.org=, =.tex=, =.md=).
 Uses =git show REF:path= to retrieve the old version.
 
 *** =snapper watch <PATTERNS...>=
+:PROPERTIES:
+:CUSTOM_ID: cmd-watch
+:END:
 
 Watch files and auto-reformat on save.
 Accepts file paths or glob patterns. 200ms debounce to avoid reformatting during rapid saves.
 Press Ctrl+C to stop.
 
 *** =snapper lsp=
+:PROPERTIES:
+:CUSTOM_ID: cmd-lsp
+:END:
 
 Start the Language Server Protocol server on stdin/stdout.
 Provides document formatting, range formatting, and diagnostics (flags lines with multiple sentences).
 Works with any LSP-compatible editor (Neovim, Emacs eglot, VS Code, Helix).
 
 ** Exit codes
+:PROPERTIES:
+:CUSTOM_ID: exit-codes
+:END:
 
 - =0= : Success (or =--check= / =--diff= with no changes needed)
 - =1= : =--check= or =--diff= found files that would change, or any error
