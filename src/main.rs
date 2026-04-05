@@ -61,6 +61,21 @@ fn run() -> Result<()> {
                 rt.block_on(snapper_fmt::lsp::run_lsp());
                 return Ok(());
             }
+            Commands::Mcp => {
+                #[cfg(feature = "mcp")]
+                {
+                    let rt =
+                        tokio::runtime::Runtime::new().expect("failed to create tokio runtime");
+                    rt.block_on(snapper_fmt::mcp::run_mcp())?;
+                    return Ok(());
+                }
+                #[cfg(not(feature = "mcp"))]
+                {
+                    eprintln!("error: snapper was built without the 'mcp' feature");
+                    eprintln!("rebuild with: cargo install snapper-fmt --features mcp");
+                    process::exit(1);
+                }
+            }
             Commands::Watch { patterns, format } => {
                 let fmt = format.map(Format::from_arg);
                 return snapper_fmt::watch::run_watch(patterns, fmt);

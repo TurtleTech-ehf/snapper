@@ -38,6 +38,8 @@ pub mod format;
 pub mod git_diff;
 pub mod init;
 pub mod lsp;
+#[cfg(feature = "mcp")]
+pub mod mcp;
 pub mod output;
 pub mod parser;
 pub mod reflow;

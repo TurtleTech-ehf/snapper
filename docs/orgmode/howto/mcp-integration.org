@@ -1,0 +1,116 @@
+#+title: MCP Server Integration
+#+options: num:nil toc:nil
+
+* Overview
+:PROPERTIES:
+:CUSTOM_ID: overview
+:END:
+
+Snapper includes an MCP (Model Context Protocol) server that exposes formatting tools to AI assistants like Claude Desktop and Claude Code.
+
+Start it with:
+
+#+begin_src bash
+snapper mcp
+#+end_src
+
+This launches the server on stdin/stdout using the MCP protocol.
+
+The MCP feature must be enabled at build time:
+
+#+begin_src bash
+cargo install snapper-fmt --features mcp
+#+end_src
+
+* Configuration
+:PROPERTIES:
+:CUSTOM_ID: configuration
+:END:
+
+** Claude Desktop / Claude Code
+:PROPERTIES:
+:CUSTOM_ID: claude-config
+:END:
+
+Add to your MCP configuration:
+
+#+begin_src json
+{
+  "mcpServers": {
+    "snapper": {
+      "command": "snapper",
+      "args": ["mcp"]
+    }
+  }
+}
+#+end_src
+
+Or with the npm wrapper:
+
+#+begin_src json
+{
+  "mcpServers": {
+    "snapper": {
+      "command": "npx",
+      "args": ["@turtletech/snapper-mcp"]
+    }
+  }
+}
+#+end_src
+
+* Tools
+:PROPERTIES:
+:CUSTOM_ID: tools
+:END:
+
+** format_text
+:PROPERTIES:
+:CUSTOM_ID: tool-format-text
+:END:
+
+Format text with semantic line breaks.
+
+Parameters:
+- =text= (string, required): Text to format
+- =format= (string): Document format ("org", "latex", "markdown", "rst", "plaintext"; default: "plaintext")
+- =max_width= (integer): Maximum line width (default: 0, unlimited)
+- =extra_abbreviations= (array of strings): Additional abbreviations
+
+Returns the formatted text.
+
+** detect_format
+:PROPERTIES:
+:CUSTOM_ID: tool-detect-format
+:END:
+
+Detect document format from text content using heuristics.
+
+Parameters:
+- =text= (string, required): Text to analyze
+
+Returns the detected format string.
+
+** check_formatting
+:PROPERTIES:
+:CUSTOM_ID: tool-check-formatting
+:END:
+
+Check text for semantic line break violations.
+
+Parameters:
+- =text= (string, required): Text to check
+- =format= (string): Document format (default: "plaintext")
+
+Returns line numbers with violations and a pass/fail status.
+
+** split_sentences
+:PROPERTIES:
+:CUSTOM_ID: tool-split-sentences
+:END:
+
+Split text into individual sentences using Unicode-aware boundary detection.
+
+Parameters:
+- =text= (string, required): Text to split
+
+Returns an array of sentence strings.

@@ -124,6 +124,8 @@ pub enum Commands {
     },
     /// Start the LSP server (stdin/stdout).
     Lsp,
+    /// Start the MCP server (stdin/stdout).
+    Mcp,
     /// Watch files and reformat on change.
     Watch {
         /// Files or glob patterns to watch.
