@@ -82,7 +82,7 @@ jobs:
       - name: Build Obsidian plugin
         working-directory: editors/obsidian
         run: |
-          npm ci
+          npm install
           npm run build
 
   build-word:
@@ -101,5 +101,5 @@ jobs:
       - name: Build Word add-in
         working-directory: editors/word
         run: |
-          npm ci
+          npm install
           npm run build
