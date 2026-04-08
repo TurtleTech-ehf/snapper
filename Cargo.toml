@@ -11,6 +11,9 @@ categories = ["command-line-utilities", "text-processing"]
 readme = "README.md"
 homepage = "https://snapper.turtletech.us"
 
+[lib]
+crate-type = ["cdylib", "rlib"]
+
 [[bin]]
 name = "snapper"
 path = "src/main.rs"
