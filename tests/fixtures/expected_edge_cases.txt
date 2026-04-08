@@ -1,0 +1,30 @@
+He said "wow!" and then left.
+She agreed with him.
+
+The answer (really?) surprised everyone.
+They had not expected it.
+
+She asked "is it done?" before leaving.
+He nodded silently.
+
+Visit https://example.com/page for details.
+Then read the docs.
+
+The API is at https://api.example.com/v2/endpoint.
+It supports JSON.
+
+See https://example.com/path?q=search&lang=en.
+The results are paginated.
+
+Dr. Smith said "excellent!" and published the paper.
+The results (as shown in Fig. 3) were significant.
+
+Use `std::io::Read` for input.
+Then call `process()` to handle it.
+
+The value $x = 3.14$ is approximate.
+We use it throughout.
+
+Sentence one...
+Sentence two.
+Sentence three.

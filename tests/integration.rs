@@ -306,6 +306,43 @@ fn check_sarif_output() {
     assert!(!results.as_array().unwrap().is_empty());
 }
 
+// ---- Golden master: edge cases ----
+
+#[test]
+fn edge_cases_org() {
+    let actual = run_format("org", &fixture_path("edge_cases.org"));
+    let expected = fs::read_to_string(fixture_path("expected_edge_cases.org")).unwrap();
+    pretty_assertions::assert_eq!(actual, expected);
+}
+
+#[test]
+fn edge_cases_plaintext() {
+    let actual = run_format("plaintext", &fixture_path("edge_cases.txt"));
+    let expected = fs::read_to_string(fixture_path("expected_edge_cases.txt")).unwrap();
+    pretty_assertions::assert_eq!(actual, expected);
+}
+
+#[test]
+fn idempotent_edge_cases_org() {
+    let first = run_format("org", &fixture_path("edge_cases.org"));
+    let tmp = tempfile::NamedTempFile::new().unwrap();
+    fs::write(tmp.path(), &first).unwrap();
+    let second = run_format("org", &tmp.path().to_string_lossy());
+    pretty_assertions::assert_eq!(first, second, "edge cases org reflow must be idempotent");
+}
+
+#[test]
+fn idempotent_edge_cases_plaintext() {
+    let first = run_format("plaintext", &fixture_path("edge_cases.txt"));
+    let tmp = tempfile::NamedTempFile::new().unwrap();
+    fs::write(tmp.path(), &first).unwrap();
+    let second = run_format("plaintext", &tmp.path().to_string_lossy());
+    pretty_assertions::assert_eq!(
+        first, second,
+        "edge cases plaintext reflow must be idempotent"
+    );
+}
+
 // ---- FEATURE 7: snapper init ----
 
 #[test]
