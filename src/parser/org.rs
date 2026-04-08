@@ -9,6 +9,18 @@ static HEADLINE_RE: LazyLock<Regex> =
 static LIST_ITEM_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"^(\s*(?:[-+]|\d+[.)]) )(.*)$").unwrap());
 
+/// Matches LaTeX \begin{env} lines embedded in org prose.
+static LATEX_BEGIN_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"^\s*\\begin\{([^}]+)\}").unwrap());
+
+/// Matches LaTeX \end{env} lines.
+static LATEX_END_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"^\s*\\end\{([^}]+)\}").unwrap());
+
+/// Matches org inline export snippets: @@backend:value@@
+static EXPORT_SNIPPET_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"@@[a-zA-Z]+:[^@]*@@").unwrap());
+
 pub struct OrgParser;
 
 impl OrgParser {
@@ -51,6 +63,35 @@ impl OrgParser {
     fn is_table_row(line: &str) -> bool {
         line.trim_start().starts_with('|')
     }
+
+    /// Check if a line starts a LaTeX environment (\begin{...})
+    fn is_latex_begin(line: &str) -> Option<String> {
+        LATEX_BEGIN_RE
+            .captures(line)
+            .map(|caps| caps.get(1).unwrap().as_str().to_string())
+    }
+
+    /// Check if a line ends a LaTeX environment (\end{...})
+    fn is_latex_end(line: &str, env: &str) -> bool {
+        LATEX_END_RE
+            .captures(line)
+            .is_some_and(|caps| caps.get(1).unwrap().as_str() == env)
+    }
+
+    /// Check if a line is a display math delimiter (\[ or \])
+    fn is_display_math_open(line: &str) -> bool {
+        line.trim() == r"\["
+    }
+
+    fn is_display_math_close(line: &str) -> bool {
+        line.trim() == r"\]"
+    }
+
+    /// Check if a line is entirely an inline export snippet (@@backend:...@@)
+    fn is_export_snippet_line(line: &str) -> bool {
+        let trimmed = line.trim();
+        EXPORT_SNIPPET_RE.is_match(trimmed) && trimmed.starts_with("@@")
+    }
 }
 
 impl FormatParser for OrgParser {
@@ -59,6 +100,8 @@ impl FormatParser for OrgParser {
         let mut current_prose = String::new();
         let mut in_block = false;
         let mut in_drawer = false;
+        let mut in_latex_env: Option<String> = None;
+        let mut in_display_math = false;
         let mut pragma_off = false;
         // Track list item context: indent level of the marker text.
         // Continuation lines indented at or beyond this level belong to the item.
@@ -100,6 +143,27 @@ impl FormatParser for OrgParser {
                 continue;
             }
 
+            // Inside a LaTeX environment -- everything is structure
+            if let Some(ref env) = in_latex_env {
+                flush_prose(&mut current_prose, &mut regions);
+                let done = Self::is_latex_end(line, env);
+                regions.push(Region::Structure(format!("{line}\n")));
+                if done {
+                    in_latex_env = None;
+                }
+                continue;
+            }
+
+            // Inside display math \[...\] -- everything is structure
+            if in_display_math {
+                flush_prose(&mut current_prose, &mut regions);
+                if Self::is_display_math_close(line) {
+                    in_display_math = false;
+                }
+                regions.push(Region::Structure(format!("{line}\n")));
+                continue;
+            }
+
             // Block begin
             if Self::is_block_begin(line) {
                 flush_prose(&mut current_prose, &mut regions);
@@ -112,6 +176,29 @@ impl FormatParser for OrgParser {
             if Self::is_drawer_begin(line) {
                 flush_prose(&mut current_prose, &mut regions);
                 in_drawer = true;
+                regions.push(Region::Structure(format!("{line}\n")));
+                continue;
+            }
+
+            // LaTeX environment begin (\begin{equation} etc.)
+            if let Some(env) = Self::is_latex_begin(line) {
+                flush_prose(&mut current_prose, &mut regions);
+                in_latex_env = Some(env);
+                regions.push(Region::Structure(format!("{line}\n")));
+                continue;
+            }
+
+            // Display math open (\[)
+            if Self::is_display_math_open(line) {
+                flush_prose(&mut current_prose, &mut regions);
+                in_display_math = true;
+                regions.push(Region::Structure(format!("{line}\n")));
+                continue;
+            }
+
+            // Export snippet line (@@latex:...@@)
+            if Self::is_export_snippet_line(line) {
+                flush_prose(&mut current_prose, &mut regions);
                 regions.push(Region::Structure(format!("{line}\n")));
                 continue;
             }
@@ -306,5 +393,51 @@ mod tests {
         assert!(matches!(&regions[0], Region::Structure(_))); // :PROPERTIES:
         assert!(matches!(&regions[1], Region::Structure(_))); // :ID:
         assert!(matches!(&regions[2], Region::Structure(_))); // :END:
+    }
+
+    #[test]
+    fn latex_environment_preserved() {
+        let input = "Some text.\n\\begin{equation}\nx = 5\n\\end{equation}\nMore text.";
+        let regions = OrgParser.parse(input);
+        // Prose, Structure(\begin), Structure(x=5), Structure(\end), Prose
+        assert!(matches!(&regions[0], Region::Prose(_)));
+        assert!(matches!(&regions[1], Region::Structure(s) if s.contains("\\begin{equation}")));
+        assert!(matches!(&regions[2], Region::Structure(s) if s.contains("x = 5")));
+        assert!(matches!(&regions[3], Region::Structure(s) if s.contains("\\end{equation}")));
+        assert!(matches!(&regions[4], Region::Prose(_)));
+    }
+
+    #[test]
+    fn display_math_preserved() {
+        let input = "Some text.\n\\[\nx = 5\n\\]\nMore text.";
+        let regions = OrgParser.parse(input);
+        assert!(matches!(&regions[0], Region::Prose(_)));
+        assert!(matches!(&regions[1], Region::Structure(s) if s.contains("\\[")));
+        assert!(matches!(&regions[2], Region::Structure(s) if s.contains("x = 5")));
+        assert!(matches!(&regions[3], Region::Structure(s) if s.contains("\\]")));
+        assert!(matches!(&regions[4], Region::Prose(_)));
+    }
+
+    #[test]
+    fn export_snippet_preserved() {
+        let input = "Text before.\n@@latex:\\newpage@@\nText after.";
+        let regions = OrgParser.parse(input);
+        assert!(matches!(&regions[0], Region::Prose(_)));
+        assert!(matches!(&regions[1], Region::Structure(s) if s.contains("@@latex:")));
+        assert!(matches!(&regions[2], Region::Prose(_)));
+    }
+
+    #[test]
+    fn nested_latex_envs() {
+        let input =
+            "Prose.\n\\begin{align}\na &= b \\\\\nc &= d\n\\end{align}\nMore prose.";
+        let regions = OrgParser.parse(input);
+        assert!(matches!(&regions[0], Region::Prose(_)));
+        // All lines inside align are structure
+        let struct_count = regions
+            .iter()
+            .filter(|r| matches!(r, Region::Structure(_)))
+            .count();
+        assert!(struct_count >= 4); // \begin, two content lines, \end
     }
 }

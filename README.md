@@ -40,7 +40,7 @@ When multiple authors collaborate on a paper using Git, traditional line wrappin
 A single word change can trigger a diff that spans an entire paragraph.
 By breaking at sentence boundaries instead, each edit affects only the sentence that changed.
 
-This convention, often called "semantic linefeeds," enjoys longstanding support from technical writers.
+This convention, often called [semantic line breaks](https://sembr.org/), enjoys longstanding support from technical writers.
 Existing tools fall short: latexindent.pl only handles LaTeX, SemBr requires Python and neural networks, and most lack multi-format awareness.
 `snapper` solves this as a standalone Rust binary with no runtime dependencies, handling Org-mode, LaTeX, Markdown, and plaintext.
 

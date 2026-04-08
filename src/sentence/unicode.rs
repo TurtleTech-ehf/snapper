@@ -2,6 +2,12 @@ use regex::Regex;
 use std::sync::LazyLock;
 use unicode_segmentation::UnicodeSegmentation;
 
+/// Matches segments ending with sentence punctuation followed by closing quotes/parens,
+/// where the punctuation is not a true sentence boundary (e.g., `"wow!" and`, `(emphasis!) loudly`).
+static QUOTED_PUNCT_END_RE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r##"[.!?]["')\]]+\s*$"##).expect("valid quoted-punct regex")
+});
+
 use crate::abbreviations;
 use crate::sentence::SentenceSplitter;
 
@@ -19,8 +25,9 @@ static INLINE_TOKEN_RE: LazyLock<Regex> = LazyLock::new(|| {
             r"~[^~]+~",                  // Org inline code: ~code~
             r"=[^=]+=",                  // Org verbatim: =text=
             r"`[^`]+`",                  // Markdown inline code: `code`
-            r"https?://\S+",             // URLs
+            r#"https?://\S+[^.\s!?,;:)\]'""]"#, // URLs (don't swallow trailing punctuation)
             r"file:\S+",                 // Org file: links
+            r"@@[a-zA-Z]+:[^@]*@@",     // Org inline export snippets: @@backend:value@@
         ]
         .join("|"),
     )
@@ -116,6 +123,9 @@ impl SentenceSplitter for UnicodeSentenceSplitter {
             self.extra_pattern.as_ref(),
         );
 
+        // Merge false splits from punctuation inside quotes/parens
+        let merged = merge_quoted_punct_splits(merged);
+
         // Restore placeholders and clean up
         merged
             .into_iter()
@@ -152,6 +162,37 @@ fn merge_abbreviation_splits(
             prev.push_str(segment);
         } else {
             result.push(segment.to_string());
+        }
+    }
+
+    result
+}
+
+/// Merge false splits caused by sentence punctuation inside quotes or parens.
+/// E.g., `He said "wow!"` + `and left.` should stay as one sentence when
+/// the next segment starts with a lowercase letter.
+fn merge_quoted_punct_splits(segments: Vec<String>) -> Vec<String> {
+    let mut result: Vec<String> = Vec::with_capacity(segments.len());
+
+    for segment in segments {
+        let should_merge = if let Some(prev) = result.last() {
+            // Previous segment ends with punctuation + closing quote/paren
+            QUOTED_PUNCT_END_RE.is_match(prev.trim_end())
+                // Next segment starts with lowercase (continuation, not new sentence)
+                && segment
+                    .trim_start()
+                    .chars()
+                    .next()
+                    .is_some_and(|c| c.is_lowercase())
+        } else {
+            false
+        };
+
+        if should_merge {
+            let prev = result.last_mut().unwrap();
+            prev.push_str(&segment);
+        } else {
+            result.push(segment);
         }
     }
 
@@ -307,6 +348,69 @@ mod tests {
         assert_eq!(
             split("Use `std.io.Read` for input. Then process."),
             vec!["Use `std.io.Read` for input.", "Then process."]
+        );
+    }
+
+    #[test]
+    fn quoted_exclamation_no_false_split() {
+        assert_eq!(
+            split(r#"He said "wow!" and left. She agreed."#),
+            vec![r#"He said "wow!" and left."#, "She agreed."]
+        );
+    }
+
+    #[test]
+    fn paren_exclamation_no_false_split() {
+        assert_eq!(
+            split("He replied (with emphasis!) loudly. She agreed."),
+            vec!["He replied (with emphasis!) loudly.", "She agreed."]
+        );
+    }
+
+    #[test]
+    fn paren_question_no_false_split() {
+        assert_eq!(
+            split("The answer (really?) surprised them. Next sentence."),
+            vec![
+                "The answer (really?) surprised them.",
+                "Next sentence."
+            ]
+        );
+    }
+
+    #[test]
+    fn url_trailing_period_not_swallowed() {
+        assert_eq!(
+            split("Visit https://example.com/path. Then read more."),
+            vec!["Visit https://example.com/path.", "Then read more."]
+        );
+    }
+
+    #[test]
+    fn url_with_query_trailing_period() {
+        assert_eq!(
+            split("See https://example.com/path?q=1&r=2. Next sentence."),
+            vec![
+                "See https://example.com/path?q=1&r=2.",
+                "Next sentence."
+            ]
+        );
+    }
+
+    #[test]
+    fn ellipsis_splits() {
+        assert_eq!(
+            split("Sentence one... Sentence two."),
+            vec!["Sentence one...", "Sentence two."]
+        );
+    }
+
+    #[test]
+    fn quoted_period_end_of_sentence() {
+        // "done." followed by uppercase Start is a real sentence boundary
+        assert_eq!(
+            split(r#"End of quote: "done." Start again."#),
+            vec![r#"End of quote: "done.""#, "Start again."]
         );
     }
 }
