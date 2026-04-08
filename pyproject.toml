@@ -4,7 +4,7 @@ build-backend = "maturin"
 
 [project]
 name = "snapper-fmt"
-version = "0.6.0"
+dynamic = ["version"]
 description = "Semantic line break formatter for Org, LaTeX, Markdown, and plaintext"
 readme = "README.md"
 license = {text = "MIT"}
