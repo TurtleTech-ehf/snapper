@@ -338,7 +338,8 @@ fn idempotent_edge_cases_plaintext() {
     fs::write(tmp.path(), &first).unwrap();
     let second = run_format("plaintext", &tmp.path().to_string_lossy());
     pretty_assertions::assert_eq!(
-        first, second,
+        first,
+        second,
         "edge cases plaintext reflow must be idempotent"
     );
 }

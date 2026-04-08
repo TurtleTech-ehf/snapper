@@ -8,9 +8,9 @@ use rmcp::handler::server::wrapper::Parameters;
 use rmcp::{Json, ServerHandler, ServiceExt, tool, tool_router};
 use serde::{Deserialize, Serialize};
 
+use crate::FormatConfig;
 use crate::format::Format;
 use crate::sentence::SentenceSplitter;
-use crate::FormatConfig;
 
 // -- Tool parameter types --
 
@@ -153,10 +153,7 @@ impl SnapperMcpServer {
         let splitter = crate::build_splitter(&config).unwrap();
         let violations = find_violations(&params.text, splitter.as_ref());
         let passed = violations.is_empty();
-        Json(CheckFormattingResult {
-            violations,
-            passed,
-        })
+        Json(CheckFormattingResult { violations, passed })
     }
 
     #[tool(
@@ -193,10 +190,7 @@ fn detect_format_heuristic(input: &str) -> Format {
         .iter()
         .any(|l| l.starts_with("#+") || l.starts_with("* "))
     {
-        if input.contains(":PROPERTIES:")
-            || input.contains(":END:")
-            || input.contains("#+begin_")
-        {
+        if input.contains(":PROPERTIES:") || input.contains(":END:") || input.contains("#+begin_") {
             return Format::Org;
         }
     }
@@ -250,7 +244,9 @@ fn find_violations(input: &str, splitter: &dyn SentenceSplitter) -> Vec<usize> {
 pub async fn run_mcp() -> anyhow::Result<()> {
     let server = SnapperMcpServer::new();
     let transport = rmcp::transport::io::stdio();
-    let running = server.serve(transport).await
+    let running = server
+        .serve(transport)
+        .await
         .map_err(|e| anyhow::anyhow!("MCP server failed to start: {e}"))?;
     running.waiting().await?;
     Ok(())

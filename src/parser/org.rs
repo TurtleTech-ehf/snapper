@@ -429,8 +429,7 @@ mod tests {
 
     #[test]
     fn nested_latex_envs() {
-        let input =
-            "Prose.\n\\begin{align}\na &= b \\\\\nc &= d\n\\end{align}\nMore prose.";
+        let input = "Prose.\n\\begin{align}\na &= b \\\\\nc &= d\n\\end{align}\nMore prose.";
         let regions = OrgParser.parse(input);
         assert!(matches!(&regions[0], Region::Prose(_)));
         // All lines inside align are structure
