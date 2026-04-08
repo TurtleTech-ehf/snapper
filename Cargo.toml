@@ -84,6 +84,9 @@ strip = true
 inherits = "release"
 lto = "thin"
 
+[package.metadata.wasm-pack.profile.release]
+wasm-opt = false
+
 [package.metadata.binstall]
 pkg-url = "{ repo }/releases/download/v{ version }/snapper-fmt-{ target }.tar.xz"
 bin-dir = "snapper-fmt-{ target }/{ bin }{ binary-ext }"
