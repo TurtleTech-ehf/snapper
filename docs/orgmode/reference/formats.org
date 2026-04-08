@@ -26,6 +26,9 @@ The classification depends on the format.
 - Comment lines (starting with =#= but not =#+= )
 - Headline stars and TODO keywords
 - List item markers (=-=, =+=, =1.=)
+- LaTeX environments (=\begin{equation}= ... =\end{equation}=, =\begin{align}=, etc.)
+- Display math (=\[= ... =\]=)
+- Inline export snippets (=@@latex:\newpage@@=, =@@html:<br>@@=)
 
 *** Prose regions (reflowed)
 :PROPERTIES:
@@ -42,6 +45,8 @@ The classification depends on the format.
 These tokens within prose are not split across lines:
 - Links: =[[url][description]]=
 - Inline code: =~code~=, ===verbatim===
+- Inline export snippets: =@@backend:value@@=
+- URLs: =https://...= (trailing sentence punctuation not swallowed)
 
 ** LaTeX (=--format latex=)
 :PROPERTIES:
@@ -159,3 +164,11 @@ Z.
 :CUSTOM_ID: abbr-datetime
 :END:
 Jan., Feb., ..., Dec., Mon., Tue., ..., Sun., a.m., p.m.
+
+*** Quoted and parenthesized punctuation
+:PROPERTIES:
+:CUSTOM_ID: quoted-punct
+:END:
+Sentence punctuation inside quotes or parentheses does not trigger a false split when the next word starts lowercase.
+For example, =He said "wow!" and left.= stays on one line because ="!"= followed by lowercase =and= signals a continuation, not a new sentence.
+Patterns handled: =!"=, =?"=, =."=, =!)=, =?)=, =.)=, and similar combinations with single quotes or brackets.

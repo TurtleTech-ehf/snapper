@@ -1,6 +1,7 @@
 # snapper - Semantic Line Breaks
 
-Format prose so each sentence occupies its own line, producing clean git diffs for collaborative academic writing.
+Format prose so each sentence occupies its own line, producing clean git diffs for collaborative writing.
+Implements the [semantic line breaks](https://sembr.org/) convention for LaTeX, Org-mode, Markdown, reStructuredText, and plaintext.
 
 ## Quick Start
 
@@ -49,6 +50,11 @@ See Fig. 3 for the results.
 ```
 
 Each sentence on its own line. A one-word edit produces a one-line diff instead of reflowing the entire paragraph.
+
+Structure stays untouched: code blocks, math environments (`\begin{equation}`...`\end{equation}`, `\[`...`\]`), tables, drawers, front matter, and export snippets pass through unchanged.
+
+Abbreviations like Dr., Fig., Eq., e.g., i.e., et al. (80+ built-in across English, German, French, Icelandic, and Polish) do not cause false sentence breaks.
+Punctuation inside quotes or parentheses -- `"wow!"`, `(really?)` -- stays intact when the sentence continues.
 
 ## Requirements
 
