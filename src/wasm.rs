@@ -5,8 +5,8 @@
 
 use wasm_bindgen::prelude::*;
 
-use crate::format::Format;
 use crate::FormatConfig;
+use crate::format::Format;
 
 /// Document format (WASM-exported mirror of [`Format`]).
 #[wasm_bindgen]

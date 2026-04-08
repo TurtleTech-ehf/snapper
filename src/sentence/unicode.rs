@@ -4,9 +4,8 @@ use unicode_segmentation::UnicodeSegmentation;
 
 /// Matches segments ending with sentence punctuation followed by closing quotes/parens,
 /// where the punctuation is not a true sentence boundary (e.g., `"wow!" and`, `(emphasis!) loudly`).
-static QUOTED_PUNCT_END_RE: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r##"[.!?]["')\]]+\s*$"##).expect("valid quoted-punct regex")
-});
+static QUOTED_PUNCT_END_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r##"[.!?]["')\]]+\s*$"##).expect("valid quoted-punct regex"));
 
 use crate::abbreviations;
 use crate::sentence::SentenceSplitter;
@@ -16,18 +15,18 @@ use crate::sentence::SentenceSplitter;
 static INLINE_TOKEN_RE: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(
         &[
-            r"\[\[[^\]]*\]\]",           // Org links: [[url]] or [[url][desc]]
-            r"\[\[[^\]]*\]\[[^\]]*\]\]", // Org links with desc
-            r"\[[^\]]+\]\([^)]+\)",      // Markdown links: [text](url)
-            r"!\[[^\]]*\]\([^)]+\)",     // Markdown images: ![alt](url)
-            r"\$[^$]+\$",                // Inline math: $...$
-            r"\\([a-zA-Z]+)\{[^}]*\}",   // LaTeX commands: \cmd{arg}
-            r"~[^~]+~",                  // Org inline code: ~code~
-            r"=[^=]+=",                  // Org verbatim: =text=
-            r"`[^`]+`",                  // Markdown inline code: `code`
+            r"\[\[[^\]]*\]\]",                  // Org links: [[url]] or [[url][desc]]
+            r"\[\[[^\]]*\]\[[^\]]*\]\]",        // Org links with desc
+            r"\[[^\]]+\]\([^)]+\)",             // Markdown links: [text](url)
+            r"!\[[^\]]*\]\([^)]+\)",            // Markdown images: ![alt](url)
+            r"\$[^$]+\$",                       // Inline math: $...$
+            r"\\([a-zA-Z]+)\{[^}]*\}",          // LaTeX commands: \cmd{arg}
+            r"~[^~]+~",                         // Org inline code: ~code~
+            r"=[^=]+=",                         // Org verbatim: =text=
+            r"`[^`]+`",                         // Markdown inline code: `code`
             r#"https?://\S+[^.\s!?,;:)\]'""]"#, // URLs (don't swallow trailing punctuation)
-            r"file:\S+",                 // Org file: links
-            r"@@[a-zA-Z]+:[^@]*@@",     // Org inline export snippets: @@backend:value@@
+            r"file:\S+",                        // Org file: links
+            r"@@[a-zA-Z]+:[^@]*@@",             // Org inline export snippets: @@backend:value@@
         ]
         .join("|"),
     )
@@ -371,10 +370,7 @@ mod tests {
     fn paren_question_no_false_split() {
         assert_eq!(
             split("The answer (really?) surprised them. Next sentence."),
-            vec![
-                "The answer (really?) surprised them.",
-                "Next sentence."
-            ]
+            vec!["The answer (really?) surprised them.", "Next sentence."]
         );
     }
 
@@ -390,10 +386,7 @@ mod tests {
     fn url_with_query_trailing_period() {
         assert_eq!(
             split("See https://example.com/path?q=1&r=2. Next sentence."),
-            vec![
-                "See https://example.com/path?q=1&r=2.",
-                "Next sentence."
-            ]
+            vec!["See https://example.com/path?q=1&r=2.", "Next sentence."]
         );
     }
 
