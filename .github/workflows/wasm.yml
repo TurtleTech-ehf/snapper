@@ -49,7 +49,7 @@ jobs:
       - uses: jetli/wasm-pack-action@v0.4.0
 
       - name: Build WASM package
-        run: wasm-pack build --target web --no-default-features --features wasm --release -- --lib
+        run: wasm-pack build --target web --no-default-features --features wasm --release
 
       - name: Check WASM size
         run: |
