@@ -98,6 +98,20 @@ Initialize a project (generates config, pre-commit, gitattributes):
 #+begin_src bash
 snapper init
 #+end_src
+** MCP server (AI assistants)
+:PROPERTIES:
+:CUSTOM_ID: mcp
+:END:
+Expose snapper's tools to Claude Desktop, Claude Code, and other MCP clients:
+#+begin_src bash
+npx @turtletech/snapper-mcp
+#+end_src
+Or directly:
+#+begin_src bash
+snapper mcp
+#+end_src
+Tools: =format_text=, =detect_format=, =check_formatting=, =split_sentences=.
+See [[file:docs/orgmode/howto/mcp-integration.org][MCP Integration]] for configuration.
 ** Supported formats
 :PROPERTIES:
 :CUSTOM_ID: supported-formats

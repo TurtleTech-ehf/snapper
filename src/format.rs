@@ -29,6 +29,17 @@ impl Format {
         }
     }
 
+    /// Detect format from a bare extension string (without the dot).
+    pub fn from_extension(ext: &str) -> Self {
+        match ext {
+            "org" => Format::Org,
+            "tex" | "latex" | "ltx" | "sty" | "cls" => Format::Latex,
+            "md" | "markdown" | "mkd" | "mdx" => Format::Markdown,
+            "rst" | "rest" => Format::Rst,
+            _ => Format::Plaintext,
+        }
+    }
+
     pub fn from_arg(arg: FormatArg) -> Self {
         match arg {
             FormatArg::Org => Format::Org,

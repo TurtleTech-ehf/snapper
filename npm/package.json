@@ -1,0 +1,20 @@
+{
+  "name": "@turtletech/snapper-mcp",
+  "version": "0.6.0",
+  "description": "MCP server for snapper semantic line break formatter",
+  "main": "bin/run.js",
+  "bin": {
+    "snapper-mcp": "bin/run.js"
+  },
+  "scripts": {
+    "postinstall": "node scripts/postinstall.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/TurtleTech-ehf/snapper.git"
+  },
+  "keywords": ["mcp", "formatter", "semantic", "linebreak"],
+  "author": "TurtleTech",
+  "license": "MIT",
+  "homepage": "https://snapper.turtletech.us"
+}

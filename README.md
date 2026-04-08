@@ -8,6 +8,7 @@
     -   [Design](#design)
 -   [Installation](#installation)
 -   [Usage](#usage)
+    -   [MCP server (AI assistants)](#mcp)
     -   [Supported formats](#supported-formats)
     -   [Pre-commit hook](#pre-commit-hook)
     -   [Emacs (Apheleia)](#emacs)
@@ -129,6 +130,22 @@ Watch files and auto-reformat on save:
 Initialize a project (generates config, pre-commit, gitattributes):
 
     snapper init
+
+
+<a id="mcp"></a>
+
+## MCP server (AI assistants)
+
+Expose snapper's tools to Claude Desktop, Claude Code, and other MCP clients:
+
+    npx @turtletech/snapper-mcp
+
+Or directly:
+
+    snapper mcp
+
+Tools: `format_text`, `detect_format`, `check_formatting`, `split_sentences`.
+See [MCP Integration](docs/orgmode/howto/mcp-integration.md) for configuration.
 
 
 <a id="supported-formats"></a>
