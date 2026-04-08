@@ -128,7 +128,7 @@ See [[file:docs/orgmode/howto/mcp-integration.org][MCP Integration]] for configu
 :END:
 #+begin_src yaml
 - repo: https://github.com/TurtleTech-ehf/snapper
-  rev: v0.6.0
+  rev: v0.7.0
   hooks:
     - id: snapper
 #+end_src
