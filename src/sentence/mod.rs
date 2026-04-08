@@ -1,3 +1,4 @@
+#[cfg(feature = "neural")]
 pub mod neural;
 pub mod unicode;
 

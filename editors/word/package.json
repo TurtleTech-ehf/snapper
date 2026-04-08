@@ -1,0 +1,22 @@
+{
+  "name": "word-snapper",
+  "version": "0.6.0",
+  "private": true,
+  "description": "Microsoft Word add-in for snapper semantic line break formatter",
+  "scripts": {
+    "build": "webpack --mode production",
+    "dev": "webpack serve --mode development"
+  },
+  "devDependencies": {
+    "@types/office-js": "^1.0.0",
+    "html-webpack-plugin": "^5.6.0",
+    "copy-webpack-plugin": "^12.0.0",
+    "ts-loader": "^9.5.0",
+    "typescript": "^5.4",
+    "webpack": "^5.90.0",
+    "webpack-cli": "^5.1.0",
+    "webpack-dev-server": "^5.0.0",
+    "@snapper/wasm": "file:../../packages/snapper-wasm"
+  },
+  "license": "MIT"
+}

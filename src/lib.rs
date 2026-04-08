@@ -30,21 +30,30 @@
 //! ```
 
 pub mod abbreviations;
+#[cfg(feature = "cli")]
 pub mod cli;
 pub mod config;
 pub mod diff;
+#[cfg(not(target_arch = "wasm32"))]
 pub mod files;
 pub mod format;
+#[cfg(not(target_arch = "wasm32"))]
 pub mod git_diff;
+#[cfg(feature = "cli")]
 pub mod init;
+#[cfg(feature = "lsp")]
 pub mod lsp;
 #[cfg(feature = "mcp")]
 pub mod mcp;
 pub mod output;
 pub mod parser;
 pub mod reflow;
+#[cfg(not(target_arch = "wasm32"))]
 pub mod sdiff;
 pub mod sentence;
+#[cfg(feature = "wasm")]
+pub mod wasm;
+#[cfg(feature = "watch")]
 pub mod watch;
 
 use anyhow::Result;
@@ -85,12 +94,21 @@ impl Default for FormatConfig {
 /// Build the appropriate sentence splitter from config.
 pub fn build_splitter(config: &FormatConfig) -> Result<Box<dyn SentenceSplitter>> {
     if config.use_neural {
-        let neural = if let Some(ref path) = config.neural_model_path {
-            sentence::neural::NeuralSentenceSplitter::from_path(path)
-        } else {
-            sentence::neural::NeuralSentenceSplitter::new(&config.neural_lang)
-        };
-        Ok(Box::new(neural.map_err(|e| anyhow::anyhow!("{e}"))?))
+        #[cfg(feature = "neural")]
+        {
+            let neural = if let Some(ref path) = config.neural_model_path {
+                sentence::neural::NeuralSentenceSplitter::from_path(path)
+            } else {
+                sentence::neural::NeuralSentenceSplitter::new(&config.neural_lang)
+            };
+            Ok(Box::new(neural.map_err(|e| anyhow::anyhow!("{e}"))?))
+        }
+        #[cfg(not(feature = "neural"))]
+        {
+            Err(anyhow::anyhow!(
+                "neural sentence splitting requires the 'neural' feature"
+            ))
+        }
     } else {
         Ok(Box::new(UnicodeSentenceSplitter::for_lang(
             &config.neural_lang,
@@ -112,18 +130,26 @@ pub fn format_text_with_splitter(
     splitter: &dyn SentenceSplitter,
 ) -> Result<String> {
     let parser: Box<dyn parser::FormatParser> = if config.use_pandoc {
-        // Use pandoc backend -- determine the pandoc format string
-        let pandoc_fmt = config
-            .pandoc_format
-            .as_deref()
-            .unwrap_or(match config.format {
-                Format::Org => "org",
-                Format::Latex => "latex",
-                Format::Markdown => "markdown",
-                Format::Rst => "rst",
-                Format::Plaintext => "markdown",
-            });
-        Box::new(parser::pandoc::PandocParser::new(pandoc_fmt))
+        #[cfg(feature = "pandoc")]
+        {
+            let pandoc_fmt = config
+                .pandoc_format
+                .as_deref()
+                .unwrap_or(match config.format {
+                    Format::Org => "org",
+                    Format::Latex => "latex",
+                    Format::Markdown => "markdown",
+                    Format::Rst => "rst",
+                    Format::Plaintext => "markdown",
+                });
+            Box::new(parser::pandoc::PandocParser::new(pandoc_fmt))
+        }
+        #[cfg(not(feature = "pandoc"))]
+        {
+            return Err(anyhow::anyhow!(
+                "pandoc backend requires the 'pandoc' feature"
+            ));
+        }
     } else {
         parser::parser_for_format(config.format)
     };

@@ -1,0 +1,17 @@
+{
+  "name": "obsidian-snapper",
+  "version": "0.6.0",
+  "private": true,
+  "description": "Obsidian plugin for snapper semantic line break formatter",
+  "scripts": {
+    "build": "node esbuild.config.mjs",
+    "dev": "node esbuild.config.mjs --watch"
+  },
+  "devDependencies": {
+    "obsidian": "^1.5.0",
+    "esbuild": "^0.20.0",
+    "typescript": "^5.4",
+    "@snapper/wasm": "file:../../packages/snapper-wasm"
+  },
+  "license": "MIT"
+}
