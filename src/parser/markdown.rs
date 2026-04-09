@@ -10,6 +10,10 @@ static FENCED_CODE_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^(`{3,}|~
 static LIST_ITEM_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"^(\s*(?:[-*+]|\d+[.)]) )(.*)$").unwrap());
 
+/// Match a markdown table row: line whose trimmed form starts and ends with `|`.
+/// Also matches separator rows like `|---|---|`.
+static TABLE_ROW_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^\s*\|.*\|\s*$").unwrap());
+
 pub struct MarkdownParser;
 
 impl FormatParser for MarkdownParser {
@@ -100,6 +104,13 @@ impl FormatParser for MarkdownParser {
                 continue;
             }
 
+            // Table row (pipe-delimited)
+            if TABLE_ROW_RE.is_match(line) {
+                flush_prose(&mut current_prose, &mut regions);
+                regions.push(Region::Structure(format!("{line}\n")));
+                continue;
+            }
+
             // List item
             if let Some(caps) = LIST_ITEM_RE.captures(line) {
                 flush_prose(&mut current_prose, &mut regions);
@@ -160,6 +171,49 @@ mod tests {
         assert!(matches!(&regions[1], Region::Structure(_)));
         assert!(matches!(&regions[2], Region::Structure(_)));
         assert!(matches!(&regions[3], Region::Structure(_)));
+    }
+
+    #[test]
+    fn table_preserved() {
+        let input = "| Feature | Why |\n|---------|-----|\n| `Foo` | Bar |";
+        let regions = MarkdownParser.parse(input);
+        assert!(
+            regions.iter().all(|r| matches!(r, Region::Structure(_))),
+            "all table rows should be Structure, got: {:?}",
+            regions
+        );
+    }
+
+    #[test]
+    fn table_with_surrounding_prose() {
+        let input = "Some text before.\n\n| A | B |\n|---|---|\n| 1 | 2 |\n\nSome text after.";
+        let regions = MarkdownParser.parse(input);
+        // Should have: Prose, Blank, 3x Structure (table rows), Blank, Prose
+        let prose_count = regions
+            .iter()
+            .filter(|r| matches!(r, Region::Prose(_)))
+            .count();
+        let structure_count = regions
+            .iter()
+            .filter(|r| matches!(r, Region::Structure(_)))
+            .count();
+        assert_eq!(prose_count, 2);
+        assert_eq!(structure_count, 3);
+    }
+
+    #[test]
+    fn wide_table_preserved_verbatim() {
+        let input = "| Feature                         | Why excluded                                          | Follow-up article type     |\n|---------------------------------|-------------------------------------------------------|----------------------------|\n| `DraftValidation`               | LLM-assisted; needs API key, not production-reliable  | Step-by-Step Project       |";
+        let regions = MarkdownParser.parse(input);
+        assert_eq!(regions.len(), 3);
+        assert!(regions.iter().all(|r| matches!(r, Region::Structure(_))));
+        // Verify each line is preserved exactly (with trailing newline)
+        for r in &regions {
+            if let Region::Structure(s) = r {
+                assert!(s.starts_with('|'));
+                assert!(s.ends_with("|\n"));
+            }
+        }
     }
 
     #[test]
