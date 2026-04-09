@@ -2,6 +2,12 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 - - -
+## v0.7.6 - 2026-04-09
+#### Bug Fixes
+- (**markdown**) join list-item continuation lines before sentence splitting - (8e45528) - *HaoZeke*
+
+- - -
+
 ## v0.7.5 - 2026-04-09
 #### Bug Fixes
 - (**cog**) bump all package versions in pre_bump_hooks, drop stale pyproject sed - (7edca39) - *HaoZeke*
