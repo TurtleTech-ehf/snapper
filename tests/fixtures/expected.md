@@ -30,3 +30,8 @@ These results are significant.
 - First item in a list
 - Second item with more text here
 - Third item discusses Dr. Johnson's findings
+
+| Feature           | Description                    | Status  |
+|-------------------|--------------------------------|---------|
+| `table_support`   | Preserve pipe-delimited tables | Done    |
+| `code_blocks`     | Fenced code block handling     | Done    |
