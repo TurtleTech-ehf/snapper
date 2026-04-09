@@ -2,6 +2,14 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 - - -
+## v0.7.5 - 2026-04-09
+#### Bug Fixes
+- (**cog**) bump all package versions in pre_bump_hooks, drop stale pyproject sed - (7edca39) - *HaoZeke*
+- (**markdown**) preserve pipe-delimited tables as structure regions - (e745591) - *HaoZeke*
+- (**version**) sync all package versions to 0.7.4 - (839ce57) - *HaoZeke*
+
+- - -
+
 ## v0.6.0 - 2026-04-04
 #### Features
 - (**lsp**) add features now that it works - (15a285f) - *HaoZeke*

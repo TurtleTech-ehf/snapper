@@ -1,6 +1,6 @@
 {
   "name": "obsidian-snapper",
-  "version": "0.7.4",
+  "version": "0.7.5",
   "private": true,
   "description": "Obsidian plugin for snapper semantic line break formatter",
   "scripts": {

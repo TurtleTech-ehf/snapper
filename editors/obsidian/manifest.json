@@ -1,7 +1,7 @@
 {
   "id": "snapper",
   "name": "Snapper - Semantic Line Breaks",
-  "version": "0.7.4",
+  "version": "0.7.5",
   "minAppVersion": "1.0.0",
   "description": "Format prose with semantic line breaks for clean git diffs. Supports Org-mode, LaTeX, Markdown, and plaintext.",
   "author": "TurtleTech",
