@@ -4,12 +4,11 @@ disable_changelog = false
 generate_mono_repository_global_tag = true
 tag_prefix = "v"
 
-# Bump version in pyproject.toml alongside Cargo.toml
+# Bump version everywhere: Cargo.toml drives pyproject.toml via dynamic = ["version"]
 pre_bump_hooks = [
     "sed -i '0,/^version = /s/^version = \".*\"/version = \"{{version}}\"/' Cargo.toml",
-    "sed -i 's/^version = \".*\"/version = \"{{version}}\"/' pyproject.toml",
-    "sed -i 's/\"version\": \".*\"/\"version\": \"{{version}}\"/' editors/vscode/package.json",
     "cargo generate-lockfile",
+    "sed -i 's/\"version\": \".*\"/\"version\": \"{{version}}\"/' editors/vscode/package.json editors/obsidian/package.json editors/obsidian/manifest.json editors/word/package.json packages/snapper-wasm/package.json npm/package.json",
 ]
 
 [commit_types]
