@@ -81,13 +81,16 @@ fn generate_gitattributes(formats: &[&str]) -> String {
 }
 
 /// Generate pre-commit config snippet.
-fn generate_precommit() -> &'static str {
-    r#"# Add to .pre-commit-config.yaml:
+fn generate_precommit() -> String {
+    format!(
+        r#"# Add to .pre-commit-config.yaml:
 - repo: https://github.com/TurtleTech-ehf/snapper
-  rev: v0.1.0
+  rev: v{}
   hooks:
     - id: snapper
-"#
+"#,
+        env!("CARGO_PKG_VERSION")
+    )
 }
 
 /// Generate Apheleia elisp snippet.

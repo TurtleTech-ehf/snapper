@@ -10,8 +10,12 @@ use crate::format::Format;
 use crate::{FormatConfig, format_text};
 
 /// Run the file watcher, reformatting files on change.
-pub fn run_watch(patterns: &[String], format_override: Option<Format>) -> Result<()> {
-    let project_config = ProjectConfig::resolve(None).unwrap_or_default();
+pub fn run_watch(
+    patterns: &[String],
+    format_override: Option<Format>,
+    config_path: Option<&std::path::Path>,
+) -> Result<()> {
+    let project_config = ProjectConfig::resolve(config_path).unwrap_or_default();
 
     // Resolve patterns to actual file paths
     let files = resolve_patterns(patterns)?;
@@ -78,10 +82,12 @@ pub fn run_watch(patterns: &[String], format_override: Option<Format>) -> Result
                     last_format.insert(canonical.clone(), now);
 
                     // Format
-                    if let Err(e) = format_file_in_place(path, format_override, &project_config) {
-                        eprintln!("  error formatting {}: {e}", path.display());
-                    } else {
-                        eprintln!("  formatted: {}", path.display());
+                    match format_file_in_place(path, format_override, &project_config) {
+                        Err(e) => eprintln!("  error formatting {}: {e}", path.display()),
+                        Ok(true) => {
+                            eprintln!("  formatted: {}", path.display());
+                        }
+                        Ok(false) => {}
                     }
                 }
             }
@@ -100,16 +106,36 @@ fn format_file_in_place(
     path: &std::path::Path,
     format_override: Option<Format>,
     project_config: &ProjectConfig,
-) -> Result<()> {
+) -> Result<bool> {
+    if project_config.is_ignored(path) {
+        return Ok(false);
+    }
+
     let input = std::fs::read_to_string(path)
         .with_context(|| format!("failed to read {}", path.display()))?;
 
-    let format = format_override.unwrap_or_else(|| Format::from_path(path));
+    let format = format_override.unwrap_or_else(|| {
+        let detected = Format::from_path(path);
+        if detected != Format::Plaintext {
+            detected
+        } else {
+            project_config
+                .default_format
+                .as_deref()
+                .map(Format::from_extension)
+                .unwrap_or(Format::Plaintext)
+        }
+    });
+    let format_key = format.config_key();
 
     let config = FormatConfig {
         format,
-        max_width: project_config.max_width.unwrap_or(0),
-        extra_abbreviations: project_config.extra_abbreviations.clone(),
+        max_width: project_config.max_width_for_format(format_key).unwrap_or(0),
+        neural_lang: project_config
+            .lang
+            .clone()
+            .unwrap_or_else(|| "en".to_string()),
+        extra_abbreviations: project_config.abbreviations_for_format(format_key),
         ..Default::default()
     };
 
@@ -117,9 +143,10 @@ fn format_file_in_place(
     if output != input {
         std::fs::write(path, &output)
             .with_context(|| format!("failed to write {}", path.display()))?;
+        return Ok(true);
     }
 
-    Ok(())
+    Ok(false)
 }
 
 /// Resolve glob patterns to file paths.

@@ -147,7 +147,7 @@ Or directly:
     snapper mcp
 
 Tools: `format_text`, `detect_format`, `check_formatting`, `split_sentences`.
-See [MCP Integration](docs/orgmode/howto/mcp-integration.md) for configuration.
+See [MCP Integration](docs/orgmode/howto/mcp-integration.org) for configuration.
 
 
 <a id="supported-formats"></a>
@@ -204,7 +204,7 @@ See [MCP Integration](docs/orgmode/howto/mcp-integration.md) for configuration.
 ## Pre-commit hook
 
     - repo: https://github.com/TurtleTech-ehf/snapper
-      rev: v0.7.0
+      rev: v0.7.6
       hooks:
         - id: snapper
 
@@ -359,4 +359,3 @@ Construct the `readme` via:
 # License
 
 MIT.
-

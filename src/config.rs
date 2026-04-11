@@ -1,6 +1,8 @@
 use std::path::Path;
 
 use anyhow::Result;
+#[cfg(any(feature = "cli", feature = "watch"))]
+use glob::Pattern;
 use serde::Deserialize;
 
 /// Per-format overrides in .snapperrc.toml.
@@ -32,6 +34,7 @@ pub struct ProjectConfig {
     pub org: Option<FormatOverrides>,
     pub latex: Option<FormatOverrides>,
     pub markdown: Option<FormatOverrides>,
+    pub rst: Option<FormatOverrides>,
     pub plaintext: Option<FormatOverrides>,
 }
 
@@ -81,6 +84,7 @@ impl ProjectConfig {
             "org" => self.org.as_ref(),
             "latex" => self.latex.as_ref(),
             "markdown" => self.markdown.as_ref(),
+            "rst" => self.rst.as_ref(),
             "plaintext" => self.plaintext.as_ref(),
             _ => None,
         };
@@ -96,10 +100,27 @@ impl ProjectConfig {
             "org" => self.org.as_ref(),
             "latex" => self.latex.as_ref(),
             "markdown" => self.markdown.as_ref(),
+            "rst" => self.rst.as_ref(),
             "plaintext" => self.plaintext.as_ref(),
             _ => None,
         };
         overrides.and_then(|ov| ov.max_width).or(self.max_width)
+    }
+
+    #[cfg(any(feature = "cli", feature = "watch"))]
+    pub fn is_ignored(&self, path: &Path) -> bool {
+        self.ignore_patterns.iter().any(|pattern| {
+            Pattern::new(pattern).ok().is_some_and(|compiled| {
+                compiled.matches_path(path)
+                    || std::env::current_dir()
+                        .ok()
+                        .and_then(|cwd| path.strip_prefix(&cwd).ok())
+                        .is_some_and(|relative| compiled.matches_path(relative))
+                    || path
+                        .file_name()
+                        .is_some_and(|name| compiled.matches_path(Path::new(name)))
+            })
+        })
     }
 }
 
@@ -161,5 +182,17 @@ max_width = 100
         assert_eq!(config.max_width_for_format("org"), Some(80));
         assert_eq!(config.max_width_for_format("latex"), Some(100));
         assert_eq!(config.max_width_for_format("plaintext"), Some(80));
+    }
+
+    #[test]
+    fn parse_rst_overrides() {
+        let toml = r#"
+[rst]
+extra_abbreviations = ["Fig"]
+max_width = 72
+"#;
+        let config = ProjectConfig::parse(toml).unwrap();
+        assert_eq!(config.max_width_for_format("rst"), Some(72));
+        assert_eq!(config.abbreviations_for_format("rst"), vec!["Fig"]);
     }
 }

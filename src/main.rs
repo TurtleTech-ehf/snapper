@@ -78,7 +78,7 @@ fn run() -> Result<()> {
             }
             Commands::Watch { patterns, format } => {
                 let fmt = format.map(Format::from_arg);
-                return snapper_fmt::watch::run_watch(patterns, fmt);
+                return snapper_fmt::watch::run_watch(patterns, fmt, cli.config.as_deref());
             }
         }
     }
@@ -93,28 +93,13 @@ fn run() -> Result<()> {
             .context("failed to read stdin")?;
 
         // Format detection: --format > --stdin-filepath > plaintext
-        let format = cli
-            .format
-            .map(Format::from_arg)
-            .or_else(|| cli.stdin_filepath.as_ref().map(|p| Format::from_path(p)))
-            .unwrap_or(Format::Plaintext);
-
-        let max_width = resolve_max_width(
-            cli.max_width,
-            project_config.max_width,
+        let format = resolve_format(
+            cli.format.map(Format::from_arg),
             cli.stdin_filepath.as_deref(),
+            &project_config,
         );
-
-        let config = FormatConfig {
-            format,
-            max_width,
-            use_neural: cli.neural,
-            neural_lang: cli.lang.clone(),
-            neural_model_path: cli.model_path.clone(),
-            extra_abbreviations: project_config.extra_abbreviations.clone(),
-            use_pandoc: cli.use_pandoc,
-            ..Default::default()
-        };
+        let config =
+            build_format_config(&cli, &project_config, format, cli.stdin_filepath.as_deref());
 
         let output = if let Some(ref range_str) = cli.range {
             let (start, end) =
@@ -139,11 +124,13 @@ fn run() -> Result<()> {
         let results: Vec<(String, String, String)> = if use_parallel {
             cli.files
                 .par_iter()
+                .filter(|path| !should_skip_path(path, &cli, &project_config))
                 .map(|path| process_file(path, &cli, &project_config))
                 .collect::<Result<Vec<_>>>()?
         } else {
             cli.files
                 .iter()
+                .filter(|path| !should_skip_path(path, &cli, &project_config))
                 .map(|path| process_file(path, &cli, &project_config))
                 .collect::<Result<Vec<_>>>()?
         };
@@ -209,23 +196,8 @@ fn process_file(
     let input =
         fs::read_to_string(path).with_context(|| format!("failed to read {}", path.display()))?;
 
-    let format = cli
-        .format
-        .map(Format::from_arg)
-        .unwrap_or_else(|| Format::from_path(path));
-
-    let max_width = resolve_max_width(cli.max_width, project_config.max_width, Some(path));
-
-    let config = FormatConfig {
-        format,
-        max_width,
-        use_neural: cli.neural,
-        neural_lang: cli.lang.clone(),
-        neural_model_path: cli.model_path.clone(),
-        extra_abbreviations: project_config.extra_abbreviations.clone(),
-        use_pandoc: cli.use_pandoc,
-        ..Default::default()
-    };
+    let format = resolve_format(cli.format.map(Format::from_arg), Some(path), project_config);
+    let config = build_format_config(cli, project_config, format, Some(path));
 
     let output = if let Some(ref range_str) = cli.range {
         let (start, end) =
@@ -236,6 +208,63 @@ fn process_file(
     };
 
     Ok((path_str, input, output))
+}
+
+fn build_format_config(
+    cli: &Cli,
+    project_config: &ProjectConfig,
+    format: Format,
+    file_path: Option<&Path>,
+) -> FormatConfig {
+    let format_key = format.config_key();
+    let max_width = resolve_max_width(
+        cli.max_width,
+        project_config.max_width_for_format(format_key),
+        file_path,
+    );
+    let neural_lang = cli
+        .lang
+        .clone()
+        .or_else(|| project_config.lang.clone())
+        .unwrap_or_else(|| "en".to_string());
+
+    FormatConfig {
+        format,
+        max_width,
+        use_neural: cli.neural,
+        neural_lang,
+        neural_model_path: cli.model_path.clone(),
+        extra_abbreviations: project_config.abbreviations_for_format(format_key),
+        use_pandoc: cli.use_pandoc,
+        ..Default::default()
+    }
+}
+
+fn resolve_format(
+    cli_format: Option<Format>,
+    path: Option<&Path>,
+    project_config: &ProjectConfig,
+) -> Format {
+    if let Some(format) = cli_format {
+        return format;
+    }
+
+    if let Some(path) = path {
+        let detected = Format::from_path(path);
+        if detected != Format::Plaintext {
+            return detected;
+        }
+    }
+
+    project_config
+        .default_format
+        .as_deref()
+        .map(Format::from_extension)
+        .unwrap_or(Format::Plaintext)
+}
+
+fn should_skip_path(path: &Path, cli: &Cli, project_config: &ProjectConfig) -> bool {
+    (cli.check || cli.in_place) && project_config.is_ignored(path)
 }
 
 /// Resolve max_width: CLI flag > project config > editorconfig > 0 (unlimited).

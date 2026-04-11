@@ -38,6 +38,26 @@ fn pipe_stdin(input: &str, args: &[&str]) -> std::process::Output {
     child.wait_with_output().expect("failed to wait")
 }
 
+fn pipe_stdin_in_dir(input: &str, args: &[&str], dir: &Path) -> std::process::Output {
+    let mut cmd = snapper_binary();
+    cmd.args(args)
+        .current_dir(dir)
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped());
+    let mut child = cmd.spawn().expect("failed to spawn snapper");
+    {
+        use std::io::Write;
+        child
+            .stdin
+            .take()
+            .unwrap()
+            .write_all(input.as_bytes())
+            .unwrap();
+    }
+    child.wait_with_output().expect("failed to wait")
+}
+
 fn fixture_path(name: &str) -> String {
     let base = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures");
     base.join(name).to_string_lossy().to_string()
@@ -357,4 +377,63 @@ fn init_dry_run_shows_config() {
     assert!(stderr.contains("format ="));
     assert!(stderr.contains("pre-commit"));
     assert!(stderr.contains("apheleia"));
+}
+
+#[test]
+fn config_lang_applies_to_stdin() {
+    let dir = tempfile::tempdir().unwrap();
+    fs::write(dir.path().join(".snapperrc.toml"), "lang = \"de\"\n").unwrap();
+    let out = pipe_stdin_in_dir("z.B. Das ist ein Satz. Noch einer.\n", &[], dir.path());
+    assert!(out.status.success());
+    let result = String::from_utf8(out.stdout).unwrap();
+    assert_eq!(result, "z.B. Das ist ein Satz.\nNoch einer.\n");
+}
+
+#[test]
+fn config_default_format_applies_to_stdin() {
+    let dir = tempfile::tempdir().unwrap();
+    fs::write(dir.path().join(".snapperrc.toml"), "format = \"org\"\n").unwrap();
+    let out = pipe_stdin_in_dir("* Heading\nSentence one. Sentence two.\n", &[], dir.path());
+    assert!(out.status.success());
+    let result = String::from_utf8(out.stdout).unwrap();
+    assert!(result.starts_with("* Heading\n"));
+    assert!(result.contains("Sentence one.\n"));
+    assert!(result.contains("Sentence two.\n"));
+}
+
+#[test]
+fn config_ignore_skips_check_mode() {
+    let dir = tempfile::tempdir().unwrap();
+    fs::write(dir.path().join(".snapperrc.toml"), "ignore = [\"*.md\"]\n").unwrap();
+    fs::write(dir.path().join("draft.md"), "Sentence one. Sentence two.\n").unwrap();
+    let output = snapper_binary()
+        .current_dir(dir.path())
+        .args(["--check", "draft.md"])
+        .output()
+        .expect("failed to run snapper");
+    assert!(output.status.success());
+    assert!(String::from_utf8(output.stderr).unwrap().is_empty());
+}
+
+#[test]
+fn config_per_format_width_applies() {
+    let dir = tempfile::tempdir().unwrap();
+    fs::write(
+        dir.path().join(".snapperrc.toml"),
+        "max_width = 80\n[plaintext]\nmax_width = 12\n",
+    )
+    .unwrap();
+    fs::write(
+        dir.path().join("draft.txt"),
+        "Alpha beta gamma delta epsilon zeta.\n",
+    )
+    .unwrap();
+    let output = snapper_binary()
+        .current_dir(dir.path())
+        .arg("draft.txt")
+        .output()
+        .expect("failed to run snapper");
+    assert!(output.status.success());
+    let result = String::from_utf8(output.stdout).unwrap();
+    assert_eq!(result, "Alpha beta\ngamma delta\nepsilon\nzeta.\n");
 }
