@@ -2,6 +2,18 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 - - -
+## v0.7.7 - 2026-04-11
+#### Bug Fixes
+- (**config**) honor project config across cli and watch - (5f5179d) - *HaoZeke*
+
+- - -
+
+## v0.7.7 - 2026-04-11
+#### Bug Fixes
+- (**config**) honor project config across cli and watch - (5f5179d) - *HaoZeke*
+
+- - -
+
 ## v0.7.6 - 2026-04-09
 #### Bug Fixes
 - (**markdown**) join list-item continuation lines before sentence splitting - (8e45528) - *HaoZeke*
