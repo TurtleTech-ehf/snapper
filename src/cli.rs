@@ -54,8 +54,8 @@ pub struct Cli {
 
     /// Language for neural sentence detection (default: en).
     /// Available: en, de, fr, no, sv, zh, tr, ru, uk.
-    #[arg(long, default_value = "en")]
-    pub lang: String,
+    #[arg(long)]
+    pub lang: Option<String>,
 
     /// Path to custom ONNX model file for neural detection.
     #[arg(long)]

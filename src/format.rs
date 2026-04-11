@@ -38,6 +38,16 @@ impl Format {
         }
     }
 
+    pub fn config_key(self) -> &'static str {
+        match self {
+            Format::Org => "org",
+            Format::Latex => "latex",
+            Format::Markdown => "markdown",
+            Format::Rst => "rst",
+            Format::Plaintext => "plaintext",
+        }
+    }
+
     #[cfg(feature = "cli")]
     pub fn from_arg(arg: crate::cli::FormatArg) -> Self {
         match arg {
