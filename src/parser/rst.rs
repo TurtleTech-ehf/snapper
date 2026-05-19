@@ -42,20 +42,23 @@ fn parse_line_based(input: &str) -> Vec<Region> {
     while i < total {
         let line = lines[i];
 
-        // Pragma check
-        if let Some(on) = super::check_pragma(line) {
-            flush_prose(&mut current_prose, &mut regions);
-            pragma_off = !on;
-            regions.push(Region::Structure(format!("{line}\n")));
-            i += 1;
-            continue;
-        }
+        // Pragma check; inside a code-block directive the per-language
+        // reflow path handles pragmas instead.
+        if !in_code_block {
+            if let Some(on) = super::check_pragma(line) {
+                flush_prose(&mut current_prose, &mut regions);
+                pragma_off = !on;
+                regions.push(Region::Structure(format!("{line}\n")));
+                i += 1;
+                continue;
+            }
 
-        if pragma_off {
-            flush_prose(&mut current_prose, &mut regions);
-            regions.push(Region::Structure(format!("{line}\n")));
-            i += 1;
-            continue;
+            if pragma_off {
+                flush_prose(&mut current_prose, &mut regions);
+                regions.push(Region::Structure(format!("{line}\n")));
+                i += 1;
+                continue;
+            }
         }
 
         // Inside an rst code-block directive body.

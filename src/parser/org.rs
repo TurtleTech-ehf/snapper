@@ -138,19 +138,23 @@ impl FormatParser for OrgParser {
         let mut list_item_indent: Option<usize> = None;
 
         for line in input.lines() {
-            // Check for snapper:off/on pragmas
-            if let Some(on) = super::check_pragma(line) {
-                flush_prose(&mut current_prose, &mut regions);
-                pragma_off = !on;
-                regions.push(Region::Structure(format!("{line}\n")));
-                continue;
-            }
+            // Check for snapper:off/on pragmas. Inside a source block we
+            // defer pragma handling to the code-block reflow so the
+            // language's own comment marker controls the freeze.
+            if !in_src_block {
+                if let Some(on) = super::check_pragma(line) {
+                    flush_prose(&mut current_prose, &mut regions);
+                    pragma_off = !on;
+                    regions.push(Region::Structure(format!("{line}\n")));
+                    continue;
+                }
 
-            // Inside pragma-off region: pass through unchanged
-            if pragma_off {
-                flush_prose(&mut current_prose, &mut regions);
-                regions.push(Region::Structure(format!("{line}\n")));
-                continue;
+                // Inside pragma-off region: pass through unchanged
+                if pragma_off {
+                    flush_prose(&mut current_prose, &mut regions);
+                    regions.push(Region::Structure(format!("{line}\n")));
+                    continue;
+                }
             }
 
             // Inside a source block -- buffer body until #+END_SRC

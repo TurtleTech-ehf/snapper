@@ -1,6 +1,5 @@
 use regex::Regex;
 use std::sync::LazyLock;
-use unicode_segmentation::UnicodeSegmentation;
 
 /// Matches segments ending with sentence punctuation followed by closing quotes/parens,
 /// where the punctuation is not a true sentence boundary (e.g., `"wow!" and`, `(emphasis!) loudly`).
