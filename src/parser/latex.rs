@@ -80,18 +80,21 @@ impl FormatParser for LatexParser {
         let mut pragma_off = false;
 
         for line in input.lines() {
-            // Check for snapper:off/on pragmas
-            if let Some(on) = super::check_pragma(line) {
-                flush_prose(&mut current_prose, &mut regions);
-                pragma_off = !on;
-                regions.push(Region::Structure(format!("{line}\n")));
-                continue;
-            }
+            // Check for snapper:off/on pragmas; inside a code environment
+            // the per-language reflow path handles pragmas instead.
+            if in_code_env.is_none() {
+                if let Some(on) = super::check_pragma(line) {
+                    flush_prose(&mut current_prose, &mut regions);
+                    pragma_off = !on;
+                    regions.push(Region::Structure(format!("{line}\n")));
+                    continue;
+                }
 
-            if pragma_off {
-                flush_prose(&mut current_prose, &mut regions);
-                regions.push(Region::Structure(format!("{line}\n")));
-                continue;
+                if pragma_off {
+                    flush_prose(&mut current_prose, &mut regions);
+                    regions.push(Region::Structure(format!("{line}\n")));
+                    continue;
+                }
             }
 
             // Preamble: everything before \begin{document} is structure

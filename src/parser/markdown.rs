@@ -49,20 +49,26 @@ impl FormatParser for MarkdownParser {
         for line in input.lines() {
             line_number += 1;
 
-            // Check for snapper:off/on pragmas
-            if let Some(on) = super::check_pragma(line) {
-                close_list_item(&mut in_list_item, &mut current_prose, &mut regions);
-                flush_prose(&mut current_prose, &mut regions);
-                pragma_off = !on;
-                regions.push(Region::Structure(format!("{line}\n")));
-                continue;
-            }
+            // Check for snapper:off/on pragmas. Inside a fenced code block,
+            // the markdown parser does NOT short-circuit on pragmas; the
+            // code-block reflow handles them per-language (the markers
+            // `#`, `//`, `--`, `;` are all valid pragma prefixes inside
+            // their respective languages).
+            if !in_fenced_code {
+                if let Some(on) = super::check_pragma(line) {
+                    close_list_item(&mut in_list_item, &mut current_prose, &mut regions);
+                    flush_prose(&mut current_prose, &mut regions);
+                    pragma_off = !on;
+                    regions.push(Region::Structure(format!("{line}\n")));
+                    continue;
+                }
 
-            if pragma_off {
-                close_list_item(&mut in_list_item, &mut current_prose, &mut regions);
-                flush_prose(&mut current_prose, &mut regions);
-                regions.push(Region::Structure(format!("{line}\n")));
-                continue;
+                if pragma_off {
+                    close_list_item(&mut in_list_item, &mut current_prose, &mut regions);
+                    flush_prose(&mut current_prose, &mut regions);
+                    regions.push(Region::Structure(format!("{line}\n")));
+                    continue;
+                }
             }
 
             // Front matter detection (only at start of file)
