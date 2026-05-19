@@ -7,6 +7,11 @@ static HEADING_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^(#{1,6}\s+)(
 
 static FENCED_CODE_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^(`{3,}|~{3,})").unwrap());
 
+/// Capture the language token immediately after a fence marker.
+/// `lang` is `[A-Za-z0-9_+.-]+`; anything past it (info string) is ignored.
+static FENCED_LANG_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"^(?:`{3,}|~{3,})\s*([A-Za-z0-9_+.\-]+)").unwrap());
+
 static LIST_ITEM_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"^(\s*(?:[-*+]|\d+[.)]) )(.*)$").unwrap());
 
@@ -31,6 +36,10 @@ impl FormatParser for MarkdownParser {
         let mut current_prose = String::new();
         let mut in_fenced_code = false;
         let mut fence_marker = String::new();
+        // Buffer for the running code block: header line, body lines, lang
+        let mut code_header = String::new();
+        let mut code_body = String::new();
+        let mut code_lang: Option<String> = None;
         let mut in_frontmatter = false;
         let mut frontmatter_fence = String::new();
         let mut in_list_item = false;
@@ -76,15 +85,27 @@ impl FormatParser for MarkdownParser {
             if in_fenced_code {
                 close_list_item(&mut in_list_item, &mut current_prose, &mut regions);
                 flush_prose(&mut current_prose, &mut regions);
+                let mut closed = false;
                 if let Some(caps) = FENCED_CODE_RE.captures(line.trim_start()) {
                     let marker = caps.get(1).unwrap().as_str();
                     if marker.chars().next() == fence_marker.chars().next()
                         && marker.len() >= fence_marker.len()
                     {
-                        in_fenced_code = false;
+                        closed = true;
                     }
                 }
-                regions.push(Region::Structure(format!("{line}\n")));
+                if closed {
+                    in_fenced_code = false;
+                    regions.push(Region::Code {
+                        lang: code_lang.take(),
+                        header: std::mem::take(&mut code_header),
+                        body: std::mem::take(&mut code_body),
+                        footer: format!("{line}\n"),
+                    });
+                } else {
+                    code_body.push_str(line);
+                    code_body.push('\n');
+                }
                 continue;
             }
 
@@ -94,7 +115,11 @@ impl FormatParser for MarkdownParser {
                 flush_prose(&mut current_prose, &mut regions);
                 fence_marker = caps.get(1).unwrap().as_str().to_string();
                 in_fenced_code = true;
-                regions.push(Region::Structure(format!("{line}\n")));
+                code_lang = FENCED_LANG_RE
+                    .captures(line.trim_start())
+                    .map(|c| c.get(1).unwrap().as_str().to_string());
+                code_header = format!("{line}\n");
+                code_body.clear();
                 continue;
             }
 
@@ -152,6 +177,15 @@ impl FormatParser for MarkdownParser {
 
         close_list_item(&mut in_list_item, &mut current_prose, &mut regions);
         flush_prose(&mut current_prose, &mut regions);
+        // Unclosed fence at EOF: emit a code region with empty footer.
+        if in_fenced_code {
+            regions.push(Region::Code {
+                lang: code_lang.take(),
+                header: std::mem::take(&mut code_header),
+                body: std::mem::take(&mut code_body),
+                footer: String::new(),
+            });
+        }
         regions
     }
 }
@@ -177,9 +211,23 @@ mod tests {
         let input = "Some text.\n```python\nprint('hello')\n```\nMore text.";
         let regions = MarkdownParser.parse(input);
         assert!(matches!(&regions[0], Region::Prose(_)));
-        assert!(matches!(&regions[1], Region::Structure(_))); // ```python
-        assert!(matches!(&regions[2], Region::Structure(_))); // code
-        assert!(matches!(&regions[3], Region::Structure(_))); // ```
+        // Code blocks now collapse into a single Region::Code carrying
+        // header, body, and footer.
+        match &regions[1] {
+            Region::Code {
+                lang,
+                header,
+                body,
+                footer,
+            } => {
+                assert_eq!(lang.as_deref(), Some("python"));
+                assert_eq!(header, "```python\n");
+                assert_eq!(body, "print('hello')\n");
+                assert_eq!(footer, "```\n");
+            }
+            other => panic!("expected Region::Code, got {other:?}"),
+        }
+        assert!(matches!(&regions[2], Region::Prose(_)));
     }
 
     #[test]

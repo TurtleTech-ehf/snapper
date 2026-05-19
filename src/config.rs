@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::path::Path;
 
 use anyhow::Result;
@@ -11,6 +12,23 @@ use serde::Deserialize;
 pub struct FormatOverrides {
     pub extra_abbreviations: Vec<String>,
     pub max_width: Option<usize>,
+}
+
+/// Per-language entry under the `[code]` table.
+///
+/// Each field is independent and optional:
+/// - `line_comment`: marker that introduces a single-line comment (e.g. `//`).
+/// - `block_comment`: opening and closing markers for a multi-line comment
+///   (e.g. `["/*", "*/"]`). Stored as a fixed-arity pair.
+/// - `formatter`: argv for an external formatter invoked via `--format-code`;
+///   `formatter[0]` is the binary, the rest are its arguments. Stdin/stdout
+///   carries block body.
+#[derive(Debug, Default, Clone, Deserialize, PartialEq, Eq)]
+#[serde(default)]
+pub struct CodeLang {
+    pub line_comment: Option<String>,
+    pub block_comment: Option<[String; 2]>,
+    pub formatter: Option<Vec<String>>,
 }
 
 /// Per-project configuration loaded from `.snapperrc.toml`.
@@ -36,6 +54,12 @@ pub struct ProjectConfig {
     pub markdown: Option<FormatOverrides>,
     pub rst: Option<FormatOverrides>,
     pub plaintext: Option<FormatOverrides>,
+
+    /// Per-language code-block reflow and formatter configuration.
+    /// Key is the language identifier as it appears on the code fence
+    /// (e.g. `rust`, `python`, `toml`). Missing languages mean the code
+    /// block passes through unchanged.
+    pub code: HashMap<String, CodeLang>,
 }
 
 impl ProjectConfig {
@@ -182,6 +206,69 @@ max_width = 100
         assert_eq!(config.max_width_for_format("org"), Some(80));
         assert_eq!(config.max_width_for_format("latex"), Some(100));
         assert_eq!(config.max_width_for_format("plaintext"), Some(80));
+    }
+
+    #[test]
+    fn parse_code_table_seven_seed_languages() {
+        // The shape `snapper init` writes: seven languages with mixed
+        // line_comment / block_comment / formatter fields. The python
+        // triple-quoted markers need an extra `#` on the raw delimiter
+        // so the inner escaped quotes lex.
+        let toml = r##"
+[code.rust]
+line_comment = "//"
+block_comment = ["/*", "*/"]
+formatter = ["rustfmt", "--edition", "2024"]
+
+[code.python]
+line_comment = "#"
+block_comment = ["\"\"\"", "\"\"\""]
+formatter = ["ruff", "format", "-"]
+
+[code.toml]
+line_comment = "#"
+formatter = ["taplo", "format", "-"]
+
+[code.lua]
+line_comment = "--"
+block_comment = ["--[[", "]]"]
+
+[code.lisp]
+line_comment = ";"
+
+[code.html]
+block_comment = ["<!--", "-->"]
+
+[code.javascript]
+line_comment = "//"
+block_comment = ["/*", "*/"]
+formatter = ["prettier", "--stdin-filepath", "src.js"]
+"##;
+        let config = ProjectConfig::parse(toml).unwrap();
+        assert_eq!(config.code.len(), 7);
+        let rust = config.code.get("rust").expect("rust entry present");
+        assert_eq!(rust.line_comment.as_deref(), Some("//"));
+        assert_eq!(
+            rust.block_comment.as_ref(),
+            Some(&["/*".to_string(), "*/".to_string()])
+        );
+        assert_eq!(
+            rust.formatter.as_deref(),
+            Some(&["rustfmt".to_string(), "--edition".to_string(), "2024".to_string()][..])
+        );
+        // lisp has only line_comment; missing fields stay None (no panic).
+        let lisp = config.code.get("lisp").expect("lisp entry present");
+        assert_eq!(lisp.line_comment.as_deref(), Some(";"));
+        assert!(lisp.block_comment.is_none());
+        assert!(lisp.formatter.is_none());
+        // html has only block_comment.
+        let html = config.code.get("html").expect("html entry present");
+        assert!(html.line_comment.is_none());
+        assert_eq!(
+            html.block_comment.as_ref(),
+            Some(&["<!--".to_string(), "-->".to_string()])
+        );
+        assert!(html.formatter.is_none());
     }
 
     #[test]

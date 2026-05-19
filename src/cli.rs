@@ -84,6 +84,14 @@ pub struct Cli {
     /// Output format for --check mode.
     #[arg(long, default_value = "text")]
     pub output_format: OutputFormat,
+
+    /// Pipe each code block's body through the per-language formatter
+    /// configured under `[code.<lang>.formatter]` in `.snapperrc.toml`.
+    /// The formatter runs after the in-block comment reflow. Missing
+    /// binaries, non-zero exits, and timeouts surface as stderr
+    /// diagnostics; snapper still exits 0.
+    #[arg(long, default_value_t = false)]
+    pub format_code: bool,
 }
 
 #[derive(Debug, Subcommand)]

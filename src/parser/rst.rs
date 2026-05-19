@@ -1,4 +1,12 @@
+use regex::Regex;
+use std::sync::LazyLock;
+
 use crate::parser::{FormatParser, Region, flush_prose};
+
+/// Match `.. code-block:: LANG` or `.. sourcecode:: LANG` (or `.. code:: LANG`).
+static CODE_DIRECTIVE_RE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"^\s*\.\.\s+(?:code-block|sourcecode|code)::\s*([A-Za-z0-9_+.\-]+)?\s*$").unwrap()
+});
 
 pub struct RstParser;
 
@@ -18,6 +26,14 @@ fn parse_line_based(input: &str) -> Vec<Region> {
     let mut in_directive = false;
     let mut directive_indent: usize = 0;
     let mut pragma_off = false;
+
+    // Code-block directive bookkeeping. Mutually exclusive with `in_directive`.
+    let mut in_code_block = false;
+    let mut code_indent: usize = 0;
+    let mut code_lang: Option<String> = None;
+    let mut code_header = String::new();
+    let mut code_body = String::new();
+    let mut code_footer_blanks = String::new();
 
     let lines: Vec<&str> = input.lines().collect();
     let total = lines.len();
@@ -40,6 +56,45 @@ fn parse_line_based(input: &str) -> Vec<Region> {
             regions.push(Region::Structure(format!("{line}\n")));
             i += 1;
             continue;
+        }
+
+        // Inside an rst code-block directive body.
+        // The body consists of lines indented past `code_indent`, plus
+        // interior blank lines. The block ends at a non-blank line whose
+        // indent drops below `code_indent`.
+        if in_code_block {
+            let leading = line.len() - line.trim_start().len();
+            if line.trim().is_empty() {
+                // Could be interior blank or end-of-block; buffer and look ahead.
+                code_footer_blanks.push_str(line);
+                code_footer_blanks.push('\n');
+                i += 1;
+                continue;
+            }
+            if leading >= code_indent {
+                // Promote any buffered interior blanks into the body.
+                if !code_footer_blanks.is_empty() {
+                    code_body.push_str(&code_footer_blanks);
+                    code_footer_blanks.clear();
+                }
+                // Strip the directive's option indent if present? RST options
+                // are keyed `:option: value` at code_indent before the blank
+                // line. We've already passed those into the body verbatim
+                // since they look like normal indented lines; harmless.
+                code_body.push_str(line);
+                code_body.push('\n');
+                i += 1;
+                continue;
+            }
+            // Less-indented non-blank line: close the code block.
+            in_code_block = false;
+            regions.push(Region::Code {
+                lang: code_lang.take(),
+                header: std::mem::take(&mut code_header),
+                body: std::mem::take(&mut code_body),
+                footer: std::mem::take(&mut code_footer_blanks),
+            });
+            // Fall through to reprocess this line as normal.
         }
 
         // Inside literal block
@@ -68,6 +123,22 @@ fn parse_line_based(input: &str) -> Vec<Region> {
         if line.trim().is_empty() {
             flush_prose(&mut current_prose, &mut regions);
             regions.push(Region::BlankLines(format!("{line}\n")));
+            i += 1;
+            continue;
+        }
+
+        // RST code-block directive (.. code-block:: LANG)
+        if let Some(caps) = CODE_DIRECTIVE_RE.captures(line) {
+            flush_prose(&mut current_prose, &mut regions);
+            code_lang = caps.get(1).map(|m| m.as_str().to_string());
+            code_header = format!("{line}\n");
+            // Body indent: directive_indent + 3 spaces is the rst convention;
+            // be liberal and accept any deeper indent of the first body line.
+            let leading = line.len() - line.trim_start().len();
+            code_indent = leading + 3;
+            code_body.clear();
+            code_footer_blanks.clear();
+            in_code_block = true;
             i += 1;
             continue;
         }
@@ -157,6 +228,14 @@ fn parse_line_based(input: &str) -> Vec<Region> {
     }
 
     flush_prose(&mut current_prose, &mut regions);
+    if in_code_block {
+        regions.push(Region::Code {
+            lang: code_lang.take(),
+            header: std::mem::take(&mut code_header),
+            body: std::mem::take(&mut code_body),
+            footer: std::mem::take(&mut code_footer_blanks),
+        });
+    }
     regions
 }
 
@@ -195,6 +274,14 @@ mod tests {
             .filter(|r| matches!(r, Region::Prose(_)))
             .count();
         assert_eq!(prose_count, 2);
+        // The code block surfaces as Region::Code with lang=python.
+        let code = regions.iter().find_map(|r| match r {
+            Region::Code { lang, body, .. } => Some((lang.clone(), body.clone())),
+            _ => None,
+        });
+        let (lang, body) = code.expect("expected one Region::Code");
+        assert_eq!(lang.as_deref(), Some("python"));
+        assert!(body.contains("print('hello')"));
     }
 
     #[test]
