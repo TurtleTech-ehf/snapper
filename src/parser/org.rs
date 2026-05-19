@@ -30,10 +30,35 @@ impl OrgParser {
         trimmed.to_ascii_uppercase().starts_with("#+BEGIN_")
     }
 
+    /// Check if a line starts a source code block (#+BEGIN_SRC LANG ARGS...).
+    /// Returns the language token if present, or `Some(None)` for a bare
+    /// `#+BEGIN_SRC`. Returns `None` for non-src blocks.
+    fn is_src_begin(line: &str) -> Option<Option<String>> {
+        let trimmed = line.trim_start();
+        let upper = trimmed.to_ascii_uppercase();
+        if !upper.starts_with("#+BEGIN_SRC") {
+            return None;
+        }
+        // Slice the original (case-preserving) tail past the directive.
+        let rest = trimmed["#+BEGIN_SRC".len()..].trim_start();
+        if rest.is_empty() {
+            return Some(None);
+        }
+        // Language is the first whitespace-delimited token.
+        let lang = rest.split_whitespace().next().map(|s| s.to_string());
+        Some(lang)
+    }
+
     /// Check if a line ends a block (#+END_...)
     fn is_block_end(line: &str) -> bool {
         let trimmed = line.trim_start();
         trimmed.to_ascii_uppercase().starts_with("#+END_")
+    }
+
+    /// Check if a line ends a source code block (#+END_SRC).
+    fn is_src_end(line: &str) -> bool {
+        let trimmed = line.trim_start();
+        trimmed.to_ascii_uppercase().starts_with("#+END_SRC")
     }
 
     /// Check if a line starts a property drawer
@@ -99,6 +124,11 @@ impl FormatParser for OrgParser {
         let mut regions: Vec<Region> = Vec::new();
         let mut current_prose = String::new();
         let mut in_block = false;
+        // Source block bookkeeping; `in_src_block` implies `in_block`.
+        let mut in_src_block = false;
+        let mut src_lang: Option<String> = None;
+        let mut src_header = String::new();
+        let mut src_body = String::new();
         let mut in_drawer = false;
         let mut in_latex_env: Option<String> = None;
         let mut in_display_math = false;
@@ -123,7 +153,26 @@ impl FormatParser for OrgParser {
                 continue;
             }
 
-            // Inside a block -- everything is structure
+            // Inside a source block -- buffer body until #+END_SRC
+            if in_src_block {
+                flush_prose(&mut current_prose, &mut regions);
+                if Self::is_src_end(line) {
+                    in_src_block = false;
+                    in_block = false;
+                    regions.push(Region::Code {
+                        lang: src_lang.take(),
+                        header: std::mem::take(&mut src_header),
+                        body: std::mem::take(&mut src_body),
+                        footer: format!("{line}\n"),
+                    });
+                } else {
+                    src_body.push_str(line);
+                    src_body.push('\n');
+                }
+                continue;
+            }
+
+            // Inside a non-src block -- everything is structure
             if in_block {
                 flush_prose(&mut current_prose, &mut regions);
                 if Self::is_block_end(line) {
@@ -164,7 +213,18 @@ impl FormatParser for OrgParser {
                 continue;
             }
 
-            // Block begin
+            // Source block begin (#+BEGIN_SRC LANG ...)
+            if let Some(lang) = Self::is_src_begin(line) {
+                flush_prose(&mut current_prose, &mut regions);
+                in_block = true;
+                in_src_block = true;
+                src_lang = lang;
+                src_header = format!("{line}\n");
+                src_body.clear();
+                continue;
+            }
+
+            // Other #+BEGIN_ block: opaque structure
             if Self::is_block_begin(line) {
                 flush_prose(&mut current_prose, &mut regions);
                 in_block = true;
@@ -302,6 +362,15 @@ impl FormatParser for OrgParser {
 
         // Flush remaining
         flush_prose(&mut current_prose, &mut regions);
+        // Unclosed source block at EOF: still emit as Code with empty footer.
+        if in_src_block {
+            regions.push(Region::Code {
+                lang: src_lang.take(),
+                header: std::mem::take(&mut src_header),
+                body: std::mem::take(&mut src_body),
+                footer: String::new(),
+            });
+        }
 
         regions
     }
@@ -327,12 +396,23 @@ mod tests {
     fn preserves_blocks() {
         let input = "Some prose.\n#+BEGIN_SRC python\nprint('hello')\n#+END_SRC\nMore prose.";
         let regions = OrgParser.parse(input);
-        assert_eq!(regions.len(), 5);
+        assert_eq!(regions.len(), 3);
         assert!(matches!(&regions[0], Region::Prose(_)));
-        assert!(matches!(&regions[1], Region::Structure(_))); // BEGIN
-        assert!(matches!(&regions[2], Region::Structure(_))); // code
-        assert!(matches!(&regions[3], Region::Structure(_))); // END
-        assert!(matches!(&regions[4], Region::Prose(_)));
+        match &regions[1] {
+            Region::Code {
+                lang,
+                header,
+                body,
+                footer,
+            } => {
+                assert_eq!(lang.as_deref(), Some("python"));
+                assert_eq!(header, "#+BEGIN_SRC python\n");
+                assert_eq!(body, "print('hello')\n");
+                assert_eq!(footer, "#+END_SRC\n");
+            }
+            other => panic!("expected Region::Code, got {other:?}"),
+        }
+        assert!(matches!(&regions[2], Region::Prose(_)));
     }
 
     #[test]

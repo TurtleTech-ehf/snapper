@@ -36,6 +36,19 @@ static BEGIN_ENV_RE: LazyLock<Regex> =
 
 static END_ENV_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\\end\{(\w+\*?)\}").unwrap());
 
+/// `\begin{minted}{LANG}` -- the language is the brace argument after the env.
+static MINTED_LANG_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"\\begin\{minted\}\s*(?:\[[^\]]*\])?\s*\{([^}]+)\}").unwrap());
+
+/// `\begin{lstlisting}[language=LANG, ...]` -- language is an option key.
+static LSTLISTING_LANG_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"\\begin\{lstlisting\}\s*\[[^\]]*language\s*=\s*([A-Za-z0-9_+.\-]+)").unwrap());
+
+/// Source-code environments whose body should be emitted as `Region::Code`.
+fn is_code_env(name: &str) -> bool {
+    matches!(name, "minted" | "lstlisting" | "verbatim")
+}
+
 static DISPLAY_MATH_OPEN: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^\s*\\\[").unwrap());
 
 static DISPLAY_MATH_CLOSE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\\\]\s*$").unwrap());
@@ -58,6 +71,11 @@ impl FormatParser for LatexParser {
         let mut current_prose = String::new();
         let mut in_preamble = true;
         let mut in_non_prose_env: Option<String> = None;
+        // Code environment bookkeeping.
+        let mut in_code_env: Option<String> = None;
+        let mut code_lang: Option<String> = None;
+        let mut code_header = String::new();
+        let mut code_body = String::new();
         let mut in_display_math = false;
         let mut pragma_off = false;
 
@@ -83,6 +101,28 @@ impl FormatParser for LatexParser {
                 }
                 flush_prose(&mut current_prose, &mut regions);
                 regions.push(Region::Structure(format!("{line}\n")));
+                continue;
+            }
+
+            // Inside code environment -- buffer body
+            if let Some(env_name) = in_code_env.clone() {
+                flush_prose(&mut current_prose, &mut regions);
+                let ends = END_ENV_RE
+                    .captures(line)
+                    .map(|c| c.get(1).unwrap().as_str() == env_name)
+                    .unwrap_or(false);
+                if ends {
+                    in_code_env = None;
+                    regions.push(Region::Code {
+                        lang: code_lang.take(),
+                        header: std::mem::take(&mut code_header),
+                        body: std::mem::take(&mut code_body),
+                        footer: format!("{line}\n"),
+                    });
+                } else {
+                    code_body.push_str(line);
+                    code_body.push('\n');
+                }
                 continue;
             }
 
@@ -134,15 +174,43 @@ impl FormatParser for LatexParser {
                 let env_name = caps.get(1).unwrap().as_str().to_string();
                 if Self::is_non_prose_env(&env_name) {
                     flush_prose(&mut current_prose, &mut regions);
-                    // Check if \end is on the same line
+                    // Single-line \begin{...}...\end{...}: emit as Structure
+                    // (or as an empty-body Code region for code envs) -- the
+                    // common case is multi-line, so keep this path simple.
                     if let Some(end_caps) = END_ENV_RE.captures(line) {
                         if end_caps.get(1).unwrap().as_str() == env_name {
-                            regions.push(Region::Structure(format!("{line}\n")));
+                            if is_code_env(&env_name) {
+                                regions.push(Region::Code {
+                                    lang: None,
+                                    header: format!("{line}\n"),
+                                    body: String::new(),
+                                    footer: String::new(),
+                                });
+                            } else {
+                                regions.push(Region::Structure(format!("{line}\n")));
+                            }
                             continue;
                         }
                     }
-                    in_non_prose_env = Some(env_name);
-                    regions.push(Region::Structure(format!("{line}\n")));
+                    if is_code_env(&env_name) {
+                        code_lang = if env_name == "minted" {
+                            MINTED_LANG_RE
+                                .captures(line)
+                                .map(|c| c.get(1).unwrap().as_str().to_string())
+                        } else if env_name == "lstlisting" {
+                            LSTLISTING_LANG_RE
+                                .captures(line)
+                                .map(|c| c.get(1).unwrap().as_str().to_string())
+                        } else {
+                            None
+                        };
+                        code_header = format!("{line}\n");
+                        code_body.clear();
+                        in_code_env = Some(env_name);
+                    } else {
+                        in_non_prose_env = Some(env_name);
+                        regions.push(Region::Structure(format!("{line}\n")));
+                    }
                     continue;
                 }
             }
@@ -170,6 +238,14 @@ impl FormatParser for LatexParser {
         }
 
         flush_prose(&mut current_prose, &mut regions);
+        if in_code_env.is_some() {
+            regions.push(Region::Code {
+                lang: code_lang.take(),
+                header: std::mem::take(&mut code_header),
+                body: std::mem::take(&mut code_body),
+                footer: String::new(),
+            });
+        }
         regions
     }
 }

@@ -109,7 +109,13 @@ impl SentenceSplitter for UnicodeSentenceSplitter {
             format!("\x00PH{idx}\x00")
         });
 
-        let raw_segments: Vec<&str> = protected.unicode_sentences().collect();
+        // UAX #29 sentence bounds. `unicode_sentences()` filters
+        // whitespace-only segments but also drops trailing closing
+        // punctuation like `>` after a sentence-terminating `.`, which
+        // clips inputs such as `Vec<...>` or `<a.>` at end-of-prose.
+        // We re-collect from the unfiltered iterator and merge any
+        // non-sentence tail back onto the preceding sentence.
+        let raw_segments: Vec<&str> = merge_tail_punctuation(&protected);
 
         if raw_segments.is_empty() {
             return vec![text.to_string()];
@@ -139,6 +145,57 @@ impl SentenceSplitter for UnicodeSentenceSplitter {
             .filter(|s| !s.is_empty())
             .collect()
     }
+}
+
+/// Walk the UAX #29 sentence bounds and merge any trailing non-sentence
+/// segments back onto the preceding sentence. Without this glue, a prose
+/// region ending in characters like `>` after a sentence-terminating `.`
+/// would lose those characters: `Vec<...>` becomes `Vec<...`. The standard
+/// `unicode_sentences()` filter silently discards such tails because they
+/// contain no letter/digit/quote.
+///
+/// We never *split* further than the bounds iterator does; we only merge
+/// adjacent fragments where one is a real sentence and its neighbour is
+/// content-free (no alphanumeric characters). This mirrors the existing
+/// `unicode_sentences()` filter rule but reattaches the tail rather than
+/// dropping it.
+fn merge_tail_punctuation(text: &str) -> Vec<&str> {
+    use unicode_segmentation::UnicodeSegmentation;
+
+    fn has_content(s: &str) -> bool {
+        s.chars().any(|c| c.is_alphanumeric())
+    }
+
+    let bounds: Vec<&str> = text.split_sentence_bounds().collect();
+    if bounds.is_empty() {
+        return Vec::new();
+    }
+
+    // Build a merged Vec<&str> by walking left to right and re-slicing the
+    // original `text` so we return `&str`s. The slice boundaries align
+    // because `split_sentence_bounds` returns adjacent subslices.
+    let mut merged: Vec<(usize, usize)> = Vec::with_capacity(bounds.len());
+    let mut cursor: usize = 0;
+    for seg in &bounds {
+        let start = cursor;
+        let end = cursor + seg.len();
+        if has_content(seg) {
+            merged.push((start, end));
+        } else if let Some(last) = merged.last_mut() {
+            // Glue onto the previous sentence.
+            last.1 = end;
+        } else {
+            // Leading whitespace/punctuation only: preserve as a segment;
+            // the downstream pipeline trims it.
+            merged.push((start, end));
+        }
+        cursor = end;
+    }
+
+    merged
+        .into_iter()
+        .map(|(s, e)| &text[s..e])
+        .collect()
 }
 
 fn merge_abbreviation_splits(

@@ -47,7 +47,7 @@ fn detect_formats(dir: &Path) -> Vec<&'static str> {
 fn generate_config(formats: &[&str]) -> String {
     let default_format = formats.first().copied().unwrap_or("plaintext");
     format!(
-        r#"# snapper project configuration
+        r##"# snapper project configuration
 # https://snapper.turtletech.us/docs/reference/config/
 
 # Extra abbreviations (merged with built-in list)
@@ -61,7 +61,43 @@ format = "{default_format}"
 
 # Maximum line width (0 = unlimited)
 max_width = 0
-"#
+
+# Per-language code-block reflow and formatter delegation.
+# Each language entry may set any combination of:
+#   line_comment   -- marker for single-line comments
+#   block_comment  -- ["open", "close"] markers for multi-line comments
+#   formatter      -- argv passed to std::process::Command for --format-code
+# Missing fields are no-ops for that language.
+
+[code.rust]
+line_comment = "//"
+block_comment = ["/*", "*/"]
+formatter = ["rustfmt", "--edition", "2024"]
+
+[code.python]
+line_comment = "#"
+block_comment = ["\"\"\"", "\"\"\""]
+formatter = ["ruff", "format", "-"]
+
+[code.toml]
+line_comment = "#"
+formatter = ["taplo", "format", "-"]
+
+[code.lua]
+line_comment = "--"
+block_comment = ["--[[", "]]"]
+
+[code.lisp]
+line_comment = ";"
+
+[code.html]
+block_comment = ["<!--", "-->"]
+
+[code.javascript]
+line_comment = "//"
+block_comment = ["/*", "*/"]
+formatter = ["prettier", "--stdin-filepath", "src.js"]
+"##
     )
 }
 
@@ -188,6 +224,21 @@ mod tests {
     fn generate_config_empty_defaults_to_plaintext() {
         let config = generate_config(&[]);
         assert!(config.contains("format = \"plaintext\""));
+    }
+
+    #[test]
+    fn generate_config_includes_seven_code_languages() {
+        let config = generate_config(&["markdown"]);
+        // The seven seed languages required by the [code] table.
+        for lang in ["rust", "python", "toml", "lua", "lisp", "html", "javascript"] {
+            assert!(
+                config.contains(&format!("[code.{lang}]")),
+                "missing [code.{lang}] entry in init template",
+            );
+        }
+        // Verify shape of one entry with all three fields.
+        assert!(config.contains(r#"line_comment = "//""#));
+        assert!(config.contains(r#"formatter = ["rustfmt", "--edition", "2024"]"#));
     }
 
     #[test]

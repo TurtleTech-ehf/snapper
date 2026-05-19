@@ -34,6 +34,22 @@ fn extract_sentences(input: &str, format: Format) -> Vec<String> {
             Region::BlankLines(_) => {
                 sentences.push(String::new());
             }
+            Region::Code {
+                header,
+                body,
+                footer,
+                ..
+            } => {
+                // Treat each non-empty code-block line as a single sentence
+                // for diff purposes; this matches the previous behaviour where
+                // code lines were emitted via `Region::Structure`.
+                for line in header.lines().chain(body.lines()).chain(footer.lines()) {
+                    let trimmed = line.trim();
+                    if !trimmed.is_empty() {
+                        sentences.push(trimmed.to_string());
+                    }
+                }
+            }
         }
     }
 

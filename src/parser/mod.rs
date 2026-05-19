@@ -15,6 +15,17 @@ pub enum Region {
     Structure(String),
     /// Blank line(s) preserved as paragraph separators.
     BlankLines(String),
+    /// A fenced code block. `header` and `footer` carry the fence lines
+    /// (with their trailing newline) verbatim. `body` is the raw block
+    /// contents between the fences; the reflow stage may rewrite comments
+    /// inside `body` per the `[code]` configuration. `lang` is `None`
+    /// when the parser could not infer a language identifier.
+    Code {
+        lang: Option<String>,
+        header: String,
+        body: String,
+        footer: String,
+    },
 }
 
 /// Trait for format-specific parsers that classify text into regions.

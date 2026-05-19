@@ -32,6 +32,7 @@
 pub mod abbreviations;
 #[cfg(feature = "cli")]
 pub mod cli;
+pub mod code_block;
 pub mod config;
 pub mod diff;
 #[cfg(not(target_arch = "wasm32"))]
@@ -56,8 +57,11 @@ pub mod wasm;
 #[cfg(feature = "watch")]
 pub mod watch;
 
+use std::collections::HashMap;
+
 use anyhow::Result;
 
+use crate::config::CodeLang;
 use crate::format::Format;
 use crate::reflow::{ReflowConfig, reflow};
 use crate::sentence::SentenceSplitter;
@@ -74,6 +78,14 @@ pub struct FormatConfig {
     pub use_pandoc: bool,
     /// Pandoc input format string (for pandoc backend).
     pub pandoc_format: Option<String>,
+    /// Per-language code-block configuration loaded from `[code]` in
+    /// `.snapperrc.toml`. Empty by default; an empty map disables all
+    /// per-language code-block behaviour (block passes through untouched).
+    pub code: HashMap<String, CodeLang>,
+    /// When `true`, the reflow stage invokes each language's `formatter`
+    /// after comment reflow. Default `false` preserves v0.7.7 behaviour
+    /// (no subprocess is spawned).
+    pub format_code: bool,
 }
 
 impl Default for FormatConfig {
@@ -87,6 +99,8 @@ impl Default for FormatConfig {
             extra_abbreviations: vec![],
             use_pandoc: false,
             pandoc_format: None,
+            code: HashMap::new(),
+            format_code: false,
         }
     }
 }
@@ -169,6 +183,8 @@ pub fn format_text_with_splitter(
     let regions = parser.parse(work_input);
     let reflow_config = ReflowConfig {
         max_width: config.max_width,
+        code: Some(&config.code),
+        format_code: config.format_code,
     };
 
     let mut output = reflow(&regions, splitter, &reflow_config);

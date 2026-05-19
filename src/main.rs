@@ -236,6 +236,8 @@ fn build_format_config(
         neural_model_path: cli.model_path.clone(),
         extra_abbreviations: project_config.abbreviations_for_format(format_key),
         use_pandoc: cli.use_pandoc,
+        code: project_config.code.clone(),
+        format_code: cli.format_code,
         ..Default::default()
     }
 }

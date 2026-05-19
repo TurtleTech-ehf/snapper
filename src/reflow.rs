@@ -1,10 +1,18 @@
+use std::collections::HashMap;
+
+use crate::config::CodeLang;
 use crate::parser::Region;
 use crate::sentence::SentenceSplitter;
 
 /// Configuration for the reflow engine.
-pub struct ReflowConfig {
+#[derive(Default)]
+pub struct ReflowConfig<'a> {
     /// Maximum line width. 0 means unlimited.
     pub max_width: usize,
+    /// Per-language code-block configuration (borrowed from `FormatConfig`).
+    pub code: Option<&'a HashMap<String, CodeLang>>,
+    /// When `true`, the per-language `formatter` runs after comment reflow.
+    pub format_code: bool,
 }
 
 /// Reflow a sequence of regions, applying sentence breaks to Prose regions.
@@ -19,6 +27,26 @@ pub fn reflow(
         match region {
             Region::Structure(s) => output.push_str(s),
             Region::BlankLines(s) => output.push_str(s),
+            Region::Code {
+                lang,
+                header,
+                body,
+                footer,
+            } => {
+                output.push_str(header);
+                // Look up the language config; absent entries (or `lang=None`)
+                // mean the body passes through unchanged.
+                let code_cfg = lang
+                    .as_deref()
+                    .and_then(|l| config.code.and_then(|m| m.get(l)));
+                let reflowed = if let Some(cfg) = code_cfg {
+                    crate::code_block::reflow_code_body(body, cfg, splitter, config.format_code)
+                } else {
+                    body.clone()
+                };
+                output.push_str(&reflowed);
+                output.push_str(footer);
+            }
             Region::Prose(text) => {
                 let sentences = splitter.split(text);
                 for (i, sentence) in sentences.iter().enumerate() {
@@ -62,7 +90,7 @@ mod tests {
 
     fn reflow_text(input: &str) -> String {
         let regions = vec![Region::Prose(input.to_string())];
-        let config = ReflowConfig { max_width: 0 };
+        let config = ReflowConfig::default();
         reflow(&regions, &UnicodeSentenceSplitter::new(), &config)
     }
 
@@ -87,7 +115,7 @@ mod tests {
             Region::BlankLines("\n".to_string()),
             Region::Prose("First sentence. Second sentence.".to_string()),
         ];
-        let config = ReflowConfig { max_width: 0 };
+        let config = ReflowConfig::default();
         let result = reflow(&regions, &UnicodeSentenceSplitter::new(), &config);
         assert_eq!(
             result,
@@ -100,7 +128,10 @@ mod tests {
         let regions = vec![Region::Prose(
             "This is a very long sentence that should be wrapped at a reasonable width for readability in narrow terminals.".to_string(),
         )];
-        let config = ReflowConfig { max_width: 40 };
+        let config = ReflowConfig {
+            max_width: 40,
+            ..Default::default()
+        };
         let result = reflow(&regions, &UnicodeSentenceSplitter::new(), &config);
         // Every line should be <= 40 chars
         for line in result.lines() {
