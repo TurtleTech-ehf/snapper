@@ -92,11 +92,20 @@ fn contractions_still_break_between_sentences() {
     assert!(newlines_respect_delimiter_spans(&out), "{out}");
 }
 
+/// True when `DelimState` ends outside all spans (balanced delimiters).
+fn delimiters_balanced(text: &str) -> bool {
+    use snapper_fmt::sentence::unicode::DelimState;
+    let mut state = DelimState::default();
+    state.feed(text);
+    !state.is_inside()
+}
+
 proptest! {
     #![proptest_config(ProptestConfig::with_cases(256))]
 
-    /// Random printable ASCII (plus a few quote chars) must stay idempotent
-    /// and never break mid-span according to DelimState.
+    /// Random printable ASCII must stay idempotent. When delimiters are
+    /// balanced, output must also never break mid-span (unbalanced input is
+    /// allowed to leave spans open across a trailing line).
     #[test]
     fn proptest_plaintext_idempotent_and_span_safe(
         s in proptest::collection::vec(
@@ -122,11 +131,39 @@ proptest! {
         // Skip inputs that are only whitespace — pipeline trims to empty.
         prop_assume!(!input.trim().is_empty());
         let out = format_plain(&input);
-        prop_assert!(
-            newlines_respect_delimiter_spans(&out),
-            "span newline\n in={input:?}\n out={out:?}"
-        );
         let again = format_plain(&out);
         prop_assert_eq!(&again, &out, "idempotence failed");
+        if delimiters_balanced(&input) {
+            prop_assert!(
+                newlines_respect_delimiter_spans(&out),
+                "span newline on balanced input\n in={input:?}\n out={out:?}"
+            );
+        }
+    }
+
+    /// Explicit balanced dialogue/paren shapes (generator enforces matching closers).
+    #[test]
+    fn proptest_balanced_wrappers(
+        prefix in "([A-Za-z ]{0,20})",
+        interior in "([A-Za-z0-9 .!?]{1,40})",
+        suffix in "([A-Za-z .]{0,20})",
+        which in 0usize..6
+    ) {
+        let (open, close) = match which {
+            0 => ("\"", "\""),
+            1 => ("'", "'"),
+            2 => ("(", ")"),
+            3 => ("[", "]"),
+            4 => ("{", "}"),
+            _ => ("``", "''"),
+        };
+        let input = format!("{prefix}{open}{interior}{close}{suffix}");
+        prop_assume!(!input.trim().is_empty());
+        let out = format_plain(&input);
+        prop_assert!(
+            newlines_respect_delimiter_spans(&out),
+            "in={input:?} out={out:?}"
+        );
+        prop_assert_eq!(format_plain(&out), out);
     }
 }
