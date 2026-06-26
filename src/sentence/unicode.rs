@@ -138,6 +138,10 @@ impl SentenceSplitter for UnicodeSentenceSplitter {
 
         // Merge false splits from punctuation inside quotes/parens
         let merged = merge_quoted_punct_splits(merged);
+        // Rejoin segments while a double-quoted span is still open so
+        // `He said "A. B?" Then left.` does not break inside the quotes,
+        // while still allowing a real boundary after the closing quote.
+        let merged = merge_splits_inside_double_quotes(merged);
 
         // Restore placeholders and clean up
         merged
@@ -258,6 +262,57 @@ fn merge_quoted_punct_splits(segments: Vec<String>) -> Vec<String> {
     }
 
     result
+}
+
+/// Toggle-scan ASCII `"` and typographic `“”` / `«»` pairs across segments.
+/// While a pair is open, UAX #29 splits (often on `.` / `?` / `!` before a
+/// capital letter) are false boundaries and must be glued back.
+///
+/// Single quotes are intentionally ignored (apostrophes in `don't`).
+fn merge_splits_inside_double_quotes(segments: Vec<String>) -> Vec<String> {
+    let mut result: Vec<String> = Vec::with_capacity(segments.len());
+    let mut ascii_open = false;
+    let mut curly_depth: i32 = 0;
+    let mut guillemet_depth: i32 = 0;
+
+    for segment in segments {
+        let inside = ascii_open || curly_depth > 0 || guillemet_depth > 0;
+        if inside {
+            if let Some(last) = result.last_mut() {
+                last.push_str(&segment);
+            } else {
+                result.push(segment.clone());
+            }
+        } else {
+            result.push(segment.clone());
+        }
+        advance_double_quote_state(
+            &segment,
+            &mut ascii_open,
+            &mut curly_depth,
+            &mut guillemet_depth,
+        );
+    }
+
+    result
+}
+
+fn advance_double_quote_state(
+    text: &str,
+    ascii_open: &mut bool,
+    curly_depth: &mut i32,
+    guillemet_depth: &mut i32,
+) {
+    for ch in text.chars() {
+        match ch {
+            '"' => *ascii_open = !*ascii_open,
+            '\u{201C}' => *curly_depth += 1,
+            '\u{201D}' => *curly_depth = (*curly_depth - 1).max(0),
+            '\u{00AB}' => *guillemet_depth += 1,
+            '\u{00BB}' => *guillemet_depth = (*guillemet_depth - 1).max(0),
+            _ => {}
+        }
+    }
 }
 
 fn is_abbreviation_ending(
@@ -437,6 +492,55 @@ mod tests {
             vec!["snapshot field is Box[T], not Vec[T]"]
         );
         assert_eq!(split("see <a.>"), vec!["see <a.>"]);
+    }
+
+    #[test]
+    fn double_quoted_span_with_internal_period_not_split() {
+        assert_eq!(
+            split(r#"He said "Hello world. How are you?" Then he left."#),
+            vec![r#"He said "Hello world. How are you?""#, "Then he left."]
+        );
+    }
+
+    #[test]
+    fn curly_double_quoted_span_with_internal_period_not_split() {
+        assert_eq!(
+            split("He said \u{201C}Hello world. How are you?\u{201D} Then he left."),
+            vec![
+                "He said \u{201C}Hello world. How are you?\u{201D}",
+                "Then he left."
+            ]
+        );
+    }
+
+    #[test]
+    fn quoted_title_with_abbrev_stays_one_sentence() {
+        assert_eq!(
+            split(r#"See the note "Fig. 3 is wrong." in the appendix."#),
+            vec![r#"See the note "Fig. 3 is wrong." in the appendix."#]
+        );
+    }
+
+    #[test]
+    fn plaintext_format_keeps_dialogue_quote_together() {
+        use crate::format::Format;
+        use crate::{FormatConfig, format_text};
+
+        let input = "He said \"Hello world. How are you?\" Then he left.\n";
+        let cfg = FormatConfig {
+            format: Format::Plaintext,
+            ..Default::default()
+        };
+        let out = format_text(input, &cfg).unwrap();
+        assert!(
+            !out.contains("world.\nHow"),
+            "must not break inside ASCII double quotes, got:\n{out}"
+        );
+        assert!(
+            out.contains("you?\"\nThen") || out.contains("you?\" Then"),
+            "may break after closing quote; got:\n{out}"
+        );
+        assert_eq!(format_text(&out, &cfg).unwrap(), out);
     }
 
     #[test]
