@@ -58,8 +58,11 @@ Existing tools fall short: latexindent.pl only handles LaTeX, SemBr requires Pyt
 -   **Split:** Detect sentence boundaries in prose regions
 -   **Emit:** Output each sentence on its own line
 
-Structure regions (code blocks, math environments, tables, front matter, drawers, comments) pass through unchanged.
+Math environments, tables, front matter, drawers, and non-source comments pass through unchanged.
+Fenced and delimited source blocks are `Region::Code`: fence/open/close lines stay structure, non-comment code stays verbatim, and comment lines reflow at sentence boundaries when the language has a `[code.<lang>]` entry in `.snapperrc.toml` (`snapper init` seeds common languages).
+Pass `--format-code` to also pipe each block body through an optional per-language `formatter` argv (missing binary, non-zero exit, and timeouts degrade to the reflowed body).
 Sentence detection relies on Unicode UAX #29 segmentation with abbreviation-aware post-processing that avoids false breaks at titles (Dr., Prof.), references (Fig., Eq.), and Latin terms (e.g., i.e., et al.).
+Org emphasis (`*bold*`, `/italic/`, `_underline_`, `+strike+`) is kept atomic so splits cannot open a pseudo-headline mid-span.
 
 
 <a id="installation"></a>
@@ -147,7 +150,7 @@ Or directly:
     snapper mcp
 
 Tools: `format_text`, `detect_format`, `check_formatting`, `split_sentences`.
-See [MCP Integration](docs/orgmode/howto/mcp-integration.org) for configuration.
+See [MCP Integration](docs/orgmode/howto/mcp-integration.md) for configuration.
 
 
 <a id="supported-formats"></a>
@@ -168,26 +171,32 @@ See [MCP Integration](docs/orgmode/howto/mcp-integration.org) for configuration.
 <tr>
 <th scope="col" class="org-left">Format</th>
 <th scope="col" class="org-left">Extensions</th>
-<th scope="col" class="org-left">Structure preserved</th>
+<th scope="col" class="org-left">Structure / code handling</th>
 </tr>
 </thead>
 <tbody>
 <tr>
 <td class="org-left">Org-mode</td>
 <td class="org-left"><code>.org</code></td>
-<td class="org-left">Blocks, drawers, tables, keywords</td>
+<td class="org-left">Drawers, tables, keywords; <code>#+BEGIN_SRC</code> comment reflow</td>
 </tr>
 
 <tr>
 <td class="org-left">LaTeX</td>
 <td class="org-left"><code>.tex</code>, <code>.latex</code></td>
-<td class="org-left">Preamble, math, environments, comments</td>
+<td class="org-left">Preamble, math; <code>minted=/=lstlisting</code> comment reflow</td>
 </tr>
 
 <tr>
 <td class="org-left">Markdown</td>
 <td class="org-left"><code>.md</code>, <code>.markdown</code></td>
-<td class="org-left">Code blocks, front matter, HTML</td>
+<td class="org-left">Front matter, HTML; fenced blocks comment reflow when configured</td>
+</tr>
+
+<tr>
+<td class="org-left">RST</td>
+<td class="org-left"><code>.rst</code></td>
+<td class="org-left">Directives, literals; <code>.. code-block::</code> comment reflow</td>
 </tr>
 
 <tr>
@@ -204,7 +213,7 @@ See [MCP Integration](docs/orgmode/howto/mcp-integration.org) for configuration.
 ## Pre-commit hook
 
     - repo: https://github.com/TurtleTech-ehf/snapper
-      rev: v0.7.7
+      rev: v0.7.0
       hooks:
         - id: snapper
 
@@ -359,3 +368,4 @@ Construct the `readme` via:
 # License
 
 MIT.
+

@@ -20,10 +20,11 @@ This is especially valuable when using GitHub pull requests for review.
 ## How It Works
 
 The formatter identifies prose regions and structural elements separately.
-Code blocks, front matter, and other structural elements pass through unchanged.
+Front matter and non-source structure pass through unchanged.
+Fenced code blocks keep fences fixed; comment lines reflow when `[code.<lang>]` is configured.
 
 ```python
-# This code block is preserved exactly as-is
+# Comment lines reflow when configured; code lines stay as-is
 def example():
     return "semantic line breaks"
 ```

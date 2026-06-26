@@ -2,12 +2,20 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 - - -
-## v0.7.7 - 2026-04-11
+## Unreleased (main)
+#### Features
+- (**parser**) `Region::Code` for Org `#+BEGIN_SRC`, Markdown fences, LaTeX `minted`/`lstlisting`, and RST `.. code-block::`; per-language comment reflow via `[code.<lang>]` in `.snapperrc.toml`; optional `--format-code` formatter delegation with graceful timeout/missing-binary fallback
+- (**init**) seed seven common `[code.*]` language entries (line/block comments and formatters where applicable)
+- (**latex**) treat sectioning command arguments (`\section{...}`, etc.) as prose titles
 #### Bug Fixes
-- (**config**) honor project config across cli and watch - (5f5179d) - *HaoZeke*
+- (**org** / **sentence**) preserve trailing `>` after periods in headings (e.g. `Vec[T]`); keep org emphasis (`*bold*`, `/italic/`, …) atomic so sentence splits cannot open a pseudo-star line
+- (**reflow**) suppress prose trailing newline when the next structure continues the same line (e.g. closing `}` of a section command)
+#### Documentation
+- Align README, formats/config/CLI references, crate docs, and MCP tool blurb with code-region behaviour (no longer claim all code blocks pass through wholly unchanged)
+#### Tests
+- Integration suites `tests/code_block_reflow.rs` and `tests/code_block_format.rs`; criterion bench `benches/reflow_bench.rs`
 
 - - -
-
 ## v0.7.7 - 2026-04-11
 #### Bug Fixes
 - (**config**) honor project config across cli and watch - (5f5179d) - *HaoZeke*

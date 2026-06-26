@@ -9,9 +9,11 @@
 //!
 //! ## Supported formats
 //!
-//! - **Org-mode**: blocks, drawers, tables, keywords preserved
-//! - **LaTeX**: preamble, math, environments, comments preserved
-//! - **Markdown**: code blocks, front matter, headings preserved
+//! - **Org-mode**: drawers, tables, keywords preserved; `#+BEGIN_SRC` is
+//!   `Region::Code` (comment reflow via `[code.<lang>]`, optional formatters)
+//! - **LaTeX**: preamble and math preserved; `minted` / `lstlisting` are code regions
+//! - **Markdown**: front matter and headings preserved; fenced blocks are code regions
+//! - **RST**: directives and literals preserved; `.. code-block::` is a code region
 //! - **Plaintext**: everything treated as prose
 //!
 //! ## Library usage

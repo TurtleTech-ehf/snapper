@@ -98,14 +98,7 @@ fn reflow_comments(body: &str, cfg: &CodeLang, splitter: &dyn SentenceSplitter) 
                         if let Some(idx) = trimmed_after.find(close) {
                             let interior = &trimmed_after[..idx];
                             // Emit: indent + open\n + reflowed interior\n + indent + close\n
-                            emit_block_comment(
-                                &mut out,
-                                indent,
-                                open,
-                                close,
-                                interior,
-                                splitter,
-                            );
+                            emit_block_comment(&mut out, indent, open, close, interior, splitter);
                             continue;
                         }
                     }
@@ -126,9 +119,8 @@ fn reflow_comments(body: &str, cfg: &CodeLang, splitter: &dyn SentenceSplitter) 
                                 }
                                 interior.push_str(pre_trim);
                             }
-                            close_indent = Some(
-                                next[..next.len() - next.trim_start().len()].to_string(),
-                            );
+                            close_indent =
+                                Some(next[..next.len() - next.trim_start().len()].to_string());
                             closed = true;
                             break;
                         }

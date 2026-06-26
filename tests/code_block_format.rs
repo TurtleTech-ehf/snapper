@@ -267,18 +267,9 @@ fn format_code_default_off_skips_formatter() {
 fn matrix_idempotence_cat_formatter() {
     let dir = fixture_with_formatter(&["cat"]);
     for tail in [
-        "Vec<...>",
-        "<.>",
-        "<..>",
-        "<a.>",
-        "<a.b>",
-        "<.b>",
-        "<a>",
-        "<>",
+        "Vec<...>", "<.>", "<..>", "<a.>", "<a.b>", "<.b>", "<a>", "<>",
     ] {
-        let input = format!(
-            "```rust\nfn main() {{}}\n// e.g. {tail}\n```\n",
-        );
+        let input = format!("```rust\nfn main() {{}}\n// e.g. {tail}\n```\n",);
         let out = assert_idempotent(&input, dir.path(), &[]);
         // The fix-target matrix lines must round-trip byte-identical.
         assert_eq!(
