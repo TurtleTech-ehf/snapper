@@ -438,6 +438,61 @@ mod tests {
     }
 
     #[test]
+    fn headline_trailing_angle_bracket_round_trips() {
+        use crate::format::Format;
+        use crate::{FormatConfig, format_text};
+
+        let input = "* TODO R4 :: snapshot field is Box[T], not Vec[T]\nbody\n";
+        let cfg = FormatConfig {
+            format: Format::Org,
+            ..Default::default()
+        };
+        let out = format_text(input, &cfg).unwrap();
+        assert!(
+            out.contains("Vec[T]"),
+            "trailing `>` must survive formatting, got:\n{out}"
+        );
+        assert_eq!(format_text(&out, &cfg).unwrap(), out);
+    }
+
+    #[test]
+    fn bold_emphasis_with_period_does_not_become_headline() {
+        use crate::format::Format;
+        use crate::{FormatConfig, format_text};
+
+        let input = "End of first. *Bold spans period. Continues* after.\n";
+        let cfg = FormatConfig {
+            format: Format::Org,
+            ..Default::default()
+        };
+        let out = format_text(input, &cfg).unwrap();
+        // Emphasis with an internal period must stay on one line; splitting
+        // would leave a line starting with `*Bold` and a dangling closer.
+        let bold_lines: Vec<_> = out
+            .lines()
+            .filter(|l| l.contains("*Bold") || l.contains("Continues*"))
+            .collect();
+        assert_eq!(
+            bold_lines.len(),
+            1,
+            "bold emphasis must not split across lines, got:\n{out}"
+        );
+        assert!(bold_lines[0].contains("*Bold spans period. Continues*"));
+        // Org headlines are stars + space; ensure we never introduce one.
+        for line in out.lines() {
+            let stars = line.chars().take_while(|c| *c == '*').count();
+            if stars > 0 {
+                let rest = &line[stars..];
+                assert!(
+                    !rest.starts_with(' ') || rest.trim().is_empty() || line.starts_with("* "),
+                    "unexpected star-line: {line}"
+                );
+            }
+        }
+        assert_eq!(format_text(&out, &cfg).unwrap(), out);
+    }
+
+    #[test]
     fn table_preserved() {
         let input = "| Name | Age |\n|------+-----|\n| Alice | 30 |";
         let regions = OrgParser.parse(input);

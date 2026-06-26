@@ -1,0 +1,29 @@
+# Vale external action: run `snapper --check` for precise sentence-boundary
+# enforcement. Requires `snapper` on PATH (see docs/howto/vale-integration).
+#
+# .vale.ini example:
+#   StylesPath = path/to/snapper/vale
+#   [*.{org,md,tex,rst}]
+#   BasedOnStyles = snapper
+#   snapper.SnapperCheck = YES
+extends: script
+message: "Needs semantic line breaks (run `snapper -i`)."
+scope: raw
+level: error
+script: |
+  #!/usr/bin/env bash
+  set -euo pipefail
+  file="${1:-}"
+  if [ -z "$file" ] || [ ! -f "$file" ]; then
+    exit 0
+  fi
+  if ! command -v snapper >/dev/null 2>&1; then
+    echo "snapper not on PATH; install snapper or use the regex rules only"
+    exit 0
+  fi
+  # Vale external actions expect line:column:message on stdout for violations.
+  if ! snapper --check "$file" >/dev/null 2>&1; then
+    # Report one alert at the top of the file; precise line mapping would need
+    # a dedicated --check-lines mode. Prefer `snapper --check` in CI for SARIF.
+    echo "1:1:file needs semantic line break formatting (snapper --check failed)"
+  fi

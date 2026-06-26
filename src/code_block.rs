@@ -113,7 +113,7 @@ fn reflow_comments(body: &str, cfg: &CodeLang, splitter: &dyn SentenceSplitter) 
                     let mut interior = after_open.to_string();
                     let mut close_indent: Option<String> = None;
                     let mut closed = false;
-                    while let Some(next) = iter.next() {
+                    for next in iter.by_ref() {
                         if let Some(idx) = next.find(close) {
                             // Found close. Anything before it (on this line)
                             // joins the interior; the close marker stays on
@@ -204,10 +204,8 @@ fn reflow_comments(body: &str, cfg: &CodeLang, splitter: &dyn SentenceSplitter) 
     }
 
     // Reproduce trailing-newline shape of the input.
-    if !trailing_newline {
-        if out.ends_with('\n') {
-            out.pop();
-        }
+    if !trailing_newline && out.ends_with('\n') {
+        out.pop();
     }
     out
 }
