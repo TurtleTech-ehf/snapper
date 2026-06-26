@@ -45,7 +45,7 @@ Our approach uses a three-stage pipeline:
 :CUSTOM_ID: method
 :END:
 
-The parser is format-aware, preserving code blocks, math environments, tables, and other structural elements.
+The parser is format-aware, preserving math environments, tables, and other structural elements while treating source blocks as code regions (comment reflow when configured).
 Sentence detection uses Unicode UAX #29 segmentation as a baseline, with abbreviation-aware post-processing to avoid false splits at titles (Dr., Prof.), figure references (Fig., Eq.), and Latin abbreviations (e.g., i.e., et al.).
 
 | Format    | Prose Regions            | Structure Regions                |

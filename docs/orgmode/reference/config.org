@@ -39,6 +39,19 @@ extra_abbreviations = ["PROPERTIES", "DEADLINE"]
 [latex]
 extra_abbreviations = ["Thm", "Lem"]
 max_width = 100
+
+# Per-language code-block comment reflow and optional formatters.
+# Used when the parser emits a Region::Code with a matching language.
+# --format-code runs `formatter` on the block body after comment reflow.
+[code.rust]
+line_comment = "//"
+block_comment = ["/*", "*/"]
+formatter = ["rustfmt", "--edition", "2024"]
+
+[code.python]
+line_comment = "#"
+block_comment = ["\"\"\"", "\"\"\""]
+formatter = ["ruff", "format", "-"]
 #+end_src
 
 * Fields
@@ -103,6 +116,42 @@ Add =[org]=, =[latex]=, =[markdown]=, =[rst]=, or =[plaintext]= sections to over
 
 Per-format =extra_abbreviations= merge with the top-level list.
 Per-format =max_width= overrides the top-level value.
+
+* Code-block sections (=[code.<lang>]=)
+:PROPERTIES:
+:CUSTOM_ID: code-block-sections
+:END:
+
+Each =[code.<lang>]= table configures how fenced or delimited source blocks for that language are handled.
+=snapper init= writes seed entries for common languages (=rust=, =python=, =toml=, =lua=, =lisp=, =html=, =javascript=).
+
+** line_comment
+:PROPERTIES:
+:CUSTOM_ID: field-line-comment
+:END:
+
+String.
+Marker for single-line comments (for example ="//"= or ="#"=).
+Comment text after the marker is reflowed with the sentence splitter; the marker and indentation are preserved.
+
+** block_comment
+:PROPERTIES:
+:CUSTOM_ID: field-block-comment
+:END:
+
+String array of length two: open and close markers (for example =["/*", "*/"]=).
+One-line and multi-line block comments are reflowed as prose between the markers.
+
+** formatter
+:PROPERTIES:
+:CUSTOM_ID: field-formatter
+:END:
+
+String array treated as argv for =std::process::Command=.
+Only runs when the CLI flag =--format-code= is set.
+Missing binaries, non-zero exits, and a ~30s watchdog timeout each leave the reflowed body in place (non-fatal).
+
+If a language has no =[code.<lang>]= entry (or the fence has no language), the block body passes through unchanged aside from normal trailing-newline preservation.
 
 * Precedence
 :PROPERTIES:

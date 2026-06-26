@@ -14,12 +14,12 @@ use crate::sentence::SentenceSplitter;
 static INLINE_TOKEN_RE: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(
         &[
-            r"\[\[[^\]]*\]\]",                  // Org links: [[url]] or [[url][desc]]
-            r"\[\[[^\]]*\]\[[^\]]*\]\]",        // Org links with desc
-            r"\[[^\]]+\]\([^)]+\)",             // Markdown links: [text](url)
-            r"!\[[^\]]*\]\([^)]+\)",            // Markdown images: ![alt](url)
-            r"\$[^$]+\$",                       // Inline math: $...$
-            r"\\([a-zA-Z]+)\{[^}]*\}",          // LaTeX commands: \cmd{arg}
+            r"\[\[[^\]]*\]\]",           // Org links: [[url]] or [[url][desc]]
+            r"\[\[[^\]]*\]\[[^\]]*\]\]", // Org links with desc
+            r"\[[^\]]+\]\([^)]+\)",      // Markdown links: [text](url)
+            r"!\[[^\]]*\]\([^)]+\)",     // Markdown images: ![alt](url)
+            r"\$[^$]+\$",                // Inline math: $...$
+            r"\\([a-zA-Z]+)\{[^}]*\}",   // LaTeX commands: \cmd{arg}
             // Org emphasis must be protected before sentence splits so a line
             // cannot begin with `*rest` (false headline) or leave markers open.
             // Org requires a non-space immediately after the opener and before
@@ -29,12 +29,12 @@ static INLINE_TOKEN_RE: LazyLock<Regex> = LazyLock::new(|| {
             r"/[^/\s\n](?:[^/\n]*[^/\s\n])?/",   // Org italic: /text/
             r"_[^_\s\n](?:[^_\n]*[^_\s\n])?_",   // Org underline: _text_
             r"\+[^\+\s\n](?:[^\+\n]*[^\+\s\n])?\+", // Org strike-through: +text+
-            r"~[^~\n]+~",                       // Org inline code: ~code~
-            r"=[^=\n]+=",                       // Org verbatim: =text=
-            r"`[^`\n]+`",                       // Markdown inline code: `code`
-            r#"https?://\S+[^.\s!?,;:)\]'""]"#, // URLs (don't swallow trailing punctuation)
-            r"file:\S+",                        // Org file: links
-            r"@@[a-zA-Z]+:[^@]*@@",             // Org inline export snippets: @@backend:value@@
+            r"~[^~\n]+~",                        // Org inline code: ~code~
+            r"=[^=\n]+=",                        // Org verbatim: =text=
+            r"`[^`\n]+`",                        // Markdown inline code: `code`
+            r#"https?://\S+[^.\s!?,;:)\]'""]"#,  // URLs (don't swallow trailing punctuation)
+            r"file:\S+",                         // Org file: links
+            r"@@[a-zA-Z]+:[^@]*@@",              // Org inline export snippets: @@backend:value@@
         ]
         .join("|"),
     )
@@ -200,10 +200,7 @@ fn merge_tail_punctuation(text: &str) -> Vec<&str> {
         cursor = end;
     }
 
-    merged
-        .into_iter()
-        .map(|(s, e)| &text[s..e])
-        .collect()
+    merged.into_iter().map(|(s, e)| &text[s..e]).collect()
 }
 
 fn merge_abbreviation_splits(

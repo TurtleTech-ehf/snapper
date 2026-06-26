@@ -5,7 +5,8 @@
 :CUSTOM_ID: supported-formats
 :END:
 
-~snapper~ classifies text into /prose regions/ (reflowed at sentence boundaries) and /structure regions/ (passed through unchanged).
+~snapper~ classifies text into /prose regions/ (reflowed at sentence boundaries), /structure regions/ (passed through unchanged), and /code regions/ (fenced or delimited source blocks).
+Code regions keep fence/open/close lines as structure; the body reflows comment lines when =[code.<lang>]= is configured, and may run an external formatter when =--format-code= is set.
 The classification depends on the format.
 
 ** Org-mode (=--format org=)
@@ -17,10 +18,8 @@ The classification depends on the format.
 :PROPERTIES:
 :CUSTOM_ID: org-structure
 :END:
-- =#+BEGIN_*= ...
-=#+END_*= blocks (source, example, quote, etc.)
-- =:PROPERTIES:= ...
-=:END:= drawers
+- Non-source =#+BEGIN_*= ... =#+END_*= blocks (example, quote, etc.)
+- =:PROPERTIES:= ... =:END:= drawers
 - =#+KEYWORD:= directives (TITLE, AUTHOR, DATE, OPTIONS, etc.)
 - Table rows (lines starting with =|=)
 - Comment lines (starting with =#= but not =#+= )
@@ -29,6 +28,15 @@ The classification depends on the format.
 - LaTeX environments (=\begin{equation}= ... =\end{equation}=, =\begin{align}=, etc.)
 - Display math (=\[= ... =\]=)
 - Inline export snippets (=@@latex:\newpage@@=, =@@html:<br>@@=)
+
+*** Code regions (=#+BEGIN_SRC= ... =#+END_SRC=)
+:PROPERTIES:
+:CUSTOM_ID: org-code
+:END:
+- Header and footer lines are structure
+- Body non-comment lines pass through verbatim
+- Body comment lines reflow at sentence boundaries when the language has =line_comment= and/or =block_comment= under =[code.<lang>]=
+- With =--format-code=, optional =formatter= argv runs on the body (graceful fallback on failure)
 
 *** Prose regions (reflowed)
 :PROPERTIES:
@@ -44,6 +52,7 @@ The classification depends on the format.
 :END:
 These tokens within prose are not split across lines:
 - Links: =[[url][description]]=
+- Emphasis: =*bold*=, =/italic/=, =_underline_=, =+strike+=
 - Inline code: =~code~=, ===verbatim===
 - Inline export snippets: =@@backend:value@@=
 - URLs: =https://...= (trailing sentence punctuation not swallowed)
@@ -58,16 +67,25 @@ These tokens within prose are not split across lines:
 :CUSTOM_ID: latex-structure
 :END:
 - Preamble (everything before =\begin{document}=)
-- Non-prose environments: equation, align, figure, table, tabular, lstlisting, verbatim, minted, tikzpicture, and their starred variants
+- Non-prose environments: equation, align, figure, table, tabular, tikzpicture, and their starred variants (plus other non-code envs)
 - Display math: =\[...\]=
 - Comment lines (starting with =%=)
 - =\end{document}=
+- Sectioning command wrappers (=\section{=, =\subsection{=, …); the brace argument is prose
+
+*** Code regions (=minted=, =lstlisting=, =verbatim=)
+:PROPERTIES:
+:CUSTOM_ID: latex-code
+:END:
+- =\\begin{...}= / =\\end{...}= lines are structure
+- Body follows the same comment-reflow and optional =--format-code= rules as other formats when language is known (=minted= language arg, =lstlisting= =language== option)
 
 *** Prose regions (reflowed)
 :PROPERTIES:
 :CUSTOM_ID: latex-prose
 :END:
 - Body text between structural elements
+- Sectioning command titles (argument text inside =\section{...}= and friends)
 
 ** Markdown (=--format markdown=)
 :PROPERTIES:
@@ -78,10 +96,18 @@ These tokens within prose are not split across lines:
 :PROPERTIES:
 :CUSTOM_ID: markdown-structure
 :END:
-- Fenced code blocks (=```= or =~~~=)
 - Front matter (=---= or =+++=  delimited at file start)
 - Heading markers (=#=, =##=, etc.)
 - List item markers (=-=, =*=, =+=, =1.=)
+- Pipe tables
+
+*** Code regions (fenced =```= / =~~~=)
+:PROPERTIES:
+:CUSTOM_ID: markdown-code
+:END:
+- Opening and closing fence lines are structure
+- Indented fence bodies preserve indentation on reflowed comment lines
+- Language from the fence info string selects =[code.<lang>]=; unknown or missing lang passes the body through unchanged (unless =--format-code= is not applicable without a formatter entry)
 
 *** Prose regions (reflowed)
 :PROPERTIES:
@@ -100,12 +126,19 @@ These tokens within prose are not split across lines:
 :PROPERTIES:
 :CUSTOM_ID: rst-structure
 :END:
-- Directives (=.. code-block::=, =.. math::=, =.. image::=, etc.) and their indented bodies
+- Non-code directives (=.. math::=, =.. image::=, etc.) and their indented bodies
 - Literal blocks (text after =::= with indented content)
 - Section titles and underlines (=====, =-----=, etc.)
 - Field lists (=:Author:=, =:Date:=, etc.)
 - Comments (=..= without a directive)
 - Grid and simple tables (lines starting with =|= or =+=)
+
+*** Code regions (=.. code-block:: LANG=)
+:PROPERTIES:
+:CUSTOM_ID: rst-code
+:END:
+- Directive line and trailing blank handling stay structure
+- Indented body uses the language token for =[code.<lang>]= comment reflow and optional =--format-code=
 
 *** Prose regions (reflowed)
 :PROPERTIES:

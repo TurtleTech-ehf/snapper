@@ -1,5 +1,5 @@
 use criterion::{Criterion, criterion_group, criterion_main};
-use snapper_fmt::format::{Format};
+use snapper_fmt::format::Format;
 use snapper_fmt::{FormatConfig, format_text};
 use std::hint::black_box;
 

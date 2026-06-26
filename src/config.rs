@@ -254,7 +254,13 @@ formatter = ["prettier", "--stdin-filepath", "src.js"]
         );
         assert_eq!(
             rust.formatter.as_deref(),
-            Some(&["rustfmt".to_string(), "--edition".to_string(), "2024".to_string()][..])
+            Some(
+                &[
+                    "rustfmt".to_string(),
+                    "--edition".to_string(),
+                    "2024".to_string()
+                ][..]
+            )
         );
         // lisp has only line_comment; missing fields stay None (no panic).
         let lisp = config.code.get("lisp").expect("lisp entry present");

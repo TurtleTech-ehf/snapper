@@ -109,7 +109,7 @@ impl SnapperMcpServer {
 impl SnapperMcpServer {
     #[tool(
         name = "format_text",
-        description = "Format text with semantic line breaks. Each sentence is placed on its own line, producing minimal git diffs. Preserves code blocks, math, tables, and other structure."
+        description = "Format text with semantic line breaks. Each sentence is placed on its own line, producing minimal git diffs. Preserves math, tables, and other structure; source-block fences stay fixed while configured language comments reflow (optional external formatters are CLI-only via --format-code)."
     )]
     fn format_text(
         &self,

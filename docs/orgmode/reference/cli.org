@@ -17,6 +17,7 @@ snapper sdiff [--no-color] [-f FORMAT] <OLD> <NEW>
 snapper git-diff [--no-color] [-f FORMAT] [REF] [FILE...]
 snapper watch [-f FORMAT] <PATTERNS...>
 snapper lsp
+snapper mcp
 #+end_src
 
 If no files are given, ~snapper~ reads from stdin and writes to stdout.
@@ -32,7 +33,7 @@ If no files are given, ~snapper~ reads from stdin and writes to stdout.
 :END:
 
 Input format.
-One of: =org=, =latex=, =markdown=, =plaintext=.
+One of: =org=, =latex=, =markdown=, =rst=, =plaintext=.
 
 Auto-detected from file extension when omitted.
 Defaults to =plaintext= for stdin.
@@ -71,6 +72,15 @@ Maximum line width.
 Sentences exceeding this width are wrapped at word boundaries using ~textwrap~.
 Default: =0= (unlimited).
 Also respects =max_line_length= from =.editorconfig= if present.
+
+*** =--format-code=
+:PROPERTIES:
+:CUSTOM_ID: opt-format-code
+:END:
+
+After in-block comment reflow, pipe each code-block body through the =formatter= argv from =[code.<lang>]= in =.snapperrc.toml= (if present).
+Default is off so subprocesses are never spawned unless requested.
+Missing binaries, non-zero exits, and a ~30s timeout are non-fatal; the reflowed body is kept and a diagnostic may be written to stderr.
 
 *** =--check=
 :PROPERTIES:

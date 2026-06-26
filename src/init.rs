@@ -230,7 +230,15 @@ mod tests {
     fn generate_config_includes_seven_code_languages() {
         let config = generate_config(&["markdown"]);
         // The seven seed languages required by the [code] table.
-        for lang in ["rust", "python", "toml", "lua", "lisp", "html", "javascript"] {
+        for lang in [
+            "rust",
+            "python",
+            "toml",
+            "lua",
+            "lisp",
+            "html",
+            "javascript",
+        ] {
             assert!(
                 config.contains(&format!("[code.{lang}]")),
                 "missing [code.{lang}] entry in init template",

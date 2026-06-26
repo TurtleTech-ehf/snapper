@@ -41,8 +41,9 @@ static MINTED_LANG_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"\\begin\{minted\}\s*(?:\[[^\]]*\])?\s*\{([^}]+)\}").unwrap());
 
 /// `\begin{lstlisting}[language=LANG, ...]` -- language is an option key.
-static LSTLISTING_LANG_RE: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"\\begin\{lstlisting\}\s*\[[^\]]*language\s*=\s*([A-Za-z0-9_+.\-]+)").unwrap());
+static LSTLISTING_LANG_RE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"\\begin\{lstlisting\}\s*\[[^\]]*language\s*=\s*([A-Za-z0-9_+.\-]+)").unwrap()
+});
 
 /// Source-code environments whose body should be emitted as `Region::Code`.
 fn is_code_env(name: &str) -> bool {

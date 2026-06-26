@@ -26,8 +26,7 @@ fn code_map(entries: &[(&str, Option<&str>, Option<[&str; 2]>)]) -> HashMap<Stri
             (*lang).to_string(),
             CodeLang {
                 line_comment: lc.map(|s| s.to_string()),
-                block_comment: bc
-                    .map(|pair| [pair[0].to_string(), pair[1].to_string()]),
+                block_comment: bc.map(|pair| [pair[0].to_string(), pair[1].to_string()]),
                 formatter: None,
             },
         );
@@ -304,9 +303,7 @@ fn lua_pragma_freezes_section() {
 // ---------------------------------------------------------------------------
 
 fn matrix_input(tail: &str) -> String {
-    format!(
-        "```rust\nfn main() {{}}\n// e.g. {tail}\n```\n",
-    )
+    format!("```rust\nfn main() {{}}\n// e.g. {tail}\n```\n",)
 }
 
 #[test]
@@ -362,7 +359,10 @@ fn rst_code_block_comment_reflows() {
     let cfg = config(Format::Rst, code_map(&[("python", Some("#"), None)]));
     let out = round_trip(input, &cfg);
     // RST body indent (3 spaces) is preserved on every reflowed comment line.
-    assert!(out.contains("   # First sentence.\n   # Second sentence."), "got:\n{out}");
+    assert!(
+        out.contains("   # First sentence.\n   # Second sentence."),
+        "got:\n{out}"
+    );
 }
 
 // ---------------------------------------------------------------------------
