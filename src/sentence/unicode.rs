@@ -20,9 +20,18 @@ static INLINE_TOKEN_RE: LazyLock<Regex> = LazyLock::new(|| {
             r"!\[[^\]]*\]\([^)]+\)",            // Markdown images: ![alt](url)
             r"\$[^$]+\$",                       // Inline math: $...$
             r"\\([a-zA-Z]+)\{[^}]*\}",          // LaTeX commands: \cmd{arg}
-            r"~[^~]+~",                         // Org inline code: ~code~
-            r"=[^=]+=",                         // Org verbatim: =text=
-            r"`[^`]+`",                         // Markdown inline code: `code`
+            // Org emphasis must be protected before sentence splits so a line
+            // cannot begin with `*rest` (false headline) or leave markers open.
+            // Org requires a non-space immediately after the opener and before
+            // the closer; content may include spaces and sentence punctuation.
+            // (Rust `regex` has no lookbehind; encode the border as char classes.)
+            r"\*[^*\s\n](?:[^*\n]*[^*\s\n])?\*", // Org bold: *text*
+            r"/[^/\s\n](?:[^/\n]*[^/\s\n])?/",   // Org italic: /text/
+            r"_[^_\s\n](?:[^_\n]*[^_\s\n])?_",   // Org underline: _text_
+            r"\+[^\+\s\n](?:[^\+\n]*[^\+\s\n])?\+", // Org strike-through: +text+
+            r"~[^~\n]+~",                       // Org inline code: ~code~
+            r"=[^=\n]+=",                       // Org verbatim: =text=
+            r"`[^`\n]+`",                       // Markdown inline code: `code`
             r#"https?://\S+[^.\s!?,;:)\]'""]"#, // URLs (don't swallow trailing punctuation)
             r"file:\S+",                        // Org file: links
             r"@@[a-zA-Z]+:[^@]*@@",             // Org inline export snippets: @@backend:value@@
@@ -404,6 +413,33 @@ mod tests {
             split("Use `std.io.Read` for input. Then process."),
             vec!["Use `std.io.Read` for input.", "Then process."]
         );
+    }
+
+    #[test]
+    fn org_bold_with_internal_period_not_split() {
+        // Splitting would leave a line starting with `*Bold...` (false headline).
+        assert_eq!(
+            split("End of first. *Bold spans period. Continues* after."),
+            vec!["End of first.", "*Bold spans period. Continues* after."]
+        );
+    }
+
+    #[test]
+    fn org_italic_with_internal_period_not_split() {
+        assert_eq!(
+            split("Lead-in. /Italic has a period. Still italic/ trail."),
+            vec!["Lead-in.", "/Italic has a period. Still italic/ trail."]
+        );
+    }
+
+    #[test]
+    fn angle_bracket_tail_after_period_preserved() {
+        // UAX #29 can drop a lone `>` after `.` without merge_tail_punctuation.
+        assert_eq!(
+            split("snapshot field is Box[T], not Vec[T]"),
+            vec!["snapshot field is Box[T], not Vec[T]"]
+        );
+        assert_eq!(split("see <a.>"), vec!["see <a.>"]);
     }
 
     #[test]

@@ -65,12 +65,17 @@ pub fn reflow(
                 // Skip when followed by Structure (e.g. the "\n" after
                 // headlines/list items) to avoid double newlines.
                 if !sentences.is_empty() {
-                    // Add trailing newline after prose. Only suppress when
-                    // the next region is a bare "\n" (inline Structure from
-                    // headlines/list items) to avoid double newlines.
+                    // Add trailing newline after prose. Suppress when the next
+                    // region continues the same line: a bare "\n" (headline /
+                    // list item terminator) or a closing brace/bracket suffix
+                    // from LaTeX sectioning commands (`}\n`).
                     let suppress = matches!(
                         regions.get(idx + 1),
-                        Some(Region::Structure(s)) if s == "\n"
+                        Some(Region::Structure(s))
+                            if s == "\n"
+                                || s.starts_with('}')
+                                || s.starts_with(']')
+                                || s.starts_with(')')
                     );
                     if !suppress {
                         output.push('\n');

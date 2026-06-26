@@ -18,6 +18,7 @@ use snapper_fmt::format_text;
 
 /// Build a per-language map keyed by the language strings used on code
 /// fences. Caller supplies (lang, line_comment, block_comment) tuples.
+#[allow(clippy::type_complexity)]
 fn code_map(entries: &[(&str, Option<&str>, Option<[&str; 2]>)]) -> HashMap<String, CodeLang> {
     let mut map = HashMap::new();
     for (lang, lc, bc) in entries {

@@ -53,6 +53,15 @@ static DISPLAY_MATH_OPEN: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^\s*\\
 
 static DISPLAY_MATH_CLOSE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\\\]\s*$").unwrap());
 
+/// Sectioning commands whose brace argument is prose (titles can be long).
+/// Captures: (1) command + opening brace prefix, (2) argument body, (3) closing brace + rest.
+static SECTION_CMD_RE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(
+        r"^(\s*\\(?:part|chapter|section|subsection|subsubsection|paragraph|subparagraph)\*?\{)([^}]*)(\}.*)$",
+    )
+    .unwrap()
+});
+
 pub struct LatexParser;
 
 impl LatexParser {
@@ -218,6 +227,20 @@ impl FormatParser for LatexParser {
                 }
             }
 
+            // Sectioning commands: structure(prefix) + prose(title) + structure(suffix\n)
+            if let Some(caps) = SECTION_CMD_RE.captures(line) {
+                flush_prose(&mut current_prose, &mut regions);
+                let prefix = caps.get(1).unwrap().as_str();
+                let title = caps.get(2).unwrap().as_str();
+                let suffix = caps.get(3).unwrap().as_str();
+                regions.push(Region::Structure(prefix.to_string()));
+                if !title.is_empty() {
+                    regions.push(Region::Prose(title.to_string()));
+                }
+                regions.push(Region::Structure(format!("{suffix}\n")));
+                continue;
+            }
+
             // Display math \[
             if DISPLAY_MATH_OPEN.is_match(line) && !DISPLAY_MATH_CLOSE.is_match(line) {
                 flush_prose(&mut current_prose, &mut regions);
@@ -256,6 +279,24 @@ impl FormatParser for LatexParser {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn section_command_splits_title_as_prose() {
+        let input = "\\begin{document}\n\\section{A long title. With two sentences.}\nBody.\n\\end{document}\n";
+        let regions = LatexParser.parse(input);
+        let prose: Vec<_> = regions
+            .iter()
+            .filter_map(|r| match r {
+                Region::Prose(t) => Some(t.as_str()),
+                _ => None,
+            })
+            .collect();
+        assert!(
+            prose.iter().any(|t| t.contains("A long title")),
+            "section title should be prose, got regions: {regions:?}"
+        );
+        assert!(prose.contains(&"Body."));
+    }
 
     #[test]
     fn preamble_is_structure() {
