@@ -1,5 +1,7 @@
-# rattler-build / conda-forge style recipe for snapper-fmt (binary: snapper).
-# Submit via conda-forge/staged-recipes after `rattler-build build`.
+# Mirror of the conda-forge staged-recipes submission (PR #33928).
+# Feedstock will be created after review; prefer the feedstock recipe thereafter.
+schema_version: 1
+
 context:
   version: "0.7.7"
 
@@ -9,35 +11,39 @@ package:
 
 source:
   url: https://github.com/TurtleTech-ehf/snapper/archive/refs/tags/v${{ version }}.tar.gz
-  # sha256: fill on release
+  sha256: d4c5c99b3b9ecef975c6683b436e091a91ed466bfffd1f97110ce8fcb56a5757
 
 build:
-  script:
-    - cargo-bundle-licenses --format yaml --output THIRDPARTY.yml
-    - cargo install --locked --root "$PREFIX" --path . --bin snapper
-    - rm -f "$PREFIX/.crates.toml" "$PREFIX/.crates2.json"
+  number: 0
 
 requirements:
   build:
-    - ${{ compiler('rust') }}
     - ${{ compiler('c') }}
+    - ${{ stdlib('c') }}
+    - ${{ compiler('rust') }}
     - cargo-bundle-licenses
-  host: []
-  run: []
 
 tests:
   - script:
       - snapper --version
       - snapper --help
+  - package_contents:
+      bin:
+        - snapper
 
 about:
-  home: https://snapper.turtletech.us
-  license: MIT
-  license_file: LICENSE
+  homepage: https://snapper.turtletech.us
   summary: Semantic line break formatter for Org, LaTeX, Markdown, and plaintext
   description: |
-    Snapper reformats prose so each sentence sits on its own line (semantic line breaks),
-    preserving markup structure for Org, LaTeX, Markdown, RST, and plaintext.
+    Snapper reformats prose so each sentence sits on its own line (semantic
+    line breaks), preserving markup structure for Org, LaTeX, Markdown, RST,
+    and plaintext. It ships a CLI, optional neural sentence splitting, an LSP
+    server, file watching, and a pandoc AST backend.
+  license: MIT
+  license_file:
+    - LICENSE
+    - THIRDPARTY.yml
+  documentation: https://snapper.turtletech.us
   repository: https://github.com/TurtleTech-ehf/snapper
 
 extra:
