@@ -325,48 +325,50 @@ impl DelimState {
     /// and in regression/property tests that assert formatted output never
     /// places a newline while still inside a span.
     pub fn feed(&mut self, text: &str) {
-        let chars: Vec<char> = text.chars().collect();
-        let mut i = 0;
-        while i < chars.len() {
-            let ch = chars[i];
-            let prev = if i == 0 {
-                self.last_char
-            } else {
-                Some(chars[i - 1])
-            };
-            let next = chars.get(i + 1).copied();
+        // Walk by char index without allocating a `Vec<char>` per call (hot
+        // path: every segment in merge_splits_inside_delimiters + tests).
+        let mut iter = text.chars().peekable();
+        while let Some(ch) = iter.next() {
+            let prev = self.last_char;
+            let next = iter.peek().copied();
 
             if self.pending_escape {
                 self.pending_escape = false;
                 self.last_char = Some(ch);
-                i += 1;
                 continue;
             }
 
             // LaTeX-style open `` and close '' (must run before single `'`).
+            // Markdown fences use ``` — treat runs of 3+ backticks as neutral
+            // so we do not leave latex_quote_depth stuck open across lines.
             if ch == '`' && next == Some('`') {
+                let _ = iter.next(); // second `
+                if iter.peek() == Some(&'`') {
+                    while iter.peek() == Some(&'`') {
+                        let _ = iter.next();
+                    }
+                    self.last_char = Some('`');
+                    continue;
+                }
                 self.latex_quote_depth += 1;
                 self.last_char = Some('`');
-                i += 2;
                 continue;
             }
             if ch == '\'' && next == Some('\'') {
+                let _ = iter.next();
                 self.latex_quote_depth = (self.latex_quote_depth - 1).max(0);
                 self.last_char = Some('\'');
-                i += 2;
                 continue;
             }
 
             // Escaped ASCII quotes do not toggle (may span chunk boundary).
             if ch == '\\' && matches!(next, Some('"') | Some('\'')) {
-                self.last_char = next;
-                i += 2;
+                self.last_char = iter.next();
                 continue;
             }
             if ch == '\\' && next.is_none() {
                 self.pending_escape = true;
                 self.last_char = Some('\\');
-                i += 1;
                 continue;
             }
 
@@ -398,7 +400,6 @@ impl DelimState {
                 _ => {}
             }
             self.last_char = Some(ch);
-            i += 1;
         }
     }
 
@@ -437,16 +438,20 @@ impl DelimState {
 /// A trailing final `\n` (POSIX text) is ignored even if a span is still open
 /// (unbalanced input like a lone `{`). Any earlier `\n` while `is_inside()`
 /// is rejected.
+///
+/// Implementation feeds whole lines (not per-char) so apostrophe heuristics
+/// see real `prev`/`next` neighbors; fails when a prior line left a span open.
 pub fn newlines_respect_delimiter_spans(formatted: &str) -> bool {
     let trimmed_end = formatted.trim_end_matches('\n');
+    if trimmed_end.is_empty() {
+        return true;
+    }
     let mut state = DelimState::default();
-    for ch in trimmed_end.chars() {
-        if ch == '\n' && state.is_inside() {
+    for line in trimmed_end.split('\n') {
+        if state.is_inside() {
             return false;
         }
-        let mut buf = [0u8; 4];
-        let s = ch.encode_utf8(&mut buf);
-        state.feed(s);
+        state.feed(line);
     }
     true
 }

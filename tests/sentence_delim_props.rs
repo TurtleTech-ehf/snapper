@@ -92,6 +92,86 @@ fn contractions_still_break_between_sentences() {
     assert!(newlines_respect_delimiter_spans(&out), "{out}");
 }
 
+/// Markup formats share `UnicodeSentenceSplitter` via `format_text` / reflow;
+/// dialogue and paren spans must not fracture in extracted prose regions.
+#[test]
+fn multi_format_prose_respects_delimiter_spans() {
+    let samples = [
+        (
+            Format::Org,
+            "He said \"Hello world. How are you?\" Then left.\n",
+        ),
+        (Format::Org, "He said 'Go. Now.' Done.\n"),
+        (
+            Format::Markdown,
+            "He said \"Hello world. How are you?\" Then left.\n",
+        ),
+        (Format::Markdown, "See (Fig. 3 is wrong. Really.) Next.\n"),
+        (
+            Format::Rst,
+            "He said \"Hello world. How are you?\" Then left.\n",
+        ),
+        (Format::Rst, "See [note. One] more. Trailing.\n"),
+        // LaTeX body only after \begin{document}; otherwise preamble is structure.
+        (
+            Format::Latex,
+            "\\begin{document}\nHe said \"Hello world. How are you?\" Then left.\n\\end{document}\n",
+        ),
+    ];
+    for (format, input) in samples {
+        let cfg = FormatConfig {
+            format,
+            ..Default::default()
+        };
+        let out = format_text(input, &cfg).unwrap();
+        assert!(
+            newlines_respect_delimiter_spans(&out),
+            "format={format:?} input={input:?} out:\n{out}"
+        );
+        let again = format_text(&out, &cfg).unwrap();
+        assert_eq!(again, out, "idempotence format={format:?}");
+        assert!(
+            !out.contains("world.\nHow"),
+            "fractured double-quote dialogue format={format:?} out:\n{out}"
+        );
+    }
+}
+
+/// Code-block *comments* also use the unicode splitter; configured rust
+/// comments must keep quoted spans together.
+#[test]
+fn code_block_comment_respects_quotes() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(
+        dir.path().join(".snapperrc.toml"),
+        "[code.rust]\nline_comment = \"//\"\n",
+    )
+    .unwrap();
+    let input = "```rust\n// He said \"Hello. World.\" Outside.\nfn x() {}\n```\n";
+    let cfg = FormatConfig {
+        format: Format::Markdown,
+        code: {
+            let mut m = std::collections::HashMap::new();
+            m.insert(
+                "rust".into(),
+                snapper_fmt::config::CodeLang {
+                    line_comment: Some("//".into()),
+                    block_comment: None,
+                    formatter: None,
+                },
+            );
+            m
+        },
+        ..Default::default()
+    };
+    let out = format_text(input, &cfg).unwrap();
+    assert!(
+        !out.contains("Hello.\n// World") && !out.contains("Hello.\nWorld"),
+        "comment quote fractured:\n{out}"
+    );
+    assert!(newlines_respect_delimiter_spans(&out), "{out}");
+}
+
 /// True when `DelimState` ends outside all spans (balanced delimiters).
 fn delimiters_balanced(text: &str) -> bool {
     use snapper_fmt::sentence::unicode::DelimState;
