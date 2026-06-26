@@ -51,7 +51,7 @@ See Fig. 3 for the results.
 
 Each sentence on its own line. A one-word edit produces a one-line diff instead of reflowing the entire paragraph.
 
-Structure stays untouched: code blocks, math environments (`\begin{equation}`...`\end{equation}`, `\[`...`\]`), tables, drawers, front matter, and export snippets pass through unchanged.
+Math environments (`\begin{equation}`...`\end{equation}`, `\[`...`\]`), tables, drawers, front matter, and export snippets pass through unchanged. Source blocks keep fences/open-close lines fixed; comment lines reflow when `[code.<lang>]` is configured in `.snapperrc.toml` (optional CLI `--format-code` for external formatters).
 
 Abbreviations like Dr., Fig., Eq., e.g., i.e., et al. (80+ built-in across English, German, French, Icelandic, and Polish) do not cause false sentence breaks.
 Punctuation inside quotes or parentheses -- `"wow!"`, `(really?)` -- stays intact when the sentence continues.

@@ -150,7 +150,7 @@ Or directly:
     snapper mcp
 
 Tools: `format_text`, `detect_format`, `check_formatting`, `split_sentences`.
-See [MCP Integration](docs/orgmode/howto/mcp-integration.md) for configuration.
+Configuration guide (org source in-tree): `docs/orgmode/howto/mcp-integration.org`; HTML docs: <https://snapper.turtletech.us/docs/howto/mcp-integration/> .
 
 
 <a id="supported-formats"></a>
@@ -184,7 +184,7 @@ See [MCP Integration](docs/orgmode/howto/mcp-integration.md) for configuration.
 <tr>
 <td class="org-left">LaTeX</td>
 <td class="org-left"><code>.tex</code>, <code>.latex</code></td>
-<td class="org-left">Preamble, math; <code>minted=/=lstlisting</code> comment reflow</td>
+<td class="org-left">Preamble, math; minted and lstlisting comment reflow</td>
 </tr>
 
 <tr>
@@ -213,9 +213,11 @@ See [MCP Integration](docs/orgmode/howto/mcp-integration.md) for configuration.
 ## Pre-commit hook
 
     - repo: https://github.com/TurtleTech-ehf/snapper
-      rev: v0.7.0
+      rev: v0.7.7
       hooks:
         - id: snapper
+
+(Use a newer tag once released; `main` includes code-block comment reflow ahead of `v0.7.7`.)
 
 
 <a id="emacs"></a>

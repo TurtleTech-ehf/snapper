@@ -17,6 +17,14 @@ emacs --batch \
   --eval "(org-md-export-to-markdown)" \
   --kill 2>/dev/null
 
+# ox-md rewrites file: links to .md even when only .org exists in-tree.
+# Prefer keeping org paths for docs that are not published as markdown.
+if [[ -f "$TMPMD" ]]; then
+  sed -i -E \
+    -e 's|(docs/orgmode/[^)]+)\.md|\1.org|g' \
+    "$TMPMD"
+fi
+
 mv "$TMPMD" "$OUTPUT"
 rm -f "$TMPORG"
 echo "Wrote $OUTPUT"

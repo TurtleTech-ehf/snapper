@@ -19,7 +19,7 @@ export const I18N: Record<string, Record<string, string>> = {
     features_title: 'Built for academic workflows',
     features_subtitle: 'Everything you need to adopt semantic line breaks across your paper writing toolchain.',
     feat1_title: 'Format-aware parsing',
-    feat1_desc: 'Understands Org-mode, LaTeX, Markdown, RST, and plaintext. Code blocks, math environments, tables, directives, and drawers pass through untouched.',
+    feat1_desc: 'Understands Org-mode, LaTeX, Markdown, RST, and plaintext. Math, tables, directives, and drawers stay structure; source-block fences stay fixed while configured language comments reflow (optional --format-code formatters).',
     feat2_title: 'Abbreviation-aware',
     feat2_desc: 'Handles Dr., Fig., Eq., e.g., i.e., et al. and 80+ more. Add project-specific abbreviations via .snapperrc.toml.',
     feat3_title: 'Pre-commit hook',
