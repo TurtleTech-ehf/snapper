@@ -265,9 +265,9 @@ fn merge_quoted_punct_splits(segments: Vec<String>) -> Vec<String> {
 }
 
 /// Rejoin UAX segments while any “span” is still open: ASCII/curly/guillemet
-/// quotes, LaTeX ```` / `''` style quotes, and balanced `()` / `[]` / `{}`.
-/// Single quotes alone are ignored (apostrophes in `don't`). Escaped `\"`
-/// does not toggle ASCII double-quote state.
+/// quotes (including dialogue single quotes with apostrophe heuristics),
+/// LaTeX ```` / `''` style quotes, and balanced `()` / `[]` / `{}`.
+/// Escaped `\"` / `\'` do not toggle quote state.
 fn merge_splits_inside_delimiters(segments: Vec<String>) -> Vec<String> {
     let mut result: Vec<String> = Vec::with_capacity(segments.len());
     let mut state = DelimState::default();
@@ -288,21 +288,32 @@ fn merge_splits_inside_delimiters(segments: Vec<String>) -> Vec<String> {
     result
 }
 
-#[derive(Default)]
-struct DelimState {
+/// Tracks delimiter nesting for span-aware sentence merging and invariants.
+/// Public to tests so property checks can share the exact production logic.
+#[derive(Debug, Default, Clone)]
+pub struct DelimState {
     ascii_double_open: bool,
-    curly_depth: i32,
+    /// Dialogue-style ASCII single quotes (`'Hello.'`), not apostrophes.
+    ascii_single_open: bool,
+    curly_double_depth: i32,
+    curly_single_depth: i32,
     guillemet_depth: i32,
     latex_quote_depth: i32,
     paren_depth: i32,
     bracket_depth: i32,
     brace_depth: i32,
+    /// Last character fed (survives chunk boundaries for apostrophe heuristics).
+    last_char: Option<char>,
+    /// When the previous chunk ended in `\`, the next `"` / `'` is escaped.
+    pending_escape: bool,
 }
 
 impl DelimState {
-    fn is_inside(&self) -> bool {
+    pub fn is_inside(&self) -> bool {
         self.ascii_double_open
-            || self.curly_depth > 0
+            || self.ascii_single_open
+            || self.curly_double_depth > 0
+            || self.curly_single_depth > 0
             || self.guillemet_depth > 0
             || self.latex_quote_depth > 0
             || self.paren_depth > 0
@@ -310,52 +321,134 @@ impl DelimState {
             || self.brace_depth > 0
     }
 
-    fn feed(&mut self, text: &str) {
+    /// Feed `text` and update nesting. Used both in the splitter merge pass
+    /// and in regression/property tests that assert formatted output never
+    /// places a newline while still inside a span.
+    pub fn feed(&mut self, text: &str) {
         let chars: Vec<char> = text.chars().collect();
         let mut i = 0;
         while i < chars.len() {
             let ch = chars[i];
+            let prev = if i == 0 {
+                self.last_char
+            } else {
+                Some(chars[i - 1])
+            };
             let next = chars.get(i + 1).copied();
 
-            // LaTeX-style open `` and close '' (ASCII backticks/apostrophes).
+            if self.pending_escape {
+                self.pending_escape = false;
+                self.last_char = Some(ch);
+                i += 1;
+                continue;
+            }
+
+            // LaTeX-style open `` and close '' (must run before single `'`).
             if ch == '`' && next == Some('`') {
                 self.latex_quote_depth += 1;
+                self.last_char = Some('`');
                 i += 2;
                 continue;
             }
             if ch == '\'' && next == Some('\'') {
                 self.latex_quote_depth = (self.latex_quote_depth - 1).max(0);
+                self.last_char = Some('\'');
                 i += 2;
                 continue;
             }
 
-            // Escaped ASCII double quote does not toggle.
-            if ch == '\\' && next == Some('"') {
+            // Escaped ASCII quotes do not toggle (may span chunk boundary).
+            if ch == '\\' && matches!(next, Some('"') | Some('\'')) {
+                self.last_char = next;
                 i += 2;
+                continue;
+            }
+            if ch == '\\' && next.is_none() {
+                self.pending_escape = true;
+                self.last_char = Some('\\');
+                i += 1;
                 continue;
             }
 
             match ch {
                 '"' => self.ascii_double_open = !self.ascii_double_open,
-                '\u{201C}' => self.curly_depth += 1,
-                '\u{201D}' => self.curly_depth = (self.curly_depth - 1).max(0),
+                '\'' => self.feed_ascii_single(prev, next),
+                // Curly doubles “ ”
+                '\u{201C}' => self.curly_double_depth += 1,
+                '\u{201D}' => self.curly_double_depth = (self.curly_double_depth - 1).max(0),
+                // Curly singles ‘ ’
+                '\u{2018}' => self.curly_single_depth += 1,
+                '\u{2019}' => {
+                    // U+2019 is also a common apostrophe; only close when open,
+                    // otherwise ignore (it's / don't).
+                    if self.curly_single_depth > 0 {
+                        self.curly_single_depth -= 1;
+                    }
+                }
                 '\u{00AB}' => self.guillemet_depth += 1,
                 '\u{00BB}' => self.guillemet_depth = (self.guillemet_depth - 1).max(0),
                 '(' => self.paren_depth += 1,
                 ')' => self.paren_depth = (self.paren_depth - 1).max(0),
                 '[' => self.bracket_depth += 1,
                 ']' => self.bracket_depth = (self.bracket_depth - 1).max(0),
-                // Avoid treating LaTeX `\}` style escapes as braces when
-                // preceded by backslash; still count raw `{` / `}`.
-                '{' if i == 0 || chars[i - 1] != '\\' => self.brace_depth += 1,
-                '}' if i == 0 || chars[i - 1] != '\\' => {
+                '{' if prev != Some('\\') => self.brace_depth += 1,
+                '}' if prev != Some('\\') => {
                     self.brace_depth = (self.brace_depth - 1).max(0);
                 }
                 _ => {}
             }
+            self.last_char = Some(ch);
             i += 1;
         }
     }
+
+    /// ASCII `'` is ambiguous (dialogue vs apostrophe). Open only in opener
+    /// context; never toggle on in-word apostrophes (`don't`, `it's`).
+    fn feed_ascii_single(&mut self, prev: Option<char>, next: Option<char>) {
+        let prev_alnum = prev.is_some_and(|c| c.is_alphanumeric());
+        let next_alnum = next.is_some_and(|c| c.is_alphanumeric());
+        // Classic apostrophe: letter/digit on both sides.
+        if prev_alnum && next_alnum {
+            return;
+        }
+        if self.ascii_single_open {
+            // Prefer close; trailing possessive `papers'` has prev alnum and
+            // no next alnum — treat as close if we were open, else ignore.
+            self.ascii_single_open = false;
+            return;
+        }
+        // Open only at dialogue-like boundaries.
+        let opener = match prev {
+            None => true,
+            Some(c) if c.is_whitespace() => true,
+            Some('(' | '[' | '{' | '"' | '\u{201C}' | '\u{00AB}') => true,
+            Some('.' | '!' | '?' | ':' | ';' | ',') => true,
+            _ => false,
+        };
+        if opener {
+            self.ascii_single_open = true;
+        }
+    }
+}
+
+/// Return `true` if `formatted` never inserts a **mid-document** line break
+/// while a delimiter span tracked by [`DelimState`] is still open.
+///
+/// A trailing final `\n` (POSIX text) is ignored even if a span is still open
+/// (unbalanced input like a lone `{`). Any earlier `\n` while `is_inside()`
+/// is rejected.
+pub fn newlines_respect_delimiter_spans(formatted: &str) -> bool {
+    let trimmed_end = formatted.trim_end_matches('\n');
+    let mut state = DelimState::default();
+    for ch in trimmed_end.chars() {
+        if ch == '\n' && state.is_inside() {
+            return false;
+        }
+        let mut buf = [0u8; 4];
+        let s = ch.encode_utf8(&mut buf);
+        state.feed(s);
+    }
+    true
 }
 
 fn is_abbreviation_ending(
@@ -621,6 +714,65 @@ mod tests {
             "{out:?}"
         );
         assert_eq!(out[1], "Done.");
+    }
+
+    #[test]
+    fn single_quoted_dialogue_with_internal_period_not_split() {
+        assert_eq!(
+            split("He said 'Hello world. How are you?' Then he left."),
+            vec!["He said 'Hello world. How are you?'", "Then he left."]
+        );
+    }
+
+    #[test]
+    fn apostrophe_contractions_still_split_sentences() {
+        assert_eq!(
+            split("Don't split here. Next sentence."),
+            vec!["Don't split here.", "Next sentence."]
+        );
+        assert_eq!(
+            split("It's fine. She said 'Go. Now.' Done."),
+            vec!["It's fine.", "She said 'Go. Now.'", "Done."]
+        );
+    }
+
+    #[test]
+    fn curly_single_quoted_dialogue_not_split() {
+        assert_eq!(
+            split("He said \u{2018}Hello world. How?\u{2019} Then."),
+            vec!["He said \u{2018}Hello world. How?\u{2019}", "Then."]
+        );
+    }
+
+    #[test]
+    fn newlines_invariant_holds_on_dialogue_output() {
+        use crate::format::Format;
+        use crate::{FormatConfig, format_text};
+
+        let samples = [
+            "He said \"Hello world. How are you?\" Then he left.\n",
+            "He said 'Hello world. How are you?' Then he left.\n",
+            "See (Fig. 3 is wrong. Really.) Next.\n",
+            "See [note. One] more. Trailing.\n",
+            "He said ``Hello world. How?'' Then.\n",
+            "Don't stop. It's ok. Done.\n",
+        ];
+        let cfg = FormatConfig {
+            format: Format::Plaintext,
+            ..Default::default()
+        };
+        for input in samples {
+            let out = format_text(input, &cfg).unwrap();
+            assert!(
+                newlines_respect_delimiter_spans(&out),
+                "newline inside delimiter span for input {input:?}, out:\n{out}"
+            );
+            assert_eq!(
+                format_text(&out, &cfg).unwrap(),
+                out,
+                "idempotence {input:?}"
+            );
+        }
     }
 
     #[test]
