@@ -91,7 +91,8 @@ See Fig. 3 for the results.
 #+end_src
 
 Each sentence occupies its own line.
-Structural elements like code blocks, tables, drawers, math environments, and front matter pass through unchanged.
+Tables, drawers, math environments, and front matter pass through unchanged.
+Source blocks are code regions: fences stay fixed and configured language comments reflow (see the formats and config references).
 
 ** Format detection
 :PROPERTIES:

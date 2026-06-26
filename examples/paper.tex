@@ -28,7 +28,8 @@ See Fig.~\ref{fig:comparison} for an example.
 \section{Method}
 
 Our formatter parses LaTeX documents and identifies prose regions vs. structural elements.
-Structural elements such as equations, figures, and code listings pass through unchanged.
+Structural elements such as equations and figures pass through unchanged.
+Code listings (\texttt{minted}/\texttt{lstlisting}) are code regions: non-comment lines stay fixed while configured comments reflow.
 
 \begin{equation}
 \label{eq:diff}
