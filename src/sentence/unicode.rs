@@ -138,10 +138,10 @@ impl SentenceSplitter for UnicodeSentenceSplitter {
 
         // Merge false splits from punctuation inside quotes/parens
         let merged = merge_quoted_punct_splits(merged);
-        // Rejoin segments while a double-quoted span is still open so
-        // `He said "A. B?" Then left.` does not break inside the quotes,
-        // while still allowing a real boundary after the closing quote.
-        let merged = merge_splits_inside_double_quotes(merged);
+        // Rejoin segments while a delimited span is still open so we do not
+        // break on `.` / `?` / `!` + capital *inside* quotes or brackets,
+        // while still allowing a real boundary after the closer.
+        let merged = merge_splits_inside_delimiters(merged);
 
         // Restore placeholders and clean up
         merged
@@ -264,20 +264,16 @@ fn merge_quoted_punct_splits(segments: Vec<String>) -> Vec<String> {
     result
 }
 
-/// Toggle-scan ASCII `"` and typographic `“”` / `«»` pairs across segments.
-/// While a pair is open, UAX #29 splits (often on `.` / `?` / `!` before a
-/// capital letter) are false boundaries and must be glued back.
-///
-/// Single quotes are intentionally ignored (apostrophes in `don't`).
-fn merge_splits_inside_double_quotes(segments: Vec<String>) -> Vec<String> {
+/// Rejoin UAX segments while any “span” is still open: ASCII/curly/guillemet
+/// quotes, LaTeX ```` / `''` style quotes, and balanced `()` / `[]` / `{}`.
+/// Single quotes alone are ignored (apostrophes in `don't`). Escaped `\"`
+/// does not toggle ASCII double-quote state.
+fn merge_splits_inside_delimiters(segments: Vec<String>) -> Vec<String> {
     let mut result: Vec<String> = Vec::with_capacity(segments.len());
-    let mut ascii_open = false;
-    let mut curly_depth: i32 = 0;
-    let mut guillemet_depth: i32 = 0;
+    let mut state = DelimState::default();
 
     for segment in segments {
-        let inside = ascii_open || curly_depth > 0 || guillemet_depth > 0;
-        if inside {
+        if state.is_inside() {
             if let Some(last) = result.last_mut() {
                 last.push_str(&segment);
             } else {
@@ -286,31 +282,78 @@ fn merge_splits_inside_double_quotes(segments: Vec<String>) -> Vec<String> {
         } else {
             result.push(segment.clone());
         }
-        advance_double_quote_state(
-            &segment,
-            &mut ascii_open,
-            &mut curly_depth,
-            &mut guillemet_depth,
-        );
+        state.feed(&segment);
     }
 
     result
 }
 
-fn advance_double_quote_state(
-    text: &str,
-    ascii_open: &mut bool,
-    curly_depth: &mut i32,
-    guillemet_depth: &mut i32,
-) {
-    for ch in text.chars() {
-        match ch {
-            '"' => *ascii_open = !*ascii_open,
-            '\u{201C}' => *curly_depth += 1,
-            '\u{201D}' => *curly_depth = (*curly_depth - 1).max(0),
-            '\u{00AB}' => *guillemet_depth += 1,
-            '\u{00BB}' => *guillemet_depth = (*guillemet_depth - 1).max(0),
-            _ => {}
+#[derive(Default)]
+struct DelimState {
+    ascii_double_open: bool,
+    curly_depth: i32,
+    guillemet_depth: i32,
+    latex_quote_depth: i32,
+    paren_depth: i32,
+    bracket_depth: i32,
+    brace_depth: i32,
+}
+
+impl DelimState {
+    fn is_inside(&self) -> bool {
+        self.ascii_double_open
+            || self.curly_depth > 0
+            || self.guillemet_depth > 0
+            || self.latex_quote_depth > 0
+            || self.paren_depth > 0
+            || self.bracket_depth > 0
+            || self.brace_depth > 0
+    }
+
+    fn feed(&mut self, text: &str) {
+        let chars: Vec<char> = text.chars().collect();
+        let mut i = 0;
+        while i < chars.len() {
+            let ch = chars[i];
+            let next = chars.get(i + 1).copied();
+
+            // LaTeX-style open `` and close '' (ASCII backticks/apostrophes).
+            if ch == '`' && next == Some('`') {
+                self.latex_quote_depth += 1;
+                i += 2;
+                continue;
+            }
+            if ch == '\'' && next == Some('\'') {
+                self.latex_quote_depth = (self.latex_quote_depth - 1).max(0);
+                i += 2;
+                continue;
+            }
+
+            // Escaped ASCII double quote does not toggle.
+            if ch == '\\' && next == Some('"') {
+                i += 2;
+                continue;
+            }
+
+            match ch {
+                '"' => self.ascii_double_open = !self.ascii_double_open,
+                '\u{201C}' => self.curly_depth += 1,
+                '\u{201D}' => self.curly_depth = (self.curly_depth - 1).max(0),
+                '\u{00AB}' => self.guillemet_depth += 1,
+                '\u{00BB}' => self.guillemet_depth = (self.guillemet_depth - 1).max(0),
+                '(' => self.paren_depth += 1,
+                ')' => self.paren_depth = (self.paren_depth - 1).max(0),
+                '[' => self.bracket_depth += 1,
+                ']' => self.bracket_depth = (self.bracket_depth - 1).max(0),
+                // Avoid treating LaTeX `\}` style escapes as braces when
+                // preceded by backslash; still count raw `{` / `}`.
+                '{' if i == 0 || chars[i - 1] != '\\' => self.brace_depth += 1,
+                '}' if i == 0 || chars[i - 1] != '\\' => {
+                    self.brace_depth = (self.brace_depth - 1).max(0);
+                }
+                _ => {}
+            }
+            i += 1;
         }
     }
 }
@@ -541,6 +584,43 @@ mod tests {
             "may break after closing quote; got:\n{out}"
         );
         assert_eq!(format_text(&out, &cfg).unwrap(), out);
+    }
+
+    #[test]
+    fn paren_span_with_internal_period_capital_not_split() {
+        assert_eq!(
+            split("See (Fig. 3 is wrong. Really.) Next."),
+            vec!["See (Fig. 3 is wrong. Really.)", "Next."]
+        );
+    }
+
+    #[test]
+    fn bracket_span_with_internal_period_not_split() {
+        assert_eq!(
+            split("See [note. One] more."),
+            vec!["See [note. One] more."]
+        );
+    }
+
+    #[test]
+    fn latex_style_quotes_with_internal_period_not_split() {
+        assert_eq!(
+            split("He said ``Hello world. How?'' Then."),
+            vec!["He said ``Hello world. How?''", "Then."]
+        );
+    }
+
+    #[test]
+    fn escaped_ascii_quote_does_not_toggle_early() {
+        // Backslash-escaped quotes are common in code-ish plaintext; do not
+        // treat `\"` as ending the outer dialogue span.
+        let out = split(r#"She said "He said \"no.\" Then left." Done."#);
+        assert_eq!(out.len(), 2, "got {out:?}");
+        assert!(
+            out[0].contains(r#"\"no.\""#) || out[0].contains("no."),
+            "{out:?}"
+        );
+        assert_eq!(out[1], "Done.");
     }
 
     #[test]
