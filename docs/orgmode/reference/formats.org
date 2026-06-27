@@ -18,8 +18,10 @@ The classification depends on the format.
 :PROPERTIES:
 :CUSTOM_ID: org-structure
 :END:
-- Non-source =#+BEGIN_*= ... =#+END_*= blocks (example, quote, etc.)
-- =:PROPERTIES:= ... =:END:= drawers
+- Non-source =#+BEGIN_*= ...
+=#+END_*= blocks (example, quote, etc.)
+- =:PROPERTIES:= ...
+=:END:= drawers
 - =#+KEYWORD:= directives (TITLE, AUTHOR, DATE, OPTIONS, etc.)
 - Table rows (lines starting with =|=)
 - Comment lines (starting with =#= but not =#+= )
@@ -165,7 +167,20 @@ Blank lines are preserved as paragraph separators.
 :CUSTOM_ID: sentence-detection
 :END:
 
-~snapper~ uses Unicode UAX #29 sentence boundary detection as a baseline, then merges false splits caused by known abbreviations:
+~snapper~ uses Unicode UAX #29 sentence boundary detection as a baseline (or optional =--neural= / nnsplit), then applies the same post-pipeline: abbreviation merges, then delimiter-span rejoin so dialogue and balanced =()[]{}= spans are not fractured.
+
+*** Delimiter-span policy (residual cases)
+:PROPERTIES:
+:CUSTOM_ID: delimiter-span-policy
+:END:
+- Balanced ASCII/curly/guillemet quotes, LaTeX =``…''=, and =()[]{}= must not gain a semantic line break mid-span (see =tests/sentence_delim_props.rs=).
+- Unclosed ="= (or open =‘= without =’=) glues the rest of the paragraph; snapper does not invent closers.
+- Nested semantic ASCII quotes (=say "hi" now= with an inner pair) remain toggle-ambiguous; prefer typographic quotes or escapes in source.
+- Apostrophes in contractions (=don't=, =it's=) are not treated as dialogue openers.
+- Markdown fences (=```=) are not treated as LaTeX =``= openers.
+- =--neural= runs the same abbreviation + span post-pipeline after the model proposes cuts (English papers can still prefer the rules path for fully offline, deterministic CI).
+
+~snapper~ merges false splits caused by known abbreviations:
 
 *** Titles
 :PROPERTIES:

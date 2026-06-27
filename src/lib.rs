@@ -113,9 +113,16 @@ pub fn build_splitter(config: &FormatConfig) -> Result<Box<dyn SentenceSplitter>
         #[cfg(feature = "neural")]
         {
             let neural = if let Some(ref path) = config.neural_model_path {
-                sentence::neural::NeuralSentenceSplitter::from_path(path)
+                sentence::neural::NeuralSentenceSplitter::from_path_with_extras(
+                    path,
+                    &config.neural_lang,
+                    &config.extra_abbreviations,
+                )
             } else {
-                sentence::neural::NeuralSentenceSplitter::new(&config.neural_lang)
+                sentence::neural::NeuralSentenceSplitter::with_extras(
+                    &config.neural_lang,
+                    &config.extra_abbreviations,
+                )
             };
             Ok(Box::new(neural.map_err(|e| anyhow::anyhow!("{e}"))?))
         }

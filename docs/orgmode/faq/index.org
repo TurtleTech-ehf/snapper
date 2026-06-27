@@ -19,7 +19,8 @@ No. LaTeX, Org-mode, Markdown, RST, and most prose formats treat single newlines
 Two consecutive newlines start a new paragraph.
 Snapper preserves paragraph breaks (blank lines) and only changes where single newlines occur within a paragraph.
 
-* My collaborators don't use snapper. Will this cause problems?
+* My collaborators don't use snapper.
+Will this cause problems?
 :PROPERTIES:
 :CUSTOM_ID: collaborators
 :END:

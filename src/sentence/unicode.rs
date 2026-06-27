@@ -129,19 +129,7 @@ impl SentenceSplitter for UnicodeSentenceSplitter {
             return vec![text.to_string()];
         }
 
-        let merged = merge_abbreviation_splits(
-            &raw_segments,
-            &self.lang_abbrev_pattern,
-            &self.lang_multi_pattern,
-            self.extra_pattern.as_ref(),
-        );
-
-        // Merge false splits from punctuation inside quotes/parens
-        let merged = merge_quoted_punct_splits(merged);
-        // Rejoin segments while a delimited span is still open so we do not
-        // break on `.` / `?` / `!` + capital *inside* quotes or brackets,
-        // while still allowing a real boundary after the closer.
-        let merged = merge_splits_inside_delimiters(merged);
+        let merged = self.refine_segments_from_strs(&raw_segments);
 
         // Restore placeholders and clean up
         merged
@@ -156,6 +144,31 @@ impl SentenceSplitter for UnicodeSentenceSplitter {
             })
             .filter(|s| !s.is_empty())
             .collect()
+    }
+}
+
+impl UnicodeSentenceSplitter {
+    /// Apply abbreviation + delimiter-span merges to an already-segmented list.
+    ///
+    /// Used by the neural backend so `--neural` shares the same post-pipeline
+    /// guarantees (dialogue quotes, `Dr.`, balanced spans) as the UAX path.
+    pub fn refine_segments(&self, segments: Vec<String>) -> Vec<String> {
+        if segments.is_empty() {
+            return segments;
+        }
+        let refs: Vec<&str> = segments.iter().map(String::as_str).collect();
+        self.refine_segments_from_strs(&refs)
+    }
+
+    fn refine_segments_from_strs(&self, raw_segments: &[&str]) -> Vec<String> {
+        let merged = merge_abbreviation_splits(
+            raw_segments,
+            &self.lang_abbrev_pattern,
+            &self.lang_multi_pattern,
+            self.extra_pattern.as_ref(),
+        );
+        let merged = merge_quoted_punct_splits(merged);
+        merge_splits_inside_delimiters(merged)
     }
 }
 
@@ -224,13 +237,30 @@ fn merge_abbreviation_splits(
 
         if should_merge {
             let prev = result.last_mut().unwrap();
-            prev.push_str(segment);
+            push_segment_preserving_space(prev, segment);
         } else {
             result.push(segment.to_string());
         }
     }
 
     result
+}
+
+/// Append `piece` to `dest`, inserting a single space if neural/UAX segments
+/// were trimmed and would otherwise glue `world.` + `How` into `world.How`.
+fn push_segment_preserving_space(dest: &mut String, piece: &str) {
+    if piece.is_empty() {
+        return;
+    }
+    let need_space = dest
+        .chars()
+        .last()
+        .is_some_and(|c| !c.is_whitespace())
+        && !piece.chars().next().is_some_and(|c| c.is_whitespace());
+    if need_space {
+        dest.push(' ');
+    }
+    dest.push_str(piece);
 }
 
 /// Merge false splits caused by sentence punctuation inside quotes or parens.
@@ -255,7 +285,7 @@ fn merge_quoted_punct_splits(segments: Vec<String>) -> Vec<String> {
 
         if should_merge {
             let prev = result.last_mut().unwrap();
-            prev.push_str(&segment);
+            push_segment_preserving_space(prev, &segment);
         } else {
             result.push(segment);
         }
@@ -275,7 +305,7 @@ fn merge_splits_inside_delimiters(segments: Vec<String>) -> Vec<String> {
     for segment in segments {
         if state.is_inside() {
             if let Some(last) = result.last_mut() {
-                last.push_str(&segment);
+                push_segment_preserving_space(last, &segment);
             } else {
                 result.push(segment.clone());
             }
