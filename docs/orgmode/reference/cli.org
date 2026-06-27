@@ -128,9 +128,7 @@ Default: =text= (prints filenames to stderr).
 :END:
 
 Use neural sentence detection via nnsplit (byte-level LSTM, tract backend).
-Downloads and caches the model (~4MB) to =~/.cache/nnsplit/= on first use.
-Rule-based detection remains the default (faster, better abbreviation handling).
-Neural excels for non-English text.
+Downloads and caches the model (~4MB) to =~/.cache/nnsplit/= on first use. Rule-based detection remains the default (faster, better abbreviation handling). Neural excels for non-English text.
 
 *** =--lang <CODE>=
 :PROPERTIES:

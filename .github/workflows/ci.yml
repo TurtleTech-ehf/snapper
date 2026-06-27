@@ -27,3 +27,11 @@ jobs:
 
       - name: Test
         run: cargo test
+
+      - name: Dogfood snapper --check on docs and examples
+        run: |
+          cargo build --quiet --bin snapper
+          ./target/debug/snapper --check --format org readme_src.org docs/orgmode/**/*.org examples/paper.org
+          ./target/debug/snapper --check --format plaintext examples/basic.txt
+          ./target/debug/snapper --check --format markdown examples/paper.md
+          ./target/debug/snapper --check --format latex examples/paper.tex

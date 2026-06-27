@@ -118,8 +118,9 @@ fn run() -> Result<()> {
             print!("{output}");
         }
     } else {
-        // Process files (parallel when multiple files + in-place or check mode)
-        let use_parallel = cli.files.len() > 1 && (cli.in_place || cli.check || cli.diff);
+        // Process files in parallel whenever there is more than one path
+        // (stdout multi-file, --check, --in-place, --diff all benefit).
+        let use_parallel = cli.files.len() > 1;
 
         let results: Vec<(String, String, String)> = if use_parallel {
             cli.files

@@ -15,76 +15,118 @@ pub struct ReflowConfig<'a> {
     pub format_code: bool,
 }
 
+/// Minimum region count before parallelizing reflow (large multi-MB org/md files).
+#[cfg(feature = "cli")]
+const PARALLEL_REGION_THRESHOLD: usize = 32;
+
 /// Reflow a sequence of regions, applying sentence breaks to Prose regions.
+///
+/// With the `cli` feature, files that parse into many regions (typical large
+/// Org/Markdown trees) reflow independent regions in parallel via rayon, then
+/// concatenate in order.
 pub fn reflow(
     regions: &[Region],
     splitter: &dyn SentenceSplitter,
     config: &ReflowConfig,
 ) -> String {
-    let mut output = String::new();
+    #[cfg(feature = "cli")]
+    {
+        if regions.len() >= PARALLEL_REGION_THRESHOLD {
+            return reflow_parallel(regions, splitter, config);
+        }
+    }
+    reflow_sequential(regions, splitter, config)
+}
 
+fn reflow_sequential(
+    regions: &[Region],
+    splitter: &dyn SentenceSplitter,
+    config: &ReflowConfig,
+) -> String {
+    let mut output = String::new();
     for (idx, region) in regions.iter().enumerate() {
-        match region {
-            Region::Structure(s) => output.push_str(s),
-            Region::BlankLines(s) => output.push_str(s),
-            Region::Code {
-                lang,
-                header,
-                body,
-                footer,
-            } => {
-                output.push_str(header);
-                // Look up the language config; absent entries (or `lang=None`)
-                // mean the body passes through unchanged.
-                let code_cfg = lang
-                    .as_deref()
-                    .and_then(|l| config.code.and_then(|m| m.get(l)));
-                let reflowed = if let Some(cfg) = code_cfg {
-                    crate::code_block::reflow_code_body(body, cfg, splitter, config.format_code)
+        output.push_str(&reflow_one(region, idx, regions, splitter, config));
+    }
+    output
+}
+
+#[cfg(feature = "cli")]
+fn reflow_parallel(
+    regions: &[Region],
+    splitter: &dyn SentenceSplitter,
+    config: &ReflowConfig,
+) -> String {
+    use rayon::prelude::*;
+    // Indexed parallel map preserves order on collect.
+    let parts: Vec<String> = regions
+        .par_iter()
+        .enumerate()
+        .map(|(idx, region)| reflow_one(region, idx, regions, splitter, config))
+        .collect();
+    let mut output = String::new();
+    for p in parts {
+        output.push_str(&p);
+    }
+    output
+}
+
+fn reflow_one(
+    region: &Region,
+    idx: usize,
+    regions: &[Region],
+    splitter: &dyn SentenceSplitter,
+    config: &ReflowConfig,
+) -> String {
+    let mut output = String::new();
+    match region {
+        Region::Structure(s) => output.push_str(s),
+        Region::BlankLines(s) => output.push_str(s),
+        Region::Code {
+            lang,
+            header,
+            body,
+            footer,
+        } => {
+            output.push_str(header);
+            let code_cfg = lang
+                .as_deref()
+                .and_then(|l| config.code.and_then(|m| m.get(l)));
+            let reflowed = if let Some(cfg) = code_cfg {
+                crate::code_block::reflow_code_body(body, cfg, splitter, config.format_code)
+            } else {
+                body.clone()
+            };
+            output.push_str(&reflowed);
+            output.push_str(footer);
+        }
+        Region::Prose(text) => {
+            let sentences = splitter.split(text);
+            for (i, sentence) in sentences.iter().enumerate() {
+                if config.max_width > 0 {
+                    let wrapped = textwrap::fill(sentence, config.max_width);
+                    output.push_str(&wrapped);
                 } else {
-                    body.clone()
-                };
-                output.push_str(&reflowed);
-                output.push_str(footer);
-            }
-            Region::Prose(text) => {
-                let sentences = splitter.split(text);
-                for (i, sentence) in sentences.iter().enumerate() {
-                    if config.max_width > 0 {
-                        let wrapped = textwrap::fill(sentence, config.max_width);
-                        output.push_str(&wrapped);
-                    } else {
-                        output.push_str(sentence);
-                    }
-                    if i < sentences.len() - 1 {
-                        output.push('\n');
-                    }
+                    output.push_str(sentence);
                 }
-                // Add trailing newline when followed by BlankLines or
-                // another Prose region, so paragraph breaks are preserved.
-                // Skip when followed by Structure (e.g. the "\n" after
-                // headlines/list items) to avoid double newlines.
-                if !sentences.is_empty() {
-                    // Add trailing newline after prose. Suppress when the next
-                    // region continues the same line: a bare "\n" (headline /
-                    // list item terminator) or a closing brace/bracket suffix
-                    // from LaTeX sectioning commands (`}\n`).
-                    let suppress = matches!(
-                        regions.get(idx + 1),
-                        Some(Region::Structure(s))
-                            if s == "\n"
-                                || s.starts_with('}')
-                                || s.starts_with(']')
-                                || s.starts_with(')')
-                    );
-                    if !suppress {
-                        output.push('\n');
-                    }
+                if i < sentences.len() - 1 {
+                    output.push('\n');
+                }
+            }
+            if !sentences.is_empty() {
+                let suppress = matches!(
+                    regions.get(idx + 1),
+                    Some(Region::Structure(s))
+                        if s == "\n"
+                            || s.starts_with('}')
+                            || s.starts_with(']')
+                            || s.starts_with(')')
+                );
+                if !suppress {
+                    output.push('\n');
                 }
             }
         }
     }
-
     output
 }
 
