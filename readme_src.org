@@ -132,11 +132,11 @@ Configuration guide (org source in-tree): =docs/orgmode/howto/mcp-integration.or
 :END:
 #+begin_src yaml
 - repo: https://github.com/TurtleTech-ehf/snapper
-  rev: v0.7.7
+  rev: v0.7.8
   hooks:
     - id: snapper
 #+end_src
-(Use a newer tag once released; =main= includes code-block comment reflow ahead of =v0.7.7=.)
+
 ** Emacs (Apheleia)
 :PROPERTIES:
 :CUSTOM_ID: emacs

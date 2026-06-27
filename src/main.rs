@@ -1,7 +1,9 @@
+use std::collections::HashMap;
 use std::fs;
 use std::io::{self, Read};
 use std::path::Path;
 use std::process;
+use std::sync::Arc;
 
 use anyhow::{Context, Result};
 use clap::Parser;
@@ -11,7 +13,10 @@ use snapper_fmt::cli::{Cli, Commands, OutputFormat, parse_range};
 use snapper_fmt::config::ProjectConfig;
 use snapper_fmt::format::Format;
 use snapper_fmt::output::{CheckResult, output_json, output_sarif};
-use snapper_fmt::{FormatConfig, format_range, format_text};
+use snapper_fmt::sentence::SentenceSplitter;
+use snapper_fmt::{
+    FormatConfig, build_splitter, format_range, format_text, format_text_with_splitter,
+};
 
 fn main() {
     if let Err(e) = run() {
@@ -118,21 +123,44 @@ fn run() -> Result<()> {
             print!("{output}");
         }
     } else {
-        // Process files in parallel whenever there is more than one path
-        // (stdout multi-file, --check, --in-place, --diff all benefit).
+        // Process files in parallel whenever there is more than one path.
+        // Splitters are built once per distinct config key (format/lang/neural/…)
+        // so multi-file and --neural do not reload models per path.
         let use_parallel = cli.files.len() > 1;
+        let mut splitter_cache: HashMap<SplitterKey, Arc<dyn SentenceSplitter>> = HashMap::new();
+
+        let paths: Vec<&Path> = cli
+            .files
+            .iter()
+            .map(Path::new)
+            .filter(|path| !should_skip_path(path, &cli, &project_config))
+            .collect();
+
+        // Always pre-warm the cache on the main thread (Sync model load).
+        for path in &paths {
+            let format = resolve_format(
+                cli.format.map(Format::from_arg),
+                Some(path),
+                &project_config,
+            );
+            let config = build_format_config(&cli, &project_config, format, Some(path));
+            let key = SplitterKey::from_config(&config);
+            if let std::collections::hash_map::Entry::Vacant(e) = splitter_cache.entry(key) {
+                let s = build_splitter(&config).context("failed to build sentence splitter")?;
+                e.insert(Arc::from(s));
+            }
+        }
+        let cache = Arc::new(splitter_cache);
 
         let results: Vec<(String, String, String)> = if use_parallel {
-            cli.files
+            paths
                 .par_iter()
-                .filter(|path| !should_skip_path(path, &cli, &project_config))
-                .map(|path| process_file(path, &cli, &project_config))
+                .map(|path| process_file(path, &cli, &project_config, &cache))
                 .collect::<Result<Vec<_>>>()?
         } else {
-            cli.files
+            paths
                 .iter()
-                .filter(|path| !should_skip_path(path, &cli, &project_config))
-                .map(|path| process_file(path, &cli, &project_config))
+                .map(|path| process_file(path, &cli, &project_config, &cache))
                 .collect::<Result<Vec<_>>>()?
         };
 
@@ -187,11 +215,34 @@ fn run() -> Result<()> {
     Ok(())
 }
 
+/// Key for reusing sentence splitters across files with the same split policy.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+struct SplitterKey {
+    format: Format,
+    use_neural: bool,
+    neural_lang: String,
+    neural_model: Option<std::path::PathBuf>,
+    extras: Vec<String>,
+}
+
+impl SplitterKey {
+    fn from_config(config: &FormatConfig) -> Self {
+        Self {
+            format: config.format,
+            use_neural: config.use_neural,
+            neural_lang: config.neural_lang.clone(),
+            neural_model: config.neural_model_path.clone(),
+            extras: config.extra_abbreviations.clone(),
+        }
+    }
+}
+
 /// Process a single file: read, format, return (path, input, output).
 fn process_file(
     path: &Path,
     cli: &Cli,
     project_config: &ProjectConfig,
+    splitter_cache: &HashMap<SplitterKey, Arc<dyn SentenceSplitter>>,
 ) -> Result<(String, String, String)> {
     let path_str = path.display().to_string();
     let input =
@@ -199,13 +250,19 @@ fn process_file(
 
     let format = resolve_format(cli.format.map(Format::from_arg), Some(path), project_config);
     let config = build_format_config(cli, project_config, format, Some(path));
+    let key = SplitterKey::from_config(&config);
+    let splitter = splitter_cache
+        .get(&key)
+        .ok_or_else(|| anyhow::anyhow!("splitter cache miss for {path_str}"))?;
 
     let output = if let Some(ref range_str) = cli.range {
         let (start, end) =
             parse_range(range_str).context("invalid range format, expected START:END")?;
+        // Range path still uses config; splitter reuse is best-effort via full-file path.
+        let _ = splitter;
         format_range(&input, &config, start, end)?
     } else {
-        format_text(&input, &config)?
+        format_text_with_splitter(&input, &config, splitter.as_ref())?
     };
 
     Ok((path_str, input, output))

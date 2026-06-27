@@ -213,11 +213,9 @@ Configuration guide (org source in-tree): `docs/orgmode/howto/mcp-integration.or
 ## Pre-commit hook
 
     - repo: https://github.com/TurtleTech-ehf/snapper
-      rev: v0.7.7
+      rev: v0.7.8
       hooks:
         - id: snapper
-
-(Use a newer tag once released; `main` includes code-block comment reflow ahead of `v0.7.7`.)
 
 
 <a id="emacs"></a>

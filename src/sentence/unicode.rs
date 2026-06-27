@@ -100,6 +100,34 @@ impl Default for UnicodeSentenceSplitter {
     }
 }
 
+/// Protect links, emphasis, math, and other inline tokens so a base segmenter
+/// (UAX or neural) cannot cut inside them. Shared by rules and neural paths.
+pub fn protect_inline_tokens(text: &str) -> (String, Vec<String>) {
+    let mut placeholders: Vec<String> = Vec::new();
+    let protected = INLINE_TOKEN_RE.replace_all(text, |caps: &regex::Captures| {
+        let idx = placeholders.len();
+        placeholders.push(caps[0].to_string());
+        format!("\x00PH{idx}\x00")
+    });
+    (protected.into_owned(), placeholders)
+}
+
+/// Restore placeholders produced by [`protect_inline_tokens`] into each segment.
+pub fn restore_inline_tokens(segments: Vec<String>, placeholders: &[String]) -> Vec<String> {
+    segments
+        .into_iter()
+        .map(|s| {
+            let mut restored = s.trim().to_string();
+            for (i, original) in placeholders.iter().enumerate() {
+                let ph = format!("\x00PH{i}\x00");
+                restored = restored.replace(&ph, original);
+            }
+            restored
+        })
+        .filter(|s| !s.is_empty())
+        .collect()
+}
+
 impl SentenceSplitter for UnicodeSentenceSplitter {
     fn split(&self, text: &str) -> Vec<String> {
         let text = text.trim();
@@ -107,15 +135,7 @@ impl SentenceSplitter for UnicodeSentenceSplitter {
             return vec![];
         }
 
-        // Replace inline tokens with safe placeholders to prevent
-        // the sentence splitter from breaking inside them.
-        let mut placeholders: Vec<String> = Vec::new();
-        let protected = INLINE_TOKEN_RE.replace_all(text, |caps: &regex::Captures| {
-            let idx = placeholders.len();
-            placeholders.push(caps[0].to_string());
-            // Use a placeholder that won't trigger sentence breaks
-            format!("\x00PH{idx}\x00")
-        });
+        let (protected, placeholders) = protect_inline_tokens(text);
 
         // UAX #29 sentence bounds. `unicode_sentences()` filters
         // whitespace-only segments but also drops trailing closing
@@ -130,20 +150,7 @@ impl SentenceSplitter for UnicodeSentenceSplitter {
         }
 
         let merged = self.refine_segments_from_strs(&raw_segments);
-
-        // Restore placeholders and clean up
-        merged
-            .into_iter()
-            .map(|s| {
-                let mut restored = s.trim().to_string();
-                for (i, original) in placeholders.iter().enumerate() {
-                    let ph = format!("\x00PH{i}\x00");
-                    restored = restored.replace(&ph, original);
-                }
-                restored
-            })
-            .filter(|s| !s.is_empty())
-            .collect()
+        restore_inline_tokens(merged, &placeholders)
     }
 }
 
@@ -252,10 +259,7 @@ fn push_segment_preserving_space(dest: &mut String, piece: &str) {
     if piece.is_empty() {
         return;
     }
-    let need_space = dest
-        .chars()
-        .last()
-        .is_some_and(|c| !c.is_whitespace())
+    let need_space = dest.chars().last().is_some_and(|c| !c.is_whitespace())
         && !piece.chars().next().is_some_and(|c| c.is_whitespace());
     if need_space {
         dest.push(' ');
