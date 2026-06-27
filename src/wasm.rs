@@ -96,6 +96,8 @@ impl WasmConfig {
             extra_abbreviations: self.extra_abbreviations.clone(),
             use_pandoc: false,
             pandoc_format: None,
+            code: std::collections::HashMap::new(),
+            format_code: false,
         }
     }
 }
