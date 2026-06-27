@@ -2,14 +2,20 @@
 <OfficeApp
   xmlns="http://schemas.microsoft.com/office/appforoffice/1.1"
   xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+  xmlns:bt="http://schemas.microsoft.com/office/officeappbasictypes/1.0"
   xsi:type="TaskPaneApp">
-  <Id>snapper-word-addin</Id>
-  <Version>0.6.0</Version>
-  <ProviderName>TurtleTech</ProviderName>
+  <Id>a8f3c2e1-9b4d-4e7a-8c5f-1d2e3f4a5b6c</Id>
+  <Version>0.7.8</Version>
+  <ProviderName>TurtleTech ehf</ProviderName>
   <DefaultLocale>en-US</DefaultLocale>
-  <DisplayName DefaultValue="Snapper - Semantic Line Breaks"/>
-  <Description DefaultValue="Format prose with semantic line breaks for clean git diffs."/>
+  <DisplayName DefaultValue="Snapper — Semantic Line Breaks"/>
+  <Description DefaultValue="Format Word prose with semantic line breaks using the snapper WASM engine."/>
+  <IconUrl DefaultValue="https://snapper.turtletech.us/snapper_logo.png"/>
+  <HighResolutionIconUrl DefaultValue="https://snapper.turtletech.us/snapper_logo.png"/>
   <SupportUrl DefaultValue="https://snapper.turtletech.us"/>
+  <AppDomains>
+    <AppDomain>https://snapper.turtletech.us</AppDomain>
+  </AppDomains>
   <Hosts>
     <Host Name="Document"/>
   </Hosts>
@@ -17,4 +23,62 @@
     <SourceLocation DefaultValue="https://localhost:3000/taskpane.html"/>
   </DefaultSettings>
   <Permissions>ReadWriteDocument</Permissions>
+  <VersionOverrides xmlns="http://schemas.microsoft.com/office/taskpaneappversionoverrides" xsi:type="VersionOverridesV1_0">
+    <Hosts>
+      <Host xsi:type="Document">
+        <DesktopFormFactor>
+          <GetStarted>
+            <Title resid="GetStarted.Title"/>
+            <Description resid="GetStarted.Description"/>
+            <LearnMoreUrl resid="GetStarted.LearnMoreUrl"/>
+          </GetStarted>
+          <FunctionFile resid="Commands.Url"/>
+          <ExtensionPoint xsi:type="PrimaryCommandSurface">
+            <OfficeTab id="TabHome">
+              <Group id="SnapperGroup">
+                <Label resid="GroupLabel"/>
+                <Control xsi:type="Button" id="FormatDocButton">
+                  <Label resid="FormatDoc.Label"/>
+                  <Supertip>
+                    <Title resid="FormatDoc.Label"/>
+                    <Description resid="FormatDoc.Tooltip"/>
+                  </Supertip>
+                  <Icon>
+                    <bt:Image size="16" resid="Icon.16"/>
+                    <bt:Image size="32" resid="Icon.32"/>
+                    <bt:Image size="80" resid="Icon.80"/>
+                  </Icon>
+                  <Action xsi:type="ShowTaskpane">
+                    <TaskpaneId>SnapperTaskpane</TaskpaneId>
+                    <SourceLocation resid="Taskpane.Url"/>
+                  </Action>
+                </Control>
+              </Group>
+            </OfficeTab>
+          </ExtensionPoint>
+        </DesktopFormFactor>
+      </Host>
+    </Hosts>
+    <Resources>
+      <bt:Images>
+        <bt:Image id="Icon.16" DefaultValue="https://snapper.turtletech.us/snapper_logo.png"/>
+        <bt:Image id="Icon.32" DefaultValue="https://snapper.turtletech.us/snapper_logo.png"/>
+        <bt:Image id="Icon.80" DefaultValue="https://snapper.turtletech.us/snapper_logo.png"/>
+      </bt:Images>
+      <bt:Urls>
+        <bt:Url id="GetStarted.LearnMoreUrl" DefaultValue="https://snapper.turtletech.us/docs/tutorials/quickstart.html"/>
+        <bt:Url id="Commands.Url" DefaultValue="https://localhost:3000/commands.html"/>
+        <bt:Url id="Taskpane.Url" DefaultValue="https://localhost:3000/taskpane.html"/>
+      </bt:Urls>
+      <bt:ShortStrings>
+        <bt:String id="GetStarted.Title" DefaultValue="Snapper for Word"/>
+        <bt:String id="GroupLabel" DefaultValue="Snapper"/>
+        <bt:String id="FormatDoc.Label" DefaultValue="Snapper"/>
+      </bt:ShortStrings>
+      <bt:LongStrings>
+        <bt:String id="GetStarted.Description" DefaultValue="Open the Snapper task pane to format the document or selection with semantic line breaks."/>
+        <bt:String id="FormatDoc.Tooltip" DefaultValue="Open Snapper semantic line break formatter"/>
+      </bt:LongStrings>
+    </Resources>
+  </VersionOverrides>
 </OfficeApp>
