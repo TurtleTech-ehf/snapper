@@ -2,20 +2,23 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 - - -
-## Unreleased (main)
+## v0.7.8 - 2026-06-27
 #### Features
-- (**parser**) `Region::Code` for Org `#+BEGIN_SRC`, Markdown fences, LaTeX `minted`/`lstlisting`, and RST `.. code-block::`; per-language comment reflow via `[code.<lang>]` in `.snapperrc.toml`; optional `--format-code` formatter delegation with graceful timeout/missing-binary fallback
-- (**init**) seed seven common `[code.*]` language entries (line/block comments and formatters where applicable)
-- (**latex**) treat sectioning command arguments (`\section{...}`, etc.) as prose titles
+- (**parser**) `Region::Code` for Org/Markdown/LaTeX/RST source blocks; `[code.<lang>]` comment reflow and optional `--format-code`
+- (**sentence**) delimiter-span post-pipeline (quotes, parens, brackets); shared by rules and `--neural`
+- (**sentence**) neural path protects inline tokens (links, emphasis, …) before the model, then restores and refines
+- (**cli**) multi-file splitter reuse (one build per format/lang/neural/extras key); parallel multi-file always
+- (**reflow**) parallel region reflow for large documents (`cli` feature, ≥32 regions)
 #### Bug Fixes
-- (**org** / **sentence**) preserve trailing `>` after periods in headings (e.g. `Vec[T]`); keep org emphasis (`*bold*`, `/italic/`, …) atomic so sentence splits cannot open a pseudo-star line
-- (**reflow**) suppress prose trailing newline when the next structure continues the same line (e.g. closing `}` of a section command)
+- (**org** / **sentence**) trailing `>` on headings; org emphasis not pseudo-headlines; space-safe segment glue after neural cuts
 #### Documentation
-- Align README, formats/config/CLI references, crate docs, and MCP tool blurb with code-region behaviour (no longer claim all code blocks pass through wholly unchanged)
-#### Tests
-- Integration suites `tests/code_block_reflow.rs` and `tests/code_block_format.rs`; criterion bench `benches/reflow_bench.rs`
+- Span policy in formats reference; README/pre-commit pin **v0.7.8**; MCP/site/VS Code code-block accuracy
+#### Tests / CI
+- `sentence_delim_props` matrix + proptest; multi-format and code-comment span tests; CI dogfood `snapper --check` on docs/examples
 
 - - -
+
+
 ## v0.7.7 - 2026-04-11
 #### Bug Fixes
 - (**config**) honor project config across cli and watch - (5f5179d) - *HaoZeke*

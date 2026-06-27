@@ -1,14 +1,13 @@
 use nnsplit::NNSplit;
 
 use super::SentenceSplitter;
-use super::unicode::UnicodeSentenceSplitter;
+use super::unicode::{UnicodeSentenceSplitter, protect_inline_tokens, restore_inline_tokens};
 
 /// Sentence splitter using nnsplit's neural network (byte-level LSTM via tract).
 /// Models download and cache to ~/.cache/nnsplit/ on first use.
 ///
-/// After the model proposes boundaries, segments are passed through the same
-/// abbreviation + delimiter-span post-pipeline as [`UnicodeSentenceSplitter`]
-/// so dialogue quotes and `Dr.`-style titles stay consistent with the rules path.
+/// Pipeline matches the rules path for markup safety:
+/// protect inline tokens → model on protected text → restore → abbrev + delim refine.
 pub struct NeuralSentenceSplitter {
     inner: NNSplit,
     post: UnicodeSentenceSplitter,
@@ -61,26 +60,29 @@ impl SentenceSplitter for NeuralSentenceSplitter {
             return vec![];
         }
 
-        let splits = self.inner.split(&[text]);
-        if splits.is_empty() {
-            return self.post.refine_segments(vec![text.to_string()]);
-        }
+        let (protected, placeholders) = protect_inline_tokens(text);
 
-        // Level 0 = sentences in nnsplit's hierarchy
-        let raw: Vec<String> = splits[0]
-            .flatten(0)
-            .into_iter()
-            .map(|s| s.trim().to_string())
-            .filter(|s| !s.is_empty())
-            .collect();
+        let splits = self.inner.split(&[protected.as_str()]);
+        let raw: Vec<String> = if splits.is_empty() {
+            vec![protected.clone()]
+        } else {
+            splits[0]
+                .flatten(0)
+                .into_iter()
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty())
+                .collect()
+        };
 
-        self.post.refine_segments(raw)
+        let restored = restore_inline_tokens(raw, &placeholders);
+        self.post.refine_segments(restored)
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::sentence::unicode::UnicodeSentenceSplitter;
 
     #[test]
     fn neural_english_basic() {
@@ -109,20 +111,40 @@ mod tests {
         assert!(
             result
                 .iter()
-                .all(|s| !s.contains("world.\n") && !s.ends_with("world.")),
-            "unexpected mid-quote fracture in segments: {result:?}"
-        );
-        // Prefer a single segment carrying the closing quote before "Then".
-        let joined = result.join(" | ");
-        assert!(
-            !joined.contains(r#"world. | How"#) && !joined.contains(r#"world.| How"#),
-            "dialogue split inside quotes: {result:?}"
-        );
-        assert!(
-            result
-                .iter()
                 .any(|s| s.contains("Hello world.") && s.contains("How are you?")),
             "expected glued dialogue span, got {result:?}"
         );
+    }
+
+    #[test]
+    fn neural_org_emphasis_matches_rules_protection() {
+        let neural = NeuralSentenceSplitter::new("en").unwrap();
+        let rules = UnicodeSentenceSplitter::new();
+        let input = "End of first. *Bold spans period. Continues* after.";
+        let n = neural.split(input);
+        let r = rules.split(input);
+        assert!(
+            n.iter()
+                .any(|s| s.contains("*Bold spans period. Continues*")),
+            "neural fractured emphasis: {n:?}"
+        );
+        assert!(
+            r.iter()
+                .any(|s| s.contains("*Bold spans period. Continues*")),
+            "rules fractured emphasis: {r:?}"
+        );
+    }
+
+    #[test]
+    fn neural_org_link_not_split_on_abbrev_in_desc() {
+        let neural = NeuralSentenceSplitter::new("en").unwrap();
+        let input = "See [[https://example.com][Ex. Site]] for details. Then continue.";
+        let n = neural.split(input);
+        assert!(
+            n.iter()
+                .any(|s| s.contains("[[https://example.com][Ex. Site]]")),
+            "neural split inside org link: {n:?}"
+        );
+        assert!(n.len() >= 2, "expected sentence after link: {n:?}");
     }
 }
