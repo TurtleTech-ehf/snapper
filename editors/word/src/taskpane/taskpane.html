@@ -10,19 +10,17 @@
 <body>
   <div class="snapper-taskpane">
     <h2>Snapper</h2>
-    <p>Semantic line break formatter</p>
-
+    <p class="tagline">Semantic line breaks for Word (v0.7.8)</p>
+    <p class="hint">Formats paragraphs as plaintext. Use the CLI or VS Code for Org/LaTeX structure awareness.</p>
     <div class="actions">
-      <button id="format-doc">Format Document</button>
-      <button id="format-sel">Format Selection</button>
+      <button type="button" id="format-doc">Format Document</button>
+      <button type="button" id="format-sel">Format Selection</button>
     </div>
-
     <div class="settings">
       <label>
         Max width (0 = unlimited)
         <input type="number" id="max-width" value="0" min="0"/>
       </label>
-
       <label>
         Language
         <select id="lang">
@@ -33,14 +31,12 @@
           <option value="pl">Polish</option>
         </select>
       </label>
-
       <label>
         Extra abbreviations (comma-separated)
         <input type="text" id="abbreviations" placeholder="GROMACS, LAMMPS"/>
       </label>
     </div>
-
-    <div id="status"></div>
+    <div id="status" role="status">Loading…</div>
   </div>
 </body>
 </html>
