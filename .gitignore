@@ -30,3 +30,7 @@ site-svelte/build/
 editors/vscode/node_modules/
 editors/vscode/out/
 *.vsix
+packages/snapper-wasm/pkg/
+editors/word/dist/
+editors/word/node_modules/
+packages/snapper-wasm/node_modules/
