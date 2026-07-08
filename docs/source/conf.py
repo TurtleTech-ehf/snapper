@@ -3,7 +3,7 @@ import os
 project = "snapper"
 copyright = '2026--present, <a href="https://rgoswami.me">Rohit Goswami</a>'
 author = "Rohit Goswami"
-release = "0.7.8"
+release = "0.7.9"
 html_logo = "../../branding/logo/snapper_logo.png"
 
 extensions = [
