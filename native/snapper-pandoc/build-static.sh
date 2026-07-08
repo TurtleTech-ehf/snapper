@@ -137,30 +137,58 @@ case "$uname_s" in
       cd "$REPACK"
       # Prefer the ar that matches the rustc windows-gnu linker.
       AR_BIN="$(command -v x86_64-w64-mingw32-ar 2>/dev/null || command -v ar)"
-      echo "build-static: windows repack with AR=$AR_BIN"
-      ar x "$BUILD_DIR/libsnapper_pandoc.a" || "$AR_BIN" x "$BUILD_DIR/libsnapper_pandoc.a"
-      ls -la | head -30 || true
+      OD_BIN="$(command -v x86_64-w64-mingw32-objdump 2>/dev/null || command -v objdump || true)"
+      echo "build-static: windows repack with AR=$AR_BIN OD=${OD_BIN:-none}"
+      # Extract with the same mingw ar cargo's ld will use.
+      "$AR_BIN" x "$BUILD_DIR/libsnapper_pandoc.a"
+      ls -la | head -40 || true
+      # Flatten one level of nested archives (ghc -staticlib sometimes embeds
+      # an ar member named *.o that is itself an archive — MinGW ld then says
+      # "member … is not an object").
+      for f in ./*; do
+        [[ -f "$f" ]] || continue
+        if head -c 8 "$f" 2>/dev/null | grep -q '!<arch>'; then
+          echo "build-static: flatten nested archive $(basename "$f")"
+          sub="$REPACK/nested-$(basename "$f")"
+          mkdir -p "$sub"
+          (
+            cd "$sub"
+            "$AR_BIN" x "$f"
+          )
+          rm -f "$f"
+          # Hoist nested members with unique names.
+          for n in "$sub"/*; do
+            [[ -f "$n" ]] || continue
+            mv -f "$n" "./nested_$(basename "$f")__$(basename "$n")"
+          done
+          rmdir "$sub" 2>/dev/null || true
+        fi
+      done
+      # Diagnose SnapperPandoc* if present.
+      for f in ./SnapperPandoc* ./nested_*SnapperPandoc*; do
+        [[ -f "$f" ]] || continue
+        echo "build-static: diagnose $f"
+        xxd "$f" 2>/dev/null | head -2 || od -A x -t x1z -N 32 "$f" 2>/dev/null || true
+        [[ -n "$OD_BIN" ]] && "$OD_BIN" -f "$f" 2>&1 | head -8 || true
+      done
       objs=()
       for f in ./*; do
         [[ -f "$f" ]] || continue
         base="$(basename "$f")"
-        # Skip GHC interface / text junk if any landed in the archive.
         case "$base" in
           *.hi|*.hie|*.dyn_hi|*.p_hi) echo "build-static: drop $base"; continue ;;
         esac
-        # objdump -f fails on non-objects; keep only members it accepts.
-        if command -v x86_64-w64-mingw32-objdump >/dev/null 2>&1; then
-          if x86_64-w64-mingw32-objdump -f "$f" >/dev/null 2>&1; then
+        # Still a nested archive? drop (should have been flattened).
+        if head -c 8 "$f" 2>/dev/null | grep -q '!<arch>'; then
+          echo "build-static: drop still-nested $base"
+          continue
+        fi
+        if [[ -n "$OD_BIN" ]]; then
+          if "$OD_BIN" -f "$f" >/dev/null 2>&1; then
             objs+=("$f")
           else
             echo "build-static: drop non-object $base"
-            x86_64-w64-mingw32-objdump -f "$f" 2>&1 | head -3 || true
-          fi
-        elif command -v objdump >/dev/null 2>&1; then
-          if objdump -f "$f" >/dev/null 2>&1; then
-            objs+=("$f")
-          else
-            echo "build-static: drop non-object $base"
+            "$OD_BIN" -f "$f" 2>&1 | head -3 || true
           fi
         else
           objs+=("$f")
@@ -172,6 +200,19 @@ case "$uname_s" in
         rm -f "$OUT_DIR/libsnapper_pandoc.a"
         "$AR_BIN" rcs "$OUT_DIR/libsnapper_pandoc.a" "${objs[@]}"
         echo "build-static: repacked ${#objs[@]} objects into $OUT_DIR/libsnapper_pandoc.a"
+        # Verify every member is an object for the same ld.
+        if [[ -n "$OD_BIN" ]]; then
+          bad=0
+          while IFS= read -r m; do
+            [[ -z "$m" ]] && continue
+            "$AR_BIN" p "$OUT_DIR/libsnapper_pandoc.a" "$m" >"$REPACK/_member.bin" 2>/dev/null || continue
+            if ! "$OD_BIN" -f "$REPACK/_member.bin" >/dev/null 2>&1; then
+              echo "build-static: VERIFY FAIL member $m" >&2
+              bad=1
+            fi
+          done < <("$AR_BIN" t "$OUT_DIR/libsnapper_pandoc.a" 2>/dev/null | head -50)
+          echo "build-static: member verify bad=$bad (first 50 checked)"
+        fi
       fi
     )
     ;;
