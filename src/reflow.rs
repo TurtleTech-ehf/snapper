@@ -134,13 +134,15 @@ fn suppress_prose_trailing_newline(s: &str) -> bool {
     if s == "\n" || s.starts_with('}') || s.starts_with(']') || s.starts_with(')') {
         return true;
     }
-    let t = s.trim_end();
+    // Islands may carry a leading space for glue after reflow trims prose.
+    let t = s.trim();
     // Inline math: single-line `$...$` (not display `$$...$$`).
     if t.starts_with('$') && !t.starts_with("$$") && !t.contains('\n') {
         return true;
     }
-    // Inline code island: single-line `...`
-    if t.starts_with('`') && t.ends_with('`') && t.len() >= 2 && !t.contains('\n') {
+    // Inline code island: single-line `...` (optional trailing space already trimmed).
+    let code = t.trim_end_matches(' ');
+    if code.starts_with('`') && code.ends_with('`') && code.len() >= 2 && !code.contains('\n') {
         return true;
     }
     false
