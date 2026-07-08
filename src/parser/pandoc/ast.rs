@@ -228,22 +228,39 @@ fn walk_para_inlines(inlines: &[Inline], regions: &mut Vec<Region>, prose: &mut 
     for inline in inlines {
         match inline {
             Inline::Math(ty, body) => {
-                flush_prose_buf(prose, regions, false);
-                let mut s = format_math(ty, body);
+                // trim_trailing: sentence splitter also trims; put spaces on the
+                // structure island so "word $math$ word" survives reflow.
+                let need_lead = !prose.is_empty() && !prose.ends_with('\n');
+                flush_prose_buf(prose, regions, true);
+                let mut s = String::new();
                 if matches!(ty, MathType::DisplayMath) {
+                    if need_lead {
+                        // display math on its own lines
+                    }
+                    s.push_str(&format_math(ty, body));
                     if !s.ends_with('\n') {
                         s.push('\n');
                     }
                 } else {
-                    // Trailing space so reflow can join "…$math$ word" without
-                    // relying on a leading space that sentence-split trims.
+                    if need_lead {
+                        s.push(' ');
+                    }
+                    s.push_str(&format_math(ty, body));
                     s.push(' ');
                 }
                 regions.push(Region::Structure(s));
             }
             Inline::Code(_, code) => {
-                flush_prose_buf(prose, regions, false);
-                regions.push(Region::Structure(format!("`{code}` ")));
+                let need_lead = !prose.is_empty() && !prose.ends_with('\n');
+                flush_prose_buf(prose, regions, true);
+                let mut s = String::new();
+                if need_lead {
+                    s.push(' ');
+                }
+                s.push('`');
+                s.push_str(code);
+                s.push_str("` ");
+                regions.push(Region::Structure(s));
             }
             Inline::Str(s) => prose.push_str(s),
             Inline::Space => prose.push(' '),
