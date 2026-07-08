@@ -135,6 +135,45 @@ fn emit_windows(archive: &Path) {
     let is_gnu = env::var("CARGO_CFG_TARGET_ENV").as_deref() == Ok("gnu");
     let is_msvc = env::var("CARGO_CFG_TARGET_ENV").as_deref() == Ok("msvc");
 
+    // Search paths for libgmp / libffi (often in GHC bindist mingw/lib, not plain MinGW).
+    println!("cargo:rerun-if-env-changed=SNAPPER_MINGW_BIN");
+    println!("cargo:rerun-if-env-changed=SNAPPER_GHC_REAL");
+    println!("cargo:rerun-if-env-changed=SNAPPER_MINGW_LIB");
+    let mut lib_dirs: Vec<PathBuf> = Vec::new();
+    if let Ok(extra) = env::var("SNAPPER_MINGW_LIB") {
+        for p in extra.split([';', ':']) {
+            if !p.is_empty() {
+                lib_dirs.push(PathBuf::from(p));
+            }
+        }
+    }
+    if let Ok(bin) = env::var("SNAPPER_MINGW_BIN") {
+        let bin = PathBuf::from(bin);
+        lib_dirs.push(bin.join("..").join("lib"));
+        lib_dirs.push(bin.join("..").join("x86_64-w64-mingw32").join("lib"));
+    }
+    if let Ok(ghc) = env::var("SNAPPER_GHC_REAL") {
+        // …/ghc/9.8.4/bin/ghc.exe → …/ghc/9.8.4/mingw/lib
+        if let Some(root) = Path::new(&ghc).parent().and_then(|p| p.parent()) {
+            lib_dirs.push(root.join("mingw").join("lib"));
+            lib_dirs.push(root.join("mingw").join("x86_64-w64-mingw32").join("lib"));
+            lib_dirs.push(root.join("lib"));
+        }
+    }
+    for d in [
+        r"C:\mingw64\lib",
+        r"C:\ProgramData\mingw64\mingw64\lib",
+        "/c/mingw64/lib",
+        "/mingw64/lib",
+    ] {
+        lib_dirs.push(PathBuf::from(d));
+    }
+    for d in &lib_dirs {
+        if d.is_dir() {
+            link_arg(&format!("-L{}", d.display()));
+        }
+    }
+
     if s.ends_with(".lib") {
         link_arg(&s);
     } else if is_gnu {
