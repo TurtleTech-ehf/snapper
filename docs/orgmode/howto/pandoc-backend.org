@@ -16,7 +16,8 @@ That is how snapper can format everything pandoc can read (typst, asciidoc, docx
 
 How to run step 1 (same step-2 walker):
 
-1. *Auto* — =--pandoc-backend auto= (default): prefer in-process FFI when =libsnapper_pandoc= loads, else CLI. This is the successor path for multi-format work (amortizes RTS; avoids process-per-file spawn).
+1. *Auto* — =--pandoc-backend auto= (default): prefer in-process FFI when =libsnapper_pandoc= loads, else CLI.
+This is the successor path for multi-format work (amortizes RTS; avoids process-per-file spawn).
 2. *CLI* — =--pandoc-backend cli=: =pandoc -t json= (full reader set of the installed binary).
 3. *FFI* — =--pandoc-backend ffi=: require =libsnapper_pandoc= (explicit error if missing).
 
@@ -25,11 +26,14 @@ How to run step 1 (same step-2 walker):
 :CUSTOM_ID: requirements
 :END:
 
-**CLI backend.** Pandoc 2.x or 3.x on =PATH=. With =--use-pandoc=, a missing or failing pandoc is an explicit error (no silent all-prose).
+**CLI backend.** Pandoc 2.x or 3.x on =PATH=.
+With =--use-pandoc=, a missing or failing pandoc is an explicit error (no silent all-prose).
 
-**FFI backend (dynamic).** Build =native/snapper-pandoc=, set =SNAPPER_PANDOC_LIB= to =libsnapper_pandoc.so= (or put it on the search path). A missing library with =--pandoc-backend ffi= errors with =pandoc FFI library unavailable= (fail-closed; never silent all-prose).
+**FFI backend (dynamic).** Build =native/snapper-pandoc=, set =SNAPPER_PANDOC_LIB= to =libsnapper_pandoc.so= (or put it on the search path).
+A missing library with =--pandoc-backend ffi= errors with =pandoc FFI library unavailable= (fail-closed; never silent all-prose).
 
-**FFI backend (co-linked / one binary).** Feature =pandoc-colink= is a *build* path: produce =libsnapper_pandoc.a= with =native/snapper-pandoc/build-static.sh= (=ghc -staticlib=), then Cargo absorbs that archive into a single =snapper= executable (=--gc-sections=). No =SNAPPER_PANDOC_LIB= discovery and no multi-hundred-MB =libHS*= RUNPATH graph.
+**FFI backend (co-linked / one binary).** Feature =pandoc-colink= is a *build* path: produce =libsnapper_pandoc.a= with =native/snapper-pandoc/build-static.sh= (=ghc -staticlib=), then Cargo absorbs that archive into a single =snapper= executable (=--gc-sections=).
+No =SNAPPER_PANDOC_LIB= discovery and no multi-hundred-MB =libHS*= RUNPATH graph.
 
 #+begin_src bash
 cd native/snapper-pandoc && ./build-static.sh
@@ -53,9 +57,13 @@ snapper --use-pandoc --pandoc-backend cli guide.adoc
 snapper --use-pandoc --pandoc-backend ffi paper.md
 #+end_src
 
-Native line parsers remain the default until product flip. Use =--use-pandoc= when you need formats without a built-in parser or AST-true structure; prefer FFI for latency once =libsnapper_pandoc= is installed.
+Native line parsers remain the default until product flip.
+Use =--use-pandoc= when you need formats without a built-in parser or AST-true structure; prefer FFI for latency once =libsnapper_pandoc= is installed.
 
-**Speed.** Warm in-process FFI is a few times native cost; cold process reloads the GHC RTS (tens of ms). Snapper also caches pandoc JSON ASTs by content hash (memory + disk under =$XDG_CACHE_HOME/snapper/pandoc-ast=). Re-formatting the same source skips pandoc entirely. Disable with =SNAPPER_PANDOC_CACHE=0=; override dir with =SNAPPER_PANDOC_CACHE_DIR=.
+**Speed.** Warm in-process FFI is a few times native cost; cold process reloads the GHC RTS (tens of ms).
+Snapper also caches pandoc JSON ASTs by content hash (memory + disk under =$XDG_CACHE_HOME/snapper/pandoc-ast=).
+Re-formatting the same source skips pandoc entirely.
+Disable with =SNAPPER_PANDOC_CACHE=0=; override dir with =SNAPPER_PANDOC_CACHE_DIR=.
 
 * When to use pandoc vs built-in parsers
 :PROPERTIES:
