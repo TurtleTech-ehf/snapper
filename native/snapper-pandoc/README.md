@@ -16,22 +16,36 @@ Colink is a **build** path (compile archive → link into snapper), not “ship 
 ## Static archive (colink / one binary)
 
 Requires GHC with the `pandoc` package registered (`ghc-pkg field pandoc id`).
+Works on **Linux**, **macOS**, and (best-effort) **Windows** via the same script.
 
 ```bash
 cd native/snapper-pandoc
 ./build-static.sh
 # writes lib/libsnapper_pandoc.a
 
-export SNAPPER_PANDOC_LIB_DIR=$PWD/lib   # or SNAPPER_PANDOC_STATIC_LIB=.../libsnapper_pandoc.a
-cargo build --release --features "cli,pandoc,pandoc-colink"
+export SNAPPER_PANDOC_STATIC_LIB=$PWD/lib/libsnapper_pandoc.a
+# Linux link often needs:
+#   RUSTFLAGS='-C link-arg=-fuse-ld=bfd -C link-arg=-no-pie'
+cargo build --release --features "cli,pandoc,pandoc-colink" --bin snapper
 ```
 
-`build.rs` (feature `pandoc-colink`) links the `.a` with `--whole-archive` and
-`--gc-sections`, plus ordinary system libs (`z`, `gmp`, `ffi`, …). It does **not**
-inject GHC package-dir rpaths from `ldd`.
+`build.rs` absorbs the archive into **bins only** (target-OS flags):
 
-Final size is dominated by how much of pandoc the staticlib + GC keep (typically
-tens of MB for one executable), not by a tree of separate HS shared objects.
+| OS | Link notes |
+|----|------------|
+| **Linux** | `--gc-sections`, `-no-pie`, `--start-group` archive + system libs (`z`,`gmp`,`ffi`,…) |
+| **macOS** | `-dead_strip`, `-force_load` archive; libs `z`,`iconv`,`gmp`,`ffi`; Homebrew lib paths |
+| **Windows** | Links archive path; prefer **windows-gnu** + GHCup/MSYS2 GHC. **windows-msvc** often cannot consume a MinGW `.a` — use gnu target or expect a clear link failure |
+
+Does **not** inject GHC package-dir rpaths / `libHS*` RUNPATH graphs.
+
+### Prerequisites (register pandoc for GHC)
+
+- **Linux**: nix `ghc.withPackages (p: [p.pandoc])`, or `cabal install --lib pandoc …`
+- **macOS**: [GHCup](https://www.haskell.org/ghcup/) + `cabal install --lib pandoc pandoc-types aeson`, plus `brew install gmp libffi` if link fails
+- **Windows**: GHCup + MSYS2, build with `x86_64-pc-windows-gnu`; install gmp/ffi via pacman if needed
+
+Optional multi-OS smoke: workflow `colink-os` (`workflow_dispatch` only; never blocks PR CI).
 
 ## Shared library (dlopen)
 

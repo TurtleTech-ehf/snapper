@@ -1,5 +1,8 @@
 //! pandoc-colink: absorb static archive build product into the snapper binary.
 //! See native/snapper-pandoc/build-static.sh (ghc -staticlib).
+//!
+//! Link flags are target-OS specific (Linux / Darwin / Windows). Default cargo
+//! builds without this feature never touch GHC.
 
 use std::env;
 use std::path::{Path, PathBuf};
@@ -20,17 +23,38 @@ fn main() {
             "pandoc-colink: missing libsnapper_pandoc.a (static build product).\n\
              From native/snapper-pandoc run: ./build-static.sh\n\
              Or set SNAPPER_PANDOC_STATIC_LIB / SNAPPER_PANDOC_LIB_DIR.\n\
-             Colink is a build/absorb path — not shared lib + rpath."
+             Colink is a build/absorb path — not shared lib + rpath.\n\
+             See native/snapper-pandoc/README.md for Linux / macOS / Windows notes."
         );
     });
     let archive = archive.canonicalize().unwrap_or(archive);
+    let target = env::var("TARGET").unwrap_or_else(|_| env::var("HOST").unwrap_or_default());
 
-    // Bin-only absorb (package also has cdylib).
+    if target.contains("apple-darwin") || target.contains("apple-ios") {
+        emit_darwin(&archive);
+    } else if target.contains("windows") {
+        emit_windows(&archive);
+    } else {
+        // Linux and other Unix-likes (proven baseline).
+        emit_linux(&archive);
+    }
+
+    println!("cargo:rustc-cfg=pandoc_colink");
+    println!(
+        "cargo:warning=pandoc-colink: static absorb {} for target {target}",
+        archive.display()
+    );
+}
+
+fn bin_arg(arg: &str) {
+    println!("cargo:rustc-link-arg-bins={arg}");
+}
+
+fn emit_linux(archive: &Path) {
     bin_arg("-Wl,--gc-sections");
     // HS staticlib objects are not always PIE-safe; non-PIE bin is fine for CLI.
     bin_arg("-no-pie");
     bin_arg("-Wl,--no-as-needed");
-    // Group archive with system libs so mutual refs (TLS, zlib, elf) resolve.
     bin_arg("-Wl,--start-group");
     bin_arg(&archive.display().to_string());
     for lib in [
@@ -42,16 +66,57 @@ fn main() {
     bin_arg("-Wl,--end-group");
     bin_arg("-L/usr/lib");
     bin_arg("-L/usr/lib64");
-
-    println!("cargo:rustc-cfg=pandoc_colink");
-    println!(
-        "cargo:warning=pandoc-colink: static absorb {} into bins (build product, not rpath graph)",
-        archive.display()
-    );
 }
 
-fn bin_arg(arg: &str) {
-    println!("cargo:rustc-link-arg-bins={arg}");
+fn emit_darwin(archive: &Path) {
+    // ld64: dead_strip ≈ gc-sections; no --start-group / -no-pie.
+    bin_arg("-Wl,-dead_strip");
+    // Force-load so C exports from the staticlib are not dropped early.
+    bin_arg(&format!("-Wl,-force_load,{}", archive.display()));
+    for lib in ["m", "z", "iconv", "System", "pthread", "dl", "c"] {
+        bin_arg(&format!("-l{lib}"));
+    }
+    // Homebrew / ghcup often put deps here.
+    for dir in [
+        "/opt/homebrew/lib",
+        "/usr/local/lib",
+        "/opt/local/lib",
+    ] {
+        if Path::new(dir).is_dir() {
+            bin_arg(&format!("-L{dir}"));
+        }
+    }
+    // Common C deps pulled by GHC/pandoc staticlibs on macOS when present.
+    for lib in ["gmp", "ffi"] {
+        bin_arg(&format!("-l{lib}"));
+    }
+}
+
+fn emit_windows(archive: &Path) {
+    // Prefer linking the archive path directly. MinGW-built .a may require
+    // x86_64-pc-windows-gnu; MSVC often cannot consume mingw .a — build fails loudly.
+    let s = archive.display().to_string();
+    if s.ends_with(".lib") {
+        bin_arg(&s);
+    } else {
+        // GNU ld / lld style
+        bin_arg(&s);
+        // If using MSVC linker with a mingw archive this will fail — intentional.
+        bin_arg("-Wl,--gc-sections");
+        bin_arg("-Wl,--allow-multiple-definition");
+    }
+    for lib in ["ws2_32", "user32", "shell32", "advapi32", "kernel32"] {
+        // Only for gnu-like; MSVC uses different names via rustc automatically for CRT.
+        if env::var("CARGO_CFG_TARGET_ENV").as_deref() == Ok("gnu") {
+            bin_arg(&format!("-l{lib}"));
+        }
+    }
+    if env::var("CARGO_CFG_TARGET_ENV").as_deref() == Ok("msvc") {
+        println!(
+            "cargo:warning=pandoc-colink on windows-msvc: ensure the static archive \
+             was built for MSVC or use windows-gnu; mingw .a often fails to link"
+        );
+    }
 }
 
 fn find_static_archive() -> Option<PathBuf> {
@@ -62,14 +127,18 @@ fn find_static_archive() -> Option<PathBuf> {
         }
     }
     if let Ok(d) = env::var("SNAPPER_PANDOC_LIB_DIR") {
-        let a = PathBuf::from(&d).join("libsnapper_pandoc.a");
-        if a.is_file() {
-            return Some(a);
+        let dir = PathBuf::from(&d);
+        for name in ["libsnapper_pandoc.a", "snapper_pandoc.lib", "libsnapper_pandoc.lib"] {
+            let a = dir.join(name);
+            if a.is_file() {
+                return Some(a);
+            }
         }
     }
     let manifest = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap());
     for c in [
         manifest.join("native/snapper-pandoc/lib/libsnapper_pandoc.a"),
+        manifest.join("native/snapper-pandoc/lib/snapper_pandoc.lib"),
         manifest.join("native/snapper-pandoc/static-build/libsnapper_pandoc.a"),
     ] {
         if c.is_file() {
