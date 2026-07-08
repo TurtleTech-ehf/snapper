@@ -3,19 +3,18 @@
 # Trigger: Actions → colink-os → Run workflow
 name: colink-os
 
+# Runs on this feature branch via push (GHA only loads workflow_dispatch from default branch).
+# Stays off main PR CI. Disable or delete when colink is no longer experimental.
 on:
+  push:
+    branches: [develop/pandoc-ffi]
+    paths:
+      - "native/snapper-pandoc/**"
+      - "build.rs"
+      - "src/parser/pandoc/**"
+      - ".github/workflows/colink-os.yml"
+      - "Cargo.toml"
   workflow_dispatch:
-    inputs:
-      os:
-        description: "Runner OS matrix subset"
-        required: true
-        default: "all"
-        type: choice
-        options:
-          - all
-          - ubuntu-latest
-          - macos-latest
-          - windows-latest
 
 jobs:
   colink:
@@ -24,7 +23,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: ${{ github.event.inputs.os == 'all' && fromJSON('["ubuntu-latest","macos-latest","windows-latest"]') || fromJSON(format('["{0}"]', github.event.inputs.os)) }}
+        os: [ubuntu-latest, macos-latest, windows-latest]
     defaults:
       run:
         shell: bash
