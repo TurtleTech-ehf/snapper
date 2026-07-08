@@ -325,10 +325,10 @@ fn format_text_pandoc_math_and_code_protected() {
             .any(|r| matches!(r, Region::Prose(p) if p.contains("mc^2"))),
         "inline math not in prose: {regions:?}"
     );
-    // Code body not split as prose sentences in output.
+    // Coherent fenced code unit from pandoc CodeBlock (lang + body, not prose).
     assert!(
-        run1.contains("print(1.0)") || run1.contains("print"),
-        "code body present:\n{run1}"
+        run1.contains("```python\nprint(1.0)\nx = 2.\n```"),
+        "CodeBlock must emit one fenced coherent unit:\n{run1}"
     );
     // Must not reflow code into: print(1.\n0) style — period after 1 in code.
     assert!(
@@ -373,9 +373,14 @@ fn format_text_pandoc_latex_math_code_envs() {
         !out.lines().any(|l| l.trim() == "2." && !l.contains("mc")),
         "math period must not orphan a bare '2.' prose line:\n{out}"
     );
+    // minted/lstlisting/verbatim → CodeBlock with fence emit + lang when known
     assert!(
-        out.contains("print") || out.contains("python") || out.contains("1.0"),
-        "code envs present:\n{out}"
+        out.contains("```") && (out.contains("print(1.0)") || out.contains("print")),
+        "latex-origin CodeBlocks as fenced code units:\n{out}"
+    );
+    assert!(
+        out.contains("```python") || out.matches("```").count() >= 2,
+        "language fence or multiple code units:\n{out}"
     );
 }
 
