@@ -35,7 +35,7 @@ cargo build --release --features "cli,pandoc,pandoc-colink" --bin snapper
 |----|------------|
 | **Linux** | `--gc-sections`, `-no-pie`, `--start-group` archive + system libs (`z`,`gmp`,`ffi`,…) |
 | **macOS** | `-dead_strip`, `-force_load` archive; libs `z`,`iconv`,`gmp`,`ffi`; Homebrew lib paths |
-| **Windows** | Links archive path; prefer **windows-gnu** + GHCup/MSYS2 GHC. **windows-msvc** often cannot consume a MinGW `.a` — use gnu target or expect a clear link failure |
+| **Windows** | Prefer **windows-gnu** with **GHCup’s MSYS2 mingw** as the cargo linker (same toolchain as `ghc -staticlib`). Foreign MinGW (e.g. chocolatey mingw 15/16) rejects GHC objects (`member … is not an object`). **windows-msvc** cannot consume a MinGW `.a` |
 
 Does **not** inject GHC package-dir rpaths / `libHS*` RUNPATH graphs.
 
