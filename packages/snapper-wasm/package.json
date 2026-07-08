@@ -1,6 +1,6 @@
 {
   "name": "@snapper/wasm",
-  "version": "0.7.8",
+  "version": "0.7.9",
   "description": "WebAssembly build of snapper semantic line break formatter",
   "type": "module",
   "main": "dist/index.js",

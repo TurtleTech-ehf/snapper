@@ -137,17 +137,17 @@ impl FormatParser for MarkdownParser {
                 continue;
             }
 
-            // Heading
-            if let Some(caps) = HEADING_RE.captures(line) {
+            // Heading — keep the entire ATX line as Structure.
+            // Splitting into Structure("### ") + Prose(title) let the sentence
+            // reflow engine break titles after "1." or mid-phrase, producing
+            // orphan headings like:
+            //   ### 1.
+            //   `cargo binstall` (preferred binary install)
+            // CommonMark ATX headings are single-line; do not reflow them.
+            if HEADING_RE.is_match(line) {
                 close_list_item(&mut in_list_item, &mut current_prose, &mut regions);
                 flush_prose(&mut current_prose, &mut regions);
-                let prefix = caps.get(1).unwrap().as_str();
-                let text = caps.get(2).unwrap().as_str();
-                regions.push(Region::Structure(prefix.to_string()));
-                if !text.is_empty() {
-                    regions.push(Region::Prose(text.to_string()));
-                }
-                regions.push(Region::Structure("\n".to_string()));
+                regions.push(Region::Structure(format!("{line}\n")));
                 continue;
             }
 
@@ -353,12 +353,48 @@ mod tests {
     }
 
     #[test]
-    fn heading_split() {
+    fn heading_is_structure_not_prose() {
         let input = "## My Heading";
         let regions = MarkdownParser.parse(input);
-        assert_eq!(regions.len(), 3);
-        assert_eq!(regions[0], Region::Structure("## ".to_string()));
-        assert_eq!(regions[1], Region::Prose("My Heading".to_string()));
-        assert_eq!(regions[2], Region::Structure("\n".to_string()));
+        assert_eq!(regions.len(), 1);
+        assert_eq!(
+            regions[0],
+            Region::Structure("## My Heading\n".to_string())
+        );
+    }
+
+    #[test]
+    fn numbered_atx_heading_with_code_stays_one_line() {
+        // Regression: rtrash README / snapper-25kc — snapper -i turned
+        // `### 1. \`cargo binstall\` (preferred binary install)` into an orphan
+        // `### 1.` plus a reflowed title paragraph.
+        let input = "### 1. `cargo binstall` (preferred binary install)\n\nBody sentence one. Body sentence two.\n";
+        let regions = MarkdownParser.parse(input);
+        assert!(
+            matches!(&regions[0], Region::Structure(s) if s == "### 1. `cargo binstall` (preferred binary install)\n"),
+            "expected full ATX line as Structure, got: {:?}",
+            regions[0]
+        );
+        // Title must not appear as Prose (would be sentence-reflowed).
+        assert!(
+            !regions
+                .iter()
+                .any(|r| matches!(r, Region::Prose(p) if p.contains("cargo binstall"))),
+            "heading title must not be Prose: {regions:?}"
+        );
+    }
+
+    #[test]
+    fn atx_heading_levels_preserved_verbatim() {
+        for hashes in 1..=6 {
+            let marks = "#".repeat(hashes);
+            let line = format!("{marks} Title with `code` and (parens)");
+            let regions = MarkdownParser.parse(&line);
+            assert_eq!(
+                regions,
+                vec![Region::Structure(format!("{line}\n"))],
+                "level {hashes}"
+            );
+        }
     }
 }
