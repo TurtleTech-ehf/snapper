@@ -158,53 +158,66 @@ jobs:
           cabal update
 
           # Windows: pin a mingw that matches ghc objects (not chocolatey).
-          # Minimal GHCup bootstrap may omit MSYS2 — install it, then also probe
-          # the mingw tree shipped next to the GHC bindist.
+          # Prefer the mingw tree shipped in the GHC Windows bindist (next to ghc).
           if [[ "${{ runner.os }}" == "Windows" ]]; then
-            ghcup install msys2 2>&1 | tail -20 || true
+            # msys2 tool tag may be missing from metadata; ignore failure.
+            ghcup install msys2 latest 2>&1 | tail -15 || true
+            ghcup install msys2 2>&1 | tail -10 || true
             MINGW_BIN=""
-            # Prefer GHCup MSYS2, then ghc bindist mingw (same compiler that made .o).
-            GHC_ROOT="$(cd "$(dirname "$GHC_REAL")/.." && pwd)"
-            for d in \
-              "${GHCUP_INSTALL_BASE_PREFIX}/ghcup/msys64/mingw64/bin" \
-              "${GHCUP_INSTALL_BASE_PREFIX}/.ghcup/msys64/mingw64/bin" \
-              "${HOME}/.ghcup/msys64/mingw64/bin" \
-              "/c/ghcup/msys64/mingw64/bin" \
-              "${GHC_ROOT}/mingw/bin" \
-              "${GHC_ROOT}/../mingw/bin" \
-              "${GHC_ROOT}/mingw64/bin"; do
-              if [[ -x "${d}/gcc.exe" || -x "${d}/gcc" ]]; then
-                MINGW_BIN="$d"
-                break
-              fi
-            done
-            if [[ -z "$MINGW_BIN" ]]; then
-              # Locate any gcc.exe under the ghcup prefix (bindist or msys).
-              found="$(find "$GHCUP_INSTALL_BASE_PREFIX" -name 'gcc.exe' 2>/dev/null | head -1 || true)"
-              if [[ -n "$found" ]]; then
-                MINGW_BIN="$(cd "$(dirname "$found")" && pwd)"
-              fi
+            GHC_ROOT="$(cd "$(dirname "$GHC_REAL")/.." && pwd -W 2>/dev/null || cd "$(dirname "$GHC_REAL")/.." && pwd)"
+            echo "GHC_ROOT=$GHC_ROOT"
+            # Inventory bindist mingw (gcc may be nested).
+            if [[ -d "$GHC_ROOT/mingw" ]]; then
+              echo "bindist mingw tree (depth 3):"
+              find "$GHC_ROOT/mingw" -maxdepth 4 \( -name 'gcc.exe' -o -name 'gcc' -o -name 'ld.exe' -o -name 'x86_64-w64-mingw32-gcc.exe' \) 2>/dev/null | head -40 || true
+              ls -la "$GHC_ROOT/mingw" 2>/dev/null || true
+            fi
+            # Prefer any gcc under the GHC bindist mingw first (object format match).
+            found="$(find "$GHC_ROOT/mingw" "$GHCUP_INSTALL_BASE_PREFIX" \
+              \( -name 'gcc.exe' -o -name 'x86_64-w64-mingw32-gcc.exe' \) 2>/dev/null \
+              | head -1 || true)"
+            if [[ -n "$found" ]]; then
+              MINGW_BIN="$(cd "$(dirname "$found")" && pwd)"
+              echo "found gcc at $found → MINGW_BIN=$MINGW_BIN"
             fi
             if [[ -z "$MINGW_BIN" ]]; then
-              MINGW_BIN="$(
-                ghcup run --mingw-path -- bash -lc 'dirname "$(command -v gcc)"' 2>/dev/null | tr -d '\r' || true
-              )"
+              for d in \
+                "${GHC_ROOT}/mingw/bin" \
+                "${GHC_ROOT}/mingw/x86_64-w64-mingw32/bin" \
+                "${GHCUP_INSTALL_BASE_PREFIX}/ghcup/msys64/mingw64/bin" \
+                "${HOME}/.ghcup/msys64/mingw64/bin" \
+                "/c/ghcup/msys64/mingw64/bin"; do
+                if [[ -e "${d}/gcc.exe" || -e "${d}/gcc" || -e "${d}/x86_64-w64-mingw32-gcc.exe" ]]; then
+                  MINGW_BIN="$d"
+                  break
+                fi
+              done
             fi
             if [[ -z "$MINGW_BIN" || ! -d "$MINGW_BIN" ]]; then
-              echo "FATAL: no ghc-compatible mingw gcc.exe under GHCup tree" >&2
-              find "$GHCUP_INSTALL_BASE_PREFIX" -iname 'gcc*' 2>/dev/null | head -40 || true
-              ls -la "$GHC_ROOT" 2>/dev/null || true
-              exit 1
+              echo "windows-skip: no ghc-compatible mingw gcc under bindist/msys" >&2
+              find "$GHC_ROOT" "$GHCUP_INSTALL_BASE_PREFIX" -iname '*gcc*' 2>/dev/null | head -50 || true
+              # Soft-fail bootstrap so Register/static can still run; link step
+              # records honest skip if linker missing. Exit 0 here only if we
+              # still want cabal — actually keep hard fail for now so we see logs.
+              # Write skip artifact path for the job summary.
+              echo "SNAPPER_MINGW_BIN=" >> "$GITHUB_ENV"
+              echo "SNAPPER_WINDOWS_MINGW_MISSING=1" >> "$GITHUB_ENV"
+            else
+              echo "SNAPPER_MINGW_BIN=$MINGW_BIN" >> "$GITHUB_ENV"
+              echo "$MINGW_BIN" >> "$GITHUB_PATH"
+              export PATH="$MINGW_BIN:$PATH"
+              echo "using ghc-compatible mingw: $MINGW_BIN"
+              # Prefer bare gcc; fall back to target-prefixed name.
+              if ! command -v gcc >/dev/null 2>&1; then
+                if [[ -x "$MINGW_BIN/x86_64-w64-mingw32-gcc.exe" ]]; then
+                  printf '#!/usr/bin/env bash\nexec "%s/x86_64-w64-mingw32-gcc.exe" "$@"\n' "$MINGW_BIN" > "$WRAP/gcc"
+                  chmod +x "$WRAP/gcc"
+                fi
+              fi
+              command -v gcc || true
+              gcc --version 2>/dev/null | head -2 || true
+              ls -la "$MINGW_BIN" | head -30 || true
             fi
-            echo "SNAPPER_MINGW_BIN=$MINGW_BIN" >> "$GITHUB_ENV"
-            echo "GHCUP_MSYS2=$(cd "$MINGW_BIN/../.." 2>/dev/null && pwd || true)" >> "$GITHUB_ENV" || true
-            echo "$MINGW_BIN" >> "$GITHUB_PATH"
-            export PATH="$MINGW_BIN:$PATH"
-            echo "using ghc-compatible mingw: $MINGW_BIN"
-            command -v gcc
-            gcc --version | head -2
-            command -v ld || true
-            ld --version 2>/dev/null | head -1 || true
           fi
 
       - name: Register pandoc in package-env (cabal --lib)
@@ -317,13 +330,14 @@ jobs:
           set -euo pipefail
           export PATH="${GHCUP_INSTALL_BASE_PREFIX}/.ghcup/bin:$HOME/.ghcup/bin:$PATH"
           if [[ -z "${SNAPPER_MINGW_BIN:-}" || ! -d "${SNAPPER_MINGW_BIN}" ]]; then
-            echo "FATAL: SNAPPER_MINGW_BIN unset — cannot link GHC objects with foreign MinGW" >&2
+            echo "windows-skip: no ghc-matching mingw for cargo link" | tee windows-skip-reason.txt
+            echo "static archive was built; absorb needs bindist/msys gcc (not chocolatey)." >> windows-skip-reason.txt
+            cat windows-skip-reason.txt
+            # Fail closed for the job matrix cell — do not claim dual-run success.
             exit 1
           fi
-          # Prepend GHCup MSYS mingw; strip chocolatey mingw if present so rustc
-          # does not pick C:\ProgramData\mingw64 (incompatible with ghc .o).
+          # Prepend ghc-matching mingw; strip chocolatey mingw if present.
           export PATH="${SNAPPER_MINGW_BIN}:$PATH"
-          # Drop chocolatey mingw bins from PATH if they appear later.
           CLEAN_PATH=""
           IFS=':' read -ra PARTS <<< "$PATH"
           for p in "${PARTS[@]}"; do
@@ -333,9 +347,15 @@ jobs:
             CLEAN_PATH="${CLEAN_PATH:+$CLEAN_PATH:}$p"
           done
           export PATH="$CLEAN_PATH"
-          echo "linker gcc: $(command -v gcc)"
-          gcc --version | head -1
-          export CARGO_TARGET_X86_64_PC_WINDOWS_GNU_LINKER=gcc
+          LINKER=gcc
+          if ! command -v gcc >/dev/null 2>&1; then
+            if command -v x86_64-w64-mingw32-gcc >/dev/null 2>&1; then
+              LINKER=x86_64-w64-mingw32-gcc
+            fi
+          fi
+          echo "linker: $(command -v "$LINKER")"
+          "$LINKER" --version | head -1
+          export CARGO_TARGET_X86_64_PC_WINDOWS_GNU_LINKER="$LINKER"
           export SNAPPER_PANDOC_STATIC_LIB=$PWD/native/snapper-pandoc/lib/libsnapper_pandoc.a
           rustup target add x86_64-pc-windows-gnu
           cargo build --release --target x86_64-pc-windows-gnu \
