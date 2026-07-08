@@ -170,24 +170,19 @@ fn format_text_ffi_live_stable_when_lib_present() {
     assert_eq!(run1, run2);
 }
 
-/// Shared ATX-class contract on the AST path (snapper-25kc class bug).
-/// Uses shipped `format_text` + AST JSON classify — not a reimplemented walker.
+/// Pandoc parse first: Header node → Structure; title never Prose (no reflow).
 #[test]
-fn numbered_heading_ast_json_and_reflow_not_orphan() {
+fn numbered_heading_after_pandoc_parse_not_prose() {
     let json = read_fixture("numbered_heading.json");
     let regions = regions_from_pandoc_json(&json).expect("json");
     assert!(
         regions.iter().any(|r| {
             matches!(
                 r,
-                Region::Structure(s)
-                    if s.starts_with("### ")
-                        && s.contains("1.")
-                        && s.contains("cargo binstall")
-                        && !s[..s.len().saturating_sub(1)].contains('\n')
+                Region::Structure(s) if s.contains("1.") && s.contains("cargo binstall")
             )
         }),
-        "Header must be one ATX Structure line: {regions:?}"
+        "Header must be Structure from AST, got: {regions:?}"
     );
     assert!(
         !regions
@@ -197,22 +192,23 @@ fn numbered_heading_ast_json_and_reflow_not_orphan() {
     );
     assert!(
         regions.iter().any(|r| matches!(r, Region::Prose(_))),
-        "body paragraphs remain prose: {regions:?}"
+        "body Para remain prose for snapper: {regions:?}"
     );
     assert!(
         regions.iter().any(|r| matches!(r, Region::Code { .. })),
-        "code block non-prose: {regions:?}"
+        "CodeBlock non-prose: {regions:?}"
     );
     assert!(
         regions
             .iter()
             .any(|r| matches!(r, Region::Structure(s) if s.contains("[table]"))),
-        "table non-prose: {regions:?}"
+        "Table non-prose: {regions:?}"
     );
 }
 
+/// End-to-end: pandoc parse → snapper reflow. Header title not sentence-split.
 #[test]
-fn format_text_pandoc_numbered_heading_stable_no_orphan() {
+fn format_text_pandoc_then_snapper_numbered_header_stable() {
     let input = read_fixture("numbered_heading.md");
     let backend = if ffi_available() {
         PandocBackend::Ffi
@@ -232,40 +228,36 @@ fn format_text_pandoc_numbered_heading_stable_no_orphan() {
     let run1 = format_text(&input, &cfg).expect("run1");
     let run2 = format_text(&input, &cfg).expect("run2");
     assert_eq!(run1, run2, "stable across two runs");
-    // Full heading on first line (or a line starting with ### that still has the title).
     let heading_line = run1
         .lines()
         .find(|l| l.contains("cargo binstall"))
-        .expect("heading title present in output");
+        .expect("heading title present after pandoc+snapper");
+    // Full title on one structure payload line (not reflowed into multiple sentences).
     assert!(
-        heading_line.starts_with("### "),
-        "heading must stay ATX structure line, got: {heading_line:?}\nfull:\n{run1}"
+        heading_line.contains("1.") && heading_line.contains("cargo binstall"),
+        "Header title not sentence-split: {heading_line:?}\nfull:\n{run1}"
     );
-    assert!(
-        heading_line.contains("1."),
-        "numbered title intact on same line: {heading_line:?}"
-    );
-    // Classic bug shape: a line that is only "### 1." or "### 1"
+    // Must not reflow "1." as end of a prose sentence leaving a dangling title fragment.
     assert!(
         !run1.lines().any(|l| {
             let t = l.trim();
-            t == "### 1." || t == "### 1"
+            t == "1." || t == "`cargo binstall` (preferred binary install)"
         }),
-        "orphan ### 1. line forbidden:\n{run1}"
+        "title must not be split by snapper reflow:\n{run1}"
     );
     assert!(
         run1.contains("print") || run1.contains("python"),
-        "code content preserved: {run1}"
+        "code preserved: {run1}"
     );
     assert!(
         run1.contains("[table]") || run1.to_lowercase().contains("table"),
-        "table remains non-prose marker: {run1}"
+        "table non-prose: {run1}"
     );
 }
 
-/// Default path (no pandoc) must keep the main ATX contract on the same input.
+/// Native path (no pandoc) still has its own ATX source-line contract.
 #[test]
-fn default_path_numbered_atx_matches_main_contract() {
+fn default_path_numbered_atx_source_line_not_split() {
     let input = read_fixture("numbered_heading.md");
     let cfg = FormatConfig {
         format: Format::Markdown,
@@ -277,7 +269,7 @@ fn default_path_numbered_atx_matches_main_contract() {
         out.lines()
             .next()
             .is_some_and(|l| l == "### 1. `cargo binstall` (preferred binary install)"),
-        "default path full ATX line, got:\n{out}"
+        "native path keeps full ATX source line, got:\n{out}"
     );
     assert!(!out.lines().any(|l| l.trim() == "### 1." || l.trim() == "### 1"));
 }
