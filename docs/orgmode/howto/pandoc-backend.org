@@ -7,14 +7,14 @@
 :END:
 
 Snapper includes a universal parser backend powered by [[https://pandoc.org][pandoc]].
+The point of this path is to apply snapper’s semantic line-break formatting to *everything pandoc can read*, using pandoc’s document model as structure truth.
+
 When enabled with =--use-pandoc=, snapper obtains a pandoc document AST and classifies regions from *block/inline node kinds* (=Para= / =Plain= → prose; =Header= / =CodeBlock= / =Table= → non-prose structure or code). It does not re-run the hand-rolled line parsers under =src/parser/{markdown,org,latex,rst}.rs= on that path.
 
-Two ways to obtain the AST:
+Two ways to obtain the AST (same AST→region walker either way):
 
-1. *FFI (in-process)* — =--pandoc-backend ffi= loads =libsnapper_pandoc= (Haskell foreign-library over the pandoc library, C ABI). No =pandoc= CLI process.
-2. *CLI (subprocess)* — =--pandoc-backend cli= (default) runs =pandoc -t json=.
-
-This gives snapper support for every format pandoc handles: typst, asciidoc, docx, html, epub, and more (CLI backend; FFI covers the formats linked into the foreign library: markdown, org, rst, latex, html, typst).
+1. *CLI (subprocess)* — =--pandoc-backend cli= (default) runs =pandoc -t json=. Uses the full reader set of the installed pandoc binary (typst, asciidoc, docx, html, epub, and more).
+2. *FFI (in-process)* — =--pandoc-backend ffi= loads =libsnapper_pandoc= (Haskell foreign-library, C ABI). No =pandoc= process; readers are those linked into the library (markdown, org, rst, latex, html, typst at minimum).
 
 * Requirements
 :PROPERTIES:

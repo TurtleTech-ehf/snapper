@@ -40,10 +40,18 @@ fn extract_block(block: &Block, regions: &mut Vec<Region>) {
                 regions.push(Region::Prose(trimmed.to_string()));
             }
         }
-        Block::Header(_level, _attr, inlines) => {
+        Block::Header(level, _attr, inlines) => {
+            // Entire heading is one Structure region — same contract as the
+            // native ATX fix (snapper-25kc): never Structure(prefix)+Prose(title),
+            // so titles like "1. `cargo binstall` …" are not sentence-reflowed.
+            // Reconstruct ATX markers from the pandoc Header level so the
+            // emitted line remains an obvious single non-prose heading.
             let text = extract_inlines(inlines);
-            if !text.trim().is_empty() {
-                regions.push(Region::Structure(format!("{}\n", text.trim())));
+            let title = text.trim();
+            if !title.is_empty() {
+                let n = (*level).clamp(1, 6) as usize;
+                let marks = "#".repeat(n);
+                regions.push(Region::Structure(format!("{marks} {title}\n")));
             }
         }
         Block::CodeBlock(attr, code) => {
@@ -209,12 +217,12 @@ mod tests {
             "expected paragraph prose, got {prose:?}"
         );
 
-        let has_heading_structure = regions
-            .iter()
-            .any(|r| matches!(r, Region::Structure(s) if s.contains("Title")));
+        let has_heading_structure = regions.iter().any(|r| {
+            matches!(r, Region::Structure(s) if s.starts_with('#') && s.contains("Title"))
+        });
         assert!(
             has_heading_structure,
-            "Header must be Structure, not Prose: {regions:?}"
+            "Header must be single ATX-style Structure, not Prose: {regions:?}"
         );
 
         let code = regions.iter().find_map(|r| match r {
@@ -246,6 +254,45 @@ mod tests {
         assert!(
             err.contains("deserialize") || err.contains("failed"),
             "unexpected error: {err}"
+        );
+    }
+
+    /// Pandoc Header with a numbered title that used to break native ATX reflow.
+    /// Contract: one Structure line with reconstructed ATX marks; title never Prose.
+    #[test]
+    fn ast_numbered_header_is_single_structure_not_prose() {
+        let json = include_str!("../../../tests/fixtures/pandoc_ast/numbered_heading.json");
+        let regions = regions_from_pandoc_json(json).expect("numbered_heading.json");
+
+        let heading = regions.iter().find_map(|r| match r {
+            Region::Structure(s) if s.contains("cargo binstall") => Some(s.as_str()),
+            _ => None,
+        });
+        let heading = heading.expect(&format!("expected Structure heading, got {regions:?}"));
+        assert!(
+            heading.starts_with("### "),
+            "level-3 Header must reconstruct ###, got: {heading:?}"
+        );
+        assert!(
+            heading.contains("1.") && heading.contains("cargo binstall"),
+            "full title in one Structure line: {heading:?}"
+        );
+        assert!(
+            heading.ends_with('\n') && !heading[..heading.len() - 1].contains('\n'),
+            "single-line Structure heading: {heading:?}"
+        );
+        assert!(
+            !regions
+                .iter()
+                .any(|r| matches!(r, Region::Prose(p) if p.contains("cargo binstall"))),
+            "heading title must not be Prose: {regions:?}"
+        );
+        // Must not look like the old bug: orphan "### 1." as its own structure line.
+        assert!(
+            !regions
+                .iter()
+                .any(|r| matches!(r, Region::Structure(s) if s.trim() == "### 1." || s.trim() == "### 1")),
+            "orphan ### 1. structure forbidden: {regions:?}"
         );
     }
 }

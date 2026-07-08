@@ -1,12 +1,18 @@
 //! Pandoc-backed structure classification for snapper.
 //!
-//! Two ways to obtain a pandoc document AST:
-//! - **FFI** ([`PandocBackend::Ffi`]): in-process C bindings to a Haskell
-//!   foreign-library (`libsnapper_pandoc`) — no `pandoc` CLI process.
-//! - **CLI** ([`PandocBackend::Cli`]): `pandoc -t json` subprocess (legacy).
+//! Goal: apply snapper reflow to **any format pandoc can read**, using pandoc’s
+//! document model as structure truth (not hand-rolled per-format line guesses).
 //!
-//! In both cases, region kinds are decided solely by
-//! [`ast::regions_from_pandoc`] from pandoc block/inline node kinds.
+//! Two ways to obtain a pandoc document AST (same walker either way):
+//! - **CLI** ([`PandocBackend::Cli`]): `pandoc -t json` — full reader set the
+//!   installed pandoc binary ships (typst, asciidoc, docx, html, …).
+//! - **FFI** ([`PandocBackend::Ffi`]): in-process `libsnapper_pandoc` (Haskell
+//!   foreign-library) — no subprocess; reader set is whatever the linked
+//!   pandoc library exposes.
+//!
+//! Region kinds are decided solely by [`ast::regions_from_pandoc`] from pandoc
+//! block/inline node kinds (`Header` / `CodeBlock` / `Table` non-prose;
+//! `Para` / `Plain` prose).
 
 pub mod ast;
 pub mod cli;
