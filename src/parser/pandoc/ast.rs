@@ -177,14 +177,18 @@ fn format_math(ty: &MathType, body: &str) -> String {
     }
 }
 
-fn flush_prose_buf(prose: &mut String, regions: &mut Vec<Region>) {
-    // Keep a leading space after a math/code island (do not trim_start), so
-    // "… $math$ word" does not become "$math$word". Still drop all-whitespace.
+fn flush_prose_buf(prose: &mut String, regions: &mut Vec<Region>, trim_trailing: bool) {
+    // Drop all-whitespace buffers. When flushing mid-paragraph before a math
+    // island, keep a trailing space so "word $math$" does not become "word$math$".
     if prose.chars().all(|c| c.is_whitespace()) {
         prose.clear();
         return;
     }
-    let s = prose.trim_end();
+    let s = if trim_trailing {
+        prose.trim_end()
+    } else {
+        prose.as_str()
+    };
     if !s.is_empty() {
         regions.push(Region::Prose(s.to_string()));
     }
@@ -216,7 +220,7 @@ fn extract_para_inlines(inlines: &[Inline], regions: &mut Vec<Region>) {
 
     let mut prose = String::new();
     walk_para_inlines(inlines, regions, &mut prose);
-    flush_prose_buf(&mut prose, regions);
+    flush_prose_buf(&mut prose, regions, true);
 }
 
 /// Recursively walk inlines: `Math` / `Code` → structure islands; text → prose.
@@ -224,16 +228,22 @@ fn walk_para_inlines(inlines: &[Inline], regions: &mut Vec<Region>, prose: &mut 
     for inline in inlines {
         match inline {
             Inline::Math(ty, body) => {
-                flush_prose_buf(prose, regions);
+                flush_prose_buf(prose, regions, false);
                 let mut s = format_math(ty, body);
-                if matches!(ty, MathType::DisplayMath) && !s.ends_with('\n') {
-                    s.push('\n');
+                if matches!(ty, MathType::DisplayMath) {
+                    if !s.ends_with('\n') {
+                        s.push('\n');
+                    }
+                } else {
+                    // Trailing space so reflow can join "…$math$ word" without
+                    // relying on a leading space that sentence-split trims.
+                    s.push(' ');
                 }
                 regions.push(Region::Structure(s));
             }
             Inline::Code(_, code) => {
-                flush_prose_buf(prose, regions);
-                regions.push(Region::Structure(format!("`{code}`")));
+                flush_prose_buf(prose, regions, false);
+                regions.push(Region::Structure(format!("`{code}` ")));
             }
             Inline::Str(s) => prose.push_str(s),
             Inline::Space => prose.push(' '),
