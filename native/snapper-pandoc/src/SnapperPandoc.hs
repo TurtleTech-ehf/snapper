@@ -76,7 +76,8 @@ runParse fmt input =
     Just reader ->
       case runPure (reader opts input) of
         Left err -> Left (show (err :: PandocError))
-        Right doc -> Right (Aeson.encode (doc :: Pandoc))
+        -- Compact JSON; force encode before returning (hot path for FFI).
+        Right doc -> Right $! Aeson.encode (doc :: Pandoc)
   where
     opts :: ReaderOptions
     opts = def { readerExtensions = getDefaultExtensions fmt }
