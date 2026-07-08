@@ -27,7 +27,17 @@ How to run step 1 (same step-2 walker):
 
 **CLI backend.** Pandoc 2.x or 3.x on =PATH=. With =--use-pandoc=, a missing or failing pandoc is an explicit error (no silent all-prose).
 
-**FFI backend.** Build =native/snapper-pandoc=, set =SNAPPER_PANDOC_LIB= to =libsnapper_pandoc.so=. A missing library with =--pandoc-backend ffi= errors with =pandoc FFI library unavailable=.
+**FFI backend (dynamic).** Build =native/snapper-pandoc=, set =SNAPPER_PANDOC_LIB= to =libsnapper_pandoc.so= (or put it on the search path). A missing library with =--pandoc-backend ffi= errors with =pandoc FFI library unavailable= (fail-closed; never silent all-prose).
+
+**FFI backend (co-linked).** Feature =pandoc-colink= links =libsnapper_pandoc= at build time and embeds rpath for the foreign library plus GHC/pandoc package dirs (not host glibc). Happy path needs no =SNAPPER_PANDOC_LIB= discovery:
+
+#+begin_src bash
+export SNAPPER_PANDOC_LIB_DIR=$PWD/native/snapper-pandoc/lib
+cargo build --release --features "cli,pandoc,pandoc-colink"
+snapper --use-pandoc --pandoc-backend ffi paper.md
+#+end_src
+
+See =native/snapper-pandoc/README.md= for SONAME layout (=libsnapper_pandoc.so.0=).
 
 * Usage
 :PROPERTIES:

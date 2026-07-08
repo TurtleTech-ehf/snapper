@@ -12,10 +12,30 @@ cd native/snapper-pandoc
 cabal update
 cabal build snapper_pandoc
 # Shared object lands under dist-newstyle/build/.../libsnapper_pandoc.so
+mkdir -p lib
+cp dist-newstyle/build/*/*/*/f/snapper_pandoc/build/snapper_pandoc/libsnapper_pandoc.so* lib/
+# SONAME is libsnapper_pandoc.so.0 — colink binaries NEEDED that name.
+ln -sfn libsnapper_pandoc.so.0.0.0 lib/libsnapper_pandoc.so.0
+ln -sfn libsnapper_pandoc.so.0.0.0 lib/libsnapper_pandoc.so
 ```
 
-Install the `.so` on the linker path (or set `SNAPPER_PANDOC_LIB`) so the Rust
-`pandoc-ffi` feature can `dlopen` it.
+### Dynamic load (default Rust feature `pandoc`)
+
+Set `SNAPPER_PANDOC_LIB` or put the `.so` on the linker path so snapper can
+`dlopen` it at runtime.
+
+### Co-link / compile together (feature `pandoc-colink`)
+
+Build the foreign library, then:
+
+```bash
+export SNAPPER_PANDOC_LIB_DIR=$PWD/native/snapper-pandoc/lib
+cargo build --release --features "cli,pandoc,pandoc-colink"
+```
+
+`build.rs` adds `-L` / `-lsnapper_pandoc` and absolute `rpath` entries for the
+`.so` and its GHC/pandoc dependencies (from `ldd`). The happy path uses linked
+symbols (`extern "C" snapper_pandoc_parse`); no `SNAPPER_PANDOC_LIB` discovery.
 
 ## C ABI
 
