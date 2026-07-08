@@ -57,3 +57,11 @@ Formats: `markdown`/`gfm`/`commonmark`, `org`, `rst`, `latex`, `html`, `typst`.
 
 The host process must initialize the GHC RTS (`hs_init`) before parse. Rust
 bindings in `src/parser/pandoc/ffi.rs` own that lifecycle (process-lifetime argv).
+
+## UPX (not used in release)
+
+[UPX](https://upx.github.io/) is an optional **executable packer**: it compresses a
+finished binary on disk and decompresses it in memory at start. It is **not** a
+compiler tree-shaker, does not remove unused pandoc code, and is **not** required
+for correctness. Snapper releases do not run UPX; install size reduction for
+colink builds is a build-graph problem (`build-static.sh` / thinner deps), not packing.

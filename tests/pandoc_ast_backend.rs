@@ -96,6 +96,9 @@ fn snapper_cli_ffi_bad_lib_is_explicit_error() {
         .arg(&input)
         .env("SNAPPER_PANDOC_LIB", "/nonexistent/libsnapper_pandoc.so")
         .env_remove("SNAPPER_PANDOC_LIB_DIR")
+        // Disable AST cache so a prior CLI/FFI parse of this fixture cannot succeed
+        // without loading the library.
+        .env("SNAPPER_PANDOC_CACHE", "0")
         .output()
         .expect("spawn snapper");
     assert!(

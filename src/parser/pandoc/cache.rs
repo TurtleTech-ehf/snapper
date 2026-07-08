@@ -117,14 +117,34 @@ mod tests {
 
     #[test]
     fn cache_roundtrip_memory() {
-        clear_memory();
+        // Unique key so parallel tests / disk under default XDG cannot poison the miss.
         let fmt = "markdown";
-        let input = "Hello cache. Second.";
-        assert!(get_json(fmt, input).is_none());
-        put_json(fmt, input, r#"{"pandoc-api-version":[1,23,1],"meta":{},"blocks":[]}"#);
-        let hit = get_json(fmt, input).expect("memory hit");
+        let input = format!(
+            "Hello cache unit-{}-{}. Second.",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or(0)
+        );
+        let dir = std::env::temp_dir().join(format!("snapper-cache-ut-{}", std::process::id()));
+        let _ = fs::create_dir_all(&dir);
+        // SAFETY: test-only env isolation for cache dir.
+        unsafe {
+            std::env::set_var("SNAPPER_PANDOC_CACHE", "1");
+            std::env::set_var("SNAPPER_PANDOC_CACHE_DIR", &dir);
+        }
+        clear_memory();
+        assert!(get_json(fmt, &input).is_none());
+        put_json(
+            fmt,
+            &input,
+            r#"{"pandoc-api-version":[1,23,1],"meta":{},"blocks":[]}"#,
+        );
+        let hit = get_json(fmt, &input).expect("memory hit");
         assert!(hit.contains("pandoc-api-version"));
         clear_memory();
+        let _ = fs::remove_dir_all(&dir);
     }
 
     #[test]
