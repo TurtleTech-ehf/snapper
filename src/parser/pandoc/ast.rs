@@ -178,9 +178,15 @@ fn format_math(ty: &MathType, body: &str) -> String {
 }
 
 fn flush_prose_buf(prose: &mut String, regions: &mut Vec<Region>) {
-    let trimmed = prose.trim();
-    if !trimmed.is_empty() {
-        regions.push(Region::Prose(trimmed.to_string()));
+    // Keep a leading space after a math/code island (do not trim_start), so
+    // "… $math$ word" does not become "$math$word". Still drop all-whitespace.
+    if prose.chars().all(|c| c.is_whitespace()) {
+        prose.clear();
+        return;
+    }
+    let s = prose.trim_end();
+    if !s.is_empty() {
+        regions.push(Region::Prose(s.to_string()));
     }
     prose.clear();
 }
