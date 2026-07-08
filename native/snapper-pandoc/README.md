@@ -1,52 +1,49 @@
 # snapper-pandoc
 
-In-process pandoc surface for snapper: a Cabal `foreign-library` that exports
-a small C ABI (`include/snapper_pandoc.h`) over the Haskell pandoc library.
+In-process pandoc surface for snapper: a small C ABI (`include/snapper_pandoc.h`)
+over selected pandoc **readers** (JSON AST out).
 
-## Build
+## Two build products
 
-Requires GHC and the `pandoc` Haskell package (matching a recent pandoc 3.x).
+| Product | How | Used by |
+|---------|-----|---------|
+| **Static archive** `libsnapper_pandoc.a` | `./build-static.sh` (`ghc -staticlib`) | **`pandoc-colink`** — absorbed into one `snapper` binary |
+| **Shared** `libsnapper_pandoc.so` | `cabal build snapper_pandoc` | default `pandoc` feature via `dlopen` |
+
+Colink is a **build** path (compile archive → link into snapper), not “ship 200 MB of
+`libHS*` via RUNPATH.”
+
+## Static archive (colink / one binary)
+
+Requires GHC with the `pandoc` package registered (`ghc-pkg field pandoc id`).
 
 ```bash
 cd native/snapper-pandoc
-cabal update
-cabal build snapper_pandoc
-# Shared object lands under dist-newstyle/build/.../libsnapper_pandoc.so
-mkdir -p lib
-cp dist-newstyle/build/*/*/*/f/snapper_pandoc/build/snapper_pandoc/libsnapper_pandoc.so* lib/
-# SONAME is libsnapper_pandoc.so.0 — colink binaries NEEDED that name.
-ln -sfn libsnapper_pandoc.so.0.0.0 lib/libsnapper_pandoc.so.0
-ln -sfn libsnapper_pandoc.so.0.0.0 lib/libsnapper_pandoc.so
-```
+./build-static.sh
+# writes lib/libsnapper_pandoc.a
 
-### Dynamic load (default Rust feature `pandoc`)
-
-Set `SNAPPER_PANDOC_LIB` or put the `.so` on the linker path so snapper can
-`dlopen` it at runtime.
-
-### Co-link / compile together (feature `pandoc-colink`)
-
-Build the foreign library, then:
-
-```bash
-export SNAPPER_PANDOC_LIB_DIR=$PWD/native/snapper-pandoc/lib
+export SNAPPER_PANDOC_LIB_DIR=$PWD/lib   # or SNAPPER_PANDOC_STATIC_LIB=.../libsnapper_pandoc.a
 cargo build --release --features "cli,pandoc,pandoc-colink"
 ```
 
-`build.rs` emits the link line (shared foreign-library, not a full static GHC
-archive — still one co-built deploy unit via `NEEDED` + `RUNPATH`):
+`build.rs` (feature `pandoc-colink`) links the `.a` with `--whole-archive` and
+`--gc-sections`, plus ordinary system libs (`z`, `gmp`, `ffi`, …). It does **not**
+inject GHC package-dir rpaths from `ldd`.
 
-```text
--L$SNAPPER_PANDOC_LIB_DIR
--Wl,--no-as-needed $SNAPPER_PANDOC_LIB_DIR/libsnapper_pandoc.so.0.0.0 -Wl,--as-needed
--lsnapper_pandoc
--Wl,-rpath,$SNAPPER_PANDOC_LIB_DIR
--Wl,-rpath,<each GHC/pandoc package dir from ldd; never host glibc/gmp/zlib>
+Final size is dominated by how much of pandoc the staticlib + GC keep (typically
+tens of MB for one executable), not by a tree of separate HS shared objects.
+
+## Shared library (dlopen)
+
+```bash
+cd native/snapper-pandoc
+cabal build snapper_pandoc
+mkdir -p lib
+cp dist-newstyle/build/*/*/*/f/snapper_pandoc/build/snapper_pandoc/libsnapper_pandoc.so* lib/
+ln -sfn libsnapper_pandoc.so.0.0.0 lib/libsnapper_pandoc.so.0
+ln -sfn libsnapper_pandoc.so.0.0.0 lib/libsnapper_pandoc.so
+export SNAPPER_PANDOC_LIB=$PWD/lib/libsnapper_pandoc.so
 ```
-
-The happy path uses linked symbols (`extern "C" snapper_pandoc_parse`); no
-`SNAPPER_PANDOC_LIB` discovery. Prefer `bfd` if mold drops the absolute `.so`
-(`RUSTFLAGS='-C link-arg=-fuse-ld=bfd'`).
 
 ## C ABI
 
@@ -56,5 +53,7 @@ The happy path uses linked symbols (`extern "C" snapper_pandoc_parse`); no
 | `snapper_pandoc_free(ptr)` | Free strings from parse / err_out |
 | `snapper_pandoc_hs_ready()` | Optional touch of the Haskell side |
 
-The host process must initialize the GHC RTS (`hs_init` / `hs_exit`) before
-calling parse. The Rust bindings in `src/parser/pandoc/ffi.rs` own that lifecycle.
+Formats: `markdown`/`gfm`/`commonmark`, `org`, `rst`, `latex`, `html`, `typst`.
+
+The host process must initialize the GHC RTS (`hs_init`) before parse. Rust
+bindings in `src/parser/pandoc/ffi.rs` own that lifecycle (process-lifetime argv).
