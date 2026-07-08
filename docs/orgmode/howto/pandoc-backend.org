@@ -14,10 +14,11 @@ The pandoc path is **parse with pandoc, then apply snapper** — not “guess ma
 
 That is how snapper can format everything pandoc can read (typst, asciidoc, docx, html, …) without inventing per-format line heuristics.
 
-Two ways to run step 1 (same step-2 walker):
+How to run step 1 (same step-2 walker):
 
-1. *CLI* — =--pandoc-backend cli= (default): =pandoc -t json= (full reader set of the installed binary).
-2. *FFI* — =--pandoc-backend ffi=: in-process =libsnapper_pandoc= (Haskell foreign-library).
+1. *Auto* — =--pandoc-backend auto= (default): prefer in-process FFI when =libsnapper_pandoc= loads, else CLI. This is the successor path for multi-format work (amortizes RTS; avoids process-per-file spawn).
+2. *CLI* — =--pandoc-backend cli=: =pandoc -t json= (full reader set of the installed binary).
+3. *FFI* — =--pandoc-backend ffi=: require =libsnapper_pandoc= (explicit error if missing).
 
 * Requirements
 :PROPERTIES:
@@ -34,11 +35,14 @@ Two ways to run step 1 (same step-2 walker):
 :END:
 
 #+begin_src bash
-# Pandoc parses; snapper reflows prose from the AST
+# Pandoc parses; snapper reflows prose from the AST (auto = FFI if available)
 snapper --use-pandoc paper.typ
+snapper --use-pandoc --pandoc-backend auto paper.md
 snapper --use-pandoc --pandoc-backend cli guide.adoc
 snapper --use-pandoc --pandoc-backend ffi paper.md
 #+end_src
+
+Native line parsers remain the default until product flip. Use =--use-pandoc= when you need formats without a built-in parser or AST-true structure; prefer FFI for latency once =libsnapper_pandoc= is installed.
 
 * When to use pandoc vs built-in parsers
 :PROPERTIES:

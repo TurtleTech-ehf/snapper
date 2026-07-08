@@ -205,12 +205,18 @@ pub fn parse_via_ffi(input: &str, format: &str) -> Result<Vec<Region>, FfiError>
         };
         return Err(FfiError::ParseFailed(msg));
     }
-    let json = unsafe { CStr::from_ptr(json_ptr) }
-        .to_string_lossy()
-        .into_owned();
+    // Copy JSON bytes before free; avoid lossy UTF-8 re-encode when valid.
+    let json = unsafe {
+        let c = CStr::from_ptr(json_ptr);
+        let bytes = c.to_bytes();
+        match std::str::from_utf8(bytes) {
+            Ok(s) => s.to_owned(),
+            Err(_) => c.to_string_lossy().into_owned(),
+        }
+    };
     unsafe { (api.free)(json_ptr) };
     drop(_rts);
-    // Classify outside the RTS gate — pure Rust.
+    // Classify outside the RTS gate — pure Rust (hot path after obtain-AST).
     regions_from_pandoc_json(&json).map_err(FfiError::InvalidAst)
 }
 
