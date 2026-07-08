@@ -186,10 +186,8 @@ pub fn format_text_with_splitter(
                     Format::Rst => "rst",
                     Format::Plaintext => "markdown",
                 });
-            let parser = parser::pandoc::PandocParser::with_backend(
-                pandoc_fmt,
-                config.pandoc_backend,
-            );
+            let parser =
+                parser::pandoc::PandocParser::with_backend(pandoc_fmt, config.pandoc_backend);
             // Pandoc path: fail closed (no silent all-prose, no native re-parse).
             parser
                 .try_parse(work_input)

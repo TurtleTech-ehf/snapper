@@ -8,11 +8,11 @@
 use std::path::PathBuf;
 
 use snapper_fmt::format::Format;
+use snapper_fmt::parser::Region;
 use snapper_fmt::parser::pandoc::{
     PandocBackend, PandocParser, ffi_available, regions_from_pandoc_json,
 };
-use snapper_fmt::parser::Region;
-use snapper_fmt::{format_text, FormatConfig};
+use snapper_fmt::{FormatConfig, format_text};
 
 fn fixture(name: &str) -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -52,10 +52,7 @@ fn mixed_markdown_json_fixture_classifies_via_shipped_ast_mapper() {
 
     for r in &regions {
         if let Region::Prose(s) = r {
-            assert!(
-                !s.contains("print("),
-                "code must not be prose: {s}"
-            );
+            assert!(!s.contains("print("), "code must not be prose: {s}");
         }
     }
 }
@@ -320,7 +317,9 @@ fn format_text_pandoc_math_and_code_protected() {
     // from sentence split of math (body may still appear as structure lines).
     let regions = regions_from_pandoc_json(&read_fixture("math_code_md.json")).unwrap();
     assert!(
-        !regions.iter().any(|r| matches!(r, Region::Prose(p) if p.contains("1.5"))),
+        !regions
+            .iter()
+            .any(|r| matches!(r, Region::Prose(p) if p.contains("1.5"))),
         "display math not prose regions: {regions:?}"
     );
     assert!(
@@ -455,5 +454,8 @@ fn default_path_numbered_atx_source_line_not_split() {
             .is_some_and(|l| l == "### 1. `cargo binstall` (preferred binary install)"),
         "native path keeps full ATX source line, got:\n{out}"
     );
-    assert!(!out.lines().any(|l| l.trim() == "### 1." || l.trim() == "### 1"));
+    assert!(
+        !out.lines()
+            .any(|l| l.trim() == "### 1." || l.trim() == "### 1")
+    );
 }

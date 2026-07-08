@@ -186,7 +186,10 @@ mod tests {
 
     #[test]
     fn backend_from_str() {
-        assert_eq!("auto".parse::<PandocBackend>().unwrap(), PandocBackend::Auto);
+        assert_eq!(
+            "auto".parse::<PandocBackend>().unwrap(),
+            PandocBackend::Auto
+        );
         assert_eq!("ffi".parse::<PandocBackend>().unwrap(), PandocBackend::Ffi);
         assert_eq!("cli".parse::<PandocBackend>().unwrap(), PandocBackend::Cli);
         assert_eq!(PandocBackend::default(), PandocBackend::Auto);
