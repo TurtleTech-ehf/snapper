@@ -441,9 +441,14 @@ fn config_per_format_width_applies() {
 #[test]
 fn markdown_numbered_atx_heading_not_split() {
     // snapper-25kc / rtrash README regression
-    let input = "### 1. `cargo binstall` (preferred binary install)\n\nBody one. Body two more words.\n";
+    let input =
+        "### 1. `cargo binstall` (preferred binary install)\n\nBody one. Body two more words.\n";
     let out = pipe_stdin(input, &["--format", "markdown"]);
-    assert!(out.status.success(), "stderr={}", String::from_utf8_lossy(&out.stderr));
+    assert!(
+        out.status.success(),
+        "stderr={}",
+        String::from_utf8_lossy(&out.stderr)
+    );
     let result = String::from_utf8(out.stdout).unwrap();
     assert!(
         result.starts_with("### 1. `cargo binstall` (preferred binary install)\n"),

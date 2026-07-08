@@ -64,9 +64,7 @@ static HS_INIT_ARGV: OnceLock<HsInitArgv> = OnceLock::new();
 /// Call `hs_init` with argv that outlives the process (leaked once).
 unsafe fn call_hs_init(init: HsInitFn) {
     let storage = HS_INIT_ARGV.get_or_init(|| {
-        let arg0 = CString::new("snapper")
-            .expect("argv0")
-            .into_raw();
+        let arg0 = CString::new("snapper").expect("argv0").into_raw();
         HsInitArgv {
             _arg0: arg0,
             argv: Box::new([arg0]),
@@ -105,11 +103,9 @@ mod linked {
 
     pub fn ensure_init() -> Result<(), FfiError> {
         let slot = INIT.get_or_init(|| {
-            RTS_INIT.get_or_init(|| {
-                unsafe {
-                    call_hs_init(hs_init);
-                    snapper_pandoc_hs_ready();
-                }
+            RTS_INIT.get_or_init(|| unsafe {
+                call_hs_init(hs_init);
+                snapper_pandoc_hs_ready();
             });
             Ok(())
         });
@@ -121,16 +117,13 @@ mod linked {
 
     pub fn parse(format: &str, input: &str) -> Result<String, FfiError> {
         ensure_init()?;
-        let fmt = CString::new(format)
-            .map_err(|e| FfiError::ParseFailed(format!("format NUL: {e}")))?;
-        let inp = CString::new(input)
-            .map_err(|e| FfiError::ParseFailed(format!("input NUL: {e}")))?;
-        let _rts = RTS_GATE
-            .lock()
-            .unwrap_or_else(|p| p.into_inner());
+        let fmt =
+            CString::new(format).map_err(|e| FfiError::ParseFailed(format!("format NUL: {e}")))?;
+        let inp =
+            CString::new(input).map_err(|e| FfiError::ParseFailed(format!("input NUL: {e}")))?;
+        let _rts = RTS_GATE.lock().unwrap_or_else(|p| p.into_inner());
         let mut err_ptr: *mut c_char = std::ptr::null_mut();
-        let json_ptr =
-            unsafe { snapper_pandoc_parse(fmt.as_ptr(), inp.as_ptr(), &mut err_ptr) };
+        let json_ptr = unsafe { snapper_pandoc_parse(fmt.as_ptr(), inp.as_ptr(), &mut err_ptr) };
         if json_ptr.is_null() {
             let msg = if !err_ptr.is_null() {
                 let s = unsafe { CStr::from_ptr(err_ptr) }
@@ -249,8 +242,7 @@ mod dynamic {
             .map_err(|e| format!("{}: missing snapper_pandoc_parse: {e}", path.display()))?;
         let free: Symbol<FreeFn> = unsafe { lib.get(b"snapper_pandoc_free\0") }
             .map_err(|e| format!("{}: missing snapper_pandoc_free: {e}", path.display()))?;
-        let ready: Option<Symbol<ReadyFn>> =
-            unsafe { lib.get(b"snapper_pandoc_hs_ready\0") }.ok();
+        let ready: Option<Symbol<ReadyFn>> = unsafe { lib.get(b"snapper_pandoc_hs_ready\0") }.ok();
         let hs_init: Option<Symbol<HsInitFn>> = unsafe { lib.get(b"hs_init\0") }.ok();
 
         RTS_INIT.get_or_init(|| {
@@ -421,7 +413,10 @@ mod tests {
             "build.rs must not collect GHC package dirs via ldd for rpath"
         );
         let script = manifest.join("native/snapper-pandoc/build-static.sh");
-        assert!(script.is_file(), "build-static.sh must exist for archive build");
+        assert!(
+            script.is_file(),
+            "build-static.sh must exist for archive build"
+        );
         let script_txt = std::fs::read_to_string(&script).expect("build-static.sh");
         assert!(
             script_txt.contains("-staticlib"),

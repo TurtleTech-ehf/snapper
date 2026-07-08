@@ -13,11 +13,9 @@ static CACHE_ENV_GATE: Mutex<()> = Mutex::new(());
 use std::time::Instant;
 
 use snapper_fmt::format::Format;
-use snapper_fmt::parser::pandoc::{
-    PandocBackend, ffi_available, regions_from_pandoc_json,
-};
 use snapper_fmt::parser::Region;
-use snapper_fmt::{format_text, FormatConfig};
+use snapper_fmt::parser::pandoc::{PandocBackend, ffi_available, regions_from_pandoc_json};
+use snapper_fmt::{FormatConfig, format_text};
 
 fn fixture(name: &str) -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -98,16 +96,10 @@ fn parity_md_prose_reflow_and_structure() {
     };
     let input = read("pandoc_ast/math_code.md");
     let native = format_text(&input, &native_cfg(Format::Markdown)).expect("native");
-    let pandoc = format_text(
-        &input,
-        &pandoc_cfg(Format::Markdown, backend, "markdown"),
-    )
-    .expect("pandoc");
-    let p2 = format_text(
-        &input,
-        &pandoc_cfg(Format::Markdown, backend, "markdown"),
-    )
-    .expect("pandoc2");
+    let pandoc =
+        format_text(&input, &pandoc_cfg(Format::Markdown, backend, "markdown")).expect("pandoc");
+    let p2 =
+        format_text(&input, &pandoc_cfg(Format::Markdown, backend, "markdown")).expect("pandoc2");
     assert_eq!(pandoc, p2, "pandoc dual-run");
 
     assert!(
@@ -148,7 +140,10 @@ fn parity_org_multi_sentence() {
             "This is the first paragraph of the introduction.",
             "It has multiple sentences"
         ) || (native.contains("first paragraph")
-            && native.lines().filter(|l| l.contains("sentence") || l.contains("paragraph")).count()
+            && native
+                .lines()
+                .filter(|l| l.contains("sentence") || l.contains("paragraph"))
+                .count()
                 >= 2),
         "native org reflow:\n{native}"
     );
@@ -187,7 +182,9 @@ fn parity_org_multi_sentence() {
     );
     // Code body not prose-fragmented by periods in list numbers etc.
     assert!(
-        !pandoc.lines().any(|l| l.trim() == "2, 3])" || l.trim() == "2,"),
+        !pandoc
+            .lines()
+            .any(|l| l.trim() == "2, 3])" || l.trim() == "2,"),
         "code not sentence-fragmented:\n{pandoc}"
     );
 
@@ -304,11 +301,7 @@ fn speed_library_native_vs_pandoc_report() {
     }
     cache::clear_memory();
     if let Some(backend) = best_backend() {
-        let _ = format_text(
-            &md,
-            &pandoc_cfg(Format::Markdown, backend, "markdown"),
-        )
-        .unwrap();
+        let _ = format_text(&md, &pandoc_cfg(Format::Markdown, backend, "markdown")).unwrap();
         let cached = time_format(
             &md,
             &pandoc_cfg(Format::Markdown, backend, "markdown"),
@@ -344,8 +337,14 @@ fn speed_library_native_vs_pandoc_report() {
             has_sentence_reflow(&out, "Hello world.", "Second sentence"),
             "latex prose reflow:\n{out}"
         );
-        assert!(out.contains("```") && out.contains("print"), "latex code: {out}");
-        assert!(out.contains("mc^2") || out.contains("$$"), "latex math: {out}");
+        assert!(
+            out.contains("```") && out.contains("print"),
+            "latex code: {out}"
+        );
+        assert!(
+            out.contains("mc^2") || out.contains("$$"),
+            "latex math: {out}"
+        );
     }
 
     unsafe {
@@ -390,7 +389,7 @@ fn fail_closed_still_holds() {
 
 #[test]
 fn ast_cache_makes_second_parse_fast() {
-    use snapper_fmt::parser::pandoc::{cache, parse_with_backend, PandocBackend};
+    use snapper_fmt::parser::pandoc::{PandocBackend, cache, parse_with_backend};
     let _gate = CACHE_ENV_GATE.lock().unwrap_or_else(|p| p.into_inner());
     // Unique input so parallel tests cannot poison our key.
     let nonce = format!(

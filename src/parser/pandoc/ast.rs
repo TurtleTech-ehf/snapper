@@ -554,7 +554,10 @@ mod tests {
         let has_table = regions.iter().any(|r| {
             matches!(r, Region::Structure(s) if s.contains('|') && (s.contains('a') || s.contains("---")))
         });
-        assert!(has_table, "Table must be pipe Structure from cells: {regions:?}");
+        assert!(
+            has_table,
+            "Table must be pipe Structure from cells: {regions:?}"
+        );
 
         for r in &regions {
             if let Region::Prose(s) = r {
@@ -585,9 +588,9 @@ mod tests {
         );
 
         assert!(
-            regions
-                .iter()
-                .any(|r| matches!(r, Region::Structure(s) if s.trim() == "-" || s.starts_with("- "))),
+            regions.iter().any(
+                |r| matches!(r, Region::Structure(s) if s.trim() == "-" || s.starts_with("- "))
+            ),
             "bullet marker: {regions:?}"
         );
         assert!(
@@ -624,8 +627,9 @@ mod tests {
             Region::Structure(s) if s.contains("cargo binstall") => Some(s.as_str()),
             _ => None,
         });
-        let heading =
-            heading.expect(&format!("expected Structure from Header node, got {regions:?}"));
+        let heading = heading.expect(&format!(
+            "expected Structure from Header node, got {regions:?}"
+        ));
         assert!(
             heading.contains("1.") && heading.contains("cargo binstall"),
             "Header title text preserved as structure payload: {heading:?}"
@@ -649,9 +653,9 @@ mod tests {
         let json = include_str!("../../../tests/fixtures/pandoc_ast/math_code_md.json");
         let regions = regions_from_pandoc_json(json).expect("math_code_md.json");
 
-        let code = regions.iter().find(|r| {
-            matches!(r, Region::Code { body, .. } if body.contains("print"))
-        });
+        let code = regions
+            .iter()
+            .find(|r| matches!(r, Region::Code { body, .. } if body.contains("print")));
         match code {
             Some(Region::Code {
                 lang,
@@ -660,7 +664,10 @@ mod tests {
                 footer,
             }) => {
                 assert_eq!(lang.as_deref(), Some("python"));
-                assert!(header.contains("```") && header.contains("python"), "{header}");
+                assert!(
+                    header.contains("```") && header.contains("python"),
+                    "{header}"
+                );
                 assert!(footer.contains("```"), "{footer}");
                 assert!(body.contains("print(1.0)") && body.contains("x = 2."));
             }
@@ -707,9 +714,9 @@ mod tests {
         let regions = regions_from_pandoc_json(json).expect("math_code_tex.json");
 
         assert!(
-            regions
-                .iter()
-                .any(|r| matches!(r, Region::Structure(s) if s.contains("mc^2") || s.contains("E = mc"))),
+            regions.iter().any(
+                |r| matches!(r, Region::Structure(s) if s.contains("mc^2") || s.contains("E = mc"))
+            ),
             "equation DisplayMath → Structure: {regions:?}"
         );
         assert!(
@@ -719,16 +726,17 @@ mod tests {
             "equation not Prose: {regions:?}"
         );
         assert!(
-            regions.iter().filter(|r| matches!(r, Region::Code { .. })).count() >= 1,
+            regions
+                .iter()
+                .filter(|r| matches!(r, Region::Code { .. }))
+                .count()
+                >= 1,
             "minted/lstlisting/verbatim as CodeBlock: {regions:?}"
         );
         for r in &regions {
             if let Region::Code { body, .. } = r {
                 // Code bodies must not be reflowed as prose regions.
-                assert!(
-                    !matches!(r, Region::Prose(_)),
-                    "code body present: {body}"
-                );
+                assert!(!matches!(r, Region::Prose(_)), "code body present: {body}");
             }
         }
         assert!(
