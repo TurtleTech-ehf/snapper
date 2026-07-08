@@ -77,24 +77,42 @@ fn mixed_org_json_fixture_classifies_via_shipped_ast_mapper() {
     );
 }
 
+/// Real CLI entry: selected FFI backend with a bad library path must error
+/// (not print reflowed all-prose success). Uses a subprocess so process-global
+/// FFI OnceLock state from other tests cannot mask the failure.
 #[test]
-fn format_text_ffi_backend_errors_explicitly_when_lib_missing() {
-    if ffi_available() {
-        // Live FFI path exercised in format_text_ffi_live when the lib is present.
-        return;
-    }
-    let cfg = FormatConfig {
-        format: Format::Markdown,
-        use_pandoc: true,
-        pandoc_backend: PandocBackend::Ffi,
-        pandoc_format: Some("markdown".into()),
-        ..Default::default()
-    };
-    let err = format_text("# Hi\n\nHello world.\n", &cfg).unwrap_err();
-    let msg = err.to_string();
+fn snapper_cli_ffi_bad_lib_is_explicit_error() {
+    let bin = env!("CARGO_BIN_EXE_snapper");
+    let input = fixture("numbered_heading.md");
+    let out = std::process::Command::new(bin)
+        .args([
+            "--use-pandoc",
+            "--pandoc-backend",
+            "ffi",
+            "--format",
+            "markdown",
+        ])
+        .arg(&input)
+        .env("SNAPPER_PANDOC_LIB", "/nonexistent/libsnapper_pandoc.so")
+        .env_remove("SNAPPER_PANDOC_LIB_DIR")
+        .output()
+        .expect("spawn snapper");
     assert!(
-        msg.contains("unavailable") || msg.contains("FFI") || msg.contains("library"),
-        "expected explicit FFI failure, got: {msg}"
+        !out.status.success(),
+        "FFI with missing lib must fail, stdout={}",
+        String::from_utf8_lossy(&out.stdout)
+    );
+    let err = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        err.contains("unavailable") || err.contains("FFI") || err.contains("library"),
+        "expected explicit FFI error on stderr, got: {err}"
+    );
+    // Must not look like successful reflow of the whole file as prose.
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(
+        stdout.trim().is_empty()
+            || (!stdout.contains("Hello world.") && !stdout.contains("cargo binstall")),
+        "must not emit all-prose success output on FFI failure: {stdout}"
     );
 }
 
@@ -115,14 +133,14 @@ fn format_text_cli_backend_stable_across_two_runs_when_pandoc_present() {
     let run1 = format_text(&input, &cfg).expect("run1");
     let run2 = format_text(&input, &cfg).expect("run2");
     assert_eq!(run1, run2, "AST/CLI reflow must be stable across two runs");
-    // Non-prose structure markers / content preserved at a high level
+    // Header title from AST (no requirement for invented ### markers).
     assert!(
-        run1.to_lowercase().contains("title") || run1.contains('#'),
-        "heading-related content should remain: {run1}"
+        run1.to_lowercase().contains("title"),
+        "Header title text should remain after pandoc+snapper: {run1}"
     );
     assert!(
-        run1.contains("print") || run1.contains("python") || run1.contains("```"),
-        "code-related content should remain (not sentence-split away): {run1}"
+        run1.contains("print") || run1.contains("python"),
+        "CodeBlock body should remain (not sentence-reflowed away): {run1}"
     );
 }
 
@@ -206,7 +224,7 @@ fn numbered_heading_after_pandoc_parse_not_prose() {
     );
 }
 
-/// End-to-end: pandoc parse → snapper reflow. Header title not sentence-split.
+/// End-to-end: pandoc parse → snapper reflow on prose only.
 #[test]
 fn format_text_pandoc_then_snapper_numbered_header_stable() {
     let input = read_fixture("numbered_heading.md");
@@ -228,16 +246,20 @@ fn format_text_pandoc_then_snapper_numbered_header_stable() {
     let run1 = format_text(&input, &cfg).expect("run1");
     let run2 = format_text(&input, &cfg).expect("run2");
     assert_eq!(run1, run2, "stable across two runs");
+
     let heading_line = run1
         .lines()
         .find(|l| l.contains("cargo binstall"))
         .expect("heading title present after pandoc+snapper");
-    // Full title on one structure payload line (not reflowed into multiple sentences).
     assert!(
         heading_line.contains("1.") && heading_line.contains("cargo binstall"),
         "Header title not sentence-split: {heading_line:?}\nfull:\n{run1}"
     );
-    // Must not reflow "1." as end of a prose sentence leaving a dangling title fragment.
+    // Success is node-kind based — do not require invented ATX `###` markers.
+    assert!(
+        !heading_line.trim_start().starts_with("###"),
+        "pandoc path must not invent ATX markers as structure proof: {heading_line:?}"
+    );
     assert!(
         !run1.lines().any(|l| {
             let t = l.trim();
@@ -245,13 +267,19 @@ fn format_text_pandoc_then_snapper_numbered_header_stable() {
         }),
         "title must not be split by snapper reflow:\n{run1}"
     );
+
+    // Body Para was reflowed: multi-sentence prose becomes separate lines.
+    assert!(
+        run1.contains("Hello world.\n") && run1.contains("Second sentence"),
+        "prose Para must be reflowed by snapper:\n{run1}"
+    );
     assert!(
         run1.contains("print") || run1.contains("python"),
         "code preserved: {run1}"
     );
     assert!(
-        run1.contains("[table]") || run1.to_lowercase().contains("table"),
-        "table non-prose: {run1}"
+        run1.contains("[table]"),
+        "Table stays non-prose marker from AST: {run1}"
     );
 }
 

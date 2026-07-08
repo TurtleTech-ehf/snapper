@@ -133,10 +133,9 @@ impl PandocParser {
 }
 
 impl FormatParser for PandocParser {
-    /// Trait method: on error returns empty regions only for unexpected panics;
-    /// library callers should prefer [`PandocParser::try_parse`] which surfaces
-    /// [`PandocError`] explicitly. For FFI/CLI failures we still must not invent
-    /// all-prose success — return empty and let format_text use try_parse.
+    /// Prefer [`PandocParser::try_parse`] / `format_text` (they surface errors).
+    /// On failure this returns **empty** regions — never all-prose fallback.
+    /// (`format_text` does not use this trait method for the pandoc path.)
     fn parse(&self, input: &str) -> Vec<Region> {
         self.try_parse(input).unwrap_or_default()
     }
