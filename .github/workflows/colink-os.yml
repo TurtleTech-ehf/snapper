@@ -166,19 +166,23 @@ jobs:
             MINGW_BIN=""
             GHC_ROOT="$(cd "$(dirname "$GHC_REAL")/.." && pwd -W 2>/dev/null || cd "$(dirname "$GHC_REAL")/.." && pwd)"
             echo "GHC_ROOT=$GHC_ROOT"
-            # Inventory bindist mingw (gcc may be nested).
+            # GHC Windows bindists ship mingw/ (often LLVM/clang, not classic gcc).
             if [[ -d "$GHC_ROOT/mingw" ]]; then
-              echo "bindist mingw tree (depth 3):"
-              find "$GHC_ROOT/mingw" -maxdepth 4 \( -name 'gcc.exe' -o -name 'gcc' -o -name 'ld.exe' -o -name 'x86_64-w64-mingw32-gcc.exe' \) 2>/dev/null | head -40 || true
+              echo "bindist mingw inventory:"
+              find "$GHC_ROOT/mingw" -maxdepth 5 \( \
+                -name 'gcc.exe' -o -name 'clang.exe' -o -name 'ld.exe' -o -name 'lld.exe' \
+                -o -name 'x86_64-w64-mingw32-gcc.exe' -o -name 'x86_64-w64-mingw32-clang.exe' \
+                -o -name 'ar.exe' -o -name 'objdump.exe' \) 2>/dev/null | head -50 || true
               ls -la "$GHC_ROOT/mingw" 2>/dev/null || true
+              ls -la "$GHC_ROOT/mingw/bin" 2>/dev/null | head -40 || true
             fi
-            # Prefer any gcc under the GHC bindist mingw first (object format match).
-            found="$(find "$GHC_ROOT/mingw" "$GHCUP_INSTALL_BASE_PREFIX" \
-              \( -name 'gcc.exe' -o -name 'x86_64-w64-mingw32-gcc.exe' \) 2>/dev/null \
-              | head -1 || true)"
+            # Prefer tools under the GHC bindist mingw (object format match).
+            found="$(find "$GHC_ROOT/mingw" \
+              \( -name 'gcc.exe' -o -name 'clang.exe' -o -name 'x86_64-w64-mingw32-gcc.exe' \
+                 -o -name 'x86_64-w64-mingw32-clang.exe' \) 2>/dev/null | head -1 || true)"
             if [[ -n "$found" ]]; then
               MINGW_BIN="$(cd "$(dirname "$found")" && pwd)"
-              echo "found gcc at $found → MINGW_BIN=$MINGW_BIN"
+              echo "found C compiler at $found → MINGW_BIN=$MINGW_BIN"
             fi
             if [[ -z "$MINGW_BIN" ]]; then
               for d in \
@@ -187,19 +191,16 @@ jobs:
                 "${GHCUP_INSTALL_BASE_PREFIX}/ghcup/msys64/mingw64/bin" \
                 "${HOME}/.ghcup/msys64/mingw64/bin" \
                 "/c/ghcup/msys64/mingw64/bin"; do
-                if [[ -e "${d}/gcc.exe" || -e "${d}/gcc" || -e "${d}/x86_64-w64-mingw32-gcc.exe" ]]; then
+                if [[ -e "${d}/gcc.exe" || -e "${d}/clang.exe" \
+                   || -e "${d}/x86_64-w64-mingw32-gcc.exe" ]]; then
                   MINGW_BIN="$d"
                   break
                 fi
               done
             fi
             if [[ -z "$MINGW_BIN" || ! -d "$MINGW_BIN" ]]; then
-              echo "windows-skip: no ghc-compatible mingw gcc under bindist/msys" >&2
-              find "$GHC_ROOT" "$GHCUP_INSTALL_BASE_PREFIX" -iname '*gcc*' 2>/dev/null | head -50 || true
-              # Soft-fail bootstrap so Register/static can still run; link step
-              # records honest skip if linker missing. Exit 0 here only if we
-              # still want cabal — actually keep hard fail for now so we see logs.
-              # Write skip artifact path for the job summary.
+              echo "windows-skip: no ghc-compatible C linker under bindist/msys" >&2
+              find "$GHC_ROOT/mingw" -type f 2>/dev/null | head -80 || true
               echo "SNAPPER_MINGW_BIN=" >> "$GITHUB_ENV"
               echo "SNAPPER_WINDOWS_MINGW_MISSING=1" >> "$GITHUB_ENV"
             else
@@ -207,16 +208,28 @@ jobs:
               echo "$MINGW_BIN" >> "$GITHUB_PATH"
               export PATH="$MINGW_BIN:$PATH"
               echo "using ghc-compatible mingw: $MINGW_BIN"
-              # Prefer bare gcc; fall back to target-prefixed name.
-              if ! command -v gcc >/dev/null 2>&1; then
-                if [[ -x "$MINGW_BIN/x86_64-w64-mingw32-gcc.exe" ]]; then
-                  printf '#!/usr/bin/env bash\nexec "%s/x86_64-w64-mingw32-gcc.exe" "$@"\n' "$MINGW_BIN" > "$WRAP/gcc"
-                  chmod +x "$WRAP/gcc"
+              # Pick linker driver for cargo windows-gnu.
+              LINKER_EXE=""
+              for c in gcc clang x86_64-w64-mingw32-gcc x86_64-w64-mingw32-clang; do
+                if [[ -x "$MINGW_BIN/${c}.exe" || -x "$MINGW_BIN/$c" ]]; then
+                  LINKER_EXE="$c"
+                  break
+                fi
+              done
+              if [[ -n "$LINKER_EXE" ]]; then
+                echo "SNAPPER_WINDOWS_LINKER=$LINKER_EXE" >> "$GITHUB_ENV"
+                # Provide gcc shim if only clang exists (some cargo scripts expect gcc).
+                if [[ "$LINKER_EXE" == clang || "$LINKER_EXE" == x86_64-w64-mingw32-clang ]]; then
+                  if [[ ! -e "$MINGW_BIN/gcc.exe" ]]; then
+                    printf '#!/usr/bin/env bash\nexec "%s/%s.exe" "$@"\n' \
+                      "$MINGW_BIN" "$LINKER_EXE" > "$WRAP/gcc"
+                    chmod +x "$WRAP/gcc"
+                  fi
                 fi
               fi
               command -v gcc || true
-              gcc --version 2>/dev/null | head -2 || true
-              ls -la "$MINGW_BIN" | head -30 || true
+              command -v clang || true
+              ls -la "$MINGW_BIN" | head -40 || true
             fi
           fi
 
@@ -347,14 +360,18 @@ jobs:
             CLEAN_PATH="${CLEAN_PATH:+$CLEAN_PATH:}$p"
           done
           export PATH="$CLEAN_PATH"
-          LINKER=gcc
-          if ! command -v gcc >/dev/null 2>&1; then
-            if command -v x86_64-w64-mingw32-gcc >/dev/null 2>&1; then
-              LINKER=x86_64-w64-mingw32-gcc
-            fi
+          LINKER="${SNAPPER_WINDOWS_LINKER:-}"
+          if [[ -z "$LINKER" ]]; then
+            for c in gcc clang x86_64-w64-mingw32-gcc x86_64-w64-mingw32-clang; do
+              if command -v "$c" >/dev/null 2>&1; then LINKER=$c; break; fi
+            done
+          fi
+          if [[ -z "$LINKER" ]]; then
+            echo "windows-skip: no gcc/clang on PATH for cargo link" >&2
+            exit 1
           fi
           echo "linker: $(command -v "$LINKER")"
-          "$LINKER" --version | head -1
+          "$LINKER" --version | head -1 || true
           export CARGO_TARGET_X86_64_PC_WINDOWS_GNU_LINKER="$LINKER"
           export SNAPPER_PANDOC_STATIC_LIB=$PWD/native/snapper-pandoc/lib/libsnapper_pandoc.a
           rustup target add x86_64-pc-windows-gnu
