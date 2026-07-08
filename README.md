@@ -95,6 +95,8 @@ Nix:
 
 The crate is `snapper-fmt` on all registries; the binary it installs is `snapper`.
 
+Pre-built installers (cargo-dist) ship the **plain** binary: native Org/LaTeX/Markdown/RST parsers, no GHC, no embedded pandoc. Multi-format pandoc is opt-in at runtime or via an optional build feature (below).
+
 
 <a id="usage"></a>
 
@@ -135,6 +137,19 @@ Watch files and auto-reformat on save:
 Initialize a project (generates config, pre-commit, gitattributes):
 
     snapper init
+
+### Pandoc backend (optional multi-format)
+
+Parse with [pandoc](https://pandoc.org/), then reflow only prose from the AST (headers, code, tables, math stay structure):
+
+    # Uses system `pandoc` on PATH (JSON CLI), or in-process FFI if available
+    snapper --use-pandoc paper.typ
+    snapper --use-pandoc --pandoc-backend cli guide.adoc
+    snapper --use-pandoc --pandoc-backend ffi paper.md   # needs libsnapper_pandoc or colink build
+
+- **CLI backend** (default when FFI is missing): install the normal `pandoc` binary.
+- **FFI backend**: build `native/snapper-pandoc` and set `SNAPPER_PANDOC_LIB`, or build with feature `pandoc-colink` after `./native/snapper-pandoc/build-static.sh` so one binary absorbs the static archive (no env discovery; larger binary; not the default release artifact).
+- **UPX** (optional third-party packer) can shrink *on-disk* size after the fact; it is not a tree-shaker and is **not** part of snapper releases. See `native/snapper-pandoc/README.md`.
 
 
 <a id="mcp"></a>

@@ -6,6 +6,10 @@
 #![cfg(feature = "pandoc")]
 
 use std::path::PathBuf;
+use std::sync::Mutex;
+
+/// Process-global cache env vars must not race across parallel tests.
+static CACHE_ENV_GATE: Mutex<()> = Mutex::new(());
 use std::time::Instant;
 
 use snapper_fmt::format::Format;
@@ -71,6 +75,17 @@ fn best_backend() -> Option<PandocBackend> {
     }
 }
 
+/// Skip live pandoc integration when neither CLI nor FFI is installed (default CI).
+fn require_backend() -> Option<PandocBackend> {
+    match best_backend() {
+        Some(b) => Some(b),
+        None => {
+            eprintln!("skip: no pandoc CLI and no libsnapper_pandoc FFI (CI-safe)");
+            None
+        }
+    }
+}
+
 /// True if multi-sentence input was reflowed onto separate lines.
 fn has_sentence_reflow(out: &str, first: &str, second_substr: &str) -> bool {
     out.contains(&format!("{first}\n")) && out.contains(second_substr)
@@ -78,9 +93,11 @@ fn has_sentence_reflow(out: &str, first: &str, second_substr: &str) -> bool {
 
 #[test]
 fn parity_md_prose_reflow_and_structure() {
+    let Some(backend) = require_backend() else {
+        return;
+    };
     let input = read("pandoc_ast/math_code.md");
     let native = format_text(&input, &native_cfg(Format::Markdown)).expect("native");
-    let backend = best_backend().expect("need pandoc backend for parity test");
     let pandoc = format_text(
         &input,
         &pandoc_cfg(Format::Markdown, backend, "markdown"),
@@ -114,9 +131,11 @@ fn parity_md_prose_reflow_and_structure() {
 
 #[test]
 fn parity_org_multi_sentence() {
+    let Some(backend) = require_backend() else {
+        return;
+    };
     let input = read("sample.org");
     let native = format_text(&input, &native_cfg(Format::Org)).expect("native");
-    let backend = best_backend().expect("need pandoc backend");
     let pandoc = format_text(&input, &pandoc_cfg(Format::Org, backend, "org"))
         .unwrap_or_else(|e| panic!("org pandoc failed: {e}"));
     let p2 = format_text(&input, &pandoc_cfg(Format::Org, backend, "org")).unwrap();
@@ -203,6 +222,7 @@ fn walker_cost_negligible_vs_full_pipeline() {
 #[test]
 fn speed_library_native_vs_pandoc_report() {
     use snapper_fmt::parser::pandoc::cache;
+    let _gate = CACHE_ENV_GATE.lock().unwrap_or_else(|p| p.into_inner());
 
     // Uncached obtain-AST (disable disk/memory cache for fair first-hit cost).
     unsafe {
@@ -352,6 +372,8 @@ fn fail_closed_still_holds() {
         .arg(&input)
         .env("SNAPPER_PANDOC_LIB", "/nonexistent/libsnapper_pandoc.so")
         .env_remove("SNAPPER_PANDOC_LIB_DIR")
+        // Disk AST cache must not satisfy the request without loading the library.
+        .env("SNAPPER_PANDOC_CACHE", "0")
         .output()
         .expect("spawn snapper");
     assert!(
@@ -369,6 +391,7 @@ fn fail_closed_still_holds() {
 #[test]
 fn ast_cache_makes_second_parse_fast() {
     use snapper_fmt::parser::pandoc::{cache, parse_with_backend, PandocBackend};
+    let _gate = CACHE_ENV_GATE.lock().unwrap_or_else(|p| p.into_inner());
     // Unique input so parallel tests cannot poison our key.
     let nonce = format!(
         "cache-test-{}-{}\n\nSecond sentence here.\n",
