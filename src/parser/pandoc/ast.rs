@@ -1,20 +1,29 @@
-//! Pure pandoc AST → [`Region`] mapping.
+//! Apply snapper to a document **after** pandoc has parsed it.
 //!
-//! Structure decisions come from pandoc block/inline node kinds only.
-//! No line/regex heuristics on the original source.
+//! Pipeline for the pandoc path:
+//! 1. Pandoc reads the source (CLI `pandoc -t json` or in-process FFI) → AST.
+//! 2. This module walks **pandoc block/inline node kinds** and marks which
+//!    pieces snapper may reflow (`Para` / `Plain` → prose) vs must leave alone
+//!    (`Header`, `CodeBlock`, `Table`, …).
+//! 3. Snapper’s reflow runs only on prose regions.
+//!
+//! There is no second pass of native markdown/org line heuristics, and no
+//! inventing source markup (e.g. ATX `###`) from the AST — structure truth is
+//! the node kind, not a reconstructed source line.
 
 use pandoc_ast::{Block, Inline, Pandoc};
 
 use crate::parser::Region;
 
-/// Classify a deserialized pandoc document into snapper regions.
+/// Map a pandoc document to snapper regions for reflow.
 ///
-/// Primary mapping (authoritative for the AST-backed path):
-/// - `Para` / `Plain` → [`Region::Prose`]
-/// - `Header` → [`Region::Structure`]
-/// - `CodeBlock` → [`Region::Code`]
-/// - `Table` → [`Region::Structure`] (non-prose)
-/// - lists, quotes, divs recurse; rules, raw blocks, line blocks are structure
+/// | Pandoc node | Snapper treatment |
+/// |-------------|-------------------|
+/// | `Para` / `Plain` | [`Region::Prose`] (snapper reflows) |
+/// | `Header` | [`Region::Structure`] (never reflow — it is a Header) |
+/// | `CodeBlock` | [`Region::Code`] |
+/// | `Table` | [`Region::Structure`] |
+/// | lists / quotes / divs | recurse into child blocks |
 pub fn regions_from_pandoc(doc: &Pandoc) -> Vec<Region> {
     let mut regions = Vec::new();
     for block in &doc.blocks {
@@ -23,8 +32,7 @@ pub fn regions_from_pandoc(doc: &Pandoc) -> Vec<Region> {
     regions
 }
 
-/// Deserialize pandoc JSON and classify. Used by both FFI and CLI backends
-/// after they obtain JSON from an in-process or external pandoc.
+/// Deserialize pandoc JSON AST, then [`regions_from_pandoc`].
 pub fn regions_from_pandoc_json(json: &str) -> Result<Vec<Region>, String> {
     let doc: Pandoc = serde_json::from_str(json)
         .map_err(|e| format!("failed to deserialize pandoc AST JSON: {e}"))?;
@@ -40,18 +48,14 @@ fn extract_block(block: &Block, regions: &mut Vec<Region>) {
                 regions.push(Region::Prose(trimmed.to_string()));
             }
         }
-        Block::Header(level, _attr, inlines) => {
-            // Entire heading is one Structure region — same contract as the
-            // native ATX fix (snapper-25kc): never Structure(prefix)+Prose(title),
-            // so titles like "1. `cargo binstall` …" are not sentence-reflowed.
-            // Reconstruct ATX markers from the pandoc Header level so the
-            // emitted line remains an obvious single non-prose heading.
+        Block::Header(_level, _attr, inlines) => {
+            // Header is non-prose because pandoc classified it as Header — not
+            // because we rebuilt an ATX source line. Title text (incl. "1. …")
+            // must not enter Prose or snapper would sentence-split it.
             let text = extract_inlines(inlines);
             let title = text.trim();
             if !title.is_empty() {
-                let n = (*level).clamp(1, 6) as usize;
-                let marks = "#".repeat(n);
-                regions.push(Region::Structure(format!("{marks} {title}\n")));
+                regions.push(Region::Structure(format!("{title}\n")));
             }
         }
         Block::CodeBlock(attr, code) => {
@@ -217,12 +221,18 @@ mod tests {
             "expected paragraph prose, got {prose:?}"
         );
 
-        let has_heading_structure = regions.iter().any(|r| {
-            matches!(r, Region::Structure(s) if s.starts_with('#') && s.contains("Title"))
-        });
+        let has_heading_structure = regions
+            .iter()
+            .any(|r| matches!(r, Region::Structure(s) if s.contains("Title")));
         assert!(
             has_heading_structure,
-            "Header must be single ATX-style Structure, not Prose: {regions:?}"
+            "Header node must be Structure (not Prose): {regions:?}"
+        );
+        assert!(
+            !regions
+                .iter()
+                .any(|r| matches!(r, Region::Prose(s) if s.contains("Title"))),
+            "Header title must not be Prose: {regions:?}"
         );
 
         let code = regions.iter().find_map(|r| match r {
@@ -257,10 +267,10 @@ mod tests {
         );
     }
 
-    /// Pandoc Header with a numbered title that used to break native ATX reflow.
-    /// Contract: one Structure line with reconstructed ATX marks; title never Prose.
+    /// After pandoc parse, a Header whose title looks like "1. code …" must
+    /// not be Prose — snapper would reflow it. We do not invent ATX markup.
     #[test]
-    fn ast_numbered_header_is_single_structure_not_prose() {
+    fn ast_numbered_header_is_structure_not_prose() {
         let json = include_str!("../../../tests/fixtures/pandoc_ast/numbered_heading.json");
         let regions = regions_from_pandoc_json(json).expect("numbered_heading.json");
 
@@ -268,31 +278,23 @@ mod tests {
             Region::Structure(s) if s.contains("cargo binstall") => Some(s.as_str()),
             _ => None,
         });
-        let heading = heading.expect(&format!("expected Structure heading, got {regions:?}"));
-        assert!(
-            heading.starts_with("### "),
-            "level-3 Header must reconstruct ###, got: {heading:?}"
-        );
+        let heading = heading.expect(&format!("expected Structure from Header node, got {regions:?}"));
         assert!(
             heading.contains("1.") && heading.contains("cargo binstall"),
-            "full title in one Structure line: {heading:?}"
-        );
-        assert!(
-            heading.ends_with('\n') && !heading[..heading.len() - 1].contains('\n'),
-            "single-line Structure heading: {heading:?}"
+            "Header title text preserved as structure payload: {heading:?}"
         );
         assert!(
             !regions
                 .iter()
                 .any(|r| matches!(r, Region::Prose(p) if p.contains("cargo binstall"))),
-            "heading title must not be Prose: {regions:?}"
+            "Header title must not be Prose (would be sentence-reflowed): {regions:?}"
         );
-        // Must not look like the old bug: orphan "### 1." as its own structure line.
+        // Prose body still reflowable.
         assert!(
-            !regions
+            regions
                 .iter()
-                .any(|r| matches!(r, Region::Structure(s) if s.trim() == "### 1." || s.trim() == "### 1")),
-            "orphan ### 1. structure forbidden: {regions:?}"
+                .any(|r| matches!(r, Region::Prose(p) if p.contains("Hello"))),
+            "Para nodes remain Prose: {regions:?}"
         );
     }
 }
