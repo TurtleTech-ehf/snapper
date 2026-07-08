@@ -45,6 +45,42 @@ type HsInitFn = unsafe extern "C" fn(*mut c_int, *mut *mut *mut c_char);
 static RTS_GATE: Mutex<()> = Mutex::new(());
 static RTS_INIT: OnceLock<()> = OnceLock::new();
 
+/// Process-lifetime argv for `hs_init`. The GHC RTS may retain pointers into
+/// both the vector and the program-name string after return; stack `CString`s
+/// are a use-after-free.
+struct HsInitArgv {
+    /// Owned via [`CString::into_raw`]; never freed.
+    _arg0: *mut c_char,
+    /// Stable base of the argv vector; never dropped after first init.
+    argv: Box<[*mut c_char; 1]>,
+}
+
+// SAFETY: written once through OnceLock; pointers are never freed or aliased mutably.
+unsafe impl Send for HsInitArgv {}
+unsafe impl Sync for HsInitArgv {}
+
+static HS_INIT_ARGV: OnceLock<HsInitArgv> = OnceLock::new();
+
+/// Call `hs_init` with argv that outlives the process (leaked once).
+unsafe fn call_hs_init(init: HsInitFn) {
+    let storage = HS_INIT_ARGV.get_or_init(|| {
+        let arg0 = CString::new("snapper")
+            .expect("argv0")
+            .into_raw();
+        HsInitArgv {
+            _arg0: arg0,
+            argv: Box::new([arg0]),
+        }
+    });
+    let mut argc: c_int = 1;
+    // `hs_init(int *argc, char ***argv)` — second arg is &mut to the argv base.
+    let mut argv: *mut *mut c_char = storage.argv.as_ptr() as *mut *mut c_char;
+    // Edition 2024: unsafe ops inside `unsafe fn` still need an unsafe block.
+    unsafe {
+        init(&mut argc, &mut argv);
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Co-linked symbols (feature pandoc-colink)
 // ---------------------------------------------------------------------------
@@ -92,11 +128,7 @@ mod linked {
             RTS_INIT.get_or_init(|| {
                 if let Some(init) = resolve_hs_init() {
                     unsafe {
-                        let mut argc: c_int = 1;
-                        let arg0 = CString::new("snapper").expect("argv");
-                        let mut argv_storage = [arg0.as_ptr() as *mut c_char];
-                        let mut argv = argv_storage.as_mut_ptr();
-                        init(&mut argc, &mut argv);
+                        call_hs_init(init);
                     }
                 }
                 unsafe {
@@ -248,11 +280,7 @@ mod dynamic {
         RTS_INIT.get_or_init(|| {
             if let Some(init) = hs_init.as_ref() {
                 unsafe {
-                    let mut argc: c_int = 1;
-                    let arg0 = CString::new("snapper").expect("static argv");
-                    let mut argv_storage = [arg0.as_ptr() as *mut c_char];
-                    let mut argv = argv_storage.as_mut_ptr();
-                    init(&mut argc, &mut argv);
+                    call_hs_init(**init);
                 }
             }
             if let Some(r) = ready.as_ref() {
