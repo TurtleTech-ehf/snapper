@@ -14,7 +14,7 @@
 //!
 //! Structure truth is the node kind, not source regex after a successful parse.
 
-use pandoc_ast::{Block, Inline, MathType, Pandoc};
+use pandoc_ast::{Block, Cell, Inline, MathType, Pandoc, Row, TableBody, TableFoot, TableHead};
 
 use crate::parser::Region;
 
@@ -26,14 +26,30 @@ use crate::parser::Region;
 /// | `Para` / `Plain` with `Math` / inline `Code` | split: prose runs + structure islands |
 /// | display-math-only `Para` | [`Region::Structure`] |
 /// | `Header` | [`Region::Structure`] |
-/// | `CodeBlock` | [`Region::Code`] |
-/// | `Table` | [`Region::Structure`] |
+/// | `CodeBlock` | [`Region::Code`] (fenced from Attr) |
+/// | `Table` | [`Region::Structure`] (pipe table from cells) |
+/// | `BulletList` / `OrderedList` | marker structure + item blocks |
+/// | `BlockQuote` | `>` markers + nested blocks |
 pub fn regions_from_pandoc(doc: &Pandoc) -> Vec<Region> {
     let mut regions = Vec::new();
-    for block in &doc.blocks {
+    for (i, block) in doc.blocks.iter().enumerate() {
+        if i > 0 {
+            push_block_separator(&mut regions);
+        }
         extract_block(block, &mut regions);
     }
     regions
+}
+
+/// Blank line between top-level blocks (pandoc does not emit blank nodes).
+fn push_block_separator(regions: &mut Vec<Region>) {
+    if regions.is_empty() {
+        return;
+    }
+    if matches!(regions.last(), Some(Region::BlankLines(_))) {
+        return;
+    }
+    regions.push(Region::BlankLines("\n".to_string()));
 }
 
 /// Deserialize pandoc JSON AST, then [`regions_from_pandoc`].
@@ -87,22 +103,29 @@ fn extract_block(block: &Block, regions: &mut Vec<Region>) {
             regions.push(Region::Structure(s));
         }
         Block::BlockQuote(blocks) => {
-            for b in blocks {
-                extract_block(b, regions);
+            for (i, b) in blocks.iter().enumerate() {
+                if i > 0 {
+                    push_block_separator(regions);
+                }
+                extract_quoted_block(b, regions);
             }
         }
         Block::BulletList(items) => {
-            for item in items {
-                for b in item {
-                    extract_block(b, regions);
+            for (i, item) in items.iter().enumerate() {
+                if i > 0 {
+                    // single newline between items (not a full blank)
+                    ensure_trailing_newline(regions);
                 }
+                extract_list_item("- ", item, regions);
             }
         }
         Block::OrderedList(_, items) => {
-            for item in items {
-                for b in item {
-                    extract_block(b, regions);
+            for (i, item) in items.iter().enumerate() {
+                if i > 0 {
+                    ensure_trailing_newline(regions);
                 }
+                let marker = format!("{}. ", i + 1);
+                extract_list_item(&marker, item, regions);
             }
         }
         Block::DefinitionList(defs) => {
@@ -118,8 +141,11 @@ fn extract_block(block: &Block, regions: &mut Vec<Region>) {
                 }
             }
         }
-        Block::Table(..) => {
-            regions.push(Region::Structure("[table]\n".to_string()));
+        Block::Table(_attr, _caption, _cols, head, bodies, foot) => {
+            let rendered = render_table_structure(head, bodies, foot);
+            if !rendered.is_empty() {
+                regions.push(Region::Structure(rendered));
+            }
         }
         Block::HorizontalRule => {
             regions.push(Region::Structure("---\n".to_string()));
@@ -166,6 +192,125 @@ fn code_fence_frame(lang: Option<&str>) -> (String, String) {
         _ => "```\n".to_string(),
     };
     (header, "```\n".to_string())
+}
+
+fn ensure_trailing_newline(regions: &mut Vec<Region>) {
+    match regions.last() {
+        Some(Region::Structure(s) | Region::Prose(s) | Region::BlankLines(s))
+            if s.ends_with('\n') => {}
+        Some(Region::Code { footer, .. }) if footer.ends_with('\n') => {}
+        Some(_) => regions.push(Region::Structure("\n".to_string())),
+        None => {}
+    }
+}
+
+fn extract_quoted_block(block: &Block, regions: &mut Vec<Region>) {
+    match block {
+        Block::Para(inlines) | Block::Plain(inlines) => {
+            regions.push(Region::Structure("> ".to_string()));
+            extract_para_inlines(inlines, regions);
+            ensure_trailing_newline(regions);
+        }
+        other => {
+            regions.push(Region::Structure("> ".to_string()));
+            extract_block(other, regions);
+        }
+    }
+}
+
+fn extract_list_item(marker: &str, item: &[Block], regions: &mut Vec<Region>) {
+    regions.push(Region::Structure(marker.to_string()));
+    for (i, block) in item.iter().enumerate() {
+        if i == 0 {
+            match block {
+                Block::Para(inlines) | Block::Plain(inlines) => {
+                    extract_para_inlines(inlines, regions);
+                    ensure_trailing_newline(regions);
+                }
+                other => extract_block(other, regions),
+            }
+        } else {
+            push_block_separator(regions);
+            extract_block(block, regions);
+        }
+    }
+}
+
+/// Pipe-table structure from pandoc table AST (cells only; non-prose).
+fn render_table_structure(head: &TableHead, bodies: &[TableBody], foot: &TableFoot) -> String {
+    let mut rows: Vec<Vec<String>> = Vec::new();
+    let (_hattr, head_rows) = head;
+    for row in head_rows {
+        rows.push(row_cells(row));
+    }
+    let head_count = head_rows.len();
+    for body in bodies {
+        let (_battr, _rhc, intermediate, body_rows) = body;
+        for row in intermediate {
+            rows.push(row_cells(row));
+        }
+        for row in body_rows {
+            rows.push(row_cells(row));
+        }
+    }
+    let (_fattr, foot_rows) = foot;
+    for row in foot_rows {
+        rows.push(row_cells(row));
+    }
+    if rows.is_empty() {
+        return String::new();
+    }
+    let ncols = rows.iter().map(|r| r.len()).max().unwrap_or(0);
+    if ncols == 0 {
+        return String::new();
+    }
+    for r in &mut rows {
+        while r.len() < ncols {
+            r.push(String::new());
+        }
+    }
+    // Separator after header rows (or after first row if no header).
+    let sep_after = if head_count > 0 { head_count - 1 } else { 0 };
+    let mut out = String::new();
+    for (i, row) in rows.iter().enumerate() {
+        out.push_str("| ");
+        out.push_str(
+            &row.iter()
+                .map(|c| c.replace('|', "\\|"))
+                .collect::<Vec<_>>()
+                .join(" | "),
+        );
+        out.push_str(" |\n");
+        if i == sep_after {
+            out.push('|');
+            for _ in 0..ncols {
+                out.push_str(" --- |");
+            }
+            out.push('\n');
+        }
+    }
+    out
+}
+
+fn row_cells(row: &Row) -> Vec<String> {
+    let (_attr, cells) = row;
+    cells.iter().map(cell_text).collect()
+}
+
+fn cell_text(cell: &Cell) -> String {
+    let (_attr, _align, _rs, _cs, blocks) = cell;
+    let mut parts = Vec::new();
+    for b in blocks {
+        match b {
+            Block::Plain(inlines) | Block::Para(inlines) => {
+                parts.push(extract_inlines(inlines));
+            }
+            Block::CodeBlock(_, code) => parts.push(code.clone()),
+            Block::RawBlock(_, raw) => parts.push(raw.clone()),
+            _ => {}
+        }
+    }
+    parts.join(" ").trim().to_string()
 }
 
 /// True when the para is only math (and ignorable space/breaks) — display or
@@ -406,19 +551,57 @@ mod tests {
         assert!(footer.starts_with("```"), "fence footer: {footer:?}");
         assert!(body.contains("print(1)"), "code body: {body}");
 
-        let has_table = regions
-            .iter()
-            .any(|r| matches!(r, Region::Structure(s) if s.contains("[table]")));
-        assert!(has_table, "Table must be non-prose Structure: {regions:?}");
+        let has_table = regions.iter().any(|r| {
+            matches!(r, Region::Structure(s) if s.contains('|') && (s.contains('a') || s.contains("---")))
+        });
+        assert!(has_table, "Table must be pipe Structure from cells: {regions:?}");
 
         for r in &regions {
             if let Region::Prose(s) = r {
                 assert!(
-                    !s.contains("[table]") && !s.contains("print(1)"),
+                    !s.contains("print(1)") && !s.lines().any(|l| l.trim().starts_with('|')),
                     "structure leaked into prose: {s}"
                 );
             }
         }
+    }
+
+    #[test]
+    fn ast_table_list_quote_from_structure_fixture() {
+        let json = include_str!("../../../tests/fixtures/pandoc_ast/structure_blocks.json");
+        let regions = regions_from_pandoc_json(json).expect("structure_blocks.json");
+
+        let table = regions.iter().find_map(|r| match r {
+            Region::Structure(s) if s.contains('|') && s.contains("---") => Some(s.as_str()),
+            _ => None,
+        });
+        let table = table.expect(&format!("pipe table structure: {regions:?}"));
+        assert!(table.contains('a') && table.contains('b') && table.contains('1'));
+        assert!(
+            !regions
+                .iter()
+                .any(|r| matches!(r, Region::Prose(p) if p.contains('|') && p.contains("---"))),
+            "table not Prose: {regions:?}"
+        );
+
+        assert!(
+            regions
+                .iter()
+                .any(|r| matches!(r, Region::Structure(s) if s.trim() == "-" || s.starts_with("- "))),
+            "bullet marker: {regions:?}"
+        );
+        assert!(
+            regions
+                .iter()
+                .any(|r| matches!(r, Region::Structure(s) if s.starts_with("> "))),
+            "blockquote marker: {regions:?}"
+        );
+        assert!(
+            regions
+                .iter()
+                .any(|r| matches!(r, Region::Prose(p) if p.contains("Intro") || p.contains("End"))),
+            "body prose: {regions:?}"
+        );
     }
 
     #[test]
