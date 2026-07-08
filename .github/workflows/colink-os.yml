@@ -67,22 +67,51 @@ jobs:
           set -euo pipefail
           # Expand env for bash; GHA injects GHCUP_INSTALL_BASE_PREFIX above.
           export GHCUP_INSTALL_BASE_PREFIX="${GHCUP_INSTALL_BASE_PREFIX}"
+          export BOOTSTRAP_HASKELL_GHC_VERSION="${SNAPPER_GHC_VERSION}"
+          export GHCUP_SKIP_UPDATE_CHECK=1
           mkdir -p "$GHCUP_INSTALL_BASE_PREFIX"
-          echo "GHCup base: $GHCUP_INSTALL_BASE_PREFIX"
+          echo "GHCup base: $GHCUP_INSTALL_BASE_PREFIX (want GHC ${SNAPPER_GHC_VERSION})"
           curl --proto '=https' --tlsv1.2 -sSf https://get-ghcup.haskell.org | sh
           GHCUP_BIN="$GHCUP_INSTALL_BASE_PREFIX/.ghcup/bin"
           if [[ ! -x "$GHCUP_BIN/ghcup" ]]; then
             # Fallback: some bootstrap paths put bin under $HOME still.
             GHCUP_BIN="$HOME/.ghcup/bin"
           fi
+          # Prepend GHCup so a preinstalled/system ghc cannot win (seen on Windows
+          # where ghc still reported 9.14.1 after installing 9.8.4).
           echo "$GHCUP_BIN" >> "$GITHUB_PATH"
           export PATH="$GHCUP_BIN:$PATH"
+          hash -r || true
           command -v ghcup
           ghcup --version
           ghcup install ghc "${SNAPPER_GHC_VERSION}" --set
+          ghcup set ghc "${SNAPPER_GHC_VERSION}"
           ghcup install cabal latest --set
+          ghcup set cabal latest || true
+          hash -r || true
           command -v ghc
+          ghc --numeric-version
           ghc --version
+          # Hard fail if the active ghc is not the pinned series (e.g. 9.8.x).
+          got="$(ghc --numeric-version | tr -d '\r')"
+          want="${SNAPPER_GHC_VERSION}"
+          if [[ "$got" != "$want" ]]; then
+            echo "active ghc is $got, expected $want — forcing whereis shim" >&2
+            GHC_REAL="$(ghcup whereis ghc "$want" 2>/dev/null || true)"
+            if [[ -n "$GHC_REAL" && -x "$GHC_REAL" ]]; then
+              GHC_REAL_DIR="$(dirname "$GHC_REAL")"
+              export PATH="$GHC_REAL_DIR:$GHCUP_BIN:$PATH"
+              echo "$GHC_REAL_DIR" >> "$GITHUB_PATH"
+              hash -r || true
+            fi
+            got="$(ghc --numeric-version | tr -d '\r')"
+          fi
+          if [[ "$got" != "$want" ]]; then
+            echo "FATAL: ghc --numeric-version=$got want=$want" >&2
+            type -a ghc || true
+            ghcup list -t ghc || true
+            exit 1
+          fi
           cabal --version
           cabal update
 
