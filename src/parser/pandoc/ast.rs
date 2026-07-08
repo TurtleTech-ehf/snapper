@@ -59,6 +59,9 @@ fn extract_block(block: &Block, regions: &mut Vec<Region>) {
             }
         }
         Block::CodeBlock(attr, code) => {
+            // Pandoc's CodeBlock is authoritative (fenced, minted, lstlisting, …).
+            // Emit a coherent Region::Code: lang from Attr; minimal fence framing
+            // for reflow output (not source-glyph fidelity, not a native re-parse).
             let lang = code_lang_from_attr(attr);
             let body = if code.ends_with('\n') {
                 code.clone()
@@ -67,11 +70,12 @@ fn extract_block(block: &Block, regions: &mut Vec<Region>) {
             } else {
                 format!("{code}\n")
             };
+            let (header, footer) = code_fence_frame(lang.as_deref());
             regions.push(Region::Code {
                 lang,
-                header: String::new(),
+                header,
                 body,
-                footer: String::new(),
+                footer,
             });
         }
         Block::RawBlock(_, raw) => {
@@ -143,7 +147,25 @@ fn extract_block(block: &Block, regions: &mut Vec<Region>) {
 /// Pandoc `Attr` is `(id, classes, keyvals)`; first class is usually the language.
 fn code_lang_from_attr(attr: &pandoc_ast::Attr) -> Option<String> {
     let (_id, classes, _kvs) = attr;
-    classes.first().cloned().filter(|c| !c.is_empty())
+    // Prefer first non-empty class; pandoc also stores language= on keyvals for lstlisting.
+    if let Some(c) = classes.first().cloned().filter(|c| !c.is_empty()) {
+        return Some(c);
+    }
+    for (k, v) in _kvs {
+        if k.eq_ignore_ascii_case("language") && !v.is_empty() {
+            return Some(v.clone());
+        }
+    }
+    None
+}
+
+/// Minimal fence framing so reflow emits a coherent code unit (header/body/footer).
+fn code_fence_frame(lang: Option<&str>) -> (String, String) {
+    let header = match lang {
+        Some(l) if !l.is_empty() => format!("```{l}\n"),
+        _ => "```\n".to_string(),
+    };
+    (header, "```\n".to_string())
 }
 
 /// True when the para is only math (and ignorable space/breaks) — display or
@@ -367,11 +389,21 @@ mod tests {
         );
 
         let code = regions.iter().find_map(|r| match r {
-            Region::Code { lang, body, .. } => Some((lang.clone(), body.clone())),
+            Region::Code {
+                lang,
+                header,
+                body,
+                footer,
+            } => Some((lang.clone(), header.clone(), body.clone(), footer.clone())),
             _ => None,
         });
-        let (lang, body) = code.expect("CodeBlock must become Region::Code");
+        let (lang, header, body, footer) = code.expect("CodeBlock must become Region::Code");
         assert_eq!(lang.as_deref(), Some("python"));
+        assert!(
+            header.starts_with("```") && header.contains("python"),
+            "fence header from Attr lang: {header:?}"
+        );
+        assert!(footer.starts_with("```"), "fence footer: {footer:?}");
         assert!(body.contains("print(1)"), "code body: {body}");
 
         let has_table = regions
@@ -434,10 +466,23 @@ mod tests {
         let json = include_str!("../../../tests/fixtures/pandoc_ast/math_code_md.json");
         let regions = regions_from_pandoc_json(json).expect("math_code_md.json");
 
-        assert!(
-            regions.iter().any(|r| matches!(r, Region::Code { body, .. } if body.contains("print"))),
-            "CodeBlock → Code: {regions:?}"
-        );
+        let code = regions.iter().find(|r| {
+            matches!(r, Region::Code { body, .. } if body.contains("print"))
+        });
+        match code {
+            Some(Region::Code {
+                lang,
+                header,
+                body,
+                footer,
+            }) => {
+                assert_eq!(lang.as_deref(), Some("python"));
+                assert!(header.contains("```") && header.contains("python"), "{header}");
+                assert!(footer.contains("```"), "{footer}");
+                assert!(body.contains("print(1.0)") && body.contains("x = 2."));
+            }
+            other => panic!("CodeBlock → Region::Code with fence: {other:?} / {regions:?}"),
+        }
         // Display-math-only Para → Structure containing math body, not Prose.
         assert!(
             regions.iter().any(|r| {
