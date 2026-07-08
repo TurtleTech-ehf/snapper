@@ -113,13 +113,11 @@ fn reflow_one(
                 }
             }
             if !sentences.is_empty() {
+                // No forced paragraph break before inline islands (math/code) or
+                // tight punctuation structures — those continue the same line.
                 let suppress = matches!(
                     regions.get(idx + 1),
-                    Some(Region::Structure(s))
-                        if s == "\n"
-                            || s.starts_with('}')
-                            || s.starts_with(']')
-                            || s.starts_with(')')
+                    Some(Region::Structure(s)) if suppress_prose_trailing_newline(s)
                 );
                 if !suppress {
                     output.push('\n');
@@ -128,6 +126,24 @@ fn reflow_one(
         }
     }
     output
+}
+
+/// When the next region is an inline structure island (pandoc `Math`/`Code` as
+/// Structure), do not end the preceding prose with a hard line break.
+fn suppress_prose_trailing_newline(s: &str) -> bool {
+    if s == "\n" || s.starts_with('}') || s.starts_with(']') || s.starts_with(')') {
+        return true;
+    }
+    let t = s.trim_end();
+    // Inline math: single-line `$...$` (not display `$$...$$`).
+    if t.starts_with('$') && !t.starts_with("$$") && !t.contains('\n') {
+        return true;
+    }
+    // Inline code island: single-line `...`
+    if t.starts_with('`') && t.ends_with('`') && t.len() >= 2 && !t.contains('\n') {
+        return true;
+    }
+    false
 }
 
 #[cfg(test)]
