@@ -43,17 +43,18 @@ fn mixed_markdown_json_fixture_classifies_via_shipped_ast_mapper() {
     );
 
     let has_code = regions.iter().any(|r| matches!(r, Region::Code { .. }));
-    let has_table = regions
-        .iter()
-        .any(|r| matches!(r, Region::Structure(s) if s.contains("[table]")));
+    let has_table = regions.iter().any(|r| {
+        matches!(r, Region::Structure(s) if s.contains('|') && s.contains("---"))
+            || matches!(r, Region::Structure(s) if s.contains('|') && s.contains('a'))
+    });
     assert!(has_code, "expected CodeBlock → Region::Code: {regions:?}");
-    assert!(has_table, "expected Table → non-prose: {regions:?}");
+    assert!(has_table, "expected Table → pipe Structure: {regions:?}");
 
     for r in &regions {
         if let Region::Prose(s) = r {
             assert!(
-                !s.contains("print(") && !s.contains("[table]"),
-                "code/table must not be prose: {s}"
+                !s.contains("print("),
+                "code must not be prose: {s}"
             );
         }
     }
@@ -72,7 +73,7 @@ fn mixed_org_json_fixture_classifies_via_shipped_ast_mapper() {
         regions.iter().any(|r| matches!(r, Region::Code { .. }))
             || regions
                 .iter()
-                .any(|r| matches!(r, Region::Structure(s) if s.contains("[table]"))),
+                .any(|r| matches!(r, Region::Structure(s) if s.contains('|'))),
         "org fixture should have code and/or table structure: {regions:?}"
     );
 }
@@ -164,7 +165,7 @@ fn try_parse_cli_mixed_markdown_region_kinds() {
     assert!(
         regions
             .iter()
-            .any(|r| matches!(r, Region::Structure(s) if s.contains("[table]"))),
+            .any(|r| matches!(r, Region::Structure(s) if s.contains('|'))),
         "table: {regions:?}"
     );
 }
@@ -219,7 +220,7 @@ fn numbered_heading_after_pandoc_parse_not_prose() {
     assert!(
         regions
             .iter()
-            .any(|r| matches!(r, Region::Structure(s) if s.contains("[table]"))),
+            .any(|r| matches!(r, Region::Structure(s) if s.contains('|'))),
         "Table non-prose: {regions:?}"
     );
 }
@@ -278,8 +279,8 @@ fn format_text_pandoc_then_snapper_numbered_header_stable() {
         "code preserved: {run1}"
     );
     assert!(
-        run1.contains("[table]"),
-        "Table stays non-prose marker from AST: {run1}"
+        run1.contains('|') && (run1.contains("---") || run1.contains('1')),
+        "Table cells as structure from AST:\n{run1}"
     );
 }
 
@@ -381,6 +382,43 @@ fn format_text_pandoc_latex_math_code_envs() {
     assert!(
         out.contains("```python") || out.matches("```").count() >= 2,
         "language fence or multiple code units:\n{out}"
+    );
+}
+
+#[test]
+fn format_text_pandoc_table_list_quote() {
+    let input = read_fixture("structure_blocks.md");
+    let backend = if snapper_fmt::parser::pandoc::pandoc_available() {
+        PandocBackend::Cli
+    } else if ffi_available() {
+        PandocBackend::Ffi
+    } else {
+        eprintln!("skipping: no pandoc backend");
+        return;
+    };
+    let cfg = FormatConfig {
+        format: Format::Markdown,
+        use_pandoc: true,
+        pandoc_backend: backend,
+        pandoc_format: Some("markdown".into()),
+        ..Default::default()
+    };
+    let run1 = format_text(&input, &cfg).expect("run1");
+    let run2 = format_text(&input, &cfg).expect("run2");
+    assert_eq!(run1, run2);
+    assert!(
+        run1.contains("| a |") || run1.contains("| a | b |"),
+        "table cells:\n{run1}"
+    );
+    assert!(run1.contains("---"), "table separator:\n{run1}");
+    assert!(
+        run1.contains("- ") || run1.lines().any(|l| l.starts_with("-")),
+        "list markers:\n{run1}"
+    );
+    assert!(run1.contains('>'), "blockquote:\n{run1}");
+    assert!(
+        run1.contains("Intro sentence.\n") || run1.contains("Intro sentence."),
+        "prose reflow:\n{run1}"
     );
 }
 
