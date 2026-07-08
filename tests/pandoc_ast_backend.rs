@@ -169,3 +169,115 @@ fn format_text_ffi_live_stable_when_lib_present() {
     let run2 = format_text(&input, &cfg).expect("ffi run2");
     assert_eq!(run1, run2);
 }
+
+/// Shared ATX-class contract on the AST path (snapper-25kc class bug).
+/// Uses shipped `format_text` + AST JSON classify — not a reimplemented walker.
+#[test]
+fn numbered_heading_ast_json_and_reflow_not_orphan() {
+    let json = read_fixture("numbered_heading.json");
+    let regions = regions_from_pandoc_json(&json).expect("json");
+    assert!(
+        regions.iter().any(|r| {
+            matches!(
+                r,
+                Region::Structure(s)
+                    if s.starts_with("### ")
+                        && s.contains("1.")
+                        && s.contains("cargo binstall")
+                        && !s[..s.len().saturating_sub(1)].contains('\n')
+            )
+        }),
+        "Header must be one ATX Structure line: {regions:?}"
+    );
+    assert!(
+        !regions
+            .iter()
+            .any(|r| matches!(r, Region::Prose(p) if p.contains("cargo binstall"))),
+        "title must not be Prose: {regions:?}"
+    );
+    assert!(
+        regions.iter().any(|r| matches!(r, Region::Prose(_))),
+        "body paragraphs remain prose: {regions:?}"
+    );
+    assert!(
+        regions.iter().any(|r| matches!(r, Region::Code { .. })),
+        "code block non-prose: {regions:?}"
+    );
+    assert!(
+        regions
+            .iter()
+            .any(|r| matches!(r, Region::Structure(s) if s.contains("[table]"))),
+        "table non-prose: {regions:?}"
+    );
+}
+
+#[test]
+fn format_text_pandoc_numbered_heading_stable_no_orphan() {
+    let input = read_fixture("numbered_heading.md");
+    let backend = if ffi_available() {
+        PandocBackend::Ffi
+    } else if snapper_fmt::parser::pandoc::pandoc_available() {
+        PandocBackend::Cli
+    } else {
+        eprintln!("skipping: neither FFI lib nor pandoc CLI available");
+        return;
+    };
+    let cfg = FormatConfig {
+        format: Format::Markdown,
+        use_pandoc: true,
+        pandoc_backend: backend,
+        pandoc_format: Some("markdown".into()),
+        ..Default::default()
+    };
+    let run1 = format_text(&input, &cfg).expect("run1");
+    let run2 = format_text(&input, &cfg).expect("run2");
+    assert_eq!(run1, run2, "stable across two runs");
+    // Full heading on first line (or a line starting with ### that still has the title).
+    let heading_line = run1
+        .lines()
+        .find(|l| l.contains("cargo binstall"))
+        .expect("heading title present in output");
+    assert!(
+        heading_line.starts_with("### "),
+        "heading must stay ATX structure line, got: {heading_line:?}\nfull:\n{run1}"
+    );
+    assert!(
+        heading_line.contains("1."),
+        "numbered title intact on same line: {heading_line:?}"
+    );
+    // Classic bug shape: a line that is only "### 1." or "### 1"
+    assert!(
+        !run1.lines().any(|l| {
+            let t = l.trim();
+            t == "### 1." || t == "### 1"
+        }),
+        "orphan ### 1. line forbidden:\n{run1}"
+    );
+    assert!(
+        run1.contains("print") || run1.contains("python"),
+        "code content preserved: {run1}"
+    );
+    assert!(
+        run1.contains("[table]") || run1.to_lowercase().contains("table"),
+        "table remains non-prose marker: {run1}"
+    );
+}
+
+/// Default path (no pandoc) must keep the main ATX contract on the same input.
+#[test]
+fn default_path_numbered_atx_matches_main_contract() {
+    let input = read_fixture("numbered_heading.md");
+    let cfg = FormatConfig {
+        format: Format::Markdown,
+        use_pandoc: false,
+        ..Default::default()
+    };
+    let out = format_text(&input, &cfg).expect("default format");
+    assert!(
+        out.lines()
+            .next()
+            .is_some_and(|l| l == "### 1. `cargo binstall` (preferred binary install)"),
+        "default path full ATX line, got:\n{out}"
+    );
+    assert!(!out.lines().any(|l| l.trim() == "### 1." || l.trim() == "### 1"));
+}

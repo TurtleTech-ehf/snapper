@@ -6,7 +6,7 @@
 
 use std::ffi::{CStr, CString};
 use std::path::{Path, PathBuf};
-use std::sync::OnceLock;
+use std::sync::{Mutex, OnceLock};
 
 use libloading::{Library, Symbol};
 use thiserror::Error;
@@ -44,6 +44,9 @@ struct FfiApi {
 
 static API: OnceLock<Result<FfiApi, String>> = OnceLock::new();
 static RTS_INIT: OnceLock<()> = OnceLock::new();
+/// Non-threaded GHC RTS is not re-entrant from multiple OS threads (rayon,
+/// cargo test). Serialize all entries into the foreign library.
+static RTS_GATE: Mutex<()> = Mutex::new(());
 
 fn candidate_lib_paths() -> Vec<PathBuf> {
     // Explicit path wins exclusively (enables hard-fail tests and deploy pinning).
@@ -182,6 +185,12 @@ pub fn parse_via_ffi(input: &str, format: &str) -> Result<Vec<Region>, FfiError>
         .map_err(|e| FfiError::ParseFailed(format!("format contained NUL: {e}")))?;
     let inp = CString::new(input)
         .map_err(|e| FfiError::ParseFailed(format!("input contained NUL: {e}")))?;
+
+    // Hold the gate for the whole foreign call + free of returned C strings.
+    let _rts = RTS_GATE
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+
     let mut err_ptr: *mut c_char = std::ptr::null_mut();
     let json_ptr = unsafe { (api.parse)(fmt.as_ptr(), inp.as_ptr(), &mut err_ptr) };
     if json_ptr.is_null() {
@@ -200,6 +209,8 @@ pub fn parse_via_ffi(input: &str, format: &str) -> Result<Vec<Region>, FfiError>
         .to_string_lossy()
         .into_owned();
     unsafe { (api.free)(json_ptr) };
+    drop(_rts);
+    // Classify outside the RTS gate — pure Rust.
     regions_from_pandoc_json(&json).map_err(FfiError::InvalidAst)
 }
 
