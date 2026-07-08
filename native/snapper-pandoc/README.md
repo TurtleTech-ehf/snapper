@@ -45,7 +45,8 @@ Does **not** inject GHC package-dir rpaths / `libHS*` RUNPATH graphs.
 - **macOS**: [GHCup](https://www.haskell.org/ghcup/) + `cabal install --lib pandoc pandoc-types aeson`, plus `brew install gmp libffi` if link fails
 - **Windows**: GHCup + MSYS2, build with `x86_64-pc-windows-gnu`; install gmp/ffi via pacman if needed
 
-Optional multi-OS smoke: workflow `colink-os` (`workflow_dispatch` only; never blocks PR CI).
+Optional multi-OS smoke: workflow `colink-os` (push to `develop/pandoc-ffi` path-filtered,
+or `workflow_dispatch` once the file is on the default branch). Never blocks PR CI.
 
 ## Shared library (dlopen)
 

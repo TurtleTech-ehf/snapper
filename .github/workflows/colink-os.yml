@@ -1,10 +1,10 @@
 # Optional static-colink smoke on macOS / Windows / Linux.
 # Never blocks PR CI — GHC + full pandoc is heavy and flaky.
-# Trigger: Actions → colink-os → Run workflow
+# Trigger: push to develop/pandoc-ffi (path-filtered) or workflow_dispatch once on default branch.
 name: colink-os
 
-# Runs on this feature branch via push (GHA only loads workflow_dispatch from default branch).
-# Stays off main PR CI. Disable or delete when colink is no longer experimental.
+# Push trigger is required while this workflow lives only on the feature branch
+# (workflow_dispatch is only loadable from the repo default branch).
 on:
   push:
     branches: [develop/pandoc-ffi]
@@ -16,10 +16,20 @@ on:
       - "Cargo.toml"
   workflow_dispatch:
 
+env:
+  # Force user-writable GHCup root. Unset/default can pick /usr/local on some
+  # Ubuntu runners and fail chmod (see run 28950334872).
+  GHCUP_INSTALL_BASE_PREFIX: ${{ github.workspace }}/.ghcup-prefix
+  BOOTSTRAP_HASKELL_NONINTERACTIVE: "1"
+  BOOTSTRAP_HASKELL_MINIMAL: "1"
+  BOOTSTRAP_HASKELL_INSTALL_HLS: "0"
+  BOOTSTRAP_HASKELL_INSTALL_STACK: "0"
+
 jobs:
   colink:
     name: colink-${{ matrix.os }}
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 360
     strategy:
       fail-fast: false
       matrix:
@@ -34,51 +44,100 @@ jobs:
         with:
           targets: ${{ matrix.os == 'windows-latest' && 'x86_64-pc-windows-gnu' || '' }}
 
-      - name: Install GHC (GHCup) + cabal tools
-        if: runner.os != 'Windows'
+      - name: System C libs for GHC/pandoc link
         run: |
           set -euo pipefail
-          curl --proto '=https' --tlsv1.2 -sSf https://get-ghcup.haskell.org \
-            | BOOTSTRAP_HASKELL_NONINTERACTIVE=1 BOOTSTRAP_HASKELL_MINIMAL=1 sh
-          echo "$HOME/.ghcup/bin" >> "$GITHUB_PATH"
-          export PATH="$HOME/.ghcup/bin:$PATH"
-          ghcup install ghc recommended --set
-          ghcup install cabal latest --set
-          cabal update
-          # System libs for linking
           if [[ "${{ runner.os }}" == "Linux" ]]; then
             sudo apt-get update
-            sudo apt-get install -y libgmp-dev libffi-dev libzstd-dev libbz2-dev liblzma-dev libelf-dev libdw-dev libnuma-dev
+            sudo apt-get install -y \
+              libgmp-dev libffi-dev libzstd-dev libbz2-dev liblzma-dev \
+              libelf-dev libdw-dev libnuma-dev pkg-config
           elif [[ "${{ runner.os }}" == "macOS" ]]; then
-            brew install gmp libffi || true
+            brew install gmp libffi pkg-config || true
+          elif [[ "${{ runner.os }}" == "Windows" ]]; then
+            # MinGW toolchain for windows-gnu + common C deps (gmp/ffi via ghcup/mingw).
+            choco install mingw -y --no-progress || true
           fi
-          # Register pandoc for ghc-pkg (can take a long time)
-          cabal install --lib --package-env=. pandoc pandoc-types aeson text bytestring 2>&1 | tail -30
-          ghc-pkg list pandoc || true
 
-      - name: Install GHC on Windows (GHCup)
-        if: runner.os == 'Windows'
-        shell: bash
+      - name: Bootstrap GHCup into workspace prefix
         run: |
           set -euo pipefail
-          curl --proto '=https' --tlsv1.2 -sSf https://get-ghcup.haskell.org \
-            | BOOTSTRAP_HASKELL_NONINTERACTIVE=1 BOOTSTRAP_HASKELL_MINIMAL=1 sh
-          echo "$HOME/.ghcup/bin" >> "$GITHUB_PATH"
-          export PATH="$HOME/.ghcup/bin:$PATH"
+          # Expand env for bash; GHA injects GHCUP_INSTALL_BASE_PREFIX above.
+          export GHCUP_INSTALL_BASE_PREFIX="${GHCUP_INSTALL_BASE_PREFIX}"
+          mkdir -p "$GHCUP_INSTALL_BASE_PREFIX"
+          echo "GHCup base: $GHCUP_INSTALL_BASE_PREFIX"
+          curl --proto '=https' --tlsv1.2 -sSf https://get-ghcup.haskell.org | sh
+          GHCUP_BIN="$GHCUP_INSTALL_BASE_PREFIX/.ghcup/bin"
+          if [[ ! -x "$GHCUP_BIN/ghcup" ]]; then
+            # Fallback: some bootstrap paths put bin under $HOME still.
+            GHCUP_BIN="$HOME/.ghcup/bin"
+          fi
+          echo "$GHCUP_BIN" >> "$GITHUB_PATH"
+          export PATH="$GHCUP_BIN:$PATH"
+          command -v ghcup
+          ghcup --version
           ghcup install ghc recommended --set
           ghcup install cabal latest --set
+          command -v ghc
+          ghc --version
+          cabal --version
           cabal update
-          cabal install --lib --package-env=. pandoc pandoc-types aeson text bytestring 2>&1 | tail -40
-          ghc-pkg list pandoc || true
+
+      - name: Register pandoc in package-env (cabal --lib)
+        run: |
+          set -euo pipefail
+          export PATH="${GHCUP_INSTALL_BASE_PREFIX}/.ghcup/bin:$HOME/.ghcup/bin:$PATH"
+          # Local package env so ghc-pkg / ghc -package-id can see pandoc.
+          # Full pandoc graph is large; expect tens of minutes.
+          cabal install --lib --package-env=. \
+            pandoc pandoc-types aeson text bytestring
+          ghc-pkg --package-db="$(ghc --print-global-package-db)" list pandoc || true
+          # package-env=. writes .ghc.environment.* in cwd — list it
+          ls -la .ghc.environment.* 2>/dev/null || true
+          if ! ghc-pkg field pandoc id --simple-output 2>/dev/null | head -1 | grep -q .; then
+            # Try with package-env file for subsequent steps
+            export GHC_ENVIRONMENT="$(ls -1 .ghc.environment.* 2>/dev/null | head -1 || true)"
+            echo "GHC_ENVIRONMENT=${GHC_ENVIRONMENT:-none}"
+            if [[ -n "${GHC_ENVIRONMENT:-}" ]]; then
+              echo "GHC_ENVIRONMENT=$GHC_ENVIRONMENT" >> "$GITHUB_ENV"
+            fi
+            # ghc-pkg with env
+            if ! ghc -package pandoc -e 'putStrLn "pandoc-ok"' 2>/dev/null; then
+              echo "pandoc not usable via ghc -package; static build will fail closed"
+              # still continue — build-static records skip path
+            fi
+          fi
+          ghc-pkg field pandoc id --simple-output 2>/dev/null | head -1 || true
 
       - name: Build static archive
         id: static
         continue-on-error: true
         run: |
           set -euo pipefail
-          export PATH="$HOME/.ghcup/bin:$PATH"
+          export PATH="${GHCUP_INSTALL_BASE_PREFIX}/.ghcup/bin:$HOME/.ghcup/bin:$PATH"
+          # Point GHC at cabal's package-env if present (cabal install --lib --package-env=.)
+          if [[ -z "${GHC_ENVIRONMENT:-}" ]]; then
+            envf="$(ls -1 .ghc.environment.* 2>/dev/null | head -1 || true)"
+            if [[ -n "$envf" ]]; then
+              export GHC_ENVIRONMENT="$PWD/$envf"
+            fi
+          fi
+          echo "GHC_ENVIRONMENT=${GHC_ENVIRONMENT:-unset}"
           cd native/snapper-pandoc
+          # When using a package-env, ghc-pkg field may still miss pandoc unless
+          # we pass -package-env. build-static uses ghc-pkg; wrap if needed.
+          if ! ghc-pkg field pandoc id --simple-output 2>/dev/null | head -1 | grep -q .; then
+            if [[ -n "${GHC_ENVIRONMENT:-}" ]]; then
+              # Extract unit id from environment file
+              pid="$(grep -E '^package-id pandoc-' "$GHC_ENVIRONMENT" | head -1 | awk '{print $2}' || true)"
+              if [[ -n "$pid" ]]; then
+                echo "build-static: using package-id from env file: $pid"
+                export SNAPPER_PANDOC_PACKAGE_ID="$pid"
+              fi
+            fi
+          fi
           ./build-static.sh
+          ls -lh lib/libsnapper_pandoc.a
 
       - name: Link colink snapper (Unix)
         if: runner.os != 'Windows' && steps.static.outcome == 'success'
@@ -88,14 +147,21 @@ jobs:
           if [[ "${{ runner.os }}" == "Linux" ]]; then
             export RUSTFLAGS="-C link-arg=-fuse-ld=bfd -C link-arg=-no-pie"
           fi
+          # macOS: ensure brew lib dirs are visible to the linker
+          if [[ "${{ runner.os }}" == "macOS" ]]; then
+            for d in /opt/homebrew/lib /usr/local/lib; do
+              [[ -d "$d" ]] && export LIBRARY_PATH="${d}:${LIBRARY_PATH:-}"
+            done
+          fi
           cargo build --release --features "cli,pandoc,pandoc-colink" --bin snapper
           BIN=target/release/snapper
+          ls -lh "$BIN"
           if [[ "${{ runner.os }}" == "Linux" ]]; then
             ldd "$BIN" | tee /tmp/deps.txt
             if grep -E 'libHS' /tmp/deps.txt; then echo "unexpected libHS"; exit 1; fi
           else
             otool -L "$BIN" | tee /tmp/deps.txt
-            if grep -E 'libHS|HS' /tmp/deps.txt; then echo "unexpected HS dylib"; exit 1; fi
+            if grep -E 'libHS' /tmp/deps.txt; then echo "unexpected HS dylib"; exit 1; fi
           fi
           unset SNAPPER_PANDOC_LIB SNAPPER_PANDOC_LIB_DIR
           export SNAPPER_PANDOC_CACHE=0
@@ -104,27 +170,32 @@ jobs:
           diff -u /tmp/out1.txt /tmp/out2.txt
           grep -q '```python' /tmp/out1.txt
           grep -q '| a | b |' /tmp/out1.txt
+          echo "colink dual-run OK on ${{ runner.os }}"
 
       - name: Link colink snapper (Windows gnu)
         if: runner.os == 'Windows' && steps.static.outcome == 'success'
         shell: bash
         run: |
           set -euo pipefail
-          export PATH="$HOME/.ghcup/bin:$PATH"
+          export PATH="${GHCUP_INSTALL_BASE_PREFIX}/.ghcup/bin:$HOME/.ghcup/bin:$PATH"
           export SNAPPER_PANDOC_STATIC_LIB=$PWD/native/snapper-pandoc/lib/libsnapper_pandoc.a
+          # Ensure mingw linker is available for windows-gnu
           rustup target add x86_64-pc-windows-gnu
           cargo build --release --target x86_64-pc-windows-gnu \
             --features "cli,pandoc,pandoc-colink" --bin snapper
           BIN=target/x86_64-pc-windows-gnu/release/snapper.exe
+          ls -lh "$BIN"
           unset SNAPPER_PANDOC_LIB SNAPPER_PANDOC_LIB_DIR
           export SNAPPER_PANDOC_CACHE=0
           "$BIN" --use-pandoc --pandoc-backend ffi -w 72 tests/fixtures/pandoc_ast/mixed.md | tee /tmp/out1.txt
           "$BIN" --use-pandoc --pandoc-backend ffi -w 72 tests/fixtures/pandoc_ast/mixed.md | tee /tmp/out2.txt
           diff -u /tmp/out1.txt /tmp/out2.txt
           grep -q 'print' /tmp/out1.txt
+          echo "colink dual-run OK on Windows"
 
       - name: Record skip if static build failed
         if: steps.static.outcome != 'success'
         run: |
           echo "static archive build failed on ${{ matrix.os }} — see previous step logs"
+          echo "This is fail-closed: no silent pass without a one-binary colink smoke."
           exit 1

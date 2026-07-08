@@ -96,22 +96,31 @@ fn emit_windows(archive: &Path) {
     // Prefer linking the archive path directly. MinGW-built .a may require
     // x86_64-pc-windows-gnu; MSVC often cannot consume mingw .a — build fails loudly.
     let s = archive.display().to_string();
+    let is_gnu = env::var("CARGO_CFG_TARGET_ENV").as_deref() == Ok("gnu");
+    let is_msvc = env::var("CARGO_CFG_TARGET_ENV").as_deref() == Ok("msvc");
+
     if s.ends_with(".lib") {
         bin_arg(&s);
-    } else {
-        // GNU ld / lld style
+    } else if is_gnu {
+        // MinGW/GNU ld: whole-archive so HS C exports survive dead-code elimination.
+        bin_arg("-Wl,--gc-sections");
+        bin_arg("-Wl,--allow-multiple-definition");
+        bin_arg("-Wl,--start-group");
+        bin_arg("-Wl,--whole-archive");
         bin_arg(&s);
-        // If using MSVC linker with a mingw archive this will fail — intentional.
+        bin_arg("-Wl,--no-whole-archive");
+        for lib in [
+            "gmp", "ffi", "z", "ws2_32", "user32", "shell32", "advapi32", "kernel32", "pthread",
+        ] {
+            bin_arg(&format!("-l{lib}"));
+        }
+        bin_arg("-Wl,--end-group");
+    } else {
+        bin_arg(&s);
         bin_arg("-Wl,--gc-sections");
         bin_arg("-Wl,--allow-multiple-definition");
     }
-    for lib in ["ws2_32", "user32", "shell32", "advapi32", "kernel32"] {
-        // Only for gnu-like; MSVC uses different names via rustc automatically for CRT.
-        if env::var("CARGO_CFG_TARGET_ENV").as_deref() == Ok("gnu") {
-            bin_arg(&format!("-l{lib}"));
-        }
-    }
-    if env::var("CARGO_CFG_TARGET_ENV").as_deref() == Ok("msvc") {
+    if is_msvc {
         println!(
             "cargo:warning=pandoc-colink on windows-msvc: ensure the static archive \
              was built for MSVC or use windows-gnu; mingw .a often fails to link"
