@@ -386,6 +386,39 @@ jobs:
           "$LINKER" --version | head -1 || true
           export CARGO_TARGET_X86_64_PC_WINDOWS_GNU_LINKER="$LINKER"
           export SNAPPER_PANDOC_STATIC_LIB=$PWD/native/snapper-pandoc/lib/libsnapper_pandoc.a
+          # libgmp / libffi: prefer GHC bindist mingw/lib (choco MinGW often lacks them).
+          LIBDIRS=""
+          if [[ -n "${SNAPPER_GHC_REAL:-}" ]]; then
+            GHC_ROOT="$(cd "$(dirname "$SNAPPER_GHC_REAL")/.." && pwd)"
+            for d in \
+              "$GHC_ROOT/mingw/lib" \
+              "$GHC_ROOT/mingw/x86_64-w64-mingw32/lib" \
+              "$GHC_ROOT/lib"; do
+              if [[ -d "$d" ]]; then
+                LIBDIRS="${LIBDIRS:+$LIBDIRS;}$d"
+                echo "libdir: $d"
+                ls "$d"/libgmp* "$d"/libffi* 2>/dev/null | head -10 || true
+              fi
+            done
+          fi
+          if [[ -n "${SNAPPER_MINGW_BIN:-}" ]]; then
+            for d in "${SNAPPER_MINGW_BIN}/../lib" "${SNAPPER_MINGW_BIN}/../x86_64-w64-mingw32/lib"; do
+              [[ -d "$d" ]] && LIBDIRS="${LIBDIRS:+$LIBDIRS;}$(cd "$d" && pwd)"
+            done
+          fi
+          # If still no libgmp, try to fetch mingw gmp into workspace (static .a).
+          if ! find ${LIBDIRS//;/ } /c/mingw64/lib -name 'libgmp*.a' 2>/dev/null | head -1 | grep -q .; then
+            echo "no libgmp.a found; installing mingw-w64 gmp via pacman if msys present" >&2
+            for msys in /c/tools/msys64 /c/msys64 "$HOME/msys64"; do
+              if [[ -x "$msys/usr/bin/pacman.exe" || -x "$msys/usr/bin/pacman" ]]; then
+                "$msys/usr/bin/bash" -lc "pacman -S --noconfirm mingw-w64-x86_64-gmp mingw-w64-x86_64-libffi" 2>&1 | tail -15 || true
+                LIBDIRS="${LIBDIRS:+$LIBDIRS;}$msys/mingw64/lib"
+                break
+              fi
+            done
+          fi
+          export SNAPPER_MINGW_LIB="$LIBDIRS"
+          echo "SNAPPER_MINGW_LIB=$SNAPPER_MINGW_LIB"
           rustup target add x86_64-pc-windows-gnu
           cargo build --release --target x86_64-pc-windows-gnu \
             --features "cli,pandoc,pandoc-colink" --bin snapper
