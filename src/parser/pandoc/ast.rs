@@ -3,15 +3,18 @@
 //! Pipeline for the pandoc path:
 //! 1. Pandoc reads the source (CLI `pandoc -t json` or in-process FFI) → AST.
 //! 2. This module walks **pandoc block/inline node kinds** and marks which
-//!    pieces snapper may reflow (`Para` / `Plain` → prose) vs must leave alone
-//!    (`Header`, `CodeBlock`, `Table`, …).
+//!    pieces snapper may reflow vs must leave alone.
 //! 3. Snapper’s reflow runs only on prose regions.
 //!
-//! There is no second pass of native markdown/org line heuristics, and no
-//! inventing source markup (e.g. ATX `###`) from the AST — structure truth is
-//! the node kind, not a reconstructed source line.
+//! Math and code are never reflowed as prose:
+//! - `CodeBlock` → [`Region::Code`]
+//! - `Para`/`Plain` that are **only** display/inline math → structure
+//! - Mixed paragraphs: split into prose runs and structure islands for
+//!   `Math` / inline `Code` so periods inside math cannot end a sentence.
+//!
+//! Structure truth is the node kind, not source regex after a successful parse.
 
-use pandoc_ast::{Block, Inline, Pandoc};
+use pandoc_ast::{Block, Inline, MathType, Pandoc};
 
 use crate::parser::Region;
 
@@ -19,11 +22,12 @@ use crate::parser::Region;
 ///
 /// | Pandoc node | Snapper treatment |
 /// |-------------|-------------------|
-/// | `Para` / `Plain` | [`Region::Prose`] (snapper reflows) |
-/// | `Header` | [`Region::Structure`] (never reflow — it is a Header) |
+/// | `Para` / `Plain` of ordinary text | [`Region::Prose`] (reflow) |
+/// | `Para` / `Plain` with `Math` / inline `Code` | split: prose runs + structure islands |
+/// | display-math-only `Para` | [`Region::Structure`] |
+/// | `Header` | [`Region::Structure`] |
 /// | `CodeBlock` | [`Region::Code`] |
 /// | `Table` | [`Region::Structure`] |
-/// | lists / quotes / divs | recurse into child blocks |
 pub fn regions_from_pandoc(doc: &Pandoc) -> Vec<Region> {
     let mut regions = Vec::new();
     for block in &doc.blocks {
@@ -42,11 +46,7 @@ pub fn regions_from_pandoc_json(json: &str) -> Result<Vec<Region>, String> {
 fn extract_block(block: &Block, regions: &mut Vec<Region>) {
     match block {
         Block::Para(inlines) | Block::Plain(inlines) => {
-            let text = extract_inlines(inlines);
-            let trimmed = text.trim();
-            if !trimmed.is_empty() {
-                regions.push(Region::Prose(trimmed.to_string()));
-            }
+            extract_para_inlines(inlines, regions);
         }
         Block::Header(_level, _attr, inlines) => {
             // Header is non-prose because pandoc classified it as Header — not
@@ -146,24 +146,93 @@ fn code_lang_from_attr(attr: &pandoc_ast::Attr) -> Option<String> {
     classes.first().cloned().filter(|c| !c.is_empty())
 }
 
-fn extract_inlines(inlines: &[Inline]) -> String {
-    let mut result = String::new();
+/// True when the para is only math (and ignorable space/breaks) — display or
+/// bare math blocks that must not go through the sentence reflower.
+fn is_math_only_para(inlines: &[Inline]) -> bool {
+    let mut saw_math = false;
     for inline in inlines {
         match inline {
-            Inline::Str(s) => result.push_str(s),
-            Inline::Space => result.push(' '),
-            Inline::SoftBreak => result.push(' '),
-            Inline::LineBreak => result.push('\n'),
+            Inline::Math(..) => saw_math = true,
+            Inline::Space | Inline::SoftBreak | Inline::LineBreak => {}
+            _ => return false,
+        }
+    }
+    saw_math
+}
+
+fn format_math(ty: &MathType, body: &str) -> String {
+    match ty {
+        MathType::DisplayMath => {
+            // Keep payload as structure; delimiters are not source-faithful, only non-prose.
+            let b = body.trim();
+            if b.is_empty() {
+                "$$\n".to_string()
+            } else if b.contains('\n') {
+                format!("$$\n{b}\n$$\n")
+            } else {
+                format!("$${b}$$\n")
+            }
+        }
+        MathType::InlineMath => format!("${body}$"),
+    }
+}
+
+fn flush_prose_buf(prose: &mut String, regions: &mut Vec<Region>) {
+    let trimmed = prose.trim();
+    if !trimmed.is_empty() {
+        regions.push(Region::Prose(trimmed.to_string()));
+    }
+    prose.clear();
+}
+
+/// Split a pandoc paragraph into reflowable prose runs and non-prose islands
+/// (`Math`, inline `Code`) so periods inside math/code never end a sentence.
+fn extract_para_inlines(inlines: &[Inline], regions: &mut Vec<Region>) {
+    if inlines.is_empty() {
+        return;
+    }
+
+    if is_math_only_para(inlines) {
+        let mut out = String::new();
+        for inline in inlines {
+            if let Inline::Math(ty, body) = inline {
+                out.push_str(&format_math(ty, body));
+            }
+        }
+        if !out.is_empty() {
+            if !out.ends_with('\n') {
+                out.push('\n');
+            }
+            regions.push(Region::Structure(out));
+        }
+        return;
+    }
+
+    let mut prose = String::new();
+    walk_para_inlines(inlines, regions, &mut prose);
+    flush_prose_buf(&mut prose, regions);
+}
+
+/// Recursively walk inlines: `Math` / `Code` → structure islands; text → prose.
+fn walk_para_inlines(inlines: &[Inline], regions: &mut Vec<Region>, prose: &mut String) {
+    for inline in inlines {
+        match inline {
+            Inline::Math(ty, body) => {
+                flush_prose_buf(prose, regions);
+                let mut s = format_math(ty, body);
+                if matches!(ty, MathType::DisplayMath) && !s.ends_with('\n') {
+                    s.push('\n');
+                }
+                regions.push(Region::Structure(s));
+            }
             Inline::Code(_, code) => {
-                result.push('`');
-                result.push_str(code);
-                result.push('`');
+                flush_prose_buf(prose, regions);
+                regions.push(Region::Structure(format!("`{code}`")));
             }
-            Inline::Math(_, math) => {
-                result.push('$');
-                result.push_str(math);
-                result.push('$');
-            }
+            Inline::Str(s) => prose.push_str(s),
+            Inline::Space => prose.push(' '),
+            Inline::SoftBreak => prose.push(' '),
+            Inline::LineBreak => prose.push('\n'),
             Inline::Emph(children)
             | Inline::Strong(children)
             | Inline::Underline(children)
@@ -172,25 +241,54 @@ fn extract_inlines(inlines: &[Inline]) -> String {
             | Inline::Subscript(children)
             | Inline::SmallCaps(children)
             | Inline::Quoted(_, children)
-            | Inline::Span(_, children) => {
-                result.push_str(&extract_inlines(children));
+            | Inline::Span(_, children)
+            | Inline::Cite(_, children)
+            | Inline::Link(_, children, _)
+            | Inline::Image(_, children, _) => {
+                walk_para_inlines(children, regions, prose);
             }
-            Inline::Cite(_, children) => {
-                result.push_str(&extract_inlines(children));
-            }
-            Inline::Link(_, children, _) => {
-                result.push_str(&extract_inlines(children));
-            }
-            Inline::Image(_, children, _) => {
-                result.push_str(&extract_inlines(children));
-            }
-            Inline::RawInline(_, raw) => {
-                result.push_str(raw);
-            }
+            Inline::RawInline(_, raw) => prose.push_str(raw),
             Inline::Note(_) => {}
         }
     }
+}
+
+/// Flatten inlines for non-prose contexts (headers, list terms) — not reflowed.
+fn extract_inlines(inlines: &[Inline]) -> String {
+    let mut result = String::new();
+    flatten_inlines(inlines, &mut result);
     result
+}
+
+fn flatten_inlines(inlines: &[Inline], out: &mut String) {
+    for inline in inlines {
+        match inline {
+            Inline::Str(s) => out.push_str(s),
+            Inline::Space => out.push(' '),
+            Inline::SoftBreak => out.push(' '),
+            Inline::LineBreak => out.push('\n'),
+            Inline::Code(_, code) => {
+                out.push('`');
+                out.push_str(code);
+                out.push('`');
+            }
+            Inline::Math(ty, body) => out.push_str(&format_math(ty, body)),
+            Inline::Emph(c)
+            | Inline::Strong(c)
+            | Inline::Underline(c)
+            | Inline::Strikeout(c)
+            | Inline::Superscript(c)
+            | Inline::Subscript(c)
+            | Inline::SmallCaps(c)
+            | Inline::Quoted(_, c)
+            | Inline::Span(_, c)
+            | Inline::Cite(_, c)
+            | Inline::Link(_, c, _)
+            | Inline::Image(_, c, _) => flatten_inlines(c, out),
+            Inline::RawInline(_, raw) => out.push_str(raw),
+            Inline::Note(_) => {}
+        }
+    }
 }
 
 #[cfg(test)]
@@ -278,7 +376,8 @@ mod tests {
             Region::Structure(s) if s.contains("cargo binstall") => Some(s.as_str()),
             _ => None,
         });
-        let heading = heading.expect(&format!("expected Structure from Header node, got {regions:?}"));
+        let heading =
+            heading.expect(&format!("expected Structure from Header node, got {regions:?}"));
         assert!(
             heading.contains("1.") && heading.contains("cargo binstall"),
             "Header title text preserved as structure payload: {heading:?}"
@@ -289,12 +388,93 @@ mod tests {
                 .any(|r| matches!(r, Region::Prose(p) if p.contains("cargo binstall"))),
             "Header title must not be Prose (would be sentence-reflowed): {regions:?}"
         );
-        // Prose body still reflowable.
         assert!(
             regions
                 .iter()
                 .any(|r| matches!(r, Region::Prose(p) if p.contains("Hello"))),
             "Para nodes remain Prose: {regions:?}"
+        );
+    }
+
+    #[test]
+    fn ast_codeblock_and_display_math_not_prose() {
+        let json = include_str!("../../../tests/fixtures/pandoc_ast/math_code_md.json");
+        let regions = regions_from_pandoc_json(json).expect("math_code_md.json");
+
+        assert!(
+            regions.iter().any(|r| matches!(r, Region::Code { body, .. } if body.contains("print"))),
+            "CodeBlock → Code: {regions:?}"
+        );
+        // Display-math-only Para → Structure containing math body, not Prose.
+        assert!(
+            regions.iter().any(|r| {
+                matches!(r, Region::Structure(s) if s.contains("1.5") || s.contains("x = 1"))
+            }),
+            "display math must be Structure: {regions:?}"
+        );
+        assert!(
+            !regions.iter().any(|r| {
+                matches!(r, Region::Prose(p) if p.contains("1.5") && p.contains("y = 2"))
+            }),
+            "display math body must not be Prose: {regions:?}"
+        );
+        // Inline math island: mc^2. period not in Prose.
+        assert!(
+            regions.iter().any(|r| {
+                matches!(r, Region::Structure(s) if s.contains("mc^2") || s.contains("E = mc"))
+            }),
+            "inline math → Structure island: {regions:?}"
+        );
+        assert!(
+            !regions
+                .iter()
+                .any(|r| matches!(r, Region::Prose(p) if p.contains("mc^2"))),
+            "inline math payload must not sit in Prose: {regions:?}"
+        );
+        // Ordinary multi-sentence prose still Prose.
+        assert!(
+            regions
+                .iter()
+                .any(|r| matches!(r, Region::Prose(p) if p.contains("First sentence"))),
+            "plain prose Para: {regions:?}"
+        );
+    }
+
+    #[test]
+    fn ast_latex_equation_and_minted_not_prose() {
+        let json = include_str!("../../../tests/fixtures/pandoc_ast/math_code_tex.json");
+        let regions = regions_from_pandoc_json(json).expect("math_code_tex.json");
+
+        assert!(
+            regions
+                .iter()
+                .any(|r| matches!(r, Region::Structure(s) if s.contains("mc^2") || s.contains("E = mc"))),
+            "equation DisplayMath → Structure: {regions:?}"
+        );
+        assert!(
+            !regions
+                .iter()
+                .any(|r| matches!(r, Region::Prose(p) if p.contains("mc^2"))),
+            "equation not Prose: {regions:?}"
+        );
+        assert!(
+            regions.iter().filter(|r| matches!(r, Region::Code { .. })).count() >= 1,
+            "minted/lstlisting/verbatim as CodeBlock: {regions:?}"
+        );
+        for r in &regions {
+            if let Region::Code { body, .. } = r {
+                // Code bodies must not be reflowed as prose regions.
+                assert!(
+                    !matches!(r, Region::Prose(_)),
+                    "code body present: {body}"
+                );
+            }
+        }
+        assert!(
+            regions
+                .iter()
+                .any(|r| matches!(r, Region::Prose(p) if p.contains("Hello") || p.contains("End"))),
+            "body prose remains: {regions:?}"
         );
     }
 }

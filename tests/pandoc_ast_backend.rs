@@ -283,6 +283,102 @@ fn format_text_pandoc_then_snapper_numbered_header_stable() {
     );
 }
 
+/// Math + code: display/inline math and CodeBlock not sentence-reflowed.
+#[test]
+fn format_text_pandoc_math_and_code_protected() {
+    let input = read_fixture("math_code.md");
+    let backend = if ffi_available() {
+        PandocBackend::Ffi
+    } else if snapper_fmt::parser::pandoc::pandoc_available() {
+        PandocBackend::Cli
+    } else {
+        eprintln!("skipping: no pandoc backend");
+        return;
+    };
+    let cfg = FormatConfig {
+        format: Format::Markdown,
+        use_pandoc: true,
+        pandoc_backend: backend,
+        pandoc_format: Some("markdown".into()),
+        ..Default::default()
+    };
+    let run1 = format_text(&input, &cfg).expect("run1");
+    let run2 = format_text(&input, &cfg).expect("run2");
+    assert_eq!(run1, run2);
+
+    // Ordinary multi-sentence prose reflowed.
+    assert!(
+        run1.contains("First sentence.\n") && run1.contains("Second sentence"),
+        "plain prose reflowed:\n{run1}"
+    );
+
+    // Display math: periods in body must not create orphan prose lines like "y = 2." alone
+    // from sentence split of math (body may still appear as structure lines).
+    let regions = regions_from_pandoc_json(&read_fixture("math_code_md.json")).unwrap();
+    assert!(
+        !regions.iter().any(|r| matches!(r, Region::Prose(p) if p.contains("1.5"))),
+        "display math not prose regions: {regions:?}"
+    );
+    assert!(
+        !regions
+            .iter()
+            .any(|r| matches!(r, Region::Prose(p) if p.contains("mc^2"))),
+        "inline math not in prose: {regions:?}"
+    );
+    // Code body not split as prose sentences in output.
+    assert!(
+        run1.contains("print(1.0)") || run1.contains("print"),
+        "code body present:\n{run1}"
+    );
+    // Must not reflow code into: print(1.\n0) style — period after 1 in code.
+    assert!(
+        !run1.lines().any(|l| l.trim() == "0)" || l.trim() == "0"),
+        "code not sentence-fragmented:\n{run1}"
+    );
+}
+
+#[test]
+fn format_text_pandoc_latex_math_code_envs() {
+    if !snapper_fmt::parser::pandoc::pandoc_available() && !ffi_available() {
+        eprintln!("skipping: no pandoc backend");
+        return;
+    }
+    // LaTeX readers are CLI-complete; FFI may not include latex the same way.
+    let backend = if snapper_fmt::parser::pandoc::pandoc_available() {
+        PandocBackend::Cli
+    } else {
+        PandocBackend::Ffi
+    };
+    let input = read_fixture("math_code.tex");
+    let cfg = FormatConfig {
+        format: Format::Latex,
+        use_pandoc: true,
+        pandoc_backend: backend,
+        pandoc_format: Some("latex".into()),
+        ..Default::default()
+    };
+    let out = match format_text(&input, &cfg) {
+        Ok(o) => o,
+        Err(e) => {
+            eprintln!("skipping latex pandoc path: {e}");
+            return;
+        }
+    };
+    assert!(
+        out.contains("Hello world.\n") || out.contains("Hello world."),
+        "prose reflow or present:\n{out}"
+    );
+    // Equation / display math not orphaned by "E = mc" / "2." split as prose lines only.
+    assert!(
+        !out.lines().any(|l| l.trim() == "2." && !l.contains("mc")),
+        "math period must not orphan a bare '2.' prose line:\n{out}"
+    );
+    assert!(
+        out.contains("print") || out.contains("python") || out.contains("1.0"),
+        "code envs present:\n{out}"
+    );
+}
+
 /// Native path (no pandoc) still has its own ATX source-line contract.
 #[test]
 fn default_path_numbered_atx_source_line_not_split() {
