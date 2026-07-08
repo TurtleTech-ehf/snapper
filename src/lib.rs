@@ -170,6 +170,9 @@ pub fn format_text_with_splitter(
         input
     };
 
+    // Two pipelines:
+    // - use_pandoc: pandoc parses source → AST → regions by node kind → reflow prose only.
+    // - else: native line parsers (markdown/org/…) then reflow. Never mixed after success.
     let regions = if config.use_pandoc {
         #[cfg(feature = "pandoc")]
         {
@@ -187,7 +190,7 @@ pub fn format_text_with_splitter(
                 pandoc_fmt,
                 config.pandoc_backend,
             );
-            // Explicit errors for the selected pandoc path — never silent all-prose.
+            // Pandoc path: fail closed (no silent all-prose, no native re-parse).
             parser
                 .try_parse(work_input)
                 .map_err(|e| anyhow::anyhow!("{e}"))?
