@@ -72,15 +72,29 @@ jobs:
           mkdir -p "$GHCUP_INSTALL_BASE_PREFIX"
           echo "GHCup base: $GHCUP_INSTALL_BASE_PREFIX (want GHC ${SNAPPER_GHC_VERSION})"
           curl --proto '=https' --tlsv1.2 -sSf https://get-ghcup.haskell.org | sh
-          GHCUP_BIN="$GHCUP_INSTALL_BASE_PREFIX/.ghcup/bin"
-          if [[ ! -x "$GHCUP_BIN/ghcup" ]]; then
-            # Fallback: some bootstrap paths put bin under $HOME still.
-            GHCUP_BIN="$HOME/.ghcup/bin"
+
+          # Locate ghcup bin dir. Unix uses $PREFIX/.ghcup/bin; Windows GHCup often
+          # uses $PREFIX/ghcup/bin (no leading dot). Runners may also ship /c/ghcup.
+          GHCUP_BIN=""
+          for cand in \
+            "${GHCUP_INSTALL_BASE_PREFIX}/.ghcup/bin" \
+            "${GHCUP_INSTALL_BASE_PREFIX}/ghcup/bin" \
+            "${HOME}/.ghcup/bin" \
+            "/c/ghcup/bin" \
+            "/usr/local/.ghcup/bin"; do
+            if [[ -x "${cand}/ghcup" || -x "${cand}/ghcup.exe" ]]; then
+              GHCUP_BIN="$cand"
+              break
+            fi
+          done
+          if [[ -z "$GHCUP_BIN" ]]; then
+            echo "ghcup binary not found after bootstrap" >&2
+            find "$GHCUP_INSTALL_BASE_PREFIX" -name 'ghcup*' 2>/dev/null | head -20 || true
+            exit 1
           fi
-          # Prepend GHCup so a preinstalled/system ghc cannot win (seen on Windows
-          # where ghc still reported 9.14.1 after installing 9.8.4).
-          echo "$GHCUP_BIN" >> "$GITHUB_PATH"
+          echo "using GHCUP_BIN=$GHCUP_BIN"
           export PATH="$GHCUP_BIN:$PATH"
+          echo "$GHCUP_BIN" >> "$GITHUB_PATH"
           hash -r || true
           command -v ghcup
           ghcup --version
@@ -88,30 +102,56 @@ jobs:
           ghcup set ghc "${SNAPPER_GHC_VERSION}"
           ghcup install cabal latest --set
           ghcup set cabal latest || true
-          hash -r || true
-          command -v ghc
-          ghc --numeric-version
-          ghc --version
-          # Hard fail if the active ghc is not the pinned series (e.g. 9.8.x).
-          got="$(ghc --numeric-version | tr -d '\r')"
+
           want="${SNAPPER_GHC_VERSION}"
-          if [[ "$got" != "$want" ]]; then
-            echo "active ghc is $got, expected $want — forcing whereis shim" >&2
-            GHC_REAL="$(ghcup whereis ghc "$want" 2>/dev/null || true)"
-            if [[ -n "$GHC_REAL" && -x "$GHC_REAL" ]]; then
-              GHC_REAL_DIR="$(dirname "$GHC_REAL")"
-              export PATH="$GHC_REAL_DIR:$GHCUP_BIN:$PATH"
-              echo "$GHC_REAL_DIR" >> "$GITHUB_PATH"
-              hash -r || true
-            fi
-            got="$(ghc --numeric-version | tr -d '\r')"
+          # Always bind to the real compiler path (Windows runners keep a stale
+          # /c/ghcup/bin/ghc shim at 9.14.1 even after set 9.8.4).
+          GHC_REAL="$(ghcup whereis ghc "$want" 2>/dev/null | tr -d '\r' || true)"
+          if [[ -z "$GHC_REAL" ]]; then
+            # Fallback search under prefix / common install roots
+            GHC_REAL="$(find "$GHCUP_INSTALL_BASE_PREFIX" /c/ghcup "$HOME/.ghcup" \
+              -type f \( -name ghc -o -name ghc.exe \) 2>/dev/null \
+              | grep -E "ghc-${want//./\\.}|/${want}/" | head -1 || true)"
           fi
-          if [[ "$got" != "$want" ]]; then
-            echo "FATAL: ghc --numeric-version=$got want=$want" >&2
-            type -a ghc || true
+          if [[ -z "$GHC_REAL" || ! -e "$GHC_REAL" ]]; then
+            echo "FATAL: cannot locate ghc $want binary" >&2
             ghcup list -t ghc || true
+            find "$GHCUP_INSTALL_BASE_PREFIX" -iname 'ghc*' 2>/dev/null | head -40 || true
             exit 1
           fi
+          echo "GHC_REAL=$GHC_REAL"
+          # Wrapper dir first on PATH so plain `ghc`/`cabal` hit the pin.
+          # Use printf (not indented heredocs) so shebangs stay at column 0.
+          WRAP="$GITHUB_WORKSPACE/.snapper-ghc-wrap/bin"
+          mkdir -p "$WRAP"
+          printf '#!/usr/bin/env bash\nexec "%s" "$@"\n' "$GHC_REAL" > "$WRAP/ghc"
+          chmod +x "$WRAP/ghc"
+          for tool in ghc-pkg ghci runghc; do
+            real="$(ghcup whereis "$tool" "$want" 2>/dev/null | tr -d '\r' || true)"
+            if [[ -n "$real" && -e "$real" ]]; then
+              printf '#!/usr/bin/env bash\nexec "%s" "$@"\n' "$real" > "$WRAP/$tool"
+              chmod +x "$WRAP/$tool"
+            fi
+          done
+          CABAL_REAL="$(ghcup whereis cabal 2>/dev/null | tr -d '\r' || command -v cabal)"
+          printf '#!/usr/bin/env bash\nexec "%s" --with-compiler="%s" "$@"\n' \
+            "$CABAL_REAL" "$GHC_REAL" > "$WRAP/cabal"
+          chmod +x "$WRAP/cabal"
+          export PATH="$WRAP:$GHCUP_BIN:$PATH"
+          echo "$WRAP" >> "$GITHUB_PATH"
+          hash -r || true
+          command -v ghc
+          got="$(ghc --numeric-version | tr -d '\r')"
+          echo "ghc --numeric-version=$got (want $want)"
+          ghc --version
+          if [[ "$got" != "$want" ]]; then
+            echo "FATAL: wrapper still wrong: got=$got want=$want" >&2
+            type -a ghc || true
+            ls -la "$WRAP" || true
+            exit 1
+          fi
+          # Persist for later steps (Windows path separators OK in GITHUB_ENV).
+          echo "SNAPPER_GHC_REAL=$GHC_REAL" >> "$GITHUB_ENV"
           cabal --version
           cabal update
 
