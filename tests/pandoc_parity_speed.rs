@@ -61,19 +61,26 @@ fn time_format(input: &str, cfg: &FormatConfig, n: usize, warm: usize) -> f64 {
     median_ms(samples)
 }
 
+fn best_backend() -> Option<PandocBackend> {
+    if ffi_available() {
+        Some(PandocBackend::Ffi)
+    } else if snapper_fmt::parser::pandoc::pandoc_available() {
+        Some(PandocBackend::Cli)
+    } else {
+        None
+    }
+}
+
+/// True if multi-sentence input was reflowed onto separate lines.
+fn has_sentence_reflow(out: &str, first: &str, second_substr: &str) -> bool {
+    out.contains(&format!("{first}\n")) && out.contains(second_substr)
+}
+
 #[test]
 fn parity_md_prose_reflow_and_structure() {
     let input = read("pandoc_ast/math_code.md");
     let native = format_text(&input, &native_cfg(Format::Markdown)).expect("native");
-    let backend = if ffi_available() {
-        PandocBackend::Ffi
-    } else {
-        PandocBackend::Cli
-    };
-    if backend == PandocBackend::Cli && !snapper_fmt::parser::pandoc::pandoc_available() {
-        eprintln!("skipping: no pandoc backend");
-        return;
-    }
+    let backend = best_backend().expect("need pandoc backend for parity test");
     let pandoc = format_text(
         &input,
         &pandoc_cfg(Format::Markdown, backend, "markdown"),
@@ -86,16 +93,14 @@ fn parity_md_prose_reflow_and_structure() {
     .expect("pandoc2");
     assert_eq!(pandoc, p2, "pandoc dual-run");
 
-    // Multi-sentence prose reflowed on both paths.
     assert!(
-        native.contains("First sentence.\n") || native.lines().any(|l| l == "First sentence."),
+        has_sentence_reflow(&native, "First sentence.", "Second sentence"),
         "native reflow:\n{native}"
     );
     assert!(
-        pandoc.contains("First sentence.\n") || pandoc.lines().any(|l| l == "First sentence."),
+        has_sentence_reflow(&pandoc, "First sentence.", "Second sentence"),
         "pandoc reflow:\n{pandoc}"
     );
-    // Structure not prose-split on pandoc path.
     assert!(
         pandoc.contains("```python") && pandoc.contains("print(1.0)"),
         "code unit:\n{pandoc}"
@@ -104,8 +109,6 @@ fn parity_md_prose_reflow_and_structure() {
         pandoc.contains("$E = mc^2.$") || pandoc.contains("mc^2"),
         "math present:\n{pandoc}"
     );
-    // Intentional non-identity: native keeps ### Title; pandoc Header is title text.
-    // Document via assertion that both have Title and body prose.
     assert!(native.contains("Title") && pandoc.contains("Title"));
 }
 
@@ -113,28 +116,73 @@ fn parity_md_prose_reflow_and_structure() {
 fn parity_org_multi_sentence() {
     let input = read("sample.org");
     let native = format_text(&input, &native_cfg(Format::Org)).expect("native");
-    if !snapper_fmt::parser::pandoc::pandoc_available() && !ffi_available() {
-        eprintln!("skipping org parity: no pandoc");
-        return;
-    }
-    let backend = PandocBackend::Auto;
-    let pandoc = match format_text(&input, &pandoc_cfg(Format::Org, backend, "org")) {
-        Ok(s) => s,
-        Err(e) => {
-            eprintln!("skipping org pandoc: {e}");
-            return;
-        }
-    };
-    // Both produce non-empty reformatted text; prose lines should exist.
-    assert!(!native.is_empty() && !pandoc.is_empty());
+    let backend = best_backend().expect("need pandoc backend");
+    let pandoc = format_text(&input, &pandoc_cfg(Format::Org, backend, "org"))
+        .unwrap_or_else(|e| panic!("org pandoc failed: {e}"));
     let p2 = format_text(&input, &pandoc_cfg(Format::Org, backend, "org")).unwrap();
-    assert_eq!(pandoc, p2);
+    assert_eq!(pandoc, p2, "org pandoc dual-run");
+
+    // Multi-sentence prose reflow (fixture: "This is the first paragraph... It has multiple...")
+    assert!(
+        has_sentence_reflow(
+            &native,
+            "This is the first paragraph of the introduction.",
+            "It has multiple sentences"
+        ) || (native.contains("first paragraph")
+            && native.lines().filter(|l| l.contains("sentence") || l.contains("paragraph")).count()
+                >= 2),
+        "native org reflow:\n{native}"
+    );
+    assert!(
+        has_sentence_reflow(
+            &pandoc,
+            "This is the first paragraph of the introduction.",
+            "It has multiple sentences"
+        ) || (pandoc.contains("first paragraph")
+            && pandoc
+                .lines()
+                .filter(|l| l.contains("sentence") || l.contains("paragraph"))
+                .count()
+                >= 2),
+        "pandoc org reflow:\n{pandoc}"
+    );
+
+    // Code: native keeps org src block framing; pandoc emits CodeBlock fences.
+    assert!(
+        native.contains("import numpy") || native.contains("np.array"),
+        "native keeps code body:\n{native}"
+    );
+    assert!(
+        (pandoc.contains("```") && pandoc.contains("import numpy"))
+            || pandoc.contains("import numpy"),
+        "pandoc keeps code non-prose:\n{pandoc}"
+    );
+    // Table cells present as structure (pipe or org table markers), not sentence-split away.
+    assert!(
+        native.contains("Alice") && native.contains("95"),
+        "native table:\n{native}"
+    );
+    assert!(
+        pandoc.contains("Alice") && pandoc.contains("95"),
+        "pandoc table cells:\n{pandoc}"
+    );
+    // Code body not prose-fragmented by periods in list numbers etc.
+    assert!(
+        !pandoc.lines().any(|l| l.trim() == "2, 3])" || l.trim() == "2,"),
+        "code not sentence-fragmented:\n{pandoc}"
+    );
+
+    // Write samples for verifier audit (implementer scratch when env set).
+    if let Ok(dir) = std::env::var("SNAPPER_PARITY_SCRATCH") {
+        let _ = std::fs::create_dir_all(&dir);
+        let _ = std::fs::write(format!("{dir}/org-native-out.txt"), &native);
+        let _ = std::fs::write(format!("{dir}/org-pandoc-out.txt"), &pandoc);
+    }
 }
 
 #[test]
 fn walker_cost_negligible_vs_full_pipeline() {
     let json = read("pandoc_ast/math_code_md.json");
-    // warm
     for _ in 0..5 {
         let _ = regions_from_pandoc_json(&json).unwrap();
     }
@@ -146,7 +194,6 @@ fn walker_cost_negligible_vs_full_pipeline() {
     }
     let walker_med_approx = t0.elapsed().as_secs_f64() * 1000.0 / n as f64;
     eprintln!("walker_approx_mean_ms={walker_med_approx:.4}");
-    // Pure walker on a small fixture should be well under 5ms average.
     assert!(
         walker_med_approx < 5.0,
         "walker too slow: {walker_med_approx} ms"
@@ -155,45 +202,70 @@ fn walker_cost_negligible_vs_full_pipeline() {
 
 #[test]
 fn speed_library_native_vs_pandoc_report() {
-    let input = read("pandoc_ast/math_code.md");
-    let n_cfg = native_cfg(Format::Markdown);
-    let native_ms = time_format(&input, &n_cfg, 40, 5);
-
-    let mut lines = vec![format!("native_format_text_med_ms={native_ms:.3}")];
+    // Markdown fixture
+    let md = read("pandoc_ast/math_code.md");
+    let n_md = time_format(&md, &native_cfg(Format::Markdown), 40, 5);
+    let mut lines = vec![format!("md_native_format_text_med_ms={n_md:.3}")];
 
     if snapper_fmt::parser::pandoc::pandoc_available() {
-        let cli_ms = time_format(
-            &input,
+        let cli = time_format(
+            &md,
             &pandoc_cfg(Format::Markdown, PandocBackend::Cli, "markdown"),
-            15,
-            2,
+            20,
+            3,
         );
-        lines.push(format!("pandoc_cli_format_text_med_ms={cli_ms:.3}"));
-        lines.push(format!("cli_over_native={:.2}", cli_ms / native_ms.max(1e-9)));
+        lines.push(format!("md_pandoc_cli_med_ms={cli:.3}"));
+        lines.push(format!("md_cli_over_native={:.2}", cli / n_md.max(1e-9)));
     }
     if ffi_available() {
-        let ffi_ms = time_format(
-            &input,
+        let ffi = time_format(
+            &md,
             &pandoc_cfg(Format::Markdown, PandocBackend::Ffi, "markdown"),
             20,
             3,
         );
-        lines.push(format!("pandoc_ffi_format_text_med_ms={ffi_ms:.3}"));
-        lines.push(format!("ffi_over_native={:.2}", ffi_ms / native_ms.max(1e-9)));
-        // Same order of magnitude band for successor readiness (not beating pure Rust).
-        // Plan: not ~100× at representative size after warm-up for process-level;
-        // library-level floor is pandoc reader cost — record honestly.
-        eprintln!("{}", lines.join("\n"));
-        assert!(
-            ffi_ms < 500.0,
-            "FFI path pathologically slow: {ffi_ms} ms"
-        );
-    } else {
-        eprintln!("{}", lines.join("\n"));
-        eprintln!("FFI unavailable; CLI-only report");
+        lines.push(format!("md_pandoc_ffi_med_ms={ffi:.3}"));
+        lines.push(format!("md_ffi_over_native={:.2}", ffi / n_md.max(1e-9)));
+        assert!(ffi < 500.0, "md FFI pathologically slow: {ffi}");
     }
 
-    // Multi-format: latex via auto when possible
+    // Second format: org (N≥20 warm library medians)
+    let org = read("sample.org");
+    let n_org = time_format(&org, &native_cfg(Format::Org), 40, 5);
+    lines.push(format!("org_native_format_text_med_ms={n_org:.3}"));
+    if snapper_fmt::parser::pandoc::pandoc_available() {
+        let cli = time_format(
+            &org,
+            &pandoc_cfg(Format::Org, PandocBackend::Cli, "org"),
+            20,
+            3,
+        );
+        lines.push(format!("org_pandoc_cli_med_ms={cli:.3}"));
+        lines.push(format!("org_cli_over_native={:.2}", cli / n_org.max(1e-9)));
+    }
+    if ffi_available() {
+        let ffi = time_format(
+            &org,
+            &pandoc_cfg(Format::Org, PandocBackend::Ffi, "org"),
+            20,
+            3,
+        );
+        lines.push(format!("org_pandoc_ffi_med_ms={ffi:.3}"));
+        lines.push(format!("org_ffi_over_native={:.2}", ffi / n_org.max(1e-9)));
+        // Warm library FFI should stay same-order (not ~100×) on representative org.
+        assert!(
+            ffi / n_org.max(1e-9) < 50.0,
+            "org warm FFI not same-order vs native: {ffi} / {n_org}"
+        );
+    }
+
+    eprintln!("{}", lines.join("\n"));
+    if let Ok(dir) = std::env::var("SNAPPER_PARITY_SCRATCH") {
+        let _ = std::fs::create_dir_all(&dir);
+        let _ = std::fs::write(format!("{dir}/speed-parity-library.txt"), lines.join("\n"));
+    }
+
+    // Multi-format latex structure (not speed-only)
     if snapper_fmt::parser::pandoc::pandoc_available() {
         let tex = read("pandoc_ast/math_code.tex");
         let out = format_text(
@@ -201,26 +273,41 @@ fn speed_library_native_vs_pandoc_report() {
             &pandoc_cfg(Format::Latex, PandocBackend::Cli, "latex"),
         )
         .expect("latex pandoc");
-        assert!(out.contains("```") || out.contains("print"), "latex code: {out}");
         assert!(
-            out.contains("mc^2") || out.contains("$$"),
-            "latex math: {out}"
+            has_sentence_reflow(&out, "Hello world.", "Second sentence"),
+            "latex prose reflow:\n{out}"
         );
+        assert!(out.contains("```") && out.contains("print"), "latex code: {out}");
+        assert!(out.contains("mc^2") || out.contains("$$"), "latex math: {out}");
     }
 }
 
+/// Always exercises fail-closed via a real snapper subprocess + bad lib path.
 #[test]
 fn fail_closed_still_holds() {
-    if ffi_available() {
-        // Explicit FFI force is tested via CLI subprocess elsewhere.
-        return;
-    }
-    let err = format_text(
-        "Hi. There.\n",
-        &pandoc_cfg(Format::Markdown, PandocBackend::Ffi, "markdown"),
-    )
-    .unwrap_err();
+    let bin = env!("CARGO_BIN_EXE_snapper");
+    let input = fixture("pandoc_ast/math_code.md");
+    let out = std::process::Command::new(bin)
+        .args([
+            "--use-pandoc",
+            "--pandoc-backend",
+            "ffi",
+            "--format",
+            "markdown",
+        ])
+        .arg(&input)
+        .env("SNAPPER_PANDOC_LIB", "/nonexistent/libsnapper_pandoc.so")
+        .env_remove("SNAPPER_PANDOC_LIB_DIR")
+        .output()
+        .expect("spawn snapper");
     assert!(
-        err.to_string().contains("unavailable") || err.to_string().contains("FFI")
+        !out.status.success(),
+        "FFI missing lib must fail; stdout={}",
+        String::from_utf8_lossy(&out.stdout)
+    );
+    let err = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        err.contains("unavailable") || err.contains("FFI") || err.contains("library"),
+        "explicit error: {err}"
     );
 }
