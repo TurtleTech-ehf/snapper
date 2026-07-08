@@ -30,7 +30,17 @@ fn main() {
     let archive = archive.canonicalize().unwrap_or(archive);
     // MinGW ld rejects the Windows extended-length prefix (`\\?\D:\...`) with
     // "member … in archive is not an object" (GHA run 28965683301). Strip it.
-    let archive = strip_windows_verbatim_prefix(archive);
+    // (Avoid raw-string edge cases ending in `\`; use normal escapes.)
+    let archive = {
+        let s = archive.to_string_lossy();
+        let stripped = s
+            .strip_prefix("\\\\?\\UNC\\")
+            .or_else(|| s.strip_prefix("\\\\?\\"))
+            .or_else(|| s.strip_prefix("//?/UNC/"))
+            .or_else(|| s.strip_prefix("//?/"))
+            .unwrap_or(s.as_ref());
+        PathBuf::from(stripped)
+    };
     let target = env::var("TARGET").unwrap_or_else(|_| env::var("HOST").unwrap_or_default());
 
     if target.contains("apple-darwin") || target.contains("apple-ios") {
