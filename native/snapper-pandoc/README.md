@@ -33,9 +33,20 @@ export SNAPPER_PANDOC_LIB_DIR=$PWD/native/snapper-pandoc/lib
 cargo build --release --features "cli,pandoc,pandoc-colink"
 ```
 
-`build.rs` adds `-L` / `-lsnapper_pandoc` and absolute `rpath` entries for the
-`.so` and its GHC/pandoc dependencies (from `ldd`). The happy path uses linked
-symbols (`extern "C" snapper_pandoc_parse`); no `SNAPPER_PANDOC_LIB` discovery.
+`build.rs` emits the link line (shared foreign-library, not a full static GHC
+archive — still one co-built deploy unit via `NEEDED` + `RUNPATH`):
+
+```text
+-L$SNAPPER_PANDOC_LIB_DIR
+-Wl,--no-as-needed $SNAPPER_PANDOC_LIB_DIR/libsnapper_pandoc.so.0.0.0 -Wl,--as-needed
+-lsnapper_pandoc
+-Wl,-rpath,$SNAPPER_PANDOC_LIB_DIR
+-Wl,-rpath,<each GHC/pandoc package dir from ldd; never host glibc/gmp/zlib>
+```
+
+The happy path uses linked symbols (`extern "C" snapper_pandoc_parse`); no
+`SNAPPER_PANDOC_LIB` discovery. Prefer `bfd` if mold drops the absolute `.so`
+(`RUSTFLAGS='-C link-arg=-fuse-ld=bfd'`).
 
 ## C ABI
 
