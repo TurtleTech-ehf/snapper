@@ -48,15 +48,19 @@ fn main() {
 
 /// Emit a link arg for final artifacts that need the HS archive.
 ///
-/// `crate-type = ["cdylib", "rlib"]` means Windows (and any `--lib` build) will
-/// link a **cdylib** as well as bins. `rustc-link-arg-bins` alone left
-/// `snapper_pandoc_parse` undefined when linking `snapper_fmt.dll` on
-/// windows-gnu (GHA run 28959463506).
-///
-/// Cargo key for cdylibs is `rustc-cdylib-link-arg` (not `rustc-link-arg-cdylibs`).
+/// - Always: bins (`rustc-link-arg-bins`) — the colink CLI product.
+/// - Windows only: also cdylibs (`rustc-cdylib-link-arg`). The package has
+///   `crate-type = ["cdylib", "rlib"]`; windows-gnu links `snapper_fmt.dll` and
+///   needs the archive there (GHA 28959463506). On Linux the same archive is
+///   not fully PIC-safe for shared objects (`R_X86_64_32S` / stg_upd_frame_info
+///   when making `.so` — GHA 28963791512), so do **not** absorb into Linux/mac
+///   cdylibs.
 fn link_arg(arg: &str) {
     println!("cargo:rustc-link-arg-bins={arg}");
-    println!("cargo:rustc-cdylib-link-arg={arg}");
+    let is_windows = env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("windows");
+    if is_windows {
+        println!("cargo:rustc-cdylib-link-arg={arg}");
+    }
 }
 
 fn emit_linux(archive: &Path) {
