@@ -51,10 +51,12 @@ fn main() {
 /// `crate-type = ["cdylib", "rlib"]` means Windows (and any `--lib` build) will
 /// link a **cdylib** as well as bins. `rustc-link-arg-bins` alone left
 /// `snapper_pandoc_parse` undefined when linking `snapper_fmt.dll` on
-/// windows-gnu (GHA run 28959463506). Apply to both bins and cdylibs.
+/// windows-gnu (GHA run 28959463506).
+///
+/// Cargo key for cdylibs is `rustc-cdylib-link-arg` (not `rustc-link-arg-cdylibs`).
 fn link_arg(arg: &str) {
     println!("cargo:rustc-link-arg-bins={arg}");
-    println!("cargo:rustc-link-arg-cdylibs={arg}");
+    println!("cargo:rustc-cdylib-link-arg={arg}");
 }
 
 fn emit_linux(archive: &Path) {
