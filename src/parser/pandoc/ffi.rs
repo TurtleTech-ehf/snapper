@@ -422,5 +422,12 @@ mod tests {
             script_txt.contains("-staticlib"),
             "build-static.sh must invoke ghc -staticlib"
         );
+        let pack = manifest.join("native/snapper-pandoc/pack-upx.sh");
+        assert!(pack.is_file(), "pack-upx.sh optional pack script must exist");
+        let pack_txt = std::fs::read_to_string(&pack).expect("pack-upx.sh");
+        assert!(
+            pack_txt.contains("upx") && pack_txt.contains("-9"),
+            "pack-upx.sh must invoke upx with compression flags"
+        );
     }
 }
