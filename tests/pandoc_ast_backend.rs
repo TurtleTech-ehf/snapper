@@ -365,9 +365,23 @@ fn format_text_pandoc_latex_math_code_envs() {
             return;
         }
     };
+    // Require real sentence reflow (fixture has "Hello world. Second sentence." on one line).
     assert!(
-        out.contains("Hello world.\n") || out.contains("Hello world."),
-        "prose reflow or present:\n{out}"
+        out.contains("Hello world.\n") && out.contains("Second sentence"),
+        "latex pandoc must reflow multi-sentence prose:\n{out}"
+    );
+    let native = format_text(
+        &input,
+        &FormatConfig {
+            format: Format::Latex,
+            use_pandoc: false,
+            ..Default::default()
+        },
+    )
+    .expect("native latex");
+    assert!(
+        native.contains("Hello world.\n") && native.contains("Second sentence"),
+        "native latex reflow for parity:\n{native}"
     );
     // Equation / display math not orphaned by "E = mc" / "2." split as prose lines only.
     assert!(
