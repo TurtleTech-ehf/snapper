@@ -58,8 +58,10 @@ jobs:
           elif [[ "${{ runner.os }}" == "macOS" ]]; then
             brew install gmp libffi pkg-config || true
           elif [[ "${{ runner.os }}" == "Windows" ]]; then
-            # MinGW toolchain for windows-gnu + common C deps (gmp/ffi via ghcup/mingw).
-            choco install mingw -y --no-progress || true
+            # Do NOT install chocolatey mingw. GHC objects must be linked with
+            # GHCup's MSYS2 mingw (same toolchain that built the staticlib).
+            # Chocolatey mingw 15/16 ld rejects SnapperPandoc.o as "not an object".
+            echo "Windows: MinGW comes from GHCup MSYS2 after bootstrap"
           fi
 
       - name: Bootstrap GHCup into workspace prefix
@@ -155,10 +157,50 @@ jobs:
           cabal --version
           cabal update
 
+          # Windows: pin GHCup MSYS2 mingw on PATH for all later steps (static
+          # repack + cargo windows-gnu link). Must match the toolchain ghc uses.
+          if [[ "${{ runner.os }}" == "Windows" ]]; then
+            MINGW_BIN=""
+            for d in \
+              "${GHCUP_INSTALL_BASE_PREFIX}/ghcup/msys64/mingw64/bin" \
+              "${GHCUP_INSTALL_BASE_PREFIX}/.ghcup/msys64/mingw64/bin" \
+              "${HOME}/.ghcup/msys64/mingw64/bin" \
+              "/c/ghcup/msys64/mingw64/bin" \
+              "/c/tools/ghcup/msys64/mingw64/bin"; do
+              if [[ -x "${d}/gcc.exe" || -x "${d}/gcc" ]]; then
+                MINGW_BIN="$d"
+                break
+              fi
+            done
+            if [[ -z "$MINGW_BIN" ]]; then
+              # Last resort: ask ghcup to put mingw on PATH and resolve gcc.
+              MINGW_BIN="$(
+                ghcup run --mingw-path -- bash -lc 'dirname "$(command -v gcc)"' 2>/dev/null | tr -d '\r' || true
+              )"
+            fi
+            if [[ -z "$MINGW_BIN" || ! -d "$MINGW_BIN" ]]; then
+              echo "FATAL: GHCup MSYS2 mingw64/bin not found" >&2
+              find "$GHCUP_INSTALL_BASE_PREFIX" "$HOME/.ghcup" /c/ghcup \
+                -name 'gcc.exe' 2>/dev/null | head -30 || true
+              exit 1
+            fi
+            echo "SNAPPER_MINGW_BIN=$MINGW_BIN" >> "$GITHUB_ENV"
+            echo "$MINGW_BIN" >> "$GITHUB_PATH"
+            export PATH="$MINGW_BIN:$PATH"
+            echo "using GHCup MSYS mingw: $MINGW_BIN"
+            command -v gcc
+            gcc --version | head -2
+            command -v ld
+            ld --version | head -1
+          fi
+
       - name: Register pandoc in package-env (cabal --lib)
         run: |
           set -euo pipefail
           export PATH="${GHCUP_INSTALL_BASE_PREFIX}/.ghcup/bin:$HOME/.ghcup/bin:$PATH"
+          if [[ -n "${SNAPPER_MINGW_BIN:-}" ]]; then
+            export PATH="${SNAPPER_MINGW_BIN}:$PATH"
+          fi
           # Absolute package-env so later steps / build-static survive `cd`.
           ENV_ABS="${PWD}/.ghc.environment.snapper-colink"
           # Full pandoc graph is large; expect tens of minutes.
@@ -196,13 +238,10 @@ jobs:
         run: |
           set -euo pipefail
           export PATH="${GHCUP_INSTALL_BASE_PREFIX}/.ghcup/bin:$HOME/.ghcup/bin:$PATH"
-          # Windows: put chocolatey MinGW first so repack uses matching ar/objdump.
-          if [[ "${{ runner.os }}" == "Windows" ]]; then
-            for d in /c/mingw64/bin /mingw64/bin "/c/ProgramData/mingw64/mingw64/bin"; do
-              [[ -d "$d" ]] && export PATH="$d:$PATH"
-            done
-            command -v x86_64-w64-mingw32-ar || command -v ar || true
-            command -v x86_64-w64-mingw32-objdump || true
+          # Windows: GHCup MSYS mingw only (same as ghc / cargo link).
+          if [[ "${{ runner.os }}" == "Windows" && -n "${SNAPPER_MINGW_BIN:-}" ]]; then
+            export PATH="${SNAPPER_MINGW_BIN}:$PATH"
+            command -v ar; command -v gcc; command -v ld
           fi
           # Re-resolve package-env if GITHUB_ENV path is missing or relative.
           if [[ -z "${GHC_ENVIRONMENT:-}" || ! -f "${GHC_ENVIRONMENT}" ]]; then
@@ -264,8 +303,27 @@ jobs:
         run: |
           set -euo pipefail
           export PATH="${GHCUP_INSTALL_BASE_PREFIX}/.ghcup/bin:$HOME/.ghcup/bin:$PATH"
+          if [[ -z "${SNAPPER_MINGW_BIN:-}" || ! -d "${SNAPPER_MINGW_BIN}" ]]; then
+            echo "FATAL: SNAPPER_MINGW_BIN unset — cannot link GHC objects with foreign MinGW" >&2
+            exit 1
+          fi
+          # Prepend GHCup MSYS mingw; strip chocolatey mingw if present so rustc
+          # does not pick C:\ProgramData\mingw64 (incompatible with ghc .o).
+          export PATH="${SNAPPER_MINGW_BIN}:$PATH"
+          # Drop chocolatey mingw bins from PATH if they appear later.
+          CLEAN_PATH=""
+          IFS=':' read -ra PARTS <<< "$PATH"
+          for p in "${PARTS[@]}"; do
+            case "$p" in
+              *ProgramData/mingw*|*ProgramData\\mingw*|*chocolatey*mingw*) continue ;;
+            esac
+            CLEAN_PATH="${CLEAN_PATH:+$CLEAN_PATH:}$p"
+          done
+          export PATH="$CLEAN_PATH"
+          echo "linker gcc: $(command -v gcc)"
+          gcc --version | head -1
+          export CARGO_TARGET_X86_64_PC_WINDOWS_GNU_LINKER=gcc
           export SNAPPER_PANDOC_STATIC_LIB=$PWD/native/snapper-pandoc/lib/libsnapper_pandoc.a
-          # Ensure mingw linker is available for windows-gnu
           rustup target add x86_64-pc-windows-gnu
           cargo build --release --target x86_64-pc-windows-gnu \
             --features "cli,pandoc,pandoc-colink" --bin snapper
