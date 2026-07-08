@@ -30,7 +30,7 @@ cli = ["dep:clap", "dep:clap-markdown", "dep:rayon", "dep:ec4rs", "dep:glob"]
 neural = ["dep:nnsplit"]
 lsp = ["dep:tower-lsp", "dep:tokio"]
 watch = ["dep:notify"]
-pandoc = ["dep:pandoc_ast", "dep:libloading"]
+pandoc = ["dep:pandoc_ast", "dep:libloading", "dep:sha2"]
 # Alias for docs/CI that want to stress the in-process path name; same as `pandoc`.
 pandoc-ffi = ["pandoc"]
 wasm = ["dep:wasm-bindgen", "dep:serde-wasm-bindgen", "dep:js-sys"]
@@ -62,6 +62,7 @@ tokio = { version = "1", features = ["rt-multi-thread", "macros", "io-std"], opt
 notify = { version = "7", optional = true }
 pandoc_ast = { version = "0.8", optional = true }
 libloading = { version = "0.8", optional = true }
+sha2 = { version = "0.10", optional = true }
 tempfile = "3"
 
 # WASM-only

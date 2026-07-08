@@ -44,6 +44,8 @@ snapper --use-pandoc --pandoc-backend ffi paper.md
 
 Native line parsers remain the default until product flip. Use =--use-pandoc= when you need formats without a built-in parser or AST-true structure; prefer FFI for latency once =libsnapper_pandoc= is installed.
 
+**Speed.** Warm in-process FFI is a few times native cost; cold process reloads the GHC RTS (tens of ms). Snapper also caches pandoc JSON ASTs by content hash (memory + disk under =$XDG_CACHE_HOME/snapper/pandoc-ast=). Re-formatting the same source skips pandoc entirely. Disable with =SNAPPER_PANDOC_CACHE=0=; override dir with =SNAPPER_PANDOC_CACHE_DIR=.
+
 * When to use pandoc vs built-in parsers
 :PROPERTIES:
 :CUSTOM_ID: when-to-use

@@ -16,6 +16,7 @@
 //! - **FFI** ([`PandocBackend::Ffi`]): `libsnapper_pandoc` (linked library readers).
 
 pub mod ast;
+pub mod cache;
 pub mod cli;
 pub mod ffi;
 
@@ -89,19 +90,37 @@ pub enum PandocError {
     Ffi(#[from] ffi::FfiError),
     #[error(transparent)]
     Cli(#[from] cli::CliError),
+    #[error("pandoc AST cache/classify: {0}")]
+    Ast(String),
 }
 
 /// Parse input with the selected backend and classify via the pandoc AST.
+///
+/// Uses a content-addressed AST JSON cache (memory + disk) so repeated formats
+/// of the same source skip pandoc entirely after the first successful parse.
 pub fn parse_with_backend(
     input: &str,
     format: &str,
     backend: PandocBackend,
 ) -> Result<Vec<Region>, PandocError> {
-    match backend.resolve() {
-        PandocBackend::Auto => unreachable!("resolve collapses Auto"),
-        PandocBackend::Ffi => Ok(ffi::parse_via_ffi(input, format)?),
-        PandocBackend::Cli => Ok(cli::parse_via_cli(input, format)?),
+    if let Some(json) = cache::get_json(format, input) {
+        return regions_from_pandoc_json(json.as_ref()).map_err(PandocError::Ast);
     }
+    let (regions, json_opt) = match backend.resolve() {
+        PandocBackend::Auto => unreachable!("resolve collapses Auto"),
+        PandocBackend::Ffi => {
+            let (regs, json) = ffi::parse_via_ffi_with_json(input, format)?;
+            (regs, Some(json))
+        }
+        PandocBackend::Cli => {
+            let (regs, json) = cli::parse_via_cli_with_json(input, format)?;
+            (regs, Some(json))
+        }
+    };
+    if let Some(json) = json_opt {
+        cache::put_json(format, input, &json);
+    }
+    Ok(regions)
 }
 
 /// Parser that uses pandoc for universal format support.
