@@ -65,10 +65,11 @@ pub struct Cli {
     #[arg(long)]
     pub use_pandoc: bool,
 
-    /// Pandoc AST source when `--use-pandoc` is set: `ffi` (in-process
-    /// Haskell/C `libsnapper_pandoc`) or `cli` (`pandoc` subprocess).
-    /// Default: `cli`. The `ffi` mode fails explicitly if the library is missing.
-    #[arg(long, default_value = "cli", value_name = "BACKEND")]
+    /// Pandoc AST source when `--use-pandoc` is set:
+    /// `auto` (prefer in-process FFI, else CLI), `ffi` (`libsnapper_pandoc`),
+    /// or `cli` (`pandoc` subprocess). Default: `auto`.
+    /// `ffi` fails explicitly if the library is missing.
+    #[arg(long, default_value = "auto", value_name = "BACKEND")]
     pub pandoc_backend: String,
 
     /// Exit with code 1 if any file would change.

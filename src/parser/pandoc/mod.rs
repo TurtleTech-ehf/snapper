@@ -33,10 +33,13 @@ pub use ffi::ffi_available;
 /// How to obtain the pandoc AST.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum PandocBackend {
+    /// Prefer in-process FFI when `libsnapper_pandoc` loads; else CLI.
+    /// Successor default: amortizes RTS and avoids process-per-file spawn.
+    #[default]
+    Auto,
     /// In-process Haskell FFI (`libsnapper_pandoc`). Explicit error if unavailable.
     Ffi,
     /// Subprocess `pandoc -t json`. Explicit error if pandoc fails.
-    #[default]
     Cli,
 }
 
@@ -45,10 +48,11 @@ impl FromStr for PandocBackend {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s.to_ascii_lowercase().as_str() {
+            "auto" | "default" => Ok(Self::Auto),
             "ffi" | "lib" | "inprocess" | "in-process" => Ok(Self::Ffi),
             "cli" | "subprocess" | "command" => Ok(Self::Cli),
             other => Err(format!(
-                "unknown pandoc backend '{other}' (expected 'ffi' or 'cli')"
+                "unknown pandoc backend '{other}' (expected 'auto', 'ffi', or 'cli')"
             )),
         }
     }
@@ -57,8 +61,23 @@ impl FromStr for PandocBackend {
 impl PandocBackend {
     pub fn as_str(self) -> &'static str {
         match self {
+            Self::Auto => "auto",
             Self::Ffi => "ffi",
             Self::Cli => "cli",
+        }
+    }
+
+    /// Resolve Auto → Ffi if the library loads, else Cli.
+    pub fn resolve(self) -> Self {
+        match self {
+            Self::Auto => {
+                if ffi_available() {
+                    Self::Ffi
+                } else {
+                    Self::Cli
+                }
+            }
+            other => other,
         }
     }
 }
@@ -78,7 +97,8 @@ pub fn parse_with_backend(
     format: &str,
     backend: PandocBackend,
 ) -> Result<Vec<Region>, PandocError> {
-    match backend {
+    match backend.resolve() {
+        PandocBackend::Auto => unreachable!("resolve collapses Auto"),
         PandocBackend::Ffi => Ok(ffi::parse_via_ffi(input, format)?),
         PandocBackend::Cli => Ok(cli::parse_via_cli(input, format)?),
     }
@@ -147,9 +167,22 @@ mod tests {
 
     #[test]
     fn backend_from_str() {
+        assert_eq!("auto".parse::<PandocBackend>().unwrap(), PandocBackend::Auto);
         assert_eq!("ffi".parse::<PandocBackend>().unwrap(), PandocBackend::Ffi);
         assert_eq!("cli".parse::<PandocBackend>().unwrap(), PandocBackend::Cli);
+        assert_eq!(PandocBackend::default(), PandocBackend::Auto);
         assert!("bogus".parse::<PandocBackend>().is_err());
+    }
+
+    #[test]
+    fn backend_auto_resolves_to_ffi_or_cli() {
+        let r = PandocBackend::Auto.resolve();
+        assert!(matches!(r, PandocBackend::Ffi | PandocBackend::Cli));
+        if ffi_available() {
+            assert_eq!(r, PandocBackend::Ffi);
+        } else {
+            assert_eq!(r, PandocBackend::Cli);
+        }
     }
 
     #[test]
