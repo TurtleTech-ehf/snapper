@@ -157,41 +157,54 @@ jobs:
           cabal --version
           cabal update
 
-          # Windows: pin GHCup MSYS2 mingw on PATH for all later steps (static
-          # repack + cargo windows-gnu link). Must match the toolchain ghc uses.
+          # Windows: pin a mingw that matches ghc objects (not chocolatey).
+          # Minimal GHCup bootstrap may omit MSYS2 — install it, then also probe
+          # the mingw tree shipped next to the GHC bindist.
           if [[ "${{ runner.os }}" == "Windows" ]]; then
+            ghcup install msys2 2>&1 | tail -20 || true
             MINGW_BIN=""
+            # Prefer GHCup MSYS2, then ghc bindist mingw (same compiler that made .o).
+            GHC_ROOT="$(cd "$(dirname "$GHC_REAL")/.." && pwd)"
             for d in \
               "${GHCUP_INSTALL_BASE_PREFIX}/ghcup/msys64/mingw64/bin" \
               "${GHCUP_INSTALL_BASE_PREFIX}/.ghcup/msys64/mingw64/bin" \
               "${HOME}/.ghcup/msys64/mingw64/bin" \
               "/c/ghcup/msys64/mingw64/bin" \
-              "/c/tools/ghcup/msys64/mingw64/bin"; do
+              "${GHC_ROOT}/mingw/bin" \
+              "${GHC_ROOT}/../mingw/bin" \
+              "${GHC_ROOT}/mingw64/bin"; do
               if [[ -x "${d}/gcc.exe" || -x "${d}/gcc" ]]; then
                 MINGW_BIN="$d"
                 break
               fi
             done
             if [[ -z "$MINGW_BIN" ]]; then
-              # Last resort: ask ghcup to put mingw on PATH and resolve gcc.
+              # Locate any gcc.exe under the ghcup prefix (bindist or msys).
+              found="$(find "$GHCUP_INSTALL_BASE_PREFIX" -name 'gcc.exe' 2>/dev/null | head -1 || true)"
+              if [[ -n "$found" ]]; then
+                MINGW_BIN="$(cd "$(dirname "$found")" && pwd)"
+              fi
+            fi
+            if [[ -z "$MINGW_BIN" ]]; then
               MINGW_BIN="$(
                 ghcup run --mingw-path -- bash -lc 'dirname "$(command -v gcc)"' 2>/dev/null | tr -d '\r' || true
               )"
             fi
             if [[ -z "$MINGW_BIN" || ! -d "$MINGW_BIN" ]]; then
-              echo "FATAL: GHCup MSYS2 mingw64/bin not found" >&2
-              find "$GHCUP_INSTALL_BASE_PREFIX" "$HOME/.ghcup" /c/ghcup \
-                -name 'gcc.exe' 2>/dev/null | head -30 || true
+              echo "FATAL: no ghc-compatible mingw gcc.exe under GHCup tree" >&2
+              find "$GHCUP_INSTALL_BASE_PREFIX" -iname 'gcc*' 2>/dev/null | head -40 || true
+              ls -la "$GHC_ROOT" 2>/dev/null || true
               exit 1
             fi
             echo "SNAPPER_MINGW_BIN=$MINGW_BIN" >> "$GITHUB_ENV"
+            echo "GHCUP_MSYS2=$(cd "$MINGW_BIN/../.." 2>/dev/null && pwd || true)" >> "$GITHUB_ENV" || true
             echo "$MINGW_BIN" >> "$GITHUB_PATH"
             export PATH="$MINGW_BIN:$PATH"
-            echo "using GHCup MSYS mingw: $MINGW_BIN"
+            echo "using ghc-compatible mingw: $MINGW_BIN"
             command -v gcc
             gcc --version | head -2
-            command -v ld
-            ld --version | head -1
+            command -v ld || true
+            ld --version 2>/dev/null | head -1 || true
           fi
 
       - name: Register pandoc in package-env (cabal --lib)
