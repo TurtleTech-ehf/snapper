@@ -135,33 +135,49 @@ case "$uname_s" in
     mkdir -p "$REPACK"
     (
       cd "$REPACK"
-      # Prefer the ar that matches the rustc windows-gnu linker.
-      AR_BIN="$(command -v x86_64-w64-mingw32-ar 2>/dev/null || command -v ar)"
-      OD_BIN="$(command -v x86_64-w64-mingw32-objdump 2>/dev/null || command -v objdump || true)"
+      # Prefer ar from SNAPPER_MINGW_BIN / GHC bindist, not a foreign chocolatey tree.
+      AR_BIN=""
+      OD_BIN=""
+      if [[ -n "${SNAPPER_MINGW_BIN:-}" ]]; then
+        for a in ar x86_64-w64-mingw32-ar llvm-ar; do
+          [[ -x "${SNAPPER_MINGW_BIN}/${a}.exe" || -x "${SNAPPER_MINGW_BIN}/${a}" ]] && AR_BIN="${SNAPPER_MINGW_BIN}/${a}" && break
+        done
+        for o in objdump x86_64-w64-mingw32-objdump llvm-objdump; do
+          [[ -x "${SNAPPER_MINGW_BIN}/${o}.exe" || -x "${SNAPPER_MINGW_BIN}/${o}" ]] && OD_BIN="${SNAPPER_MINGW_BIN}/${o}" && break
+        done
+      fi
+      AR_BIN="${AR_BIN:-$(command -v x86_64-w64-mingw32-ar 2>/dev/null || command -v ar)}"
+      OD_BIN="${OD_BIN:-$(command -v x86_64-w64-mingw32-objdump 2>/dev/null || command -v objdump || true)}"
       echo "build-static: windows repack with AR=$AR_BIN OD=${OD_BIN:-none}"
-      # Extract with the same mingw ar cargo's ld will use.
-      "$AR_BIN" x "$BUILD_DIR/libsnapper_pandoc.a"
+      # Absolute path: ar x after cd loses relative member paths.
+      ARCHIVE_ABS="$(cd "$(dirname "$BUILD_DIR/libsnapper_pandoc.a")" && pwd)/libsnapper_pandoc.a"
+      "$AR_BIN" x "$ARCHIVE_ABS"
       ls -la | head -40 || true
       # Flatten one level of nested archives (ghc -staticlib sometimes embeds
       # an ar member named *.o that is itself an archive — MinGW ld then says
       # "member … is not an object").
       for f in ./*; do
         [[ -f "$f" ]] || continue
-        if head -c 8 "$f" 2>/dev/null | grep -q '!<arch>'; then
+        # Ar magic is exactly the first 8 bytes: "!<arch>\n"
+        magic="$(head -c 8 "$f" 2>/dev/null | od -An -tx1 | tr -d ' \n' || true)"
+        # 21 3c 61 72 63 68 3e 0a  == !<arch>\n
+        if [[ "$magic" == "213c617263683e0a" ]] || head -c 7 "$f" 2>/dev/null | grep -qx '!<arch>'; then
           echo "build-static: flatten nested archive $(basename "$f")"
+          abs_f="$(cd "$(dirname "$f")" && pwd)/$(basename "$f")"
           sub="$REPACK/nested-$(basename "$f")"
           mkdir -p "$sub"
           (
             cd "$sub"
-            "$AR_BIN" x "$f"
+            "$AR_BIN" x "$abs_f"
+            ls -la | head -20 || true
           )
           rm -f "$f"
-          # Hoist nested members with unique names.
+          # Hoist nested members with unique names (avoid collisions).
           for n in "$sub"/*; do
             [[ -f "$n" ]] || continue
             mv -f "$n" "./nested_$(basename "$f")__$(basename "$n")"
           done
-          rmdir "$sub" 2>/dev/null || true
+          rm -rf "$sub" 2>/dev/null || true
         fi
       done
       # Diagnose SnapperPandoc* if present.
