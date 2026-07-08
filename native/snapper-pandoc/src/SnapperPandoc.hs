@@ -23,6 +23,8 @@ import Foreign.Marshal.Alloc (free, mallocBytes)
 import Foreign.Marshal.Utils (copyBytes)
 import Foreign.Ptr (Ptr, nullPtr)
 import Foreign.Storable (poke, pokeByteOff)
+-- Reader surface only (no writers). Build-time size control is
+-- `ghc -staticlib` + link `--gc-sections`, not runtime rpath of libHS*.
 import Text.Pandoc
   ( PandocError
   , ReaderOptions

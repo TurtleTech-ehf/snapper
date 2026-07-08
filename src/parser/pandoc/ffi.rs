@@ -88,8 +88,8 @@ unsafe fn call_hs_init(init: HsInitFn) {
 mod linked {
     use super::*;
 
-    // Symbols resolved at link time via absolute libsnapper_pandoc.so from build.rs
-    // (do not use #[link(name=...)] — mold can drop -lsnapper_pandoc with --as-needed).
+    // Symbols absorbed at link time from libsnapper_pandoc.a (build-static.sh).
+    // Direct extern — not dlsym: static RTS symbols are not in the dynamic table.
     unsafe extern "C" {
         pub fn snapper_pandoc_parse(
             format: *const c_char,
@@ -98,27 +98,7 @@ mod linked {
         ) -> *mut c_char;
         pub fn snapper_pandoc_free(ptr: *mut c_char);
         pub fn snapper_pandoc_hs_ready();
-    }
-
-    /// Resolve `hs_init` from already-loaded images (rpath pulls RTS via
-    /// `libsnapper_pandoc` DT_NEEDED when the process starts).
-    pub fn resolve_hs_init() -> Option<HsInitFn> {
-        unsafe {
-            // RTLD_DEFAULT == null on glibc/musl for global symbol search.
-            #[link(name = "dl")]
-            unsafe extern "C" {
-                fn dlsym(
-                    handle: *mut std::ffi::c_void,
-                    symbol: *const c_char,
-                ) -> *mut std::ffi::c_void;
-            }
-            let p = dlsym(std::ptr::null_mut(), c"hs_init".as_ptr());
-            if p.is_null() {
-                None
-            } else {
-                Some(std::mem::transmute::<*mut std::ffi::c_void, HsInitFn>(p))
-            }
-        }
+        fn hs_init(argc: *mut c_int, argv: *mut *mut *mut c_char);
     }
 
     static INIT: OnceLock<Result<(), String>> = OnceLock::new();
@@ -126,12 +106,8 @@ mod linked {
     pub fn ensure_init() -> Result<(), FfiError> {
         let slot = INIT.get_or_init(|| {
             RTS_INIT.get_or_init(|| {
-                if let Some(init) = resolve_hs_init() {
-                    unsafe {
-                        call_hs_init(init);
-                    }
-                }
                 unsafe {
+                    call_hs_init(hs_init);
                     snapper_pandoc_hs_ready();
                 }
             });
@@ -425,5 +401,31 @@ mod tests {
             // Co-linked builds should not require SNAPPER_PANDOC_LIB for discovery.
             // Availability depends on the linked artifact existing at load time.
         }
+    }
+
+    /// Colink is a *build* path: static archive absorb, not ldd→RUNPATH of libHS*.
+    #[test]
+    fn colink_is_static_build_absorb_not_rpath_graph() {
+        let manifest = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        let build_rs = std::fs::read_to_string(manifest.join("build.rs")).expect("build.rs");
+        assert!(
+            build_rs.contains("libsnapper_pandoc.a"),
+            "build.rs must look for static archive product"
+        );
+        assert!(
+            build_rs.contains("--gc-sections") || build_rs.contains("gc-sections"),
+            "build.rs must use section GC on the absorb link"
+        );
+        assert!(
+            !build_rs.contains("ldd_dirs"),
+            "build.rs must not collect GHC package dirs via ldd for rpath"
+        );
+        let script = manifest.join("native/snapper-pandoc/build-static.sh");
+        assert!(script.is_file(), "build-static.sh must exist for archive build");
+        let script_txt = std::fs::read_to_string(&script).expect("build-static.sh");
+        assert!(
+            script_txt.contains("-staticlib"),
+            "build-static.sh must invoke ghc -staticlib"
+        );
     }
 }
