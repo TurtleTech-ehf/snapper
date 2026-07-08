@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Build-time absorbable archive for pandoc-colink (one .a, not shared+rpath).
-# Requires: ghc with pandoc package (e.g. nix ghc-with-packages).
+# Build-time absorbable archive for pandoc-colink (ghc -staticlib).
+# Linux / macOS / Windows(MSYS2 or GHCup bash). Requires ghc + registered pandoc.
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")" && pwd)"
 OUT_DIR="${SNAPPER_PANDOC_LIB_DIR:-$ROOT/lib}"
@@ -12,17 +12,34 @@ if ! command -v ghc >/dev/null 2>&1; then
   exit 1
 fi
 
-PID="$(ghc-pkg field pandoc id --simple-output 2>/dev/null | head -1 || true)"
+PID="$(ghc-pkg field pandoc id --simple-output 2>/dev/null | head -1 | tr -d '\r' || true)"
 if [[ -z "${PID}" ]]; then
-  echo "build-static: pandoc not registered in ghc-pkg (install pandoc Haskell package)" >&2
+  echo "build-static: pandoc not registered in ghc-pkg" >&2
+  echo "  Install a GHC that includes the pandoc package, or:" >&2
+  echo "    cabal install --lib pandoc pandoc-types aeson" >&2
+  echo "  then re-run this script." >&2
   exit 1
 fi
 
-echo "build-static: ghc $(ghc --numeric-version) pandoc unit $PID"
-# -staticlib folds our module + reachable package objects into one archive.
-# Final executable size is cut at link with --gc-sections (see build.rs).
-# -split-sections helps the final --gc-sections link drop dead object sections.
-ghc -O2 -fPIC -split-sections -staticlib \
+uname_s="$(uname -s 2>/dev/null || echo unknown)"
+echo "build-static: os=${uname_s} ghc=$(ghc --numeric-version) pandoc unit ${PID}"
+
+# Platform-tuned GHC flags.
+GHC_FLAGS=(-O2 -staticlib)
+case "$uname_s" in
+  Darwin)
+    # PIC for dylib-friendly objects; no -split-sections required on modern GHC.
+    GHC_FLAGS+=(-fPIC)
+    ;;
+  MINGW*|MSYS*|CYGWIN*)
+    GHC_FLAGS+=(-fPIC)
+    ;;
+  *)
+    GHC_FLAGS+=(-fPIC -split-sections)
+    ;;
+esac
+
+ghc "${GHC_FLAGS[@]}" \
   -package-id "$PID" \
   -package aeson -package bytestring -package text \
   -i"$ROOT/src" \
@@ -31,6 +48,5 @@ ghc -O2 -fPIC -split-sections -staticlib \
   "$ROOT/src/SnapperPandoc.hs"
 
 cp -f "$BUILD_DIR/libsnapper_pandoc.a" "$OUT_DIR/libsnapper_pandoc.a"
-# Keep shared build optional for dlopen path; do not require it for colink.
 ls -lh "$OUT_DIR/libsnapper_pandoc.a"
 echo "build-static: wrote $OUT_DIR/libsnapper_pandoc.a"

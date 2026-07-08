@@ -1,0 +1,131 @@
+# Optional static-colink smoke on macOS / Windows / Linux.
+# Never blocks PR CI — GHC + full pandoc is heavy and flaky.
+# Trigger: Actions → colink-os → Run workflow
+name: colink-os
+
+on:
+  workflow_dispatch:
+    inputs:
+      os:
+        description: "Runner OS matrix subset"
+        required: true
+        default: "all"
+        type: choice
+        options:
+          - all
+          - ubuntu-latest
+          - macos-latest
+          - windows-latest
+
+jobs:
+  colink:
+    name: colink-${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: ${{ github.event.inputs.os == 'all' && fromJSON('["ubuntu-latest","macos-latest","windows-latest"]') || fromJSON(format('["{0}"]', github.event.inputs.os)) }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.os == 'windows-latest' && 'x86_64-pc-windows-gnu' || '' }}
+
+      - name: Install GHC (GHCup) + cabal tools
+        if: runner.os != 'Windows'
+        run: |
+          set -euo pipefail
+          curl --proto '=https' --tlsv1.2 -sSf https://get-ghcup.haskell.org \
+            | BOOTSTRAP_HASKELL_NONINTERACTIVE=1 BOOTSTRAP_HASKELL_MINIMAL=1 sh
+          echo "$HOME/.ghcup/bin" >> "$GITHUB_PATH"
+          export PATH="$HOME/.ghcup/bin:$PATH"
+          ghcup install ghc recommended --set
+          ghcup install cabal latest --set
+          cabal update
+          # System libs for linking
+          if [[ "${{ runner.os }}" == "Linux" ]]; then
+            sudo apt-get update
+            sudo apt-get install -y libgmp-dev libffi-dev libzstd-dev libbz2-dev liblzma-dev libelf-dev libdw-dev libnuma-dev
+          elif [[ "${{ runner.os }}" == "macOS" ]]; then
+            brew install gmp libffi || true
+          fi
+          # Register pandoc for ghc-pkg (can take a long time)
+          cabal install --lib --package-env=. pandoc pandoc-types aeson text bytestring 2>&1 | tail -30
+          ghc-pkg list pandoc || true
+
+      - name: Install GHC on Windows (GHCup)
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --proto '=https' --tlsv1.2 -sSf https://get-ghcup.haskell.org \
+            | BOOTSTRAP_HASKELL_NONINTERACTIVE=1 BOOTSTRAP_HASKELL_MINIMAL=1 sh
+          echo "$HOME/.ghcup/bin" >> "$GITHUB_PATH"
+          export PATH="$HOME/.ghcup/bin:$PATH"
+          ghcup install ghc recommended --set
+          ghcup install cabal latest --set
+          cabal update
+          cabal install --lib --package-env=. pandoc pandoc-types aeson text bytestring 2>&1 | tail -40
+          ghc-pkg list pandoc || true
+
+      - name: Build static archive
+        id: static
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          export PATH="$HOME/.ghcup/bin:$PATH"
+          cd native/snapper-pandoc
+          ./build-static.sh
+
+      - name: Link colink snapper (Unix)
+        if: runner.os != 'Windows' && steps.static.outcome == 'success'
+        run: |
+          set -euo pipefail
+          export SNAPPER_PANDOC_STATIC_LIB=$PWD/native/snapper-pandoc/lib/libsnapper_pandoc.a
+          if [[ "${{ runner.os }}" == "Linux" ]]; then
+            export RUSTFLAGS="-C link-arg=-fuse-ld=bfd -C link-arg=-no-pie"
+          fi
+          cargo build --release --features "cli,pandoc,pandoc-colink" --bin snapper
+          BIN=target/release/snapper
+          if [[ "${{ runner.os }}" == "Linux" ]]; then
+            ldd "$BIN" | tee /tmp/deps.txt
+            if grep -E 'libHS' /tmp/deps.txt; then echo "unexpected libHS"; exit 1; fi
+          else
+            otool -L "$BIN" | tee /tmp/deps.txt
+            if grep -E 'libHS|HS' /tmp/deps.txt; then echo "unexpected HS dylib"; exit 1; fi
+          fi
+          unset SNAPPER_PANDOC_LIB SNAPPER_PANDOC_LIB_DIR
+          export SNAPPER_PANDOC_CACHE=0
+          "$BIN" --use-pandoc --pandoc-backend ffi -w 72 tests/fixtures/pandoc_ast/mixed.md | tee /tmp/out1.txt
+          "$BIN" --use-pandoc --pandoc-backend ffi -w 72 tests/fixtures/pandoc_ast/mixed.md | tee /tmp/out2.txt
+          diff -u /tmp/out1.txt /tmp/out2.txt
+          grep -q '```python' /tmp/out1.txt
+          grep -q '| a | b |' /tmp/out1.txt
+
+      - name: Link colink snapper (Windows gnu)
+        if: runner.os == 'Windows' && steps.static.outcome == 'success'
+        shell: bash
+        run: |
+          set -euo pipefail
+          export PATH="$HOME/.ghcup/bin:$PATH"
+          export SNAPPER_PANDOC_STATIC_LIB=$PWD/native/snapper-pandoc/lib/libsnapper_pandoc.a
+          rustup target add x86_64-pc-windows-gnu
+          cargo build --release --target x86_64-pc-windows-gnu \
+            --features "cli,pandoc,pandoc-colink" --bin snapper
+          BIN=target/x86_64-pc-windows-gnu/release/snapper.exe
+          unset SNAPPER_PANDOC_LIB SNAPPER_PANDOC_LIB_DIR
+          export SNAPPER_PANDOC_CACHE=0
+          "$BIN" --use-pandoc --pandoc-backend ffi -w 72 tests/fixtures/pandoc_ast/mixed.md | tee /tmp/out1.txt
+          "$BIN" --use-pandoc --pandoc-backend ffi -w 72 tests/fixtures/pandoc_ast/mixed.md | tee /tmp/out2.txt
+          diff -u /tmp/out1.txt /tmp/out2.txt
+          grep -q 'print' /tmp/out1.txt
+
+      - name: Record skip if static build failed
+        if: steps.static.outcome != 'success'
+        run: |
+          echo "static archive build failed on ${{ matrix.os }} — see previous step logs"
+          exit 1
