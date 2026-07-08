@@ -180,6 +180,15 @@ pub fn ffi_available() -> bool {
 
 /// Parse markup with the in-process pandoc library and classify via AST node kinds.
 pub fn parse_via_ffi(input: &str, format: &str) -> Result<Vec<Region>, FfiError> {
+    let (regions, _) = parse_via_ffi_with_json(input, format)?;
+    Ok(regions)
+}
+
+/// Like [`parse_via_ffi`], also returns the pandoc JSON for caching.
+pub fn parse_via_ffi_with_json(
+    input: &str,
+    format: &str,
+) -> Result<(Vec<Region>, String), FfiError> {
     let api = load_api()?;
     let fmt = CString::new(format)
         .map_err(|e| FfiError::ParseFailed(format!("format contained NUL: {e}")))?;
@@ -217,7 +226,8 @@ pub fn parse_via_ffi(input: &str, format: &str) -> Result<Vec<Region>, FfiError>
     unsafe { (api.free)(json_ptr) };
     drop(_rts);
     // Classify outside the RTS gate — pure Rust (hot path after obtain-AST).
-    regions_from_pandoc_json(&json).map_err(FfiError::InvalidAst)
+    let regions = regions_from_pandoc_json(&json).map_err(FfiError::InvalidAst)?;
+    Ok((regions, json))
 }
 
 /// Explicit library-unavailable error for tests of the failure contract.

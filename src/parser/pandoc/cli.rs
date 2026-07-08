@@ -34,6 +34,15 @@ pub fn pandoc_cli_available() -> bool {
 
 /// Run `pandoc -f <format> -t json` and classify the AST into regions.
 pub fn parse_via_cli(input: &str, format: &str) -> Result<Vec<Region>, CliError> {
+    let (regions, _) = parse_via_cli_with_json(input, format)?;
+    Ok(regions)
+}
+
+/// Like [`parse_via_cli`], also returns JSON for the content-addressed cache.
+pub fn parse_via_cli_with_json(
+    input: &str,
+    format: &str,
+) -> Result<(Vec<Region>, String), CliError> {
     let mut child = Command::new("pandoc")
         .args(["-f", format, "-t", "json"])
         .stdin(Stdio::piped())
@@ -62,7 +71,8 @@ pub fn parse_via_cli(input: &str, format: &str) -> Result<Vec<Region>, CliError>
 
     let json = String::from_utf8(output.stdout)
         .map_err(|e| CliError::InvalidAst(format!("stdout not UTF-8: {e}")))?;
-    regions_from_pandoc_json(&json).map_err(CliError::InvalidAst)
+    let regions = regions_from_pandoc_json(&json).map_err(CliError::InvalidAst)?;
+    Ok((regions, json))
 }
 
 #[cfg(test)]

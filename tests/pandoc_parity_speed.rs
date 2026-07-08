@@ -202,7 +202,14 @@ fn walker_cost_negligible_vs_full_pipeline() {
 
 #[test]
 fn speed_library_native_vs_pandoc_report() {
-    // Markdown fixture
+    use snapper_fmt::parser::pandoc::cache;
+
+    // Uncached obtain-AST (disable disk/memory cache for fair first-hit cost).
+    unsafe {
+        std::env::set_var("SNAPPER_PANDOC_CACHE", "0");
+    }
+    cache::clear_memory();
+
     let md = read("pandoc_ast/math_code.md");
     let n_md = time_format(&md, &native_cfg(Format::Markdown), 40, 5);
     let mut lines = vec![format!("md_native_format_text_med_ms={n_md:.3}")];
@@ -214,8 +221,11 @@ fn speed_library_native_vs_pandoc_report() {
             20,
             3,
         );
-        lines.push(format!("md_pandoc_cli_med_ms={cli:.3}"));
-        lines.push(format!("md_cli_over_native={:.2}", cli / n_md.max(1e-9)));
+        lines.push(format!("md_pandoc_cli_uncached_med_ms={cli:.3}"));
+        lines.push(format!(
+            "md_cli_uncached_over_native={:.2}",
+            cli / n_md.max(1e-9)
+        ));
     }
     if ffi_available() {
         let ffi = time_format(
@@ -224,12 +234,14 @@ fn speed_library_native_vs_pandoc_report() {
             20,
             3,
         );
-        lines.push(format!("md_pandoc_ffi_med_ms={ffi:.3}"));
-        lines.push(format!("md_ffi_over_native={:.2}", ffi / n_md.max(1e-9)));
+        lines.push(format!("md_pandoc_ffi_uncached_med_ms={ffi:.3}"));
+        lines.push(format!(
+            "md_ffi_uncached_over_native={:.2}",
+            ffi / n_md.max(1e-9)
+        ));
         assert!(ffi < 500.0, "md FFI pathologically slow: {ffi}");
     }
 
-    // Second format: org (N≥20 warm library medians)
     let org = read("sample.org");
     let n_org = time_format(&org, &native_cfg(Format::Org), 40, 5);
     lines.push(format!("org_native_format_text_med_ms={n_org:.3}"));
@@ -240,8 +252,11 @@ fn speed_library_native_vs_pandoc_report() {
             20,
             3,
         );
-        lines.push(format!("org_pandoc_cli_med_ms={cli:.3}"));
-        lines.push(format!("org_cli_over_native={:.2}", cli / n_org.max(1e-9)));
+        lines.push(format!("org_pandoc_cli_uncached_med_ms={cli:.3}"));
+        lines.push(format!(
+            "org_cli_uncached_over_native={:.2}",
+            cli / n_org.max(1e-9)
+        ));
     }
     if ffi_available() {
         let ffi = time_format(
@@ -250,12 +265,45 @@ fn speed_library_native_vs_pandoc_report() {
             20,
             3,
         );
-        lines.push(format!("org_pandoc_ffi_med_ms={ffi:.3}"));
-        lines.push(format!("org_ffi_over_native={:.2}", ffi / n_org.max(1e-9)));
-        // Warm library FFI should stay same-order (not ~100×) on representative org.
+        lines.push(format!("org_pandoc_ffi_uncached_med_ms={ffi:.3}"));
+        lines.push(format!(
+            "org_ffi_uncached_over_native={:.2}",
+            ffi / n_org.max(1e-9)
+        ));
         assert!(
             ffi / n_org.max(1e-9) < 50.0,
             "org warm FFI not same-order vs native: {ffi} / {n_org}"
+        );
+    }
+
+    // Cached path: re-enable cache, prime once, time hits.
+    let cache_dir = tempfile::tempdir().expect("cache dir");
+    unsafe {
+        std::env::set_var("SNAPPER_PANDOC_CACHE", "1");
+        std::env::set_var("SNAPPER_PANDOC_CACHE_DIR", cache_dir.path());
+    }
+    cache::clear_memory();
+    if let Some(backend) = best_backend() {
+        let _ = format_text(
+            &md,
+            &pandoc_cfg(Format::Markdown, backend, "markdown"),
+        )
+        .unwrap();
+        let cached = time_format(
+            &md,
+            &pandoc_cfg(Format::Markdown, backend, "markdown"),
+            40,
+            5,
+        );
+        lines.push(format!("md_pandoc_cached_med_ms={cached:.3}"));
+        lines.push(format!(
+            "md_cached_over_native={:.2}",
+            cached / n_md.max(1e-9)
+        ));
+        // Cached must be competitive with native (walker + reflow only).
+        assert!(
+            cached / n_md.max(1e-9) < 10.0,
+            "cached path should be near-native: {cached} vs {n_md}"
         );
     }
 
@@ -265,7 +313,6 @@ fn speed_library_native_vs_pandoc_report() {
         let _ = std::fs::write(format!("{dir}/speed-parity-library.txt"), lines.join("\n"));
     }
 
-    // Multi-format latex structure (not speed-only)
     if snapper_fmt::parser::pandoc::pandoc_available() {
         let tex = read("pandoc_ast/math_code.tex");
         let out = format_text(
@@ -280,6 +327,13 @@ fn speed_library_native_vs_pandoc_report() {
         assert!(out.contains("```") && out.contains("print"), "latex code: {out}");
         assert!(out.contains("mc^2") || out.contains("$$"), "latex math: {out}");
     }
+
+    unsafe {
+        std::env::remove_var("SNAPPER_PANDOC_CACHE");
+        std::env::remove_var("SNAPPER_PANDOC_CACHE_DIR");
+    }
+    cache::clear_memory();
+    drop(cache_dir);
 }
 
 /// Always exercises fail-closed via a real snapper subprocess + bad lib path.
@@ -310,4 +364,56 @@ fn fail_closed_still_holds() {
         err.contains("unavailable") || err.contains("FFI") || err.contains("library"),
         "explicit error: {err}"
     );
+}
+
+#[test]
+fn ast_cache_makes_second_parse_fast() {
+    use snapper_fmt::parser::pandoc::{cache, parse_with_backend, PandocBackend};
+    // Unique input so parallel tests cannot poison our key.
+    let nonce = format!(
+        "cache-test-{}-{}\n\nSecond sentence here.\n",
+        std::process::id(),
+        Instant::now().elapsed().as_nanos()
+    );
+    let dir = tempfile::tempdir().unwrap();
+    unsafe {
+        std::env::set_var("SNAPPER_PANDOC_CACHE_DIR", dir.path());
+        std::env::set_var("SNAPPER_PANDOC_CACHE", "1");
+    }
+    cache::clear_memory();
+    let backend = if ffi_available() {
+        PandocBackend::Ffi
+    } else if snapper_fmt::parser::pandoc::pandoc_available() {
+        PandocBackend::Cli
+    } else {
+        eprintln!("skip cache speed: no backend");
+        return;
+    };
+    assert!(
+        cache::get_json("markdown", &nonce).is_none(),
+        "unique input must miss cache first"
+    );
+    let t0 = Instant::now();
+    let r1 = parse_with_backend(&nonce, "markdown", backend).expect("first");
+    let first_ms = t0.elapsed().as_secs_f64() * 1000.0;
+    assert!(
+        cache::get_json("markdown", &nonce).is_some(),
+        "after first parse, memory/disk cache must hold JSON"
+    );
+    let t1 = Instant::now();
+    let r2 = parse_with_backend(&nonce, "markdown", backend).expect("second");
+    let second_ms = t1.elapsed().as_secs_f64() * 1000.0;
+    assert_eq!(r1, r2);
+    eprintln!("cache_first_ms={first_ms:.3} cache_second_ms={second_ms:.3}");
+    // Hit path is walker-class; allow some noise but must beat uncached CLI-class costs.
+    assert!(
+        second_ms < 5.0,
+        "cached second parse must be walker-fast, got {second_ms} ms (first={first_ms})"
+    );
+    cache::clear_memory();
+    unsafe {
+        std::env::remove_var("SNAPPER_PANDOC_CACHE_DIR");
+        std::env::remove_var("SNAPPER_PANDOC_CACHE");
+    }
+    drop(dir);
 }
