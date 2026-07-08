@@ -33,6 +33,8 @@ watch = ["dep:notify"]
 pandoc = ["dep:pandoc_ast", "dep:libloading", "dep:sha2"]
 # Alias for docs/CI that want to stress the in-process path name; same as `pandoc`.
 pandoc-ffi = ["pandoc"]
+# Link libsnapper_pandoc at build time (rpath); requires the foreign-library built.
+pandoc-colink = ["pandoc"]
 wasm = ["dep:wasm-bindgen", "dep:serde-wasm-bindgen", "dep:js-sys"]
 mcp = ["dep:rmcp", "dep:schemars"]
 
