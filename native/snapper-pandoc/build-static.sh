@@ -124,5 +124,58 @@ ghc "${GHC_FLAGS[@]}" \
   "$ROOT/src/SnapperPandoc.hs"
 
 cp -f "$BUILD_DIR/libsnapper_pandoc.a" "$OUT_DIR/libsnapper_pandoc.a"
+
+# Windows: MinGW ld from chocolatey often rejects GHC's ar members with
+# "…(SnapperPandoc.o) in archive is not an object". Re-extract and repack
+# with the same MinGW ar that cargo will drive, dropping non-COFF members.
+case "$uname_s" in
+  MINGW*|MSYS*|CYGWIN*)
+    REPACK="$BUILD_DIR/repack-objs"
+    rm -rf "$REPACK"
+    mkdir -p "$REPACK"
+    (
+      cd "$REPACK"
+      # Prefer the ar that matches the rustc windows-gnu linker.
+      AR_BIN="$(command -v x86_64-w64-mingw32-ar 2>/dev/null || command -v ar)"
+      echo "build-static: windows repack with AR=$AR_BIN"
+      ar x "$BUILD_DIR/libsnapper_pandoc.a" || "$AR_BIN" x "$BUILD_DIR/libsnapper_pandoc.a"
+      ls -la | head -30 || true
+      objs=()
+      for f in ./*; do
+        [[ -f "$f" ]] || continue
+        base="$(basename "$f")"
+        # Skip GHC interface / text junk if any landed in the archive.
+        case "$base" in
+          *.hi|*.hie|*.dyn_hi|*.p_hi) echo "build-static: drop $base"; continue ;;
+        esac
+        # objdump -f fails on non-objects; keep only members it accepts.
+        if command -v x86_64-w64-mingw32-objdump >/dev/null 2>&1; then
+          if x86_64-w64-mingw32-objdump -f "$f" >/dev/null 2>&1; then
+            objs+=("$f")
+          else
+            echo "build-static: drop non-object $base"
+            x86_64-w64-mingw32-objdump -f "$f" 2>&1 | head -3 || true
+          fi
+        elif command -v objdump >/dev/null 2>&1; then
+          if objdump -f "$f" >/dev/null 2>&1; then
+            objs+=("$f")
+          else
+            echo "build-static: drop non-object $base"
+          fi
+        else
+          objs+=("$f")
+        fi
+      done
+      if [[ ${#objs[@]} -eq 0 ]]; then
+        echo "build-static: no COFF objects after extract — keeping ghc archive" >&2
+      else
+        rm -f "$OUT_DIR/libsnapper_pandoc.a"
+        "$AR_BIN" rcs "$OUT_DIR/libsnapper_pandoc.a" "${objs[@]}"
+        echo "build-static: repacked ${#objs[@]} objects into $OUT_DIR/libsnapper_pandoc.a"
+      fi
+    )
+    ;;
+esac
+
 ls -lh "$OUT_DIR/libsnapper_pandoc.a"
 echo "build-static: wrote $OUT_DIR/libsnapper_pandoc.a"
