@@ -196,6 +196,14 @@ jobs:
         run: |
           set -euo pipefail
           export PATH="${GHCUP_INSTALL_BASE_PREFIX}/.ghcup/bin:$HOME/.ghcup/bin:$PATH"
+          # Windows: put chocolatey MinGW first so repack uses matching ar/objdump.
+          if [[ "${{ runner.os }}" == "Windows" ]]; then
+            for d in /c/mingw64/bin /mingw64/bin "/c/ProgramData/mingw64/mingw64/bin"; do
+              [[ -d "$d" ]] && export PATH="$d:$PATH"
+            done
+            command -v x86_64-w64-mingw32-ar || command -v ar || true
+            command -v x86_64-w64-mingw32-objdump || true
+          fi
           # Re-resolve package-env if GITHUB_ENV path is missing or relative.
           if [[ -z "${GHC_ENVIRONMENT:-}" || ! -f "${GHC_ENVIRONMENT}" ]]; then
             if [[ -f "${PWD}/.ghc.environment.snapper-colink" ]]; then
