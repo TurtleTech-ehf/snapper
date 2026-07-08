@@ -24,6 +24,9 @@ env:
   BOOTSTRAP_HASKELL_MINIMAL: "1"
   BOOTSTRAP_HASKELL_INSTALL_HLS: "0"
   BOOTSTRAP_HASKELL_INSTALL_STACK: "0"
+  # Pin GHC: "recommended" can be too new for pandoc (Windows Cabal-7107 base
+  # 4.22 vs haddock-library). 9.8.x is known-good with current pandoc on GHA.
+  SNAPPER_GHC_VERSION: "9.8.4"
 
 jobs:
   colink:
@@ -76,7 +79,7 @@ jobs:
           export PATH="$GHCUP_BIN:$PATH"
           command -v ghcup
           ghcup --version
-          ghcup install ghc recommended --set
+          ghcup install ghc "${SNAPPER_GHC_VERSION}" --set
           ghcup install cabal latest --set
           command -v ghc
           ghc --version
@@ -87,27 +90,36 @@ jobs:
         run: |
           set -euo pipefail
           export PATH="${GHCUP_INSTALL_BASE_PREFIX}/.ghcup/bin:$HOME/.ghcup/bin:$PATH"
-          # Local package env so ghc-pkg / ghc -package-id can see pandoc.
+          # Absolute package-env so later steps / build-static survive `cd`.
+          ENV_ABS="${PWD}/.ghc.environment.snapper-colink"
           # Full pandoc graph is large; expect tens of minutes.
-          cabal install --lib --package-env=. \
+          cabal install --lib --package-env="$ENV_ABS" \
             pandoc pandoc-types aeson text bytestring
-          ghc-pkg --package-db="$(ghc --print-global-package-db)" list pandoc || true
-          # package-env=. writes .ghc.environment.* in cwd — list it
-          ls -la .ghc.environment.* 2>/dev/null || true
-          if ! ghc-pkg field pandoc id --simple-output 2>/dev/null | head -1 | grep -q .; then
-            # Try with package-env file for subsequent steps
-            export GHC_ENVIRONMENT="$(ls -1 .ghc.environment.* 2>/dev/null | head -1 || true)"
-            echo "GHC_ENVIRONMENT=${GHC_ENVIRONMENT:-none}"
-            if [[ -n "${GHC_ENVIRONMENT:-}" ]]; then
-              echo "GHC_ENVIRONMENT=$GHC_ENVIRONMENT" >> "$GITHUB_ENV"
-            fi
-            # ghc-pkg with env
-            if ! ghc -package pandoc -e 'putStrLn "pandoc-ok"' 2>/dev/null; then
-              echo "pandoc not usable via ghc -package; static build will fail closed"
-              # still continue — build-static records skip path
-            fi
+          if [[ ! -f "$ENV_ABS" ]]; then
+            # Cabal sometimes writes only a platform-named env file.
+            for f in .ghc.environment.*; do
+              [[ -f "$f" ]] || continue
+              ENV_ABS="${PWD}/$(basename "$f")"
+              break
+            done
           fi
-          ghc-pkg field pandoc id --simple-output 2>/dev/null | head -1 || true
+          if [[ ! -f "$ENV_ABS" ]]; then
+            echo "no package-env file after cabal install --lib" >&2
+            ls -la .ghc.environment.* 2>/dev/null || true
+            exit 1
+          fi
+          # GitHub Actions GITHUB_ENV: use absolute path only.
+          echo "GHC_ENVIRONMENT=${ENV_ABS}" >> "$GITHUB_ENV"
+          export GHC_ENVIRONMENT="$ENV_ABS"
+          echo "GHC_ENVIRONMENT=$ENV_ABS"
+          ls -la .ghc.environment.* 2>/dev/null || true
+          head -40 "$ENV_ABS" || true
+          if ghc -package-env "$ENV_ABS" -package pandoc -e 'putStrLn "pandoc-ok"'; then
+            echo "pandoc visible via package-env"
+          else
+            echo "pandoc not usable via package-env; static build will fail closed" >&2
+            exit 1
+          fi
 
       - name: Build static archive
         id: static
@@ -115,38 +127,35 @@ jobs:
         run: |
           set -euo pipefail
           export PATH="${GHCUP_INSTALL_BASE_PREFIX}/.ghcup/bin:$HOME/.ghcup/bin:$PATH"
-          # Point GHC at cabal's package-env if present (cabal install --lib --package-env=.)
-          if [[ -z "${GHC_ENVIRONMENT:-}" ]]; then
-            envf="$(ls -1 .ghc.environment.* 2>/dev/null | head -1 || true)"
-            if [[ -n "$envf" ]]; then
-              export GHC_ENVIRONMENT="$PWD/$envf"
+          # Re-resolve package-env if GITHUB_ENV path is missing or relative.
+          if [[ -z "${GHC_ENVIRONMENT:-}" || ! -f "${GHC_ENVIRONMENT}" ]]; then
+            if [[ -f "${PWD}/.ghc.environment.snapper-colink" ]]; then
+              export GHC_ENVIRONMENT="${PWD}/.ghc.environment.snapper-colink"
+            else
+              for f in .ghc.environment.*; do
+                [[ -f "$f" ]] || continue
+                export GHC_ENVIRONMENT="${PWD}/$(basename "$f")"
+                break
+              done
             fi
           fi
           echo "GHC_ENVIRONMENT=${GHC_ENVIRONMENT:-unset}"
-          cd native/snapper-pandoc
-          # When using a package-env, ghc-pkg field may still miss pandoc unless
-          # we pass -package-env. build-static uses ghc-pkg; wrap if needed.
-          if ! ghc-pkg field pandoc id --simple-output 2>/dev/null | head -1 | grep -q .; then
-            if [[ -n "${GHC_ENVIRONMENT:-}" ]]; then
-              # Extract unit id from environment file
-              pid="$(grep -E '^package-id pandoc-' "$GHC_ENVIRONMENT" | head -1 | awk '{print $2}' || true)"
-              if [[ -n "$pid" ]]; then
-                echo "build-static: using package-id from env file: $pid"
-                export SNAPPER_PANDOC_PACKAGE_ID="$pid"
-              fi
-            fi
+          if [[ -n "${GHC_ENVIRONMENT:-}" && -f "$GHC_ENVIRONMENT" ]]; then
+            head -20 "$GHC_ENVIRONMENT"
+          else
+            echo "missing package-env; static build will fail" >&2
           fi
-          ./build-static.sh
-          ls -lh lib/libsnapper_pandoc.a
+          # Run from repo root; build-static resolves env via walk + GHC_ENVIRONMENT.
+          ./native/snapper-pandoc/build-static.sh
+          ls -lh native/snapper-pandoc/lib/libsnapper_pandoc.a
 
       - name: Link colink snapper (Unix)
         if: runner.os != 'Windows' && steps.static.outcome == 'success'
         run: |
           set -euo pipefail
           export SNAPPER_PANDOC_STATIC_LIB=$PWD/native/snapper-pandoc/lib/libsnapper_pandoc.a
-          if [[ "${{ runner.os }}" == "Linux" ]]; then
-            export RUSTFLAGS="-C link-arg=-fuse-ld=bfd -C link-arg=-no-pie"
-          fi
+          # Do NOT set global RUSTFLAGS=-no-pie: that breaks proc-macro cdylibs.
+          # build.rs emits -fuse-ld=bfd / -no-pie via rustc-link-arg-bins only.
           # macOS: ensure brew lib dirs are visible to the linker
           if [[ "${{ runner.os }}" == "macOS" ]]; then
             for d in /opt/homebrew/lib /usr/local/lib; do

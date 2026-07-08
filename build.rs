@@ -51,6 +51,9 @@ fn bin_arg(arg: &str) {
 }
 
 fn emit_linux(archive: &Path) {
+    // Bins only (rustc-link-arg-bins). Never put -no-pie in global RUSTFLAGS —
+    // that breaks proc-macro / cdylib shared objects (undefined main).
+    bin_arg("-fuse-ld=bfd");
     bin_arg("-Wl,--gc-sections");
     // HS staticlib objects are not always PIE-safe; non-PIE bin is fine for CLI.
     bin_arg("-no-pie");
