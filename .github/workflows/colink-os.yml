@@ -386,39 +386,76 @@ jobs:
           "$LINKER" --version | head -1 || true
           export CARGO_TARGET_X86_64_PC_WINDOWS_GNU_LINKER="$LINKER"
           export SNAPPER_PANDOC_STATIC_LIB=$PWD/native/snapper-pandoc/lib/libsnapper_pandoc.a
-          # libgmp / libffi: prefer GHC bindist mingw/lib (choco MinGW often lacks them).
+          # libgmp / libffi: prefer GHC bindist + msys2 mingw64. Paths must be
+          # Windows-style for rustc (C:\…), not Git-Bash /c/….
+          winpath() {
+            local p="$1"
+            if command -v cygpath >/dev/null 2>&1; then
+              cygpath -w "$p"
+            else
+              # /d/foo → D:\foo
+              if [[ "$p" =~ ^/([a-zA-Z])/(.*)$ ]]; then
+                echo "${BASH_REMATCH[1]^}:\\${BASH_REMATCH[2]//\//\\}"
+              else
+                echo "$p"
+              fi
+            fi
+          }
           LIBDIRS=""
+          add_libdir() {
+            local d="$1"
+            [[ -d "$d" ]] || return 0
+            local w
+            w="$(winpath "$d")"
+            LIBDIRS="${LIBDIRS:+$LIBDIRS;}$w"
+            echo "libdir: $d → $w"
+            ls "$d"/libgmp* "$d"/libffi* 2>/dev/null | head -10 || true
+          }
           if [[ -n "${SNAPPER_GHC_REAL:-}" ]]; then
             GHC_ROOT="$(cd "$(dirname "$SNAPPER_GHC_REAL")/.." && pwd)"
-            for d in \
-              "$GHC_ROOT/mingw/lib" \
-              "$GHC_ROOT/mingw/x86_64-w64-mingw32/lib" \
-              "$GHC_ROOT/lib"; do
-              if [[ -d "$d" ]]; then
-                LIBDIRS="${LIBDIRS:+$LIBDIRS;}$d"
-                echo "libdir: $d"
-                ls "$d"/libgmp* "$d"/libffi* 2>/dev/null | head -10 || true
-              fi
-            done
+            add_libdir "$GHC_ROOT/mingw/lib"
+            add_libdir "$GHC_ROOT/mingw/x86_64-w64-mingw32/lib"
+            add_libdir "$GHC_ROOT/lib"
           fi
           if [[ -n "${SNAPPER_MINGW_BIN:-}" ]]; then
-            for d in "${SNAPPER_MINGW_BIN}/../lib" "${SNAPPER_MINGW_BIN}/../x86_64-w64-mingw32/lib"; do
-              [[ -d "$d" ]] && LIBDIRS="${LIBDIRS:+$LIBDIRS;}$(cd "$d" && pwd)"
-            done
+            add_libdir "${SNAPPER_MINGW_BIN}/../lib"
+            add_libdir "${SNAPPER_MINGW_BIN}/../x86_64-w64-mingw32/lib"
           fi
-          # If still no libgmp, try to fetch mingw gmp into workspace (static .a).
-          if ! find ${LIBDIRS//;/ } /c/mingw64/lib -name 'libgmp*.a' 2>/dev/null | head -1 | grep -q .; then
-            echo "no libgmp.a found; installing mingw-w64 gmp via pacman if msys present" >&2
-            for msys in /c/tools/msys64 /c/msys64 "$HOME/msys64"; do
-              if [[ -x "$msys/usr/bin/pacman.exe" || -x "$msys/usr/bin/pacman" ]]; then
-                "$msys/usr/bin/bash" -lc "pacman -S --noconfirm mingw-w64-x86_64-gmp mingw-w64-x86_64-libffi" 2>&1 | tail -15 || true
-                LIBDIRS="${LIBDIRS:+$LIBDIRS;}$msys/mingw64/lib"
+          # Ensure gmp: msys2 pacman into /c/msys64/mingw64 (choco mingw lacks it).
+          if ! ls /c/msys64/mingw64/lib/libgmp*.a \
+                /d/a/snapper/snapper/.ghcup-prefix/ghcup/ghc/*/mingw/lib/libgmp*.a \
+                2>/dev/null | head -1 | grep -q .; then
+            echo "installing mingw-w64-x86_64-gmp via msys2 pacman" >&2
+            for msys in /c/msys64 /c/tools/msys64 "$HOME/msys64"; do
+              if [[ -x "$msys/usr/bin/bash.exe" || -x "$msys/usr/bin/bash" ]]; then
+                "$msys/usr/bin/bash" -lc \
+                  "pacman -Sy --noconfirm mingw-w64-x86_64-gmp mingw-w64-x86_64-libffi" \
+                  2>&1 | tail -20 || true
+                add_libdir "$msys/mingw64/lib"
                 break
               fi
             done
+          else
+            add_libdir /c/msys64/mingw64/lib
           fi
           export SNAPPER_MINGW_LIB="$LIBDIRS"
           echo "SNAPPER_MINGW_LIB=$SNAPPER_MINGW_LIB"
+          # Sanity: must resolve -lgmp before the long cargo link.
+          if ! ls ${LIBDIRS//;/ } 2>/dev/null | head -1 | grep -q .; then
+            echo "warning: LIBDIRS empty after conversion" >&2
+          fi
+          # Show whether gmp is visible to gcc.
+          echo 'int main(){return 0;}' > /tmp/gmpcheck.c
+          if gcc /tmp/gmpcheck.c -lgmp -o /tmp/gmpcheck.exe \
+              $(echo "$LIBDIRS" | tr ';' '\n' | while read -r d; do [[ -n "$d" ]] && echo "-L$d"; done) \
+              2>/tmp/gmpcheck.err; then
+            echo "gcc -lgmp OK"
+          else
+            echo "gcc -lgmp FAIL:" >&2
+            cat /tmp/gmpcheck.err >&2 || true
+            # Dump candidate libs
+            find /c/msys64/mingw64/lib "$GHC_ROOT/mingw/lib" -name 'libgmp*' 2>/dev/null | head -20 || true
+          fi
           rustup target add x86_64-pc-windows-gnu
           cargo build --release --target x86_64-pc-windows-gnu \
             --features "cli,pandoc,pandoc-colink" --bin snapper
