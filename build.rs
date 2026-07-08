@@ -79,11 +79,19 @@ fn emit_darwin(archive: &Path) {
     for lib in ["m", "z", "iconv", "System", "pthread", "dl", "c"] {
         bin_arg(&format!("-l{lib}"));
     }
+    // GHC RTS / splitmix on Darwin needs Security.framework (SecRandomCopyBytes).
+    // Also pull common frameworks that HS staticlibs reference on recent GHC.
+    for fw in ["Security", "CoreFoundation", "SystemConfiguration"] {
+        bin_arg("-framework");
+        bin_arg(fw);
+    }
     // Homebrew / ghcup often put deps here.
     for dir in [
         "/opt/homebrew/lib",
         "/usr/local/lib",
         "/opt/local/lib",
+        "/opt/homebrew/opt/gmp/lib",
+        "/opt/homebrew/opt/libffi/lib",
     ] {
         if Path::new(dir).is_dir() {
             bin_arg(&format!("-L{dir}"));
