@@ -149,7 +149,10 @@ Parse with [pandoc](https://pandoc.org/), then reflow only prose from the AST (h
 
 - **CLI backend** (default when FFI is missing): install the normal `pandoc` binary.
 - **FFI backend**: build `native/snapper-pandoc` and set `SNAPPER_PANDOC_LIB`, or build with feature `pandoc-colink` after `./native/snapper-pandoc/build-static.sh` so one binary absorbs the static archive (no env discovery; larger binary; not the default release artifact).
-- **UPX** (optional third-party packer) can shrink *on-disk* size after the fact; it is not a tree-shaker and is **not** part of snapper releases. See `native/snapper-pandoc/README.md`.
+- **UPX** (optional third-party packer) can shrink *on-disk* size of a finished
+  static-colink binary via `./native/snapper-pandoc/pack-upx.sh`; it is not a
+  tree-shaker and is **not** part of default CI or cargo-dist. See
+  `native/snapper-pandoc/README.md`.
 
 
 <a id="mcp"></a>
