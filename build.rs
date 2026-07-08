@@ -46,44 +46,50 @@ fn main() {
     );
 }
 
-fn bin_arg(arg: &str) {
+/// Emit a link arg for final artifacts that need the HS archive.
+///
+/// `crate-type = ["cdylib", "rlib"]` means Windows (and any `--lib` build) will
+/// link a **cdylib** as well as bins. `rustc-link-arg-bins` alone left
+/// `snapper_pandoc_parse` undefined when linking `snapper_fmt.dll` on
+/// windows-gnu (GHA run 28959463506). Apply to both bins and cdylibs.
+fn link_arg(arg: &str) {
     println!("cargo:rustc-link-arg-bins={arg}");
+    println!("cargo:rustc-link-arg-cdylibs={arg}");
 }
 
 fn emit_linux(archive: &Path) {
-    // Bins only (rustc-link-arg-bins). Never put -no-pie in global RUSTFLAGS —
-    // that breaks proc-macro / cdylib shared objects (undefined main).
-    bin_arg("-fuse-ld=bfd");
-    bin_arg("-Wl,--gc-sections");
-    // HS staticlib objects are not always PIE-safe; non-PIE bin is fine for CLI.
-    bin_arg("-no-pie");
-    bin_arg("-Wl,--no-as-needed");
-    bin_arg("-Wl,--start-group");
-    bin_arg(&archive.display().to_string());
+    // Never put -no-pie in global RUSTFLAGS — that breaks proc-macro .so links.
+    // Bins only: -no-pie (cdylibs are shared; -no-pie would break them).
+    println!("cargo:rustc-link-arg-bins=-no-pie");
+    link_arg("-fuse-ld=bfd");
+    link_arg("-Wl,--gc-sections");
+    link_arg("-Wl,--no-as-needed");
+    link_arg("-Wl,--start-group");
+    link_arg(&archive.display().to_string());
     for lib in [
         "m", "z", "gmp", "ffi", "bz2", "lzma", "zstd", "elf", "dw", "numa", "pthread", "dl", "rt",
         "c",
     ] {
-        bin_arg(&format!("-l{lib}"));
+        link_arg(&format!("-l{lib}"));
     }
-    bin_arg("-Wl,--end-group");
-    bin_arg("-L/usr/lib");
-    bin_arg("-L/usr/lib64");
+    link_arg("-Wl,--end-group");
+    link_arg("-L/usr/lib");
+    link_arg("-L/usr/lib64");
 }
 
 fn emit_darwin(archive: &Path) {
     // ld64: dead_strip ≈ gc-sections; no --start-group / -no-pie.
-    bin_arg("-Wl,-dead_strip");
+    link_arg("-Wl,-dead_strip");
     // Force-load so C exports from the staticlib are not dropped early.
-    bin_arg(&format!("-Wl,-force_load,{}", archive.display()));
+    link_arg(&format!("-Wl,-force_load,{}", archive.display()));
     for lib in ["m", "z", "iconv", "System", "pthread", "dl", "c"] {
-        bin_arg(&format!("-l{lib}"));
+        link_arg(&format!("-l{lib}"));
     }
     // GHC RTS / splitmix on Darwin needs Security.framework (SecRandomCopyBytes).
     // Also pull common frameworks that HS staticlibs reference on recent GHC.
     for fw in ["Security", "CoreFoundation", "SystemConfiguration"] {
-        bin_arg("-framework");
-        bin_arg(fw);
+        link_arg("-framework");
+        link_arg(fw);
     }
     // Homebrew / ghcup often put deps here.
     for dir in [
@@ -94,12 +100,12 @@ fn emit_darwin(archive: &Path) {
         "/opt/homebrew/opt/libffi/lib",
     ] {
         if Path::new(dir).is_dir() {
-            bin_arg(&format!("-L{dir}"));
+            link_arg(&format!("-L{dir}"));
         }
     }
     // Common C deps pulled by GHC/pandoc staticlibs on macOS when present.
     for lib in ["gmp", "ffi"] {
-        bin_arg(&format!("-l{lib}"));
+        link_arg(&format!("-l{lib}"));
     }
 }
 
@@ -111,25 +117,26 @@ fn emit_windows(archive: &Path) {
     let is_msvc = env::var("CARGO_CFG_TARGET_ENV").as_deref() == Ok("msvc");
 
     if s.ends_with(".lib") {
-        bin_arg(&s);
+        link_arg(&s);
     } else if is_gnu {
         // MinGW/GNU ld: whole-archive so HS C exports survive dead-code elimination.
-        bin_arg("-Wl,--gc-sections");
-        bin_arg("-Wl,--allow-multiple-definition");
-        bin_arg("-Wl,--start-group");
-        bin_arg("-Wl,--whole-archive");
-        bin_arg(&s);
-        bin_arg("-Wl,--no-whole-archive");
+        // Must apply to cdylibs too — package crate-type includes cdylib.
+        link_arg("-Wl,--gc-sections");
+        link_arg("-Wl,--allow-multiple-definition");
+        link_arg("-Wl,--start-group");
+        link_arg("-Wl,--whole-archive");
+        link_arg(&s);
+        link_arg("-Wl,--no-whole-archive");
         for lib in [
             "gmp", "ffi", "z", "ws2_32", "user32", "shell32", "advapi32", "kernel32", "pthread",
         ] {
-            bin_arg(&format!("-l{lib}"));
+            link_arg(&format!("-l{lib}"));
         }
-        bin_arg("-Wl,--end-group");
+        link_arg("-Wl,--end-group");
     } else {
-        bin_arg(&s);
-        bin_arg("-Wl,--gc-sections");
-        bin_arg("-Wl,--allow-multiple-definition");
+        link_arg(&s);
+        link_arg("-Wl,--gc-sections");
+        link_arg("-Wl,--allow-multiple-definition");
     }
     if is_msvc {
         println!(
