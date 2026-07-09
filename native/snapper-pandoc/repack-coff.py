@@ -150,28 +150,82 @@ def looks_like_coff(path: Path) -> bool:
     return True
 
 
-def repack(ar_bin: str, out_a: Path, objs: list[Path], chunk: int = 400) -> None:
+def write_ar(out_a: Path, objs: list[Path]) -> None:
+    """Write a SysV GNU ar of objs. Pure Python — avoids Windows CreateProcess
+    argv limits when packing thousands of members via `ar rcs`."""
     out_a.parent.mkdir(parents=True, exist_ok=True)
-    if out_a.exists():
-        out_a.unlink()
     if not objs:
         raise SystemExit("no objects to pack")
-    # Create empty archive then qs, or rcs first chunk
-    first = True
-    for i in range(0, len(objs), chunk):
-        batch = objs[i : i + chunk]
-        if first:
-            subprocess.check_call([ar_bin, "rcs", str(out_a), *[str(p) for p in batch]])
-            first = False
+
+    # Build string table for names that need more than 15 chars + '/'.
+    strtab = bytearray()
+    name_refs: list[tuple[str, bytes]] = []  # (header_name_field_content, body)
+    for p in objs:
+        body = p.read_bytes()
+        # ar member name = basename only (ld matches by member name)
+        name = p.name
+        encoded = name.encode("ascii", "replace")
+        # SysV: short name is name + '/' padded to 16; long is /offset into //
+        if len(encoded) <= 15:
+            field = (encoded + b"/").ljust(16, b" ")
         else:
-            subprocess.check_call([ar_bin, "qs", str(out_a), *[str(p) for p in batch]])
+            off = len(strtab)
+            strtab.extend(encoded)
+            strtab.append(ord("/"))
+            strtab.append(ord("\n"))
+            field = f"/{off}".encode("ascii").ljust(16, b" ")
+        name_refs.append((field.decode("ascii"), body))
+
+    with out_a.open("wb") as f:
+        f.write(b"!<arch>\n")
+        # Optional string table member first (after we could put symbol table;
+        # GNU ld accepts // early).
+        if strtab:
+            st = bytes(strtab)
+            # even size padding later
+            hdr_name = b"//".ljust(16, b" ")
+            size_s = f"{len(st)}".encode("ascii").rjust(10, b" ")
+            header = (
+                hdr_name
+                + b"0".rjust(12, b" ")
+                + b"0".rjust(6, b" ")
+                + b"0".rjust(6, b" ")
+                + b"100644".rjust(8, b" ")
+                + size_s
+                + b"`\n"
+            )
+            assert len(header) == 60
+            f.write(header)
+            f.write(st)
+            if len(st) % 2 == 1:
+                f.write(b"\n")
+
+        for field, body in name_refs:
+            name_b = field.encode("ascii")
+            if len(name_b) != 16:
+                name_b = name_b[:16].ljust(16, b" ")
+            size_s = f"{len(body)}".encode("ascii").rjust(10, b" ")
+            header = (
+                name_b
+                + b"0".rjust(12, b" ")
+                + b"0".rjust(6, b" ")
+                + b"0".rjust(6, b" ")
+                + b"100644".rjust(8, b" ")
+                + size_s
+                + b"`\n"
+            )
+            assert len(header) == 60, len(header)
+            f.write(header)
+            f.write(body)
+            if len(body) % 2 == 1:
+                f.write(b"\n")
 
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("input_a", type=Path, help="ghc -staticlib archive")
     ap.add_argument("output_a", type=Path, help="flattened COFF archive path")
-    ap.add_argument("--ar", default="ar", help="MinGW ar binary")
+    ap.add_argument("--ar", default="ar", help="unused (kept for CLI compat)")
     ap.add_argument("--work", type=Path, default=None, help="work directory for objects")
     ap.add_argument("--keep-work", action="store_true")
     args = ap.parse_args()
@@ -197,8 +251,7 @@ def main() -> int:
             print(f"  sample {p.name} magic={head!r}", flush=True)
         raise SystemExit("zero COFF objects after extract; refusing")
 
-    # C ABI symbols (best-effort via nm)
-    repack(args.ar, args.output_a, coff)
+    write_ar(args.output_a, coff)
     print(f"repack-coff: wrote {args.output_a} ({args.output_a.stat().st_size} bytes)", flush=True)
 
     nm = shutil.which("nm") or shutil.which("nm.exe")
