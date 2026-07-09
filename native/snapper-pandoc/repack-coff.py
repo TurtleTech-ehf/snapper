@@ -254,6 +254,30 @@ def main() -> int:
     write_ar(args.output_a, coff)
     print(f"repack-coff: wrote {args.output_a} ({args.output_a.stat().st_size} bytes)", flush=True)
 
+    # GNU ld requires a symbol index (`/` member). Pure-Python write_ar omits
+    # it — GHA 28997302684: "archive has no index; run ranlib to add one".
+    ranlib = None
+    if args.ar:
+        ar_path = Path(args.ar)
+        for cand in (
+            ar_path.parent / "ranlib.exe",
+            ar_path.parent / "ranlib",
+            ar_path.parent / "x86_64-w64-mingw32-ranlib.exe",
+        ):
+            if cand.is_file():
+                ranlib = str(cand)
+                break
+    if ranlib is None:
+        ranlib = shutil.which("ranlib") or shutil.which("ranlib.exe")
+    if ranlib:
+        subprocess.check_call([ranlib, str(args.output_a)])
+        print(f"repack-coff: ranlib via {ranlib}", flush=True)
+    else:
+        # Fallback: `ar s` also builds the index.
+        ar_bin = args.ar if args.ar and Path(args.ar).exists() else (shutil.which("ar") or "ar")
+        subprocess.check_call([ar_bin, "s", str(args.output_a)])
+        print(f"repack-coff: ar s index via {ar_bin}", flush=True)
+
     nm = shutil.which("nm") or shutil.which("nm.exe")
     if nm:
         try:
