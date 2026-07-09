@@ -26,9 +26,10 @@ cd native/snapper-pandoc
 export SNAPPER_PANDOC_STATIC_LIB=$PWD/lib/libsnapper_pandoc.a
 # Linux link often needs:
 #   RUSTFLAGS='-C link-arg=-fuse-ld=bfd -C link-arg=-no-pie'
-# rlib only: colink product is the CLI bin, not snapper_fmt.dll
-cargo build --release --features "cli,pandoc,pandoc-colink" --bin snapper \
-  --config 'lib.crate-type=["rlib"]'
+# Colink product is the CLI bin. Cargo.toml may list cdylib for editor/wasm;
+# strip it for this absorb build (cargo --config cannot override crate-type):
+#   sed -i 's/crate-type = \["cdylib", "rlib"\]/crate-type = ["rlib"]/' Cargo.toml
+cargo build --release --features "cli,pandoc,pandoc-colink" --bin snapper
 ```
 
 `build.rs` absorbs the archive into **bins only** (target-OS flags):

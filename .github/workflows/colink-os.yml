@@ -329,10 +329,11 @@ jobs:
               [[ -d "$d" ]] && export LIBRARY_PATH="${d}:${LIBRARY_PATH:-}"
             done
           fi
-          # Colink product is the CLI bin. Force rlib-only so cargo never
-          # links a cdylib against the HS archive (Windows PE ordinal hell).
-          cargo build --release --features "cli,pandoc,pandoc-colink" --bin snapper \
-            --config 'lib.crate-type=["rlib"]'
+          # Colink product is the CLI bin. Cargo.toml lists cdylib+rlib for
+          # editor/wasm; --config cannot override that. Strip cdylib for this
+          # job so we never link a .so/.dll against the HS archive.
+          sed -i.bak 's/crate-type = \["cdylib", "rlib"\]/crate-type = ["rlib"]/' Cargo.toml
+          cargo build --release --features "cli,pandoc,pandoc-colink" --bin snapper
           BIN=target/release/snapper
           ls -lh "$BIN"
           if [[ "${{ runner.os }}" == "Linux" ]]; then
