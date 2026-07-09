@@ -262,8 +262,8 @@ fn emit_windows(archive: &Path) {
         } else {
             link_arg("-lffi");
         }
-        // CRT + Win32 deps GHC RTS/base need (GHA 29004568009 left
-        // strdup/getpid/CoCreateGuid/winmm/dbghelp/__umodti3).
+        // Win32 + CRT for GHC RTS (GHA ffaeed1 still needed gdi32 + strdup/getpid).
+        // Do not mix -lucrt with -lmsvcrt (breaks mingwex POSIX shims).
         for lib in [
             "z",
             "ws2_32",
@@ -271,6 +271,7 @@ fn emit_windows(archive: &Path) {
             "shell32",
             "advapi32",
             "kernel32",
+            "gdi32",
             "ole32",
             "oleaut32",
             "rpcrt4",
@@ -279,17 +280,17 @@ fn emit_windows(archive: &Path) {
             "dbghelp",
             "ntdll",
             "pthread",
-            "mingwex",
-            "mingw32",
-            "msvcrt",
-            "ucrt",
-            "moldname",
             "gcc",
             "gcc_eh",
         ] {
             link_arg(&format!("-l{lib}"));
         }
         link_arg("-Wl,--end-group");
+        // CRT after the group so POSIX shims (strdup/getpid/read/write) resolve
+        // against mingwex→msvcrt (ffaeed1: still undef with CRT only inside group).
+        for lib in ["mingw32", "mingwex", "moldname", "msvcrt", "pthread"] {
+            link_arg(&format!("-l{lib}"));
+        }
     } else {
         link_arg(&s);
         link_arg("-Wl,--allow-multiple-definition");
