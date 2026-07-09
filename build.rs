@@ -61,19 +61,13 @@ fn main() {
 
 /// Emit a link arg for final artifacts that need the HS archive.
 ///
-/// - Always: bins (`rustc-link-arg-bins`) — the colink CLI product.
-/// - Windows only: also cdylibs (`rustc-cdylib-link-arg`). The package has
-///   `crate-type = ["cdylib", "rlib"]`; windows-gnu links `snapper_fmt.dll` and
-///   needs the archive there (GHA 28959463506). On Linux the same archive is
-///   not fully PIC-safe for shared objects (`R_X86_64_32S` / stg_upd_frame_info
-///   when making `.so` — GHA 28963791512), so do **not** absorb into Linux/mac
-///   cdylibs.
+/// Always bins only (`rustc-link-arg-bins`) — the colink CLI product.
+/// Never cdylibs: Linux/mac HS staticlibs are not PIC-safe for `.so` (GHA
+/// 28963791512). On Windows, absorbing the full archive into `snapper_fmt.dll`
+/// with `--whole-archive` produced ~190k undefined ghc-prim/base symbols
+/// (GHA 28986234307); the dual-run product is the bin, not the cdylib.
 fn link_arg(arg: &str) {
     println!("cargo:rustc-link-arg-bins={arg}");
-    let is_windows = env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("windows");
-    if is_windows {
-        println!("cargo:rustc-cdylib-link-arg={arg}");
-    }
 }
 
 fn emit_linux(archive: &Path) {
@@ -245,14 +239,13 @@ fn emit_windows(archive: &Path) {
     if s.ends_with(".lib") {
         link_arg(&s);
     } else if is_gnu {
-        // MinGW/GNU ld: whole-archive so HS C exports survive dead-code elimination.
-        // Must apply to cdylibs too — package crate-type includes cdylib.
-        link_arg("-Wl,--gc-sections");
+        // MinGW/GNU ld: Linux-style start-group (no --whole-archive, no
+        // --gc-sections). whole-archive + PE gc-sections pulled every HS
+        // object then dropped defining sections / left 190k undefs (2d9111c).
+        // start-group resolves the C FFI entry → transitive archive members.
         link_arg("-Wl,--allow-multiple-definition");
         link_arg("-Wl,--start-group");
-        link_arg("-Wl,--whole-archive");
         link_arg(&s);
-        link_arg("-Wl,--no-whole-archive");
         if let Some(g) = gmp_abs {
             link_arg(&g.display().to_string().replace('\\', "/"));
         } else {
@@ -269,7 +262,6 @@ fn emit_windows(archive: &Path) {
         link_arg("-Wl,--end-group");
     } else {
         link_arg(&s);
-        link_arg("-Wl,--gc-sections");
         link_arg("-Wl,--allow-multiple-definition");
     }
     if is_msvc {
