@@ -128,10 +128,47 @@ fn emit_darwin(archive: &Path) {
     }
 }
 
+/// Git-Bash `/c/foo` → `C:/foo` so rustc/`is_dir` and MinGW ld see real Windows paths.
+fn win_mingw_path(p: &str) -> PathBuf {
+    let p = p.trim();
+    if p.len() >= 3 {
+        let bytes = p.as_bytes();
+        if bytes[0] == b'/' && bytes[1].is_ascii_alphabetic() && bytes[2] == b'/' {
+            let drive = (bytes[1] as char).to_ascii_uppercase();
+            return PathBuf::from(format!("{drive}:/{}", &p[3..]));
+        }
+    }
+    PathBuf::from(p)
+}
+
+/// Split SNAPPER_MINGW_LIB. Only `;` / newlines — never `:` (that chops `C:/…` drive letters).
+fn split_mingw_lib_dirs(extra: &str) -> Vec<PathBuf> {
+    let mut out = Vec::new();
+    for part in extra.split([';', '\n', '\r']) {
+        let part = part.trim();
+        if !part.is_empty() {
+            out.push(win_mingw_path(part));
+        }
+    }
+    out
+}
+
+fn find_named_lib(dirs: &[PathBuf], names: &[&str]) -> Option<PathBuf> {
+    for d in dirs {
+        for name in names {
+            let p = d.join(name);
+            if p.is_file() {
+                return Some(p);
+            }
+        }
+    }
+    None
+}
+
 fn emit_windows(archive: &Path) {
     // Prefer linking the archive path directly. MinGW-built .a may require
     // x86_64-pc-windows-gnu; MSVC often cannot consume mingw .a — build fails loudly.
-    let s = archive.display().to_string();
+    let s = archive.display().to_string().replace('\\', "/");
     let is_gnu = env::var("CARGO_CFG_TARGET_ENV").as_deref() == Ok("gnu");
     let is_msvc = env::var("CARGO_CFG_TARGET_ENV").as_deref() == Ok("msvc");
 
@@ -139,41 +176,70 @@ fn emit_windows(archive: &Path) {
     println!("cargo:rerun-if-env-changed=SNAPPER_MINGW_BIN");
     println!("cargo:rerun-if-env-changed=SNAPPER_GHC_REAL");
     println!("cargo:rerun-if-env-changed=SNAPPER_MINGW_LIB");
+    println!("cargo:rerun-if-env-changed=SNAPPER_MINGW_GMP");
+    println!("cargo:rerun-if-env-changed=SNAPPER_MINGW_FFI");
     let mut lib_dirs: Vec<PathBuf> = Vec::new();
     if let Ok(extra) = env::var("SNAPPER_MINGW_LIB") {
-        for p in extra.split([';', ':']) {
-            if !p.is_empty() {
-                lib_dirs.push(PathBuf::from(p));
-            }
-        }
+        // GHA run 28984590129: split on ':' turned C:/msys64/... into "C" + "/msys64/..."
+        // so -lgmp was never found despite libgmp.a on disk.
+        lib_dirs.extend(split_mingw_lib_dirs(&extra));
     }
     if let Ok(bin) = env::var("SNAPPER_MINGW_BIN") {
-        let bin = PathBuf::from(bin);
+        let bin = win_mingw_path(&bin);
         lib_dirs.push(bin.join("..").join("lib"));
         lib_dirs.push(bin.join("..").join("x86_64-w64-mingw32").join("lib"));
     }
     if let Ok(ghc) = env::var("SNAPPER_GHC_REAL") {
         // …/ghc/9.8.4/bin/ghc.exe → …/ghc/9.8.4/mingw/lib
-        if let Some(root) = Path::new(&ghc).parent().and_then(|p| p.parent()) {
+        let ghc = win_mingw_path(&ghc);
+        if let Some(root) = ghc.parent().and_then(|p| p.parent()) {
             lib_dirs.push(root.join("mingw").join("lib"));
             lib_dirs.push(root.join("mingw").join("x86_64-w64-mingw32").join("lib"));
             lib_dirs.push(root.join("lib"));
         }
     }
     for d in [
+        r"C:\msys64\mingw64\lib",
         r"C:\mingw64\lib",
         r"C:\ProgramData\mingw64\mingw64\lib",
+        r"C:\tools\msys64\mingw64\lib",
+        "/c/msys64/mingw64/lib",
         "/c/mingw64/lib",
         "/mingw64/lib",
     ] {
-        lib_dirs.push(PathBuf::from(d));
+        lib_dirs.push(win_mingw_path(d));
     }
+
+    // Prefer absolute paths to libgmp.a / libffi.a (avoids -L search bugs).
+    let gmp_abs = env::var("SNAPPER_MINGW_GMP")
+        .ok()
+        .map(|p| win_mingw_path(&p))
+        .filter(|p| p.is_file())
+        .or_else(|| find_named_lib(&lib_dirs, &["libgmp.a", "gmp.lib"]));
+    let ffi_abs = env::var("SNAPPER_MINGW_FFI")
+        .ok()
+        .map(|p| win_mingw_path(&p))
+        .filter(|p| p.is_file())
+        .or_else(|| find_named_lib(&lib_dirs, &["libffi.a", "ffi.lib"]));
+
     for d in &lib_dirs {
         if d.is_dir() {
             // Forward slashes: backslashes in -L… confuse GNU ld when passed via rustc.
             let p = d.display().to_string().replace('\\', "/");
             link_arg(&format!("-L{p}"));
         }
+    }
+    if let Some(ref g) = gmp_abs {
+        println!(
+            "cargo:warning=pandoc-colink: gmp archive {}",
+            g.display().to_string().replace('\\', "/")
+        );
+    }
+    if let Some(ref f) = ffi_abs {
+        println!(
+            "cargo:warning=pandoc-colink: ffi archive {}",
+            f.display().to_string().replace('\\', "/")
+        );
     }
 
     if s.ends_with(".lib") {
@@ -187,9 +253,17 @@ fn emit_windows(archive: &Path) {
         link_arg("-Wl,--whole-archive");
         link_arg(&s);
         link_arg("-Wl,--no-whole-archive");
-        for lib in [
-            "gmp", "ffi", "z", "ws2_32", "user32", "shell32", "advapi32", "kernel32", "pthread",
-        ] {
+        if let Some(g) = gmp_abs {
+            link_arg(&g.display().to_string().replace('\\', "/"));
+        } else {
+            link_arg("-lgmp");
+        }
+        if let Some(f) = ffi_abs {
+            link_arg(&f.display().to_string().replace('\\', "/"));
+        } else {
+            link_arg("-lffi");
+        }
+        for lib in ["z", "ws2_32", "user32", "shell32", "advapi32", "kernel32", "pthread"] {
             link_arg(&format!("-l{lib}"));
         }
         link_arg("-Wl,--end-group");
