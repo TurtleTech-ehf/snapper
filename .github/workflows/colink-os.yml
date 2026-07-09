@@ -329,7 +329,10 @@ jobs:
               [[ -d "$d" ]] && export LIBRARY_PATH="${d}:${LIBRARY_PATH:-}"
             done
           fi
-          cargo build --release --features "cli,pandoc,pandoc-colink" --bin snapper
+          # Colink product is the CLI bin. Force rlib-only so cargo never
+          # links a cdylib against the HS archive (Windows PE ordinal hell).
+          cargo build --release --features "cli,pandoc,pandoc-colink" --bin snapper \
+            --config 'lib.crate-type=["rlib"]'
           BIN=target/release/snapper
           ls -lh "$BIN"
           if [[ "${{ runner.os }}" == "Linux" ]]; then
@@ -485,17 +488,31 @@ jobs:
             cat /tmp/gmpcheck.err >&2 || true
           fi
           rustup target add x86_64-pc-windows-gnu
+          # rlib only: do not build snapper_fmt.dll (cdylib + HS archive is not the product).
           cargo build --release --target x86_64-pc-windows-gnu \
-            --features "cli,pandoc,pandoc-colink" --bin snapper
+            --features "cli,pandoc,pandoc-colink" --bin snapper \
+            --config 'lib.crate-type=["rlib"]'
           BIN=target/x86_64-pc-windows-gnu/release/snapper.exe
           ls -lh "$BIN"
+          # Prove product is real HS absorb, not null stubs.
+          if command -v nm >/dev/null 2>&1 || [[ -x "${SNAPPER_MINGW_BIN}/nm.exe" ]]; then
+            NM_BIN="$(command -v nm 2>/dev/null || echo "${SNAPPER_MINGW_BIN}/nm")"
+            "$NM_BIN" "$BIN" 2>/dev/null | grep -E 'snapper_pandoc_(parse|free|hs_ready)|T hs_init' | head -20 \
+              | tee /tmp/windows-nm-abi.txt || true
+            if ! grep -q 'snapper_pandoc_parse' /tmp/windows-nm-abi.txt 2>/dev/null; then
+              echo "warning: nm did not list snapper_pandoc_parse (symbol may be stripped); dual-run still required" >&2
+            fi
+          fi
           unset SNAPPER_PANDOC_LIB SNAPPER_PANDOC_LIB_DIR
           export SNAPPER_PANDOC_CACHE=0
           "$BIN" --use-pandoc --pandoc-backend ffi -w 72 tests/fixtures/pandoc_ast/mixed.md | tee /tmp/out1.txt
           "$BIN" --use-pandoc --pandoc-backend ffi -w 72 tests/fixtures/pandoc_ast/mixed.md | tee /tmp/out2.txt
           diff -u /tmp/out1.txt /tmp/out2.txt
-          grep -q 'print' /tmp/out1.txt
-          echo "colink dual-run OK on Windows"
+          # Real pandoc AST path: fence + table from fixture (null stub returns empty/error).
+          grep -q '```python' /tmp/out1.txt
+          grep -q '| a | b |' /tmp/out1.txt
+          test "$(wc -c < /tmp/out1.txt)" -gt 50
+          echo "colink dual-run OK on Windows (real FFI, no SNAPPER_PANDOC_LIB)"
 
       - name: Record skip if static build failed
         if: steps.static.outcome != 'success'
