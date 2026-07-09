@@ -262,8 +262,8 @@ fn emit_windows(archive: &Path) {
         } else {
             link_arg("-lffi");
         }
-        // CRT inside the group so HS C objects (malloc/strcmp) resolve without
-        // relying on order after -nodefaultlibs (same GHA run).
+        // CRT + Win32 deps GHC RTS/base need (GHA 29004568009 left
+        // strdup/getpid/CoCreateGuid/winmm/dbghelp/__umodti3).
         for lib in [
             "z",
             "ws2_32",
@@ -271,12 +271,22 @@ fn emit_windows(archive: &Path) {
             "shell32",
             "advapi32",
             "kernel32",
+            "ole32",
+            "oleaut32",
+            "rpcrt4",
+            "uuid",
+            "winmm",
+            "dbghelp",
+            "ntdll",
             "pthread",
             "mingwex",
             "mingw32",
             "msvcrt",
             "ucrt",
             "moldname",
+            "gcc",
+            "gcc_eh",
+            "gcc_s",
         ] {
             link_arg(&format!("-l{lib}"));
         }
