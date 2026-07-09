@@ -25,6 +25,10 @@ foreign-library snapper_pandoc
   ghc-options:         -Wall -O2
   include-dirs:        include
   install-includes:    snapper_pandoc.h
+  -- Cabal-4574: on Windows only standalone foreign-libraries are supported
+  -- (self-contained DLL; required for C FFI from snapper).
+  if os(windows)
+    options:           standalone
 
 library
   exposed-modules:     SnapperPandoc
