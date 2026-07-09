@@ -423,6 +423,17 @@ jobs:
           }
 
           pushd native/snapper-pandoc
+          test -f snapper_pandoc.def
+          # Absolute .def for the linker (cabal/ghc cwd is not always package root).
+          DEF_ABS="$(pwd -W 2>/dev/null || pwd)/snapper_pandoc.def"
+          if command -v cygpath >/dev/null 2>&1; then
+            DEF_ABS="$(cygpath -m "$PWD/snapper_pandoc.def")"
+          fi
+          # ld-options in .cabal uses relative name; also pin absolute via project.local.
+          # (printf, not unindented heredoc — bare "package:" breaks YAML of this step.)
+          printf 'package snapper-pandoc\n  ld-options: %s\n' "$DEF_ABS" > cabal.project.local
+          echo "PE export .def: $DEF_ABS"
+          cat cabal.project.local
           cabal build snapper_pandoc -j
           # Prefer the foreign-library product name cabal uses on Windows.
           DLL="$(find dist-newstyle -type f \( \
@@ -451,40 +462,25 @@ jobs:
           done
           ls -lh lib/ | head -40
 
-          # Gate A: C ABI exports must exist (fail closed — no dual-run without them).
-          EXPORTS_OK=0
+          # Gate A: PE export table / GetProcAddress must resolve C ABI symbols.
           if command -v objdump >/dev/null 2>&1; then
-            objdump -p lib/snapper_pandoc.dll 2>/dev/null | tee /tmp/win-dll-exports.txt | head -80 || true
-            if grep -E 'snapper_pandoc_parse' /tmp/win-dll-exports.txt >/dev/null 2>&1 \
-               && grep -E 'snapper_pandoc_free' /tmp/win-dll-exports.txt >/dev/null 2>&1; then
-              EXPORTS_OK=1
-            fi
-            grep -E 'snapper_pandoc|hs_init' /tmp/win-dll-exports.txt | head -30 || true
+            objdump -p lib/snapper_pandoc.dll 2>/dev/null | tee /tmp/win-dll-exports.txt \
+              | grep -E 'Export|snapper_pandoc|hs_init|Ordinal' | head -60 || true
           fi
-          if [[ "$EXPORTS_OK" -ne 1 ]] && command -v nm >/dev/null 2>&1; then
-            nm lib/snapper_pandoc.dll 2>/dev/null | tee /tmp/win-dll-nm.txt | \
-              grep -E 'snapper_pandoc_(parse|free)|hs_init' | head -30 || true
-            if grep -E 'snapper_pandoc_parse' /tmp/win-dll-nm.txt >/dev/null 2>&1 \
-               && grep -E 'snapper_pandoc_free' /tmp/win-dll-nm.txt >/dev/null 2>&1; then
-              EXPORTS_OK=1
-            fi
+          # Authoritative check: same API libloading uses (GetProcAddress).
+          # Prefer a path string LoadLibraryA accepts (mixed or Win).
+          DLL_FOR_LOAD="$(winpath "$(cd lib && pwd)/snapper_pandoc.dll")"
+          if command -v cygpath >/dev/null 2>&1; then
+            DLL_FOR_LOAD="$(cygpath -m "$(cd lib && pwd)/snapper_pandoc.dll")"
           fi
-          if [[ "$EXPORTS_OK" -ne 1 ]]; then
-            # Last resort: dumpbin if present (MSVC tools).
-            if command -v dumpbin >/dev/null 2>&1; then
-              dumpbin -exports lib/snapper_pandoc.dll 2>/dev/null | tee /tmp/win-dll-exports.txt || true
-              if grep -E 'snapper_pandoc_parse' /tmp/win-dll-exports.txt >/dev/null 2>&1 \
-                 && grep -E 'snapper_pandoc_free' /tmp/win-dll-exports.txt >/dev/null 2>&1; then
-                EXPORTS_OK=1
-              fi
-            fi
-          fi
-          if [[ "$EXPORTS_OK" -ne 1 ]]; then
-            echo "Gate A FAIL: snapper_pandoc_parse / snapper_pandoc_free not visible in DLL exports" >&2
+          gcc chk_exports.c -o /tmp/chk_exports.exe
+          if ! /tmp/chk_exports.exe "$DLL_FOR_LOAD"; then
+            echo "Gate A FAIL: GetProcAddress missing snapper_pandoc_parse/free" >&2
+            echo "DLL_FOR_LOAD=$DLL_FOR_LOAD"
             ls -la lib/ || true
             exit 1
           fi
-          echo "Gate A OK: foreign-library DLL exports present"
+          echo "Gate A OK: foreign-library DLL exports resolvable via GetProcAddress"
           LIB_ABS="$(cd lib && pwd)"
           echo "SNAPPER_PANDOC_LIB_DIR_UNIX=$LIB_ABS" >> "$GITHUB_ENV"
           echo "SNAPPER_PANDOC_LIB_DIR=$(winpath "$LIB_ABS")" >> "$GITHUB_ENV"
