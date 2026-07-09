@@ -253,6 +253,9 @@ fn emit_windows(archive: &Path) {
         } else {
             link_arg("-lffi");
         }
+        // Win32 only — do NOT pass -lmsvcrt/-lmingwex/-lgcc here: rustc's
+        // windows-gnu driver already supplies CRT. Hand-rolling CRT broke
+        // crt2.o (__set_app_type) while still missing strdup (GHA 18a6971).
         for lib in [
             "z",
             "ws2_32",
@@ -269,20 +272,13 @@ fn emit_windows(archive: &Path) {
             "dbghelp",
             "ntdll",
             "pthread",
-            "gcc",
-            "gcc_eh",
-            "mingw32",
-            "mingwex",
-            "moldname",
-            "msvcrt",
         ] {
             link_arg(&format!("-l{lib}"));
         }
         link_arg("-Wl,--end-group");
-        // Second pass CRT (exe linkers sometimes need msvcrt after group).
-        for lib in ["mingw32", "mingwex", "moldname", "msvcrt", "pthread", "gdi32"] {
-            link_arg(&format!("-l{lib}"));
-        }
+        // After rustc CRT: pull mingwex POSIX shims (strdup/getpid) if needed.
+        link_arg("-lmingwex");
+        link_arg("-lmsvcrt");
     } else {
         link_arg(&s);
         link_arg("-Wl,--allow-multiple-definition");
