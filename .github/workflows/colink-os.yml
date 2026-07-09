@@ -390,14 +390,14 @@ jobs:
           # Windows-style for rustc (C:\…), not Git-Bash /c/….
           winpath() {
             local p="$1"
+            # Mixed style C:/foo — works for MinGW -L and rustc (backslashes break bash -L).
             if command -v cygpath >/dev/null 2>&1; then
-              cygpath -w "$p"
+              cygpath -m "$p"
             else
-              # /d/foo → D:\foo
               if [[ "$p" =~ ^/([a-zA-Z])/(.*)$ ]]; then
-                echo "${BASH_REMATCH[1]^}:\\${BASH_REMATCH[2]//\//\\}"
+                echo "${BASH_REMATCH[1]^}:/${BASH_REMATCH[2]}"
               else
-                echo "$p"
+                echo "${p//\\//}"
               fi
             fi
           }

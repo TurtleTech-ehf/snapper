@@ -170,7 +170,9 @@ fn emit_windows(archive: &Path) {
     }
     for d in &lib_dirs {
         if d.is_dir() {
-            link_arg(&format!("-L{}", d.display()));
+            // Forward slashes: backslashes in -L… confuse GNU ld when passed via rustc.
+            let p = d.display().to_string().replace('\\', "/");
+            link_arg(&format!("-L{p}"));
         }
     }
 
