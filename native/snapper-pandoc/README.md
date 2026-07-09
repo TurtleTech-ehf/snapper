@@ -8,7 +8,7 @@ over selected pandoc **readers** (JSON AST out).
 | OS | How Rust talks to Haskell | Build |
 |----|---------------------------|--------|
 | **Linux / macOS** | Optional **static colink** (`pandoc-colink`): one `snapper` binary | `./build-static.sh` then `cargo … --features "cli,pandoc,pandoc-colink"` |
-| **Windows** | **C FFI** to `snapper_pandoc.dll` (cabal `foreign-library`) | `cabal build snapper_pandoc` then `cargo … --features "cli,pandoc"` |
+| **Windows** | **C FFI** to `snapper_pandoc.dll` (cabal `foreign-library`, `options: standalone`) | `cabal build snapper_pandoc` then `cargo … --features "cli,pandoc"` |
 
 Same C ABI everywhere (`include/snapper_pandoc.h`). Windows native path is the shared
 library + `libloading` (default `pandoc` feature), not PE static-absorb of `ghc -staticlib`.
