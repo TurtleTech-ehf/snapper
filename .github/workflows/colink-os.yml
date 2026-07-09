@@ -1,6 +1,7 @@
-# Optional static-colink smoke on macOS / Windows / Linux.
-# Never blocks PR CI — GHC + full pandoc is heavy and flaky.
-# Trigger: push to develop/pandoc-ffi (path-filtered) or workflow_dispatch once on default branch.
+# Pandoc native smoke on macOS / Windows / Linux (never blocks PR CI).
+# - Linux/macOS: static colink (ghc -staticlib absorb into snapper).
+# - Windows: C FFI to cabal foreign-library DLL (not PE static-absorb).
+# Trigger: push to develop/pandoc-ffi (path-filtered) or workflow_dispatch.
 name: colink-os
 
 # Push trigger is required while this workflow lives only on the feature branch
@@ -58,10 +59,8 @@ jobs:
           elif [[ "${{ runner.os }}" == "macOS" ]]; then
             brew install gmp libffi pkg-config || true
           elif [[ "${{ runner.os }}" == "Windows" ]]; then
-            # Do NOT install chocolatey mingw. GHC objects must be linked with
-            # GHCup's MSYS2 mingw (same toolchain that built the staticlib).
-            # Chocolatey mingw 15/16 ld rejects SnapperPandoc.o as "not an object".
-            echo "Windows: MinGW comes from GHCup MSYS2 after bootstrap"
+            # Windows path uses cabal foreign-library DLL + C FFI (not static colink).
+            echo "Windows: will build snapper_pandoc.dll via cabal foreign-library"
           fi
 
       - name: Bootstrap GHCup into workspace prefix
@@ -246,6 +245,7 @@ jobs:
           fi
 
       - name: Register pandoc in package-env (cabal --lib)
+        if: runner.os != 'Windows'
         run: |
           set -euo pipefail
           export PATH="${GHCUP_INSTALL_BASE_PREFIX}/.ghcup/bin:$HOME/.ghcup/bin:$PATH"
@@ -285,6 +285,7 @@ jobs:
 
       - name: Build static archive
         id: static
+        if: runner.os != 'Windows'
         continue-on-error: true
         run: |
           set -euo pipefail
@@ -352,174 +353,176 @@ jobs:
           grep -q '| a | b |' /tmp/out1.txt
           echo "colink dual-run OK on ${{ runner.os }}"
 
-      - name: Link colink snapper (Windows gnu)
-        if: runner.os == 'Windows' && steps.static.outcome == 'success'
+      # Windows: C FFI to cabal foreign-library DLL (not PE static absorb).
+      # Gate A = DLL + C exports; Gate B = dual-run FFI against real fixture.
+      - name: Build snapper_pandoc.dll (Windows Gate A)
+        if: runner.os == 'Windows'
+        id: win_dll
         shell: bash
         run: |
           set -euo pipefail
-          export PATH="${GHCUP_INSTALL_BASE_PREFIX}/.ghcup/bin:$HOME/.ghcup/bin:$PATH"
-          if [[ -z "${SNAPPER_MINGW_BIN:-}" || ! -d "${SNAPPER_MINGW_BIN}" ]]; then
-            echo "windows-skip: no ghc-matching mingw for cargo link" | tee windows-skip-reason.txt
-            echo "static archive was built; absorb needs bindist/msys gcc (not chocolatey)." >> windows-skip-reason.txt
-            cat windows-skip-reason.txt
-            # Fail closed for the job matrix cell — do not claim dual-run success.
-            exit 1
-          fi
-          # Prepend ghc-matching mingw; strip chocolatey mingw if present.
-          export PATH="${SNAPPER_MINGW_BIN}:$PATH"
-          CLEAN_PATH=""
-          IFS=':' read -ra PARTS <<< "$PATH"
-          for p in "${PARTS[@]}"; do
-            case "$p" in
-              *ProgramData/mingw*|*ProgramData\\mingw*|*chocolatey*mingw*) continue ;;
-            esac
-            CLEAN_PATH="${CLEAN_PATH:+$CLEAN_PATH:}$p"
+          # Restore GHCup wrappers + ghcup bin (GITHUB_PATH may not include wrap in all shells).
+          for d in \
+            "${GITHUB_WORKSPACE}/.snapper-ghc-wrap/bin" \
+            "${GHCUP_INSTALL_BASE_PREFIX}/.ghcup/bin" \
+            "${GHCUP_INSTALL_BASE_PREFIX}/ghcup/bin" \
+            "${HOME}/.ghcup/bin" \
+            /c/ghcup/bin; do
+            [[ -d "$d" ]] && export PATH="${d}:$PATH"
           done
-          export PATH="$CLEAN_PATH"
-          LINKER="${SNAPPER_WINDOWS_LINKER:-}"
-          if [[ -z "$LINKER" ]]; then
-            for c in gcc clang x86_64-w64-mingw32-gcc x86_64-w64-mingw32-clang; do
-              if command -v "$c" >/dev/null 2>&1; then LINKER=$c; break; fi
-            done
-          fi
-          if [[ -z "$LINKER" ]]; then
-            echo "windows-skip: no gcc/clang on PATH for cargo link" >&2
-            exit 1
-          fi
-          echo "linker: $(command -v "$LINKER")"
-          "$LINKER" --version | head -1 || true
-          export CARGO_TARGET_X86_64_PC_WINDOWS_GNU_LINKER="$LINKER"
-          export SNAPPER_PANDOC_STATIC_LIB=$PWD/native/snapper-pandoc/lib/libsnapper_pandoc.a
-          # libgmp / libffi: prefer GHC bindist + msys2 mingw64.
-          # Paths for SNAPPER_MINGW_LIB must be mixed-style C:/foo and separated
-          # by `;` only (build.rs must not split on `:`, which chops drive letters).
+          # Optional: GHCup MSYS2 mingw for tools (objdump); ghc owns the DLL link.
+          for d in \
+            "${GHCUP_INSTALL_BASE_PREFIX}/ghcup/msys64/mingw64/bin" \
+            "${HOME}/.ghcup/msys64/mingw64/bin" \
+            /c/ghcup/msys64/mingw64/bin \
+            /c/msys64/mingw64/bin \
+            "${SNAPPER_MINGW_BIN:-}"; do
+            [[ -n "$d" ]] || continue
+            if [[ -x "${d}/gcc.exe" || -x "${d}/gcc" || -x "${d}/objdump.exe" ]]; then
+              export PATH="${d}:$PATH"
+              echo "Windows tool path: $d"
+              break
+            fi
+          done
+          command -v ghc
+          command -v cabal
+          ghc --version
+          cabal --version
+
           winpath() {
             local p="$1"
             if command -v cygpath >/dev/null 2>&1; then
-              cygpath -m "$p"
+              cygpath -w "$p"
+            elif [[ "$p" =~ ^/([a-zA-Z])/(.*)$ ]]; then
+              echo "${BASH_REMATCH[1]^}:\\${BASH_REMATCH[2]//\//\\}"
             else
-              if [[ "$p" =~ ^/([a-zA-Z])/(.*)$ ]]; then
-                echo "${BASH_REMATCH[1]^}:/${BASH_REMATCH[2]}"
-              else
-                echo "${p//\\//}"
-              fi
+              echo "$p"
             fi
           }
-          LIBDIRS=""
-          add_libdir() {
-            local d="$1"
-            [[ -d "$d" ]] || return 0
-            local w
-            w="$(winpath "$d")"
-            # Guard: never insert bare drive letter if winpath fails.
-            [[ "$w" =~ ^[A-Za-z]:/ ]] || [[ "$w" =~ ^/ ]] || return 0
-            LIBDIRS="${LIBDIRS:+$LIBDIRS;}$w"
-            echo "libdir: $d → $w"
-            ls "$d"/libgmp* "$d"/libffi* 2>/dev/null | head -10 || true
-          }
-          if [[ -n "${SNAPPER_GHC_REAL:-}" ]]; then
-            GHC_ROOT="$(cd "$(dirname "$SNAPPER_GHC_REAL")/.." && pwd)"
-            add_libdir "$GHC_ROOT/mingw/lib"
-            add_libdir "$GHC_ROOT/mingw/x86_64-w64-mingw32/lib"
-            add_libdir "$GHC_ROOT/lib"
-          fi
-          if [[ -n "${SNAPPER_MINGW_BIN:-}" ]]; then
-            add_libdir "${SNAPPER_MINGW_BIN}/../lib"
-            add_libdir "${SNAPPER_MINGW_BIN}/../x86_64-w64-mingw32/lib"
-          fi
-          # Ensure gmp: msys2 pacman into /c/msys64/mingw64 (choco mingw lacks it).
-          GMP_SRC=""
-          FFI_SRC=""
-          find_gmp_ffi() {
-            for d in \
-              /c/msys64/mingw64/lib \
-              /c/tools/msys64/mingw64/lib \
-              "$GHC_ROOT/mingw/lib" \
-              /d/a/snapper/snapper/.ghcup-prefix/ghcup/ghc/*/mingw/lib; do
-              [[ -f "$d/libgmp.a" ]] && GMP_SRC="$d/libgmp.a"
-              [[ -f "$d/libffi.a" ]] && FFI_SRC="$d/libffi.a"
-              [[ -n "$GMP_SRC" && -n "$FFI_SRC" ]] && return 0
-            done
-            return 1
-          }
-          if ! find_gmp_ffi; then
-            echo "installing mingw-w64-x86_64-gmp via msys2 pacman" >&2
-            for msys in /c/msys64 /c/tools/msys64 "$HOME/msys64"; do
-              if [[ -x "$msys/usr/bin/bash.exe" || -x "$msys/usr/bin/bash" ]]; then
-                "$msys/usr/bin/bash" -lc \
-                  "pacman -Sy --noconfirm mingw-w64-x86_64-gmp mingw-w64-x86_64-libffi" \
-                  2>&1 | tail -20 || true
-                add_libdir "$msys/mingw64/lib"
-                break
-              fi
-            done
-            find_gmp_ffi || true
-          else
-            add_libdir "$(dirname "$GMP_SRC")"
-          fi
-          # Stage only gmp/ffi into a clean dir so -L does not pull foreign CRT
-          # objects from a full msys2 mingw64/lib tree (choco gcc CRT mismatch).
-          STAGE="$PWD/native/snapper-pandoc/lib/mingw-deps"
-          mkdir -p "$STAGE"
-          if [[ -n "$GMP_SRC" && -f "$GMP_SRC" ]]; then
-            cp -f "$GMP_SRC" "$STAGE/libgmp.a"
-            export SNAPPER_MINGW_GMP="$(winpath "$STAGE/libgmp.a")"
-            echo "SNAPPER_MINGW_GMP=$SNAPPER_MINGW_GMP"
-          fi
-          if [[ -n "$FFI_SRC" && -f "$FFI_SRC" ]]; then
-            cp -f "$FFI_SRC" "$STAGE/libffi.a"
-            export SNAPPER_MINGW_FFI="$(winpath "$STAGE/libffi.a")"
-            echo "SNAPPER_MINGW_FFI=$SNAPPER_MINGW_FFI"
-          fi
-          add_libdir "$STAGE"
-          export SNAPPER_MINGW_LIB="$LIBDIRS"
-          echo "SNAPPER_MINGW_LIB=$SNAPPER_MINGW_LIB"
-          if [[ -z "${SNAPPER_MINGW_GMP:-}" ]]; then
-            echo "error: libgmp.a not found after pacman/stage" >&2
-            find /c/msys64 /c/tools/msys64 "$GHC_ROOT/mingw" -name 'libgmp*' 2>/dev/null | head -20 || true
+
+          pushd native/snapper-pandoc
+          cabal build snapper_pandoc -j
+          # Prefer the foreign-library product name cabal uses on Windows.
+          DLL="$(find dist-newstyle -type f \( \
+              -name 'snapper_pandoc.dll' -o -name 'libsnapper_pandoc.dll' \
+            \) 2>/dev/null | head -1 || true)"
+          if [[ -z "$DLL" || ! -f "$DLL" ]]; then
+            echo "Gate A FAIL: foreign-library DLL not found after cabal build" >&2
+            find dist-newstyle -type f \( -name '*.dll' -o -name '*.so' -o -name '*.a' \) \
+              2>/dev/null | head -60 || true
             exit 1
           fi
-          # Sanity: link a tiny prog with absolute libgmp.a (no -L search).
-          echo 'int main(void){return 0;}' > /tmp/gmpcheck.c
-          if gcc /tmp/gmpcheck.c "$(winpath "$STAGE/libgmp.a")" -o /tmp/gmpcheck.exe \
-              2>/tmp/gmpcheck.err; then
-            echo "gcc + libgmp.a OK"
-          else
-            echo "gcc + libgmp.a FAIL (non-fatal if cargo still links):" >&2
-            cat /tmp/gmpcheck.err >&2 || true
+          echo "foreign-library DLL: $DLL"
+          mkdir -p lib
+          cp -f "$DLL" lib/snapper_pandoc.dll
+          # Stage sibling + nearby runtime DLLs (gmp, winpthread, libHS*, …).
+          DLLDIR="$(cd "$(dirname "$DLL")" && pwd)"
+          echo "DLLDIR=$DLLDIR"
+          ls -la "$DLLDIR" | head -50 || true
+          find "$DLLDIR" -maxdepth 2 -type f \( -iname '*.dll' \) 2>/dev/null | while read -r f; do
+            cp -f "$f" lib/ 2>/dev/null || true
+          done
+          # Also harvest any .dll under the foreign-library component tree.
+          FL_ROOT="$(cd "$DLLDIR/.." && pwd)"
+          find "$FL_ROOT" -maxdepth 4 -type f -iname '*.dll' 2>/dev/null | while read -r f; do
+            cp -f "$f" lib/ 2>/dev/null || true
+          done
+          ls -lh lib/ | head -40
+
+          # Gate A: C ABI exports must exist (fail closed — no dual-run without them).
+          EXPORTS_OK=0
+          if command -v objdump >/dev/null 2>&1; then
+            objdump -p lib/snapper_pandoc.dll 2>/dev/null | tee /tmp/win-dll-exports.txt | head -80 || true
+            if grep -E 'snapper_pandoc_parse' /tmp/win-dll-exports.txt >/dev/null 2>&1 \
+               && grep -E 'snapper_pandoc_free' /tmp/win-dll-exports.txt >/dev/null 2>&1; then
+              EXPORTS_OK=1
+            fi
+            grep -E 'snapper_pandoc|hs_init' /tmp/win-dll-exports.txt | head -30 || true
           fi
-          rustup target add x86_64-pc-windows-gnu
-          # Force rlib-only: Cargo.toml crate-type is not overridable via --config.
-          # Without this, cargo still links snapper_fmt.dll and fails (hs_init /
-          # PE export) before ever producing snapper.exe.
-          sed -i.bak 's/crate-type = \["cdylib", "rlib"\]/crate-type = ["rlib"]/' Cargo.toml
-          grep 'crate-type' Cargo.toml
-          cargo build --release --target x86_64-pc-windows-gnu \
-            --features "cli,pandoc,pandoc-colink" --bin snapper
-          BIN=target/x86_64-pc-windows-gnu/release/snapper.exe
-          ls -lh "$BIN"
-          # Prove product is real HS absorb, not null stubs.
-          if command -v nm >/dev/null 2>&1 || [[ -x "${SNAPPER_MINGW_BIN}/nm.exe" ]]; then
-            NM_BIN="$(command -v nm 2>/dev/null || echo "${SNAPPER_MINGW_BIN}/nm")"
-            "$NM_BIN" "$BIN" 2>/dev/null | grep -E 'snapper_pandoc_(parse|free|hs_ready)|T hs_init' | head -20 \
-              | tee /tmp/windows-nm-abi.txt || true
-            if ! grep -q 'snapper_pandoc_parse' /tmp/windows-nm-abi.txt 2>/dev/null; then
-              echo "warning: nm did not list snapper_pandoc_parse (symbol may be stripped); dual-run still required" >&2
+          if [[ "$EXPORTS_OK" -ne 1 ]] && command -v nm >/dev/null 2>&1; then
+            nm lib/snapper_pandoc.dll 2>/dev/null | tee /tmp/win-dll-nm.txt | \
+              grep -E 'snapper_pandoc_(parse|free)|hs_init' | head -30 || true
+            if grep -E 'snapper_pandoc_parse' /tmp/win-dll-nm.txt >/dev/null 2>&1 \
+               && grep -E 'snapper_pandoc_free' /tmp/win-dll-nm.txt >/dev/null 2>&1; then
+              EXPORTS_OK=1
             fi
           fi
-          unset SNAPPER_PANDOC_LIB SNAPPER_PANDOC_LIB_DIR
+          if [[ "$EXPORTS_OK" -ne 1 ]]; then
+            # Last resort: dumpbin if present (MSVC tools).
+            if command -v dumpbin >/dev/null 2>&1; then
+              dumpbin -exports lib/snapper_pandoc.dll 2>/dev/null | tee /tmp/win-dll-exports.txt || true
+              if grep -E 'snapper_pandoc_parse' /tmp/win-dll-exports.txt >/dev/null 2>&1 \
+                 && grep -E 'snapper_pandoc_free' /tmp/win-dll-exports.txt >/dev/null 2>&1; then
+                EXPORTS_OK=1
+              fi
+            fi
+          fi
+          if [[ "$EXPORTS_OK" -ne 1 ]]; then
+            echo "Gate A FAIL: snapper_pandoc_parse / snapper_pandoc_free not visible in DLL exports" >&2
+            ls -la lib/ || true
+            exit 1
+          fi
+          echo "Gate A OK: foreign-library DLL exports present"
+          LIB_ABS="$(cd lib && pwd)"
+          echo "SNAPPER_PANDOC_LIB_DIR_UNIX=$LIB_ABS" >> "$GITHUB_ENV"
+          echo "SNAPPER_PANDOC_LIB_DIR=$(winpath "$LIB_ABS")" >> "$GITHUB_ENV"
+          echo "SNAPPER_PANDOC_LIB=$(winpath "$LIB_ABS/snapper_pandoc.dll")" >> "$GITHUB_ENV"
+          popd
+
+      - name: Dual-run FFI against snapper_pandoc.dll (Windows Gate B)
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          set -euo pipefail
+          winpath() {
+            local p="$1"
+            if command -v cygpath >/dev/null 2>&1; then
+              cygpath -w "$p"
+            elif [[ "$p" =~ ^/([a-zA-Z])/(.*)$ ]]; then
+              echo "${BASH_REMATCH[1]^}:\\${BASH_REMATCH[2]//\//\\}"
+            else
+              echo "$p"
+            fi
+          }
+
+          test -f native/snapper-pandoc/lib/snapper_pandoc.dll
+          LIB_UNIX="$(cd native/snapper-pandoc/lib && pwd)"
+          DLL_UNIX="$LIB_UNIX/snapper_pandoc.dll"
+          export SNAPPER_PANDOC_LIB="$(winpath "$DLL_UNIX")"
+          export SNAPPER_PANDOC_LIB_DIR="$(winpath "$LIB_UNIX")"
+          # Runtime deps: staged lib/ + original build dir if present.
+          export PATH="$LIB_UNIX:${PATH:-}"
+          echo "SNAPPER_PANDOC_LIB=$SNAPPER_PANDOC_LIB"
+          echo "SNAPPER_PANDOC_LIB_DIR=$SNAPPER_PANDOC_LIB_DIR"
+
+          # Pure Rust binary — dynamic FFI only (no pandoc-colink / PE absorb).
+          rustup target add x86_64-pc-windows-gnu
+          cargo build --release --target x86_64-pc-windows-gnu \
+            --features "cli,pandoc" --bin snapper
+          BIN=target/x86_64-pc-windows-gnu/release/snapper.exe
+          test -f "$BIN"
+          ls -lh "$BIN"
+          BINDIR="$(cd "$(dirname "$BIN")" && pwd)"
+          # Co-locate all staged DLLs next to the exe (LoadLibrary search path).
+          cp -f "$LIB_UNIX"/*.dll "$BINDIR/" 2>/dev/null || true
+          cp -f "$DLL_UNIX" "$BINDIR/snapper_pandoc.dll"
+          ls -lh "$BINDIR"/*.dll 2>/dev/null | head -30 || true
+
           export SNAPPER_PANDOC_CACHE=0
-          "$BIN" --use-pandoc --pandoc-backend ffi -w 72 tests/fixtures/pandoc_ast/mixed.md | tee /tmp/out1.txt
-          "$BIN" --use-pandoc --pandoc-backend ffi -w 72 tests/fixtures/pandoc_ast/mixed.md | tee /tmp/out2.txt
+          export PATH="$BINDIR:$LIB_UNIX:${PATH:-}"
+          echo "Gate B: dual-run FFI"
+          "$BIN" --use-pandoc --pandoc-backend ffi -w 72 \
+            tests/fixtures/pandoc_ast/mixed.md | tee /tmp/out1.txt
+          "$BIN" --use-pandoc --pandoc-backend ffi -w 72 \
+            tests/fixtures/pandoc_ast/mixed.md | tee /tmp/out2.txt
           diff -u /tmp/out1.txt /tmp/out2.txt
-          # Real pandoc AST path: fence + table from fixture (null stub returns empty/error).
           grep -q '```python' /tmp/out1.txt
           grep -q '| a | b |' /tmp/out1.txt
           test "$(wc -c < /tmp/out1.txt)" -gt 50
-          echo "colink dual-run OK on Windows (real FFI, no SNAPPER_PANDOC_LIB)"
+          echo "Gate B OK: Windows C FFI dual-run (foreign-library DLL)"
 
       - name: Record skip if static build failed
-        if: steps.static.outcome != 'success'
+        if: runner.os != 'Windows' && steps.static.outcome != 'success'
         run: |
           echo "static archive build failed on ${{ matrix.os }} — see previous step logs"
           echo "This is fail-closed: no silent pass without a one-binary colink smoke."
