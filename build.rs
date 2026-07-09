@@ -286,7 +286,6 @@ fn emit_windows(archive: &Path) {
             "moldname",
             "gcc",
             "gcc_eh",
-            "gcc_s",
         ] {
             link_arg(&format!("-l{lib}"));
         }
