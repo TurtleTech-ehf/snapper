@@ -361,16 +361,23 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          # Restore GHCup wrappers + ghcup bin (GITHUB_PATH may not include wrap in all shells).
+          # PATH order matters: never let /c/ghcup (stale 9.14.x shims) win over
+          # the pin wrappers. Prepend wrap LAST so it is first on PATH.
           for d in \
-            "${GITHUB_WORKSPACE}/.snapper-ghc-wrap/bin" \
-            "${GHCUP_INSTALL_BASE_PREFIX}/.ghcup/bin" \
-            "${GHCUP_INSTALL_BASE_PREFIX}/ghcup/bin" \
+            /c/ghcup/bin \
             "${HOME}/.ghcup/bin" \
-            /c/ghcup/bin; do
+            "${GHCUP_INSTALL_BASE_PREFIX}/.ghcup/bin" \
+            "${GHCUP_INSTALL_BASE_PREFIX}/ghcup/bin"; do
             [[ -d "$d" ]] && export PATH="${d}:$PATH"
           done
-          # Optional: GHCup MSYS2 mingw for tools (objdump); ghc owns the DLL link.
+          WRAP="${GITHUB_WORKSPACE}/.snapper-ghc-wrap/bin"
+          if [[ ! -x "${WRAP}/ghc" ]]; then
+            echo "Gate A FAIL: missing ghc pin wrapper at $WRAP (bootstrap broken)" >&2
+            ls -la "$WRAP" 2>/dev/null || true
+            exit 1
+          fi
+          export PATH="${WRAP}:$PATH"
+          # Optional tools (objdump) after wrap so they do not shadow ghc/cabal.
           for d in \
             "${GHCUP_INSTALL_BASE_PREFIX}/ghcup/msys64/mingw64/bin" \
             "${HOME}/.ghcup/msys64/mingw64/bin" \
@@ -379,8 +386,9 @@ jobs:
             "${SNAPPER_MINGW_BIN:-}"; do
             [[ -n "$d" ]] || continue
             if [[ -x "${d}/gcc.exe" || -x "${d}/gcc" || -x "${d}/objdump.exe" ]]; then
-              export PATH="${d}:$PATH"
-              echo "Windows tool path: $d"
+              # Append tools only — do not put them before WRAP.
+              export PATH="$PATH:${d}"
+              echo "Windows tool path (append): $d"
               break
             fi
           done
@@ -388,6 +396,20 @@ jobs:
           command -v cabal
           ghc --version
           cabal --version
+          got="$(ghc --numeric-version | tr -d '\r')"
+          want="${SNAPPER_GHC_VERSION}"
+          if [[ "$got" != "$want" ]]; then
+            echo "Gate A FAIL: ghc is $got, want $want (stale PATH won over wrap)" >&2
+            type -a ghc || true
+            type -a cabal || true
+            echo "PATH=$PATH"
+            exit 1
+          fi
+          # cabal wrapper must use --with-compiler pin (see bootstrap).
+          if ! cabal --version >/dev/null 2>&1; then
+            echo "Gate A FAIL: cabal not runnable" >&2
+            exit 1
+          fi
 
           winpath() {
             local p="$1"
