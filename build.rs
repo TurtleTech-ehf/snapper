@@ -61,13 +61,19 @@ fn main() {
 
 /// Emit a link arg for final artifacts that need the HS archive.
 ///
-/// Always bins only (`rustc-link-arg-bins`) — the colink CLI product.
-/// Never cdylibs: Linux/mac HS staticlibs are not PIC-safe for `.so` (GHA
-/// 28963791512). On Windows, absorbing the full archive into `snapper_fmt.dll`
-/// with `--whole-archive` produced ~190k undefined ghc-prim/base symbols
-/// (GHA 28986234307); the dual-run product is the bin, not the cdylib.
+/// - Always: bins (`rustc-link-arg-bins`) — the colink CLI product.
+/// - Windows only: also cdylibs. crate-type includes cdylib; with
+///   pandoc-colink the rlib/cdylib object code references snapper_pandoc_*
+///   (GHA 28988119037 left those four undefs when cdylib had no archive).
+///   Use the same start-group args as bins — never --whole-archive (that
+///   produced ~190k ghc-prim undefs, GHA 28986234307). Linux/mac cdylibs
+///   stay archive-free (not PIC-safe — GHA 28963791512).
 fn link_arg(arg: &str) {
     println!("cargo:rustc-link-arg-bins={arg}");
+    let is_windows = env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("windows");
+    if is_windows {
+        println!("cargo:rustc-cdylib-link-arg={arg}");
+    }
 }
 
 fn emit_linux(archive: &Path) {
