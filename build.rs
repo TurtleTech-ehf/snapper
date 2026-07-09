@@ -245,11 +245,11 @@ fn emit_windows(archive: &Path) {
     if s.ends_with(".lib") {
         link_arg(&s);
     } else if is_gnu {
-        // MinGW/GNU ld: Linux-style start-group (no --whole-archive, no
-        // --gc-sections). whole-archive + PE gc-sections pulled every HS
-        // object then dropped defining sections / left 190k undefs (2d9111c).
-        // start-group resolves the C FFI entry → transitive archive members.
+        // MinGW/GNU ld: start-group for C FFI → transitive HS members.
+        // --exclude-libs,ALL: do not PE-export the 300k+ HS symbols into the
+        // cdylib (GHA 29002184310: "export ordinal too large: 375324").
         link_arg("-Wl,--allow-multiple-definition");
+        link_arg("-Wl,--exclude-libs,ALL");
         link_arg("-Wl,--start-group");
         link_arg(&s);
         if let Some(g) = gmp_abs {
@@ -262,7 +262,22 @@ fn emit_windows(archive: &Path) {
         } else {
             link_arg("-lffi");
         }
-        for lib in ["z", "ws2_32", "user32", "shell32", "advapi32", "kernel32", "pthread"] {
+        // CRT inside the group so HS C objects (malloc/strcmp) resolve without
+        // relying on order after -nodefaultlibs (same GHA run).
+        for lib in [
+            "z",
+            "ws2_32",
+            "user32",
+            "shell32",
+            "advapi32",
+            "kernel32",
+            "pthread",
+            "mingwex",
+            "mingw32",
+            "msvcrt",
+            "ucrt",
+            "moldname",
+        ] {
             link_arg(&format!("-l{lib}"));
         }
         link_arg("-Wl,--end-group");
