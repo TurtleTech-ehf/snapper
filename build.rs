@@ -5,7 +5,9 @@
 //! builds without this feature never touch GHC.
 
 use std::env;
+use std::fs;
 use std::path::{Path, PathBuf};
+use std::process::Command;
 
 fn main() {
     println!("cargo:rerun-if-changed=native/snapper-pandoc");
@@ -59,20 +61,55 @@ fn main() {
     );
 }
 
-/// Emit a link arg for final artifacts that need the HS archive.
+/// Link the HS archive into **bins only** (the colink CLI product).
 ///
-/// - Always: bins (`rustc-link-arg-bins`) — the colink CLI product.
-/// - Windows only: also cdylibs. crate-type includes cdylib; with
-///   pandoc-colink the rlib/cdylib object code references snapper_pandoc_*
-///   (GHA 28988119037 left those four undefs when cdylib had no archive).
-///   Use the same start-group args as bins — never --whole-archive (that
-///   produced ~190k ghc-prim undefs, GHA 28986234307). Linux/mac cdylibs
-///   stay archive-free (not PIC-safe — GHA 28963791512).
+/// Windows cdylibs must not absorb the full pandoc staticlib: PE export ordinal
+/// overflow and CRT undeps (GHA 29002184310 / 29008738020). They get a tiny
+/// stub object instead (see `emit_windows_cdylib_stubs`).
 fn link_arg(arg: &str) {
     println!("cargo:rustc-link-arg-bins={arg}");
-    let is_windows = env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("windows");
-    if is_windows {
-        println!("cargo:rustc-cdylib-link-arg={arg}");
+}
+
+fn link_arg_cdylib(arg: &str) {
+    println!("cargo:rustc-cdylib-link-arg={arg}");
+}
+
+/// Satisfy snapper_pandoc_* in the Windows cdylib without the 300 MiB HS archive.
+fn emit_windows_cdylib_stubs() {
+    let out = PathBuf::from(env::var("OUT_DIR").unwrap_or_else(|_| ".".into()));
+    let stub_c = out.join("snapper_pandoc_cdylib_stub.c");
+    let stub_o = out.join("snapper_pandoc_cdylib_stub.o");
+    let src = r#"
+/* Colink product is the bin; cdylib only needs these symbols defined. */
+#include <stddef.h>
+char *snapper_pandoc_parse(const char *fmt, const char *input, char **err_out) {
+    (void)fmt; (void)input;
+    if (err_out) *err_out = NULL;
+    return NULL;
+}
+void snapper_pandoc_free(char *p) { (void)p; }
+void snapper_pandoc_hs_ready(void) {}
+"#;
+    if let Err(e) = fs::write(&stub_c, src) {
+        println!("cargo:warning=pandoc-colink: could not write cdylib stub: {e}");
+        return;
+    }
+    let mut cc = Command::new("gcc");
+    if let Ok(bin) = env::var("SNAPPER_MINGW_BIN") {
+        let g = PathBuf::from(&bin).join("gcc.exe");
+        if g.is_file() {
+            cc = Command::new(g);
+        }
+    }
+    let status = cc.args(["-c", "-O2"]).arg(&stub_c).arg("-o").arg(&stub_o).status();
+    match status {
+        Ok(s) if s.success() && stub_o.is_file() => {
+            let p = stub_o.display().to_string().replace('\\', "/");
+            link_arg_cdylib(&p);
+            println!("cargo:warning=pandoc-colink: Windows cdylib uses FFI stubs ({p})");
+        }
+        Ok(s) => println!("cargo:warning=pandoc-colink: gcc stub failed status={s}"),
+        Err(e) => println!("cargo:warning=pandoc-colink: gcc stub spawn failed: {e}"),
     }
 }
 
@@ -242,14 +279,14 @@ fn emit_windows(archive: &Path) {
         );
     }
 
+    // Cdylib: stubs only (full archive is bin-only — PE/CRT hell on windows-gnu).
+    emit_windows_cdylib_stubs();
+
     if s.ends_with(".lib") {
         link_arg(&s);
     } else if is_gnu {
-        // MinGW/GNU ld: start-group for C FFI → transitive HS members.
-        // --exclude-libs,ALL: do not PE-export the 300k+ HS symbols into the
-        // cdylib (GHA 29002184310: "export ordinal too large: 375324").
+        // Bins only: start-group pulls HS members for snapper_pandoc_*.
         link_arg("-Wl,--allow-multiple-definition");
-        link_arg("-Wl,--exclude-libs,ALL");
         link_arg("-Wl,--start-group");
         link_arg(&s);
         if let Some(g) = gmp_abs {
@@ -262,8 +299,6 @@ fn emit_windows(archive: &Path) {
         } else {
             link_arg("-lffi");
         }
-        // Win32 + CRT for GHC RTS (GHA ffaeed1 still needed gdi32 + strdup/getpid).
-        // Do not mix -lucrt with -lmsvcrt (breaks mingwex POSIX shims).
         for lib in [
             "z",
             "ws2_32",
@@ -282,13 +317,15 @@ fn emit_windows(archive: &Path) {
             "pthread",
             "gcc",
             "gcc_eh",
+            "mingw32",
+            "mingwex",
+            "moldname",
+            "msvcrt",
         ] {
             link_arg(&format!("-l{lib}"));
         }
         link_arg("-Wl,--end-group");
-        // CRT after the group so POSIX shims (strdup/getpid/read/write) resolve
-        // against mingwex→msvcrt (ffaeed1: still undef with CRT only inside group).
-        for lib in ["mingw32", "mingwex", "moldname", "msvcrt", "pthread"] {
+        for lib in ["mingw32", "mingwex", "moldname", "msvcrt", "pthread", "gdi32"] {
             link_arg(&format!("-l{lib}"));
         }
     } else {
