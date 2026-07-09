@@ -11,7 +11,6 @@ build-type:         Simple
 
 foreign-library snapper_pandoc
   type:                native-shared
-  lib-version-info:    0:0:0
   other-modules:       SnapperPandoc
   build-depends:
       base >= 4.14 && < 5
@@ -25,10 +24,12 @@ foreign-library snapper_pandoc
   ghc-options:         -Wall -O2
   include-dirs:        include
   install-includes:    snapper_pandoc.h
-  -- Cabal-4574: on Windows only standalone foreign-libraries are supported
-  -- (self-contained DLL; required for C FFI from snapper).
+  -- Cabal-4574: Windows only supports standalone foreign-libraries, and
+  -- does not support lib-version-info (ELF soname). Unix keeps versioning.
   if os(windows)
     options:           standalone
+  if !os(windows)
+    lib-version-info:  0:0:0
 
 library
   exposed-modules:     SnapperPandoc
