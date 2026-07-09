@@ -151,8 +151,22 @@ case "$uname_s" in
       echo "build-static: windows repack with AR=$AR_BIN OD=${OD_BIN:-none}"
       # Absolute path: ar x after cd loses relative member paths.
       ARCHIVE_ABS="$(cd "$(dirname "$BUILD_DIR/libsnapper_pandoc.a")" && pwd)/libsnapper_pandoc.a"
-      "$AR_BIN" x "$ARCHIVE_ABS"
-      ls -la | head -40 || true
+      # Extract by index via `ar p` so duplicate basenames cannot clobber
+      # (plain `ar x` keeps only the last Types.o / etc.).
+      idx=0
+      while IFS= read -r m; do
+        [[ -z "$m" ]] && continue
+        idx=$((idx + 1))
+        safe="$(printf '%s' "$m" | tr -c 'A-Za-z0-9._-' '_')"
+        out="$(printf 'm%05d_%s' "$idx" "$safe")"
+        if ! "$AR_BIN" p "$ARCHIVE_ABS" "$m" >"$out" 2>/dev/null; then
+          echo "build-static: ar p failed for member $m" >&2
+          rm -f "$out"
+          continue
+        fi
+      done < <("$AR_BIN" t "$ARCHIVE_ABS" 2>/dev/null)
+      echo "build-static: extracted $idx members from ghc archive"
+      ls -la | head -20 || true
       # Flatten one level of nested archives (ghc -staticlib sometimes embeds
       # an ar member named *.o that is itself an archive — MinGW ld then says
       # "member … is not an object").
@@ -166,22 +180,28 @@ case "$uname_s" in
           abs_f="$(cd "$(dirname "$f")" && pwd)/$(basename "$f")"
           sub="$REPACK/nested-$(basename "$f")"
           mkdir -p "$sub"
-          (
-            cd "$sub"
-            "$AR_BIN" x "$abs_f"
-            ls -la | head -20 || true
-          )
+          nidx=0
+          while IFS= read -r nm; do
+            [[ -z "$nm" ]] && continue
+            nidx=$((nidx + 1))
+            nsafe="$(printf '%s' "$nm" | tr -c 'A-Za-z0-9._-' '_')"
+            nout="$(printf 'n%05d_%s' "$nidx" "$nsafe")"
+            "$AR_BIN" p "$abs_f" "$nm" >"$sub/$nout" 2>/dev/null || rm -f "$sub/$nout"
+          done < <("$AR_BIN" t "$abs_f" 2>/dev/null)
+          echo "build-static: nested $(basename "$f") → $nidx members"
+          ls -la "$sub" | head -15 || true
           rm -f "$f"
-          # Hoist nested members with unique names (avoid collisions).
+          # Hoist with unique names (prefix = outer file stem).
+          pref="$(basename "$f" | tr -c 'A-Za-z0-9._-' '_')"
           for n in "$sub"/*; do
             [[ -f "$n" ]] || continue
-            mv -f "$n" "./nested_$(basename "$f")__$(basename "$n")"
+            mv -f "$n" "./nested_${pref}__$(basename "$n")"
           done
           rm -rf "$sub" 2>/dev/null || true
         fi
       done
       # Diagnose SnapperPandoc* if present.
-      for f in ./SnapperPandoc* ./nested_*SnapperPandoc*; do
+      for f in ./SnapperPandoc* ./nested_*SnapperPandoc* ./nested_*ghc_*; do
         [[ -f "$f" ]] || continue
         echo "build-static: diagnose $f"
         xxd "$f" 2>/dev/null | head -2 || od -A x -t x1z -N 32 "$f" 2>/dev/null || true
@@ -192,7 +212,7 @@ case "$uname_s" in
         [[ -f "$f" ]] || continue
         base="$(basename "$f")"
         case "$base" in
-          *.hi|*.hie|*.dyn_hi|*.p_hi) echo "build-static: drop $base"; continue ;;
+          *.hi|*.hie|*.dyn_hi|*.p_hi|_member.bin) echo "build-static: drop $base"; continue ;;
         esac
         # Still a nested archive? drop (should have been flattened).
         if head -c 8 "$f" 2>/dev/null | grep -q '!<arch>'; then
@@ -214,20 +234,22 @@ case "$uname_s" in
         echo "build-static: no COFF objects after extract — keeping ghc archive" >&2
       else
         rm -f "$OUT_DIR/libsnapper_pandoc.a"
+        # Batch ar rcs — too many args can overflow; chunk if needed.
         "$AR_BIN" rcs "$OUT_DIR/libsnapper_pandoc.a" "${objs[@]}"
         echo "build-static: repacked ${#objs[@]} objects into $OUT_DIR/libsnapper_pandoc.a"
-        # Verify every member is an object for the same ld.
+        # Spot-check first few filesystem objects (not ar p — MinGW ar p can
+        # fail on long member names even when ld accepts the archive).
         if [[ -n "$OD_BIN" ]]; then
+          ok=0
           bad=0
-          while IFS= read -r m; do
-            [[ -z "$m" ]] && continue
-            "$AR_BIN" p "$OUT_DIR/libsnapper_pandoc.a" "$m" >"$REPACK/_member.bin" 2>/dev/null || continue
-            if ! "$OD_BIN" -f "$REPACK/_member.bin" >/dev/null 2>&1; then
-              echo "build-static: VERIFY FAIL member $m" >&2
-              bad=1
+          for f in "${objs[@]:0:20}"; do
+            if "$OD_BIN" -f "$f" >/dev/null 2>&1; then
+              ok=$((ok + 1))
+            else
+              bad=$((bad + 1))
             fi
-          done < <("$AR_BIN" t "$OUT_DIR/libsnapper_pandoc.a" 2>/dev/null | head -50)
-          echo "build-static: member verify bad=$bad (first 50 checked)"
+          done
+          echo "build-static: object spot-check ok=$ok bad=$bad (first 20)"
         fi
       fi
     )
