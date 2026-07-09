@@ -5,9 +5,7 @@
 //! builds without this feature never touch GHC.
 
 use std::env;
-use std::fs;
 use std::path::{Path, PathBuf};
-use std::process::Command;
 
 fn main() {
     println!("cargo:rerun-if-changed=native/snapper-pandoc");
@@ -61,56 +59,13 @@ fn main() {
     );
 }
 
-/// Link the HS archive into **bins only** (the colink CLI product).
+/// Link the HS archive into **bins only** (`rustc-link-arg-bins`).
 ///
-/// Windows cdylibs must not absorb the full pandoc staticlib: PE export ordinal
-/// overflow and CRT undeps (GHA 29002184310 / 29008738020). They get a tiny
-/// stub object instead (see `emit_windows_cdylib_stubs`).
+/// Never absorb into the cdylib (PE export ordinal overflow + CRT hell).
+/// Colink builds must use crate-type rlib only, e.g.
+/// `cargo build … --bin snapper --config 'lib.crate-type=["rlib"]'`.
 fn link_arg(arg: &str) {
     println!("cargo:rustc-link-arg-bins={arg}");
-}
-
-fn link_arg_cdylib(arg: &str) {
-    println!("cargo:rustc-cdylib-link-arg={arg}");
-}
-
-/// Satisfy snapper_pandoc_* in the Windows cdylib without the 300 MiB HS archive.
-fn emit_windows_cdylib_stubs() {
-    let out = PathBuf::from(env::var("OUT_DIR").unwrap_or_else(|_| ".".into()));
-    let stub_c = out.join("snapper_pandoc_cdylib_stub.c");
-    let stub_o = out.join("snapper_pandoc_cdylib_stub.o");
-    let src = r#"
-/* Colink product is the bin; cdylib only needs these symbols defined. */
-#include <stddef.h>
-char *snapper_pandoc_parse(const char *fmt, const char *input, char **err_out) {
-    (void)fmt; (void)input;
-    if (err_out) *err_out = NULL;
-    return NULL;
-}
-void snapper_pandoc_free(char *p) { (void)p; }
-void snapper_pandoc_hs_ready(void) {}
-"#;
-    if let Err(e) = fs::write(&stub_c, src) {
-        println!("cargo:warning=pandoc-colink: could not write cdylib stub: {e}");
-        return;
-    }
-    let mut cc = Command::new("gcc");
-    if let Ok(bin) = env::var("SNAPPER_MINGW_BIN") {
-        let g = PathBuf::from(&bin).join("gcc.exe");
-        if g.is_file() {
-            cc = Command::new(g);
-        }
-    }
-    let status = cc.args(["-c", "-O2"]).arg(&stub_c).arg("-o").arg(&stub_o).status();
-    match status {
-        Ok(s) if s.success() && stub_o.is_file() => {
-            let p = stub_o.display().to_string().replace('\\', "/");
-            link_arg_cdylib(&p);
-            println!("cargo:warning=pandoc-colink: Windows cdylib uses FFI stubs ({p})");
-        }
-        Ok(s) => println!("cargo:warning=pandoc-colink: gcc stub failed status={s}"),
-        Err(e) => println!("cargo:warning=pandoc-colink: gcc stub spawn failed: {e}"),
-    }
 }
 
 fn emit_linux(archive: &Path) {
@@ -279,13 +234,12 @@ fn emit_windows(archive: &Path) {
         );
     }
 
-    // Cdylib: stubs only (full archive is bin-only — PE/CRT hell on windows-gnu).
-    emit_windows_cdylib_stubs();
-
     if s.ends_with(".lib") {
         link_arg(&s);
     } else if is_gnu {
-        // Bins only: start-group pulls HS members for snapper_pandoc_*.
+        // Single coherent MinGW final-link model for snapper.exe:
+        // start-group over the COFF archive + gmp/ffi + Win32/CRT that GHC RTS needs.
+        // Product is the bin only (see colink-os: lib.crate-type=["rlib"]).
         link_arg("-Wl,--allow-multiple-definition");
         link_arg("-Wl,--start-group");
         link_arg(&s);
@@ -304,9 +258,9 @@ fn emit_windows(archive: &Path) {
             "ws2_32",
             "user32",
             "shell32",
+            "gdi32",
             "advapi32",
             "kernel32",
-            "gdi32",
             "ole32",
             "oleaut32",
             "rpcrt4",
@@ -325,6 +279,7 @@ fn emit_windows(archive: &Path) {
             link_arg(&format!("-l{lib}"));
         }
         link_arg("-Wl,--end-group");
+        // Second pass CRT (exe linkers sometimes need msvcrt after group).
         for lib in ["mingw32", "mingwex", "moldname", "msvcrt", "pthread", "gdi32"] {
             link_arg(&format!("-l{lib}"));
         }
