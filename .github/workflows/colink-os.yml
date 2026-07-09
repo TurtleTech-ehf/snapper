@@ -523,10 +523,11 @@ jobs:
           echo "SNAPPER_PANDOC_LIB_DIR=$SNAPPER_PANDOC_LIB_DIR"
 
           # Pure Rust binary — dynamic FFI only (no pandoc-colink / PE absorb).
-          # --no-default-features: skip neural/lsp graph (faster Gate B).
+          # Default features (cli+pandoc+…): --no-default-features drops tokio/lsp
+          # paths the bin still references under feature gates that overlap.
           rustup target add x86_64-pc-windows-gnu
           cargo build --release --target x86_64-pc-windows-gnu \
-            --no-default-features --features "cli,pandoc" --bin snapper
+            --features "cli,pandoc" --bin snapper
           BIN_REL=target/x86_64-pc-windows-gnu/release/snapper.exe
           test -f "$BIN_REL"
           BINDIR="$(cd "$(dirname "$BIN_REL")" && pwd)"
