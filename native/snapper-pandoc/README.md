@@ -3,20 +3,29 @@
 In-process pandoc surface for snapper: a small C ABI (`include/snapper_pandoc.h`)
 over selected pandoc **readers** (JSON AST out).
 
+## Platform matrix
+
+| OS | How Rust talks to Haskell | Build |
+|----|---------------------------|--------|
+| **Linux / macOS** | Optional **static colink** (`pandoc-colink`): one `snapper` binary | `./build-static.sh` then `cargo … --features "cli,pandoc,pandoc-colink"` |
+| **Windows** | **C FFI** to `snapper_pandoc.dll` (cabal `foreign-library`) | `cabal build snapper_pandoc` then `cargo … --features "cli,pandoc"` |
+
+Same C ABI everywhere (`include/snapper_pandoc.h`). Windows native path is the shared
+library + `libloading` (default `pandoc` feature), not PE static-absorb of `ghc -staticlib`.
+
 ## Two build products
 
 | Product | How | Used by |
 |---------|-----|---------|
-| **Static archive** `libsnapper_pandoc.a` | `./build-static.sh` (`ghc -staticlib`) | **`pandoc-colink`** — absorbed into one `snapper` binary |
-| **Shared** `libsnapper_pandoc.so` | `cabal build snapper_pandoc` | default `pandoc` feature via `dlopen` |
+| **Static archive** `libsnapper_pandoc.a` | `./build-static.sh` (`ghc -staticlib`) | **`pandoc-colink`** on Unix — absorb into one `snapper` binary |
+| **Shared** `.so` / `.dylib` / `.dll` | `cabal build snapper_pandoc` | default `pandoc` feature via `dlopen` / `LoadLibrary` |
 
-Colink is a **build** path (compile archive → link into snapper), not “ship 200 MB of
+Colink is a **Unix build** path (compile archive → link into snapper), not “ship 200 MB of
 `libHS*` via RUNPATH.”
 
-## Static archive (colink / one binary)
+## Static archive (Unix colink / one binary)
 
 Requires GHC with the `pandoc` package registered (`ghc-pkg field pandoc id`).
-Works on **Linux**, **macOS**, and (best-effort) **Windows** via the same script.
 
 ```bash
 cd native/snapper-pandoc
@@ -24,10 +33,8 @@ cd native/snapper-pandoc
 # writes lib/libsnapper_pandoc.a
 
 export SNAPPER_PANDOC_STATIC_LIB=$PWD/lib/libsnapper_pandoc.a
-# Linux link often needs:
-#   RUSTFLAGS='-C link-arg=-fuse-ld=bfd -C link-arg=-no-pie'
 # Colink product is the CLI bin. Cargo.toml may list cdylib for editor/wasm;
-# strip it for this absorb build (cargo --config cannot override crate-type):
+# strip it for this absorb build:
 #   sed -i 's/crate-type = \["cdylib", "rlib"\]/crate-type = ["rlib"]/' Cargo.toml
 cargo build --release --features "cli,pandoc,pandoc-colink" --bin snapper
 ```
@@ -38,29 +45,28 @@ cargo build --release --features "cli,pandoc,pandoc-colink" --bin snapper
 |----|------------|
 | **Linux** | `--gc-sections`, `-no-pie`, `--start-group` archive + system libs (`z`,`gmp`,`ffi`,…) |
 | **macOS** | `-dead_strip`, `-force_load` archive; libs `z`,`iconv`,`gmp`,`ffi`; Homebrew lib paths |
-| **Windows** | Prefer **windows-gnu** with **GHCup’s MSYS2 mingw** as the cargo linker (same toolchain as `ghc -staticlib`). Foreign MinGW (e.g. chocolatey mingw 15/16) rejects GHC objects (`member … is not an object`). **windows-msvc** cannot consume a MinGW `.a` |
+| **Windows** | Prefer C FFI DLL (below). Static absorb on PE is unsupported in CI. |
 
-Does **not** inject GHC package-dir rpaths / `libHS*` RUNPATH graphs.
-
-### Prerequisites (register pandoc for GHC)
+### Prerequisites (register pandoc for GHC, Unix colink)
 
 - **Linux**: nix `ghc.withPackages (p: [p.pandoc])`, or `cabal install --lib pandoc …`
 - **macOS**: [GHCup](https://www.haskell.org/ghcup/) + `cabal install --lib pandoc pandoc-types aeson`, plus `brew install gmp libffi` if link fails
-- **Windows**: GHCup + MSYS2, build with `x86_64-pc-windows-gnu`; install gmp/ffi via pacman if needed
 
-Optional multi-OS smoke: workflow `colink-os` (push to `develop/pandoc-ffi` path-filtered,
-or `workflow_dispatch` once the file is on the default branch). Never blocks PR CI.
+Optional multi-OS smoke: workflow `colink-os` (Unix colink + Windows DLL FFI). Never blocks PR CI.
 
-## Shared library (dlopen)
+## Shared library (C FFI / dlopen / LoadLibrary)
 
 ```bash
 cd native/snapper-pandoc
 cabal build snapper_pandoc
 mkdir -p lib
-cp dist-newstyle/build/*/*/*/f/snapper_pandoc/build/snapper_pandoc/libsnapper_pandoc.so* lib/
-ln -sfn libsnapper_pandoc.so.0.0.0 lib/libsnapper_pandoc.so.0
-ln -sfn libsnapper_pandoc.so.0.0.0 lib/libsnapper_pandoc.so
-export SNAPPER_PANDOC_LIB=$PWD/lib/libsnapper_pandoc.so
+# Unix example:
+cp dist-newstyle/build/*/*/*/f/snapper_pandoc/build/snapper_pandoc/libsnapper_pandoc.so* lib/ 2>/dev/null || true
+# Windows: copy snapper_pandoc.dll from dist-newstyle into lib/ (and next to snapper.exe)
+export SNAPPER_PANDOC_LIB=$PWD/lib/libsnapper_pandoc.so   # or …/snapper_pandoc.dll
+cargo build --release --features "cli,pandoc" --bin snapper
+# Discovery also checks: SNAPPER_PANDOC_LIB, SNAPPER_PANDOC_LIB_DIR,
+# directory of the running executable, native/snapper-pandoc/lib/, dist-newstyle.
 ```
 
 ## C ABI

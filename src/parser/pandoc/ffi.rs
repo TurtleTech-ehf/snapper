@@ -1,11 +1,12 @@
 //! In-process pandoc via Haskell foreign-library (`libsnapper_pandoc`).
 //!
 //! Two link modes:
-//! - **Default (`pandoc` feature):** `dlopen` / `libloading` discovery via
-//!   `SNAPPER_PANDOC_LIB` or search paths.
-//! - **`pandoc-colink`:** link-time dependency on `libsnapper_pandoc` (see
-//!   `build.rs`); symbols are in the process image / rpath — no ad-hoc
-//!   `SNAPPER_PANDOC_LIB` required for the happy path.
+//! - **Default (`pandoc` feature):** `dlopen` / `LoadLibrary` via `libloading`
+//!   (`SNAPPER_PANDOC_LIB`, next-to-exe, or search paths). This is the
+//!   **Windows native** path (`snapper_pandoc.dll` from cabal `foreign-library`).
+//! - **`pandoc-colink` (Unix):** link-time absorb of `libsnapper_pandoc.a`
+//!   (`build.rs` + `build-static.sh`); symbols live in the process image.
+//!   PE static absorb is unsupported in CI.
 //!
 //! Failures are explicit [`FfiError`] values — never silent all-prose.
 
@@ -177,27 +178,60 @@ mod dynamic {
         }
         let mut paths = Vec::new();
         if let Ok(dir) = std::env::var("SNAPPER_PANDOC_LIB_DIR") {
-            paths.push(PathBuf::from(&dir).join("libsnapper_pandoc.so"));
+            let dir = PathBuf::from(&dir);
+            for name in [
+                "libsnapper_pandoc.so",
+                "libsnapper_pandoc.dylib",
+                "snapper_pandoc.dll",
+                "libsnapper_pandoc.dll",
+            ] {
+                paths.push(dir.join(name));
+            }
+        }
+        // Same directory as the running executable (Windows packaging: DLL beside .exe).
+        if let Ok(exe) = std::env::current_exe() {
+            if let Some(dir) = exe.parent() {
+                for name in [
+                    "snapper_pandoc.dll",
+                    "libsnapper_pandoc.dll",
+                    "libsnapper_pandoc.so",
+                    "libsnapper_pandoc.dylib",
+                ] {
+                    paths.push(dir.join(name));
+                }
+            }
         }
         for name in [
             "libsnapper_pandoc.so",
             "libsnapper_pandoc.dylib",
             "snapper_pandoc.dll",
+            "libsnapper_pandoc.dll",
         ] {
             paths.push(PathBuf::from(name));
         }
         if let Ok(cwd) = std::env::current_dir() {
-            let lib_dir = cwd.join("native/snapper-pandoc/lib/libsnapper_pandoc.so");
-            if lib_dir.exists() {
-                paths.push(lib_dir);
+            for name in [
+                "libsnapper_pandoc.so",
+                "libsnapper_pandoc.dylib",
+                "snapper_pandoc.dll",
+                "libsnapper_pandoc.dll",
+            ] {
+                let p = cwd.join("native/snapper-pandoc/lib").join(name);
+                if p.exists() {
+                    paths.push(p);
+                }
             }
             let dist = cwd.join("native/snapper-pandoc/dist-newstyle");
             if dist.is_dir() {
-                if let Some(found) = find_lib_in_dir(&dist, "libsnapper_pandoc.so") {
-                    paths.push(found);
-                }
-                if let Some(found) = find_lib_in_dir(&dist, "libsnapper_pandoc.so.0.0.0") {
-                    paths.push(found);
+                for name in [
+                    "libsnapper_pandoc.so",
+                    "libsnapper_pandoc.so.0.0.0",
+                    "snapper_pandoc.dll",
+                    "libsnapper_pandoc.dll",
+                ] {
+                    if let Some(found) = find_lib_in_dir(&dist, name) {
+                        paths.push(found);
+                    }
                 }
             }
         }

@@ -46,6 +46,15 @@ fn main() {
     if target.contains("apple-darwin") || target.contains("apple-ios") {
         emit_darwin(&archive);
     } else if target.contains("windows") {
+        // PE static absorb of a GHC archive into rustc is unsupported in CI
+        // (multi-CRT / undefined POSIX shims). Preferred Windows path: cabal
+        // foreign-library DLL + default `pandoc` feature (LoadLibrary). This
+        // branch remains for optional local experiments only.
+        println!(
+            "cargo:warning=pandoc-colink on Windows is unsupported in CI; \
+             prefer cabal foreign-library snapper_pandoc.dll + features cli,pandoc \
+             (see native/snapper-pandoc/README.md)"
+        );
         emit_windows(&archive);
     } else {
         // Linux and other Unix-likes (proven baseline).
