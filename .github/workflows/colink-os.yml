@@ -489,10 +489,13 @@ jobs:
             cat /tmp/gmpcheck.err >&2 || true
           fi
           rustup target add x86_64-pc-windows-gnu
-          # rlib only: do not build snapper_fmt.dll (cdylib + HS archive is not the product).
+          # Force rlib-only: Cargo.toml crate-type is not overridable via --config.
+          # Without this, cargo still links snapper_fmt.dll and fails (hs_init /
+          # PE export) before ever producing snapper.exe.
+          sed -i.bak 's/crate-type = \["cdylib", "rlib"\]/crate-type = ["rlib"]/' Cargo.toml
+          grep 'crate-type' Cargo.toml
           cargo build --release --target x86_64-pc-windows-gnu \
-            --features "cli,pandoc,pandoc-colink" --bin snapper \
-            --config 'lib.crate-type=["rlib"]'
+            --features "cli,pandoc,pandoc-colink" --bin snapper
           BIN=target/x86_64-pc-windows-gnu/release/snapper.exe
           ls -lh "$BIN"
           # Prove product is real HS absorb, not null stubs.
