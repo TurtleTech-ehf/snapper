@@ -26,7 +26,9 @@ cd native/snapper-pandoc
 export SNAPPER_PANDOC_STATIC_LIB=$PWD/lib/libsnapper_pandoc.a
 # Linux link often needs:
 #   RUSTFLAGS='-C link-arg=-fuse-ld=bfd -C link-arg=-no-pie'
-cargo build --release --features "cli,pandoc,pandoc-colink" --bin snapper
+# rlib only: colink product is the CLI bin, not snapper_fmt.dll
+cargo build --release --features "cli,pandoc,pandoc-colink" --bin snapper \
+  --config 'lib.crate-type=["rlib"]'
 ```
 
 `build.rs` absorbs the archive into **bins only** (target-OS flags):
