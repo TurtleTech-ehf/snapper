@@ -508,31 +508,64 @@ jobs:
           DLL_UNIX="$LIB_UNIX/snapper_pandoc.dll"
           export SNAPPER_PANDOC_LIB="$(winpath "$DLL_UNIX")"
           export SNAPPER_PANDOC_LIB_DIR="$(winpath "$LIB_UNIX")"
-          # Runtime deps: staged lib/ + original build dir if present.
+          # MinGW runtime (libgcc/libwinpthread) for windows-gnu snapper.exe + HS DLL deps.
+          for d in \
+            "${SNAPPER_MINGW_BIN:-}" \
+            /c/mingw64/bin \
+            /mingw64/bin \
+            "${GHCUP_INSTALL_BASE_PREFIX}/ghcup/msys64/mingw64/bin"; do
+            [[ -n "$d" && -d "$d" ]] || continue
+            export PATH="${d}:$PATH"
+            echo "runtime PATH prepend: $d"
+          done
           export PATH="$LIB_UNIX:${PATH:-}"
           echo "SNAPPER_PANDOC_LIB=$SNAPPER_PANDOC_LIB"
           echo "SNAPPER_PANDOC_LIB_DIR=$SNAPPER_PANDOC_LIB_DIR"
 
           # Pure Rust binary — dynamic FFI only (no pandoc-colink / PE absorb).
+          # --no-default-features: skip neural/lsp graph (faster Gate B).
           rustup target add x86_64-pc-windows-gnu
           cargo build --release --target x86_64-pc-windows-gnu \
-            --features "cli,pandoc" --bin snapper
-          BIN=target/x86_64-pc-windows-gnu/release/snapper.exe
-          test -f "$BIN"
+            --no-default-features --features "cli,pandoc" --bin snapper
+          BIN_REL=target/x86_64-pc-windows-gnu/release/snapper.exe
+          test -f "$BIN_REL"
+          BINDIR="$(cd "$(dirname "$BIN_REL")" && pwd)"
+          BIN="$BINDIR/snapper.exe"
           ls -lh "$BIN"
-          BINDIR="$(cd "$(dirname "$BIN")" && pwd)"
           # Co-locate all staged DLLs next to the exe (LoadLibrary search path).
           cp -f "$LIB_UNIX"/*.dll "$BINDIR/" 2>/dev/null || true
           cp -f "$DLL_UNIX" "$BINDIR/snapper_pandoc.dll"
+          # Also stage common MinGW runtime DLLs beside the exe.
+          for name in libgcc_s_seh-1.dll libwinpthread-1.dll libstdc++-6.dll \
+                      libgmp-10.dll libffi-8.dll; do
+            for d in ${SNAPPER_MINGW_BIN:-} /c/mingw64/bin /mingw64/bin; do
+              [[ -n "$d" && -f "$d/$name" ]] || continue
+              cp -f "$d/$name" "$BINDIR/" 2>/dev/null || true
+            done
+          done
           ls -lh "$BINDIR"/*.dll 2>/dev/null | head -30 || true
 
           export SNAPPER_PANDOC_CACHE=0
           export PATH="$BINDIR:$LIB_UNIX:${PATH:-}"
-          echo "Gate B: dual-run FFI"
+          # Prefer DLL next to exe for discovery (also keep absolute env).
+          export SNAPPER_PANDOC_LIB="$(winpath "$BINDIR/snapper_pandoc.dll")"
+          echo "Gate B: dual-run FFI BIN=$BIN SNAPPER_PANDOC_LIB=$SNAPPER_PANDOC_LIB"
+          # Smoke: exe must start (exit 127 = missing runtime / bad path).
+          if ! "$BIN" --help >/tmp/snapper-help.txt 2>&1; then
+            echo "Gate B FAIL: snapper.exe --help failed (exit $?)" >&2
+            cat /tmp/snapper-help.txt >&2 || true
+            command -v "$BIN" || true
+            ls -la "$BIN" "$BINDIR" | head -40 || true
+            exit 127
+          fi
+          head -5 /tmp/snapper-help.txt || true
           "$BIN" --use-pandoc --pandoc-backend ffi -w 72 \
-            tests/fixtures/pandoc_ast/mixed.md | tee /tmp/out1.txt
+            tests/fixtures/pandoc_ast/mixed.md > /tmp/out1.txt 2>/tmp/err1.txt \
+            || { echo "run1 fail:"; cat /tmp/err1.txt; cat /tmp/out1.txt; exit 1; }
+          cat /tmp/out1.txt
           "$BIN" --use-pandoc --pandoc-backend ffi -w 72 \
-            tests/fixtures/pandoc_ast/mixed.md | tee /tmp/out2.txt
+            tests/fixtures/pandoc_ast/mixed.md > /tmp/out2.txt 2>/tmp/err2.txt \
+            || { echo "run2 fail:"; cat /tmp/err2.txt; cat /tmp/out2.txt; exit 1; }
           diff -u /tmp/out1.txt /tmp/out2.txt
           grep -q '```python' /tmp/out1.txt
           grep -q '| a | b |' /tmp/out1.txt
