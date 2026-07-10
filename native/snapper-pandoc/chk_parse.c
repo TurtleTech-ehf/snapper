@@ -26,12 +26,8 @@ int main(int argc, char **argv) {
     return 1;
   }
   if (hs_init) {
-    static char *arg0 = "snapper";
-    static char *av[1];
-    av[0] = arg0;
-    int ac = 1;
-    char **avp = av;
-    hs_init(&ac, &avp);
+    /* NULL,NULL is the GHC embedding contract; avoids argv lifetime issues. */
+    hs_init(NULL, NULL);
   }
   if (ready)
     ready();
