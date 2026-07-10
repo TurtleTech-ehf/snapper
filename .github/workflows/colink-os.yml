@@ -480,7 +480,17 @@ jobs:
             ls -la lib/ || true
             exit 1
           fi
-          echo "Gate A OK: foreign-library DLL exports resolvable via GetProcAddress"
+          echo "Gate A: GetProcAddress OK"
+          # Also exercise the C ABI end-to-end (hs_init + parse) before Rust dual-run.
+          gcc chk_parse.c -o /tmp/chk_parse.exe
+          # Ensure DLL dir is on PATH for any residual runtime deps while loading.
+          export PATH="$(cd lib && pwd):${PATH:-}"
+          if ! /tmp/chk_parse.exe "$DLL_FOR_LOAD"; then
+            echo "Gate A FAIL: C-level hs_init+parse smoke failed" >&2
+            echo "DLL_FOR_LOAD=$DLL_FOR_LOAD"
+            exit 1
+          fi
+          echo "Gate A OK: foreign-library DLL exports + C parse smoke"
           LIB_ABS="$(cd lib && pwd)"
           echo "SNAPPER_PANDOC_LIB_DIR_UNIX=$LIB_ABS" >> "$GITHUB_ENV"
           echo "SNAPPER_PANDOC_LIB_DIR=$(winpath "$LIB_ABS")" >> "$GITHUB_ENV"
@@ -560,13 +570,36 @@ jobs:
             exit 127
           fi
           head -5 /tmp/snapper-help.txt || true
-          "$BIN" --use-pandoc --pandoc-backend ffi -w 72 \
-            tests/fixtures/pandoc_ast/mixed.md > /tmp/out1.txt 2>/tmp/err1.txt \
-            || { echo "run1 fail:"; cat /tmp/err1.txt; cat /tmp/out1.txt; exit 1; }
+          FIXTURE=tests/fixtures/pandoc_ast/mixed.md
+          test -f "$FIXTURE"
+          export RUST_BACKTRACE=1
+          # Unbuffered dual-run with exit code capture (empty redirect hid crashes).
+          set +e
+          "$BIN" --use-pandoc --pandoc-backend ffi -w 72 "$FIXTURE" \
+            > /tmp/out1.txt 2> /tmp/err1.txt
+          ec1=$?
+          set -e
+          echo "run1 exit=$ec1 out_bytes=$(wc -c < /tmp/out1.txt) err_bytes=$(wc -c < /tmp/err1.txt)"
+          if [[ "$ec1" -ne 0 ]]; then
+            echo "run1 fail stderr:"; cat /tmp/err1.txt || true
+            echo "run1 fail stdout:"; cat /tmp/out1.txt || true
+            # Retry without redirect for any console-only diagnostics.
+            set +e
+            "$BIN" --use-pandoc --pandoc-backend ffi -w 72 "$FIXTURE"
+            echo "run1-console exit=$?"
+            set -e
+            exit 1
+          fi
           cat /tmp/out1.txt
-          "$BIN" --use-pandoc --pandoc-backend ffi -w 72 \
-            tests/fixtures/pandoc_ast/mixed.md > /tmp/out2.txt 2>/tmp/err2.txt \
-            || { echo "run2 fail:"; cat /tmp/err2.txt; cat /tmp/out2.txt; exit 1; }
+          set +e
+          "$BIN" --use-pandoc --pandoc-backend ffi -w 72 "$FIXTURE" \
+            > /tmp/out2.txt 2> /tmp/err2.txt
+          ec2=$?
+          set -e
+          echo "run2 exit=$ec2"
+          if [[ "$ec2" -ne 0 ]]; then
+            echo "run2 fail:"; cat /tmp/err2.txt; cat /tmp/out2.txt; exit 1
+          fi
           diff -u /tmp/out1.txt /tmp/out2.txt
           grep -q '```python' /tmp/out1.txt
           grep -q '| a | b |' /tmp/out1.txt
