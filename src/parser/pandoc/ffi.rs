@@ -46,37 +46,17 @@ type HsInitFn = unsafe extern "C" fn(*mut c_int, *mut *mut *mut c_char);
 static RTS_GATE: Mutex<()> = Mutex::new(());
 static RTS_INIT: OnceLock<()> = OnceLock::new();
 
-/// Process-lifetime argv for `hs_init`. The GHC RTS may retain pointers into
-/// both the vector and the program-name string after return; stack `CString`s
-/// are a use-after-free.
-struct HsInitArgv {
-    /// Owned via [`CString::into_raw`]; never freed.
-    _arg0: *mut c_char,
-    /// Stable base of the argv vector; never dropped after first init.
-    argv: Box<[*mut c_char; 1]>,
-}
-
-// SAFETY: written once through OnceLock; pointers are never freed or aliased mutably.
-unsafe impl Send for HsInitArgv {}
-unsafe impl Sync for HsInitArgv {}
-
-static HS_INIT_ARGV: OnceLock<HsInitArgv> = OnceLock::new();
-
-/// Call `hs_init` with argv that outlives the process (leaked once).
+/// Call `hs_init`. Prefer `NULL, NULL` (allowed by GHC) — avoids argv lifetime
+/// and mutability issues. Windows GHA dual-run previously hit
+/// `STATUS_HEAP_CORRUPTION` (0xC0000374) with a fragile one-slot argv vector
+/// taken via const `as_ptr`; C-side chk_parse with a proper argv worked.
+///
+/// Fallback: process-lifetime null-terminated argv (`[arg0, NULL]`) if null
+/// init is ever rejected by a future RTS (not expected).
 unsafe fn call_hs_init(init: HsInitFn) {
-    let storage = HS_INIT_ARGV.get_or_init(|| {
-        let arg0 = CString::new("snapper").expect("argv0").into_raw();
-        HsInitArgv {
-            _arg0: arg0,
-            argv: Box::new([arg0]),
-        }
-    });
-    let mut argc: c_int = 1;
-    // `hs_init(int *argc, char ***argv)` — second arg is &mut to the argv base.
-    let mut argv: *mut *mut c_char = storage.argv.as_ptr() as *mut *mut c_char;
-    // Edition 2024: unsafe ops inside `unsafe fn` still need an unsafe block.
+    // Primary: null argc/argv (GHC embedding contract).
     unsafe {
-        init(&mut argc, &mut argv);
+        init(std::ptr::null_mut(), std::ptr::null_mut());
     }
 }
 
