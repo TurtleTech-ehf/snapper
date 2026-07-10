@@ -557,53 +557,52 @@ jobs:
           ls -lh "$BINDIR"/*.dll 2>/dev/null | head -30 || true
 
           export SNAPPER_PANDOC_CACHE=0
-          export PATH="$BINDIR:$LIB_UNIX:${PATH:-}"
-          # Prefer DLL next to exe for discovery (also keep absolute env).
-          export SNAPPER_PANDOC_LIB="$(winpath "$BINDIR/snapper_pandoc.dll")"
-          echo "Gate B: dual-run FFI BIN=$BIN SNAPPER_PANDOC_LIB=$SNAPPER_PANDOC_LIB"
-          # Smoke: exe must start (exit 127 = missing runtime / bad path).
-          if ! "$BIN" --help >/tmp/snapper-help.txt 2>&1; then
-            echo "Gate B FAIL: snapper.exe --help failed (exit $?)" >&2
-            cat /tmp/snapper-help.txt >&2 || true
-            command -v "$BIN" || true
-            ls -la "$BIN" "$BINDIR" | head -40 || true
-            exit 127
-          fi
-          head -5 /tmp/snapper-help.txt || true
-          FIXTURE=tests/fixtures/pandoc_ast/mixed.md
-          test -f "$FIXTURE"
-          export RUST_BACKTRACE=1
-          # Unbuffered dual-run with exit code capture (empty redirect hid crashes).
-          set +e
-          "$BIN" --use-pandoc --pandoc-backend ffi -w 72 "$FIXTURE" \
-            > /tmp/out1.txt 2> /tmp/err1.txt
-          ec1=$?
-          set -e
-          echo "run1 exit=$ec1 out_bytes=$(wc -c < /tmp/out1.txt) err_bytes=$(wc -c < /tmp/err1.txt)"
-          if [[ "$ec1" -ne 0 ]]; then
-            echo "run1 fail stderr:"; cat /tmp/err1.txt || true
-            echo "run1 fail stdout:"; cat /tmp/out1.txt || true
-            # Retry without redirect for any console-only diagnostics.
-            set +e
-            "$BIN" --use-pandoc --pandoc-backend ffi -w 72 "$FIXTURE"
-            echo "run1-console exit=$?"
-            set -e
-            exit 1
-          fi
-          cat /tmp/out1.txt
-          set +e
-          "$BIN" --use-pandoc --pandoc-backend ffi -w 72 "$FIXTURE" \
-            > /tmp/out2.txt 2> /tmp/err2.txt
-          ec2=$?
-          set -e
-          echo "run2 exit=$ec2"
-          if [[ "$ec2" -ne 0 ]]; then
-            echo "run2 fail:"; cat /tmp/err2.txt; cat /tmp/out2.txt; exit 1
-          fi
-          diff -u /tmp/out1.txt /tmp/out2.txt
-          grep -q '```python' /tmp/out1.txt
-          grep -q '| a | b |' /tmp/out1.txt
-          test "$(wc -c < /tmp/out1.txt)" -gt 50
+          FIXTURE_UNIX="$PWD/tests/fixtures/pandoc_ast/mixed.md"
+          test -f "$FIXTURE_UNIX"
+          # Absolute Windows paths; dual-run via PowerShell to avoid Git-Bash
+          # path conversion (C parse OK, bash dual-run was exit 127 empty I/O).
+          BIN_WIN="$(winpath "$BIN")"
+          DLL_WIN="$(winpath "$BINDIR/snapper_pandoc.dll")"
+          FIX_WIN="$(winpath "$FIXTURE_UNIX")"
+          BINDIR_WIN="$(winpath "$BINDIR")"
+          echo "Gate B: BIN_WIN=$BIN_WIN DLL_WIN=$DLL_WIN FIX_WIN=$FIX_WIN"
+          # PowerShell: set env + PATH for DLL deps, run twice, write outputs.
+          powershell.exe -NoProfile -Command "
+            \$ErrorActionPreference = 'Stop'
+            \$env:SNAPPER_PANDOC_LIB = '$DLL_WIN'
+            \$env:SNAPPER_PANDOC_LIB_DIR = '$BINDIR_WIN'
+            \$env:SNAPPER_PANDOC_CACHE = '0'
+            \$env:RUST_BACKTRACE = '1'
+            \$env:PATH = '$BINDIR_WIN;' + \$env:PATH
+            Write-Host 'help smoke'
+            & '$BIN_WIN' --help | Select-Object -First 3
+            Write-Host 'run1'
+            & '$BIN_WIN' --use-pandoc --pandoc-backend ffi -w 72 '$FIX_WIN' |
+              Out-File -Encoding utf8 -FilePath '$BINDIR_WIN\\out1.txt'
+            if (\$LASTEXITCODE -ne 0) {
+              Write-Error \"run1 exit=\$LASTEXITCODE\"
+              exit \$LASTEXITCODE
+            }
+            Write-Host 'run2'
+            & '$BIN_WIN' --use-pandoc --pandoc-backend ffi -w 72 '$FIX_WIN' |
+              Out-File -Encoding utf8 -FilePath '$BINDIR_WIN\\out2.txt'
+            if (\$LASTEXITCODE -ne 0) {
+              Write-Error \"run2 exit=\$LASTEXITCODE\"
+              exit \$LASTEXITCODE
+            }
+            Write-Host 'dual-run files written'
+          "
+          # Validate from bash (Unix tools).
+          OUT1="$BINDIR/out1.txt"
+          OUT2="$BINDIR/out2.txt"
+          # Strip UTF-8 BOM if PowerShell added one.
+          sed -i '1s/^\xEF\xBB\xBF//' "$OUT1" "$OUT2" 2>/dev/null || true
+          ls -la "$OUT1" "$OUT2"
+          cat "$OUT1"
+          diff -u "$OUT1" "$OUT2"
+          grep -q '```python' "$OUT1"
+          grep -q '| a | b |' "$OUT1"
+          test "$(wc -c < "$OUT1")" -gt 50
           echo "Gate B OK: Windows C FFI dual-run (foreign-library DLL)"
 
       - name: Record skip if static build failed
