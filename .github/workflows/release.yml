@@ -272,12 +272,28 @@ jobs:
           ANNOUNCEMENT_TITLE: "${{ fromJson(steps.host.outputs.manifest).announcement_title }}"
           ANNOUNCEMENT_BODY: "${{ fromJson(steps.host.outputs.manifest).announcement_github_body }}"
           RELEASE_COMMIT: "${{ github.sha }}"
+          RELEASE_TAG: "${{ needs.plan.outputs.tag }}"
         run: |
           # Write and read notes from a file to avoid quoting breaking things
           echo "$ANNOUNCEMENT_BODY" > $RUNNER_TEMP/notes.txt
 
-          gh release create "${{ needs.plan.outputs.tag }}" --target "$RELEASE_COMMIT" $PRERELEASE_FLAG --title "$ANNOUNCEMENT_TITLE" --notes-file "$RUNNER_TEMP/notes.txt" artifacts/*
-
+          # If the tag already has a GitHub Release (manual create, or a prior
+          # partial cargo-dist run), create fails with "already exists" and leaves
+          # latest/download URLs 404. Always attach artifacts; create only when needed.
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            gh release upload "$RELEASE_TAG" artifacts/* --clobber
+            gh release edit "$RELEASE_TAG" \
+              --title "$ANNOUNCEMENT_TITLE" \
+              --notes-file "$RUNNER_TEMP/notes.txt" \
+              --target "$RELEASE_COMMIT"
+          else
+            gh release create "$RELEASE_TAG" \
+              --target "$RELEASE_COMMIT" \
+              $PRERELEASE_FLAG \
+              --title "$ANNOUNCEMENT_TITLE" \
+              --notes-file "$RUNNER_TEMP/notes.txt" \
+              artifacts/*
+          fi
   publish-homebrew-formula:
     needs:
       - plan
