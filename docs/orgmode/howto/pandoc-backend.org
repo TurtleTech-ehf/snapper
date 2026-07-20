@@ -6,25 +6,43 @@
 :CUSTOM_ID: overview
 :END:
 
-Snapper includes a universal parser backend powered by [[https://pandoc.org][pandoc]].
-When enabled with =--use-pandoc=, snapper shells out to pandoc to parse the document into a JSON AST, then walks the AST to extract prose and structure regions.
+The pandoc path is **parse with pandoc, then apply snapper** — not “guess markdown lines like the built-in parsers.”
 
-This gives snapper support for every format pandoc handles: typst, asciidoc, docx, html, epub, and more.
+1. Pandoc reads the file (any format it supports) into its document AST.
+2. Snapper walks that AST and reflows only prose-bearing nodes (=Para= / =Plain=).
+3. Nodes pandoc already classified as structure (=Header=, =CodeBlock=, =Table=, …) are left alone.
+
+That is how snapper can format everything pandoc can read (typst, asciidoc, docx, html, …) without inventing per-format line heuristics.
+
+How to run step 1 (same step-2 walker):
+
+1. *Auto* — =--pandoc-backend auto= (default): prefer in-process FFI when =libsnapper_pandoc= loads, else CLI.
+This is the successor path for multi-format work (amortizes RTS; avoids process-per-file spawn).
+2. *CLI* — =--pandoc-backend cli=: =pandoc -t json= (full reader set of the installed binary).
+3. *FFI* — =--pandoc-backend ffi=: require =libsnapper_pandoc= (explicit error if missing).
 
 * Requirements
 :PROPERTIES:
 :CUSTOM_ID: requirements
 :END:
 
-Pandoc 2.x or 3.x must be installed and on your PATH.
-Verify with:
+**CLI backend.** Pandoc 2.x or 3.x on =PATH=.
+With =--use-pandoc=, a missing or failing pandoc is an explicit error (no silent all-prose).
+
+**FFI backend (dynamic).** Build =native/snapper-pandoc=, set =SNAPPER_PANDOC_LIB= to =libsnapper_pandoc.so= (or put it on the search path).
+A missing library with =--pandoc-backend ffi= errors with =pandoc FFI library unavailable= (fail-closed; never silent all-prose).
+
+**FFI backend (co-linked / one binary).** Feature =pandoc-colink= is a *build* path: produce =libsnapper_pandoc.a= with =native/snapper-pandoc/build-static.sh= (=ghc -staticlib=), then Cargo absorbs that archive into a single =snapper= executable (=--gc-sections=).
+No =SNAPPER_PANDOC_LIB= discovery and no multi-hundred-MB =libHS*= RUNPATH graph.
 
 #+begin_src bash
-pandoc --version
+cd native/snapper-pandoc && ./build-static.sh
+export SNAPPER_PANDOC_LIB_DIR=$PWD/lib
+cargo build --release --features "cli,pandoc,pandoc-colink"
+snapper --use-pandoc --pandoc-backend ffi paper.md
 #+end_src
 
-When pandoc is not available, snapper falls back to its built-in parsers silently.
-If you explicitly pass =--use-pandoc= and pandoc is missing, snapper reports an error.
+See =native/snapper-pandoc/README.md=.
 
 * Usage
 :PROPERTIES:
@@ -32,42 +50,36 @@ If you explicitly pass =--use-pandoc= and pandoc is missing, snapper reports an 
 :END:
 
 #+begin_src bash
-# Typst (requires pandoc with typst support)
+# Pandoc parses; snapper reflows prose from the AST (auto = FFI if available)
 snapper --use-pandoc paper.typ
-
-# AsciiDoc
-snapper --use-pandoc guide.adoc
-
-# HTML
-snapper --use-pandoc article.html
-
-# Any format pandoc supports
-snapper --use-pandoc -f rst document.rst
+snapper --use-pandoc --pandoc-backend auto paper.md
+snapper --use-pandoc --pandoc-backend cli guide.adoc
+snapper --use-pandoc --pandoc-backend ffi paper.md
 #+end_src
 
-Format auto-detects from the file extension.
-Override with =-f= when needed.
+Native line parsers remain the default until product flip.
+Use =--use-pandoc= when you need formats without a built-in parser or AST-true structure; prefer FFI for latency once =libsnapper_pandoc= is installed.
+
+**Speed.** Warm in-process FFI is a few times native cost; cold process reloads the GHC RTS (tens of ms).
+Snapper also caches pandoc JSON ASTs by content hash (memory + disk under =$XDG_CACHE_HOME/snapper/pandoc-ast=).
+Re-formatting the same source skips pandoc entirely.
+Disable with =SNAPPER_PANDOC_CACHE=0=; override dir with =SNAPPER_PANDOC_CACHE_DIR=.
 
 * When to use pandoc vs built-in parsers
 :PROPERTIES:
 :CUSTOM_ID: when-to-use
 :END:
 
-The built-in parsers (Org, LaTeX, Markdown, RST) handle their formats well and run faster since they avoid spawning a subprocess.
-Use the pandoc backend when:
+- **Built-in** (default): fast, source-oriented parsers for Org / LaTeX / Markdown / RST (e.g. full ATX lines as structure).
+- **Pandoc**: you want structure from pandoc’s model and coverage of formats without a built-in parser.
 
-- Working with typst, asciidoc, docx, html, or other formats without a built-in parser
-- You want consistent parsing across many formats in one project
-- The built-in parser mishandles an edge case that pandoc gets right
-
-The built-in parsers preserve more source-level structure (pragmas, inline tokens).
-The pandoc backend strips format-specific markup since it works through the abstract AST.
+The two paths are different pipelines, not two ways to fake the same source lines.
 
 * Limitations
 :PROPERTIES:
 :CUSTOM_ID: limitations
 :END:
 
-- Pandoc strips comments, so =snapper:off= / =snapper:on= pragmas do not work through the pandoc backend
-- Table content is not preserved verbatim (pandoc normalizes table structure)
-- Some format-specific markup (Org drawers, LaTeX preamble) gets simplified in the AST
+- Pandoc strips comments, so =snapper:off= / =snapper:on= pragmas do not work on the pandoc path
+- Round-trip is through the AST (not a perfect source-preserving rewrite of every markup character)
+- FFI library is optional; wasm/editor bundles do not embed GHC/pandoc

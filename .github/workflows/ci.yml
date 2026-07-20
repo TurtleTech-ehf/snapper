@@ -1,10 +1,16 @@
 name: CI
 
 on:
+  workflow_dispatch:
   push:
     branches: [main]
   pull_request:
     branches: [main]
+
+# Default path is GHC-free. Feature `pandoc-colink` is never in default features;
+# it requires native/snapper-pandoc/build-static.sh output (see native README).
+# Optional static-colink builds are proven on linux builders with GHC installed;
+# they are not part of PR gates so macOS/ubuntu runners stay green without Haskell.
 
 jobs:
   check:
@@ -25,8 +31,23 @@ jobs:
       - name: Clippy
         run: cargo clippy -- -D warnings
 
-      - name: Test
+      - name: Test (default features, no colink / no GHC)
         run: cargo test
+
+      - name: Pandoc AST fixtures (JSON on disk, no live pandoc)
+        run: cargo test --features "cli,pandoc" --test pandoc_ast_backend -- --nocapture
+
+      - name: Colink opt-in without archive fails closed
+        run: |
+          set +e
+          rm -f native/snapper-pandoc/lib/libsnapper_pandoc.a \
+                native/snapper-pandoc/static-build/libsnapper_pandoc.a
+          out=$(cargo build --features "cli,pandoc,pandoc-colink" --bin snapper 2>&1)
+          ec=$?
+          set -e
+          echo "$out" | tail -50
+          test "$ec" -ne 0
+          echo "$out" | grep -E "libsnapper_pandoc\.a|static build product"
 
       - name: Dogfood snapper --check on docs and examples
         run: |

@@ -1,0 +1,10 @@
+; PE export list for Windows foreign-library (MinGW does not auto-export
+; foreign export ccall symbols the way ELF .so does). Keep this list small —
+; standalone embeds the full RTS; --export-all-symbols overflows PE ordinals.
+LIBRARY snapper_pandoc
+EXPORTS
+    snapper_pandoc_parse
+    snapper_pandoc_free
+    snapper_pandoc_hs_ready
+    hs_init
+    hs_exit

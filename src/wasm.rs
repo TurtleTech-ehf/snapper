@@ -98,6 +98,7 @@ impl WasmConfig {
             pandoc_format: None,
             code: std::collections::HashMap::new(),
             format_code: false,
+            ..Default::default()
         }
     }
 }

@@ -357,10 +357,7 @@ mod tests {
         let input = "## My Heading";
         let regions = MarkdownParser.parse(input);
         assert_eq!(regions.len(), 1);
-        assert_eq!(
-            regions[0],
-            Region::Structure("## My Heading\n".to_string())
-        );
+        assert_eq!(regions[0], Region::Structure("## My Heading\n".to_string()));
     }
 
     #[test]

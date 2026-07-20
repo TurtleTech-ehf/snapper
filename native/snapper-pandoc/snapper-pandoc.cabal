@@ -1,0 +1,50 @@
+cabal-version:      3.0
+name:               snapper-pandoc
+version:            0.1.0.0
+synopsis:           C-callable pandoc parse surface for snapper
+description:        Foreign library that parses markup to pandoc JSON AST via the Haskell pandoc library.
+license:            MIT
+author:             TurtleTech
+maintainer:         snapper@turtletech.us
+category:           Text
+build-type:         Simple
+
+foreign-library snapper_pandoc
+  type:                native-shared
+  other-modules:       SnapperPandoc
+  build-depends:
+      base >= 4.14 && < 5
+    , pandoc >= 3.0
+    , pandoc-types >= 1.23
+    , bytestring >= 0.11
+    , text >= 2.0
+    , aeson >= 2.0
+  hs-source-dirs:      src
+  default-language:    Haskell2010
+  ghc-options:         -Wall -O2
+  include-dirs:        include
+  install-includes:    snapper_pandoc.h
+  -- Cabal-4574: Windows only supports standalone foreign-libraries, and
+  -- does not support lib-version-info (ELF soname). Unix keeps versioning.
+  -- PE: foreign export ccall symbols are not auto-exported like ELF .so;
+  -- pass a small .def (not --export-all-symbols: ordinal overflow on RTS).
+  if os(windows)
+    options:           standalone
+    -- Module-definition file: PE export table for C ABI (see snapper_pandoc.def).
+    -- Passed as a bare path to the linker (not -optl-foo, which becomes -foo).
+    ld-options:        snapper_pandoc.def
+  if !os(windows)
+    lib-version-info:  0:0:0
+
+library
+  exposed-modules:     SnapperPandoc
+  build-depends:
+      base >= 4.14 && < 5
+    , pandoc >= 3.0
+    , pandoc-types >= 1.23
+    , bytestring >= 0.11
+    , text >= 2.0
+    , aeson >= 2.0
+  hs-source-dirs:      src
+  default-language:    Haskell2010
+  ghc-options:         -Wall -O2

@@ -1154,6 +1154,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "48f5d2a454e16a5ea0f4ced81bd44e4cfc7bd3a507b61887c99fd3538b28e4af"
 
 [[package]]
+name = "libloading"
+version = "0.8.9"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d7c4b02199fee7c5d21a5ae7d8cfa79a6ef5bb2fc834d6e9058e89c825efdc55"
+dependencies = [
+ "cfg-if",
+ "windows-link",
+]
+
+[[package]]
 name = "libredox"
 version = "0.1.16"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2243,7 +2253,7 @@ checksum = "b7c388c1b5e93756d0c740965c41e8822f866621d41acbdf6336a6a168f8840c"
 
 [[package]]
 name = "snapper-fmt"
-version = "0.7.8"
+version = "0.8.0"
 dependencies = [
  "anyhow",
  "clap",
@@ -2253,6 +2263,7 @@ dependencies = [
  "glob",
  "imara-diff",
  "js-sys",
+ "libloading",
  "nnsplit",
  "notify",
  "pandoc_ast",
@@ -2265,6 +2276,7 @@ dependencies = [
  "serde",
  "serde-wasm-bindgen",
  "serde_json",
+ "sha2",
  "tempfile",
  "textwrap",
  "thiserror 2.0.18",
