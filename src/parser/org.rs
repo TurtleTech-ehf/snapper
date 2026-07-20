@@ -306,16 +306,13 @@ impl FormatParser for OrgParser {
                 continue;
             }
 
-            // Headline: stars + optional keyword are structure, rest is prose
-            if let Some(caps) = HEADLINE_RE.captures(line) {
+            // Headline: keep the entire line as Structure.
+            // Splitting Structure(stars)+Prose(title) reflowed multi-sentence
+            // titles and left continuation lines without stars (orphan body).
+            // Org headlines are single-line; do not reflow them.
+            if HEADLINE_RE.is_match(line) {
                 flush_prose(&mut current_prose, &mut regions);
-                let prefix = caps.get(1).unwrap().as_str();
-                let text = caps.get(2).unwrap().as_str();
-                regions.push(Region::Structure(prefix.to_string()));
-                if !text.is_empty() {
-                    regions.push(Region::Prose(text.to_string()));
-                }
-                regions.push(Region::Structure("\n".to_string()));
+                regions.push(Region::Structure(format!("{line}\n")));
                 continue;
             }
 
@@ -428,13 +425,36 @@ mod tests {
     }
 
     #[test]
-    fn headline_split() {
+    fn headline_is_structure_not_prose() {
         let input = "* TODO This is a headline";
         let regions = OrgParser.parse(input);
-        assert_eq!(regions.len(), 3);
-        assert_eq!(regions[0], Region::Structure("* TODO ".to_string()));
-        assert_eq!(regions[1], Region::Prose("This is a headline".to_string()));
-        assert_eq!(regions[2], Region::Structure("\n".to_string()));
+        assert_eq!(regions.len(), 1);
+        assert_eq!(
+            regions[0],
+            Region::Structure("* TODO This is a headline\n".to_string())
+        );
+    }
+
+    #[test]
+    fn multi_sentence_headline_stays_one_line() {
+        use crate::format::Format;
+        use crate::{FormatConfig, format_text};
+
+        let input = "** Multi sentence. Second sentence in title\nbody prose. Second body.\n";
+        let cfg = FormatConfig {
+            format: Format::Org,
+            ..Default::default()
+        };
+        let out = format_text(input, &cfg).unwrap();
+        assert!(
+            out.lines().any(|l| l == "** Multi sentence. Second sentence in title"),
+            "headline must stay one line, got:\n{out}"
+        );
+        assert!(
+            !out.contains("** Multi sentence.\nSecond"),
+            "must not orphan second title sentence without stars:\n{out}"
+        );
+        assert_eq!(format_text(&out, &cfg).unwrap(), out);
     }
 
     #[test]

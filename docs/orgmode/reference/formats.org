@@ -25,7 +25,7 @@ The classification depends on the format.
 - =#+KEYWORD:= directives (TITLE, AUTHOR, DATE, OPTIONS, etc.)
 - Table rows (lines starting with =|=)
 - Comment lines (starting with =#= but not =#+= )
-- Headline stars and TODO keywords
+- Full headline lines (stars, optional TODO keyword, and title text)
 - List item markers (=-=, =+=, =1.=)
 - LaTeX environments (=\begin{equation}= ... =\end{equation}=, =\begin{align}=, etc.)
 - Display math (=\[= ... =\]=)
@@ -45,7 +45,6 @@ The classification depends on the format.
 :CUSTOM_ID: org-prose
 :END:
 - Paragraph text
-- Headline text (after the stars and keyword)
 - List item text (after the marker)
 
 *** Inline tokens (kept atomic)
@@ -73,7 +72,7 @@ These tokens within prose are not split across lines:
 - Display math: =\[...\]=
 - Comment lines (starting with =%=)
 - =\end{document}=
-- Sectioning command wrappers (=\section{=, =\subsection{=, …); the brace argument is prose
+- Full sectioning command lines (=\section{...}=, =\subsection{...}=, and friends, including title text)
 
 *** Code regions (=minted=, =lstlisting=, =verbatim=)
 :PROPERTIES:
@@ -87,7 +86,6 @@ These tokens within prose are not split across lines:
 :CUSTOM_ID: latex-prose
 :END:
 - Body text between structural elements
-- Sectioning command titles (argument text inside =\section{...}= and friends)
 
 ** Markdown (=--format markdown=)
 :PROPERTIES:
@@ -99,7 +97,7 @@ These tokens within prose are not split across lines:
 :CUSTOM_ID: markdown-structure
 :END:
 - Front matter (=---= or =+++=  delimited at file start)
-- Heading markers (=#=, =##=, etc.)
+- Full ATX heading lines (=#= … =######= including title text)
 - List item markers (=-=, =*=, =+=, =1.=)
 - Pipe tables
 
@@ -116,7 +114,6 @@ These tokens within prose are not split across lines:
 :CUSTOM_ID: markdown-prose
 :END:
 - Paragraph text
-- Heading text (after the marker)
 - List item text (after the marker)
 
 ** reStructuredText (=--format rst=)

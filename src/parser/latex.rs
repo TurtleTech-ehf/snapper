@@ -228,17 +228,13 @@ impl FormatParser for LatexParser {
                 }
             }
 
-            // Sectioning commands: structure(prefix) + prose(title) + structure(suffix\n)
-            if let Some(caps) = SECTION_CMD_RE.captures(line) {
+            // Sectioning commands: keep the entire line as Structure.
+            // Splitting Structure(\section{)+Prose(title)+Structure(}) reflowed
+            // multi-sentence titles mid-brace. Single-line sectioning is not
+            // prose; do not reflow titles.
+            if SECTION_CMD_RE.is_match(line) {
                 flush_prose(&mut current_prose, &mut regions);
-                let prefix = caps.get(1).unwrap().as_str();
-                let title = caps.get(2).unwrap().as_str();
-                let suffix = caps.get(3).unwrap().as_str();
-                regions.push(Region::Structure(prefix.to_string()));
-                if !title.is_empty() {
-                    regions.push(Region::Prose(title.to_string()));
-                }
-                regions.push(Region::Structure(format!("{suffix}\n")));
+                regions.push(Region::Structure(format!("{line}\n")));
                 continue;
             }
 
@@ -282,9 +278,22 @@ mod tests {
     use super::*;
 
     #[test]
-    fn section_command_splits_title_as_prose() {
+    fn section_command_title_is_structure_not_prose() {
         let input = "\\begin{document}\n\\section{A long title. With two sentences.}\nBody.\n\\end{document}\n";
         let regions = LatexParser.parse(input);
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Structure(s) if s.contains(r"\section{A long title. With two sentences.}")
+            )),
+            "full section line must be Structure, got: {regions:?}"
+        );
+        assert!(
+            !regions
+                .iter()
+                .any(|r| matches!(r, Region::Prose(p) if p.contains("A long title"))),
+            "section title must not be Prose: {regions:?}"
+        );
         let prose: Vec<_> = regions
             .iter()
             .filter_map(|r| match r {
@@ -292,11 +301,29 @@ mod tests {
                 _ => None,
             })
             .collect();
-        assert!(
-            prose.iter().any(|t| t.contains("A long title")),
-            "section title should be prose, got regions: {regions:?}"
-        );
         assert!(prose.contains(&"Body."));
+    }
+
+    #[test]
+    fn multi_sentence_section_title_stays_one_line() {
+        use crate::format::Format;
+        use crate::{FormatConfig, format_text};
+
+        let input = "\\begin{document}\n\\section{A long title. With two sentences.}\nBody text here. More body.\n\\end{document}\n";
+        let cfg = FormatConfig {
+            format: Format::Latex,
+            ..Default::default()
+        };
+        let out = format_text(input, &cfg).unwrap();
+        assert!(
+            out.contains("\\section{A long title. With two sentences.}"),
+            "section title must stay one line, got:\n{out}"
+        );
+        assert!(
+            !out.contains("\\section{A long title.\n"),
+            "must not reflow mid-title inside braces:\n{out}"
+        );
+        assert_eq!(format_text(&out, &cfg).unwrap(), out);
     }
 
     #[test]
