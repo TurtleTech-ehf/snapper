@@ -30,8 +30,10 @@ jobs:
         with:
           targets: wasm32-unknown-unknown
 
-      - name: Test with all features
-        run: cargo test --all-features
+      # Do not use --all-features: pandoc-colink requires libsnapper_pandoc.a
+      # (fail-closed in build.rs). CI already gates that opt-in path separately.
+      - name: Test with features (no pandoc-colink)
+        run: cargo test --features "cli,neural,lsp,watch,pandoc,mcp,wasm"
 
       - name: Test with no default features (lib only)
         run: cargo test --no-default-features --lib
