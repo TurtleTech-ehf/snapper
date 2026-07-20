@@ -1,6 +1,9 @@
-- id: sembr
-  name: Semantic line breaks
-  description: Reformat prose files with semantic line breaks
-  entry: sembr --in-place
+# Repo-local hook definition (consumed when users pin this repo in
+# .pre-commit-config.yaml with id: snapper). identify has no "org" type, so
+# match by extension instead of types_or.
+- id: snapper
+  name: snapper
+  description: Reformat prose with semantic line breaks (Org, LaTeX, Markdown, RST, plaintext)
+  entry: snapper --in-place
   language: rust
-  types_or: [org, tex, markdown, plain-text]
+  files: \.(org|tex|latex|md|markdown|rst|txt)$
