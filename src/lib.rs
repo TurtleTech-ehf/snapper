@@ -80,6 +80,10 @@ pub struct FormatConfig {
     pub use_pandoc: bool,
     /// Pandoc input format string (for pandoc backend).
     pub pandoc_format: Option<String>,
+    /// How to obtain the pandoc AST when `use_pandoc` is set.
+    /// `Ffi` uses in-process Haskell/C bindings; `Cli` uses a subprocess.
+    #[cfg(feature = "pandoc")]
+    pub pandoc_backend: parser::pandoc::PandocBackend,
     /// Per-language code-block configuration loaded from `[code]` in
     /// `.snapperrc.toml`. Empty by default; an empty map disables all
     /// per-language code-block behaviour (block passes through untouched).
@@ -101,6 +105,8 @@ impl Default for FormatConfig {
             extra_abbreviations: vec![],
             use_pandoc: false,
             pandoc_format: None,
+            #[cfg(feature = "pandoc")]
+            pandoc_backend: parser::pandoc::PandocBackend::default(),
             code: HashMap::new(),
             format_code: false,
         }
@@ -152,31 +158,6 @@ pub fn format_text_with_splitter(
     config: &FormatConfig,
     splitter: &dyn SentenceSplitter,
 ) -> Result<String> {
-    let parser: Box<dyn parser::FormatParser> = if config.use_pandoc {
-        #[cfg(feature = "pandoc")]
-        {
-            let pandoc_fmt = config
-                .pandoc_format
-                .as_deref()
-                .unwrap_or(match config.format {
-                    Format::Org => "org",
-                    Format::Latex => "latex",
-                    Format::Markdown => "markdown",
-                    Format::Rst => "rst",
-                    Format::Plaintext => "markdown",
-                });
-            Box::new(parser::pandoc::PandocParser::new(pandoc_fmt))
-        }
-        #[cfg(not(feature = "pandoc"))]
-        {
-            return Err(anyhow::anyhow!(
-                "pandoc backend requires the 'pandoc' feature"
-            ));
-        }
-    } else {
-        parser::parser_for_format(config.format)
-    };
-
     let had_trailing_newline = input.ends_with('\n');
     let uses_crlf = input.contains("\r\n");
 
@@ -189,7 +170,39 @@ pub fn format_text_with_splitter(
         input
     };
 
-    let regions = parser.parse(work_input);
+    // Two pipelines:
+    // - use_pandoc: pandoc parses source → AST → regions by node kind → reflow prose only.
+    // - else: native line parsers (markdown/org/…) then reflow. Never mixed after success.
+    let regions = if config.use_pandoc {
+        #[cfg(feature = "pandoc")]
+        {
+            let pandoc_fmt = config
+                .pandoc_format
+                .as_deref()
+                .unwrap_or(match config.format {
+                    Format::Org => "org",
+                    Format::Latex => "latex",
+                    Format::Markdown => "markdown",
+                    Format::Rst => "rst",
+                    Format::Plaintext => "markdown",
+                });
+            let parser =
+                parser::pandoc::PandocParser::with_backend(pandoc_fmt, config.pandoc_backend);
+            // Pandoc path: fail closed (no silent all-prose, no native re-parse).
+            parser
+                .try_parse(work_input)
+                .map_err(|e| anyhow::anyhow!("{e}"))?
+        }
+        #[cfg(not(feature = "pandoc"))]
+        {
+            return Err(anyhow::anyhow!(
+                "pandoc backend requires the 'pandoc' feature"
+            ));
+        }
+    } else {
+        parser::parser_for_format(config.format).parse(work_input)
+    };
+
     let reflow_config = ReflowConfig {
         max_width: config.max_width,
         code: Some(&config.code),

@@ -1,0 +1,613 @@
+# Pandoc native smoke on macOS / Windows / Linux (never blocks PR CI).
+# - Linux/macOS: static colink (ghc -staticlib absorb into snapper).
+# - Windows: C FFI to cabal foreign-library DLL (not PE static-absorb).
+# Trigger: push to develop/pandoc-ffi (path-filtered) or workflow_dispatch.
+name: colink-os
+
+# Push trigger is required while this workflow lives only on the feature branch
+# (workflow_dispatch is only loadable from the repo default branch).
+on:
+  push:
+    branches: [develop/pandoc-ffi]
+    paths:
+      - "native/snapper-pandoc/**"
+      - "build.rs"
+      - "src/parser/pandoc/**"
+      - ".github/workflows/colink-os.yml"
+      - "Cargo.toml"
+  workflow_dispatch:
+
+env:
+  # Force user-writable GHCup root. Unset/default can pick /usr/local on some
+  # Ubuntu runners and fail chmod (see run 28950334872).
+  GHCUP_INSTALL_BASE_PREFIX: ${{ github.workspace }}/.ghcup-prefix
+  BOOTSTRAP_HASKELL_NONINTERACTIVE: "1"
+  BOOTSTRAP_HASKELL_MINIMAL: "1"
+  BOOTSTRAP_HASKELL_INSTALL_HLS: "0"
+  BOOTSTRAP_HASKELL_INSTALL_STACK: "0"
+  # Pin GHC: "recommended" can be too new for pandoc (Windows Cabal-7107 base
+  # 4.22 vs haddock-library). 9.8.x is known-good with current pandoc on GHA.
+  SNAPPER_GHC_VERSION: "9.8.4"
+
+jobs:
+  colink:
+    name: colink-${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 360
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.os == 'windows-latest' && 'x86_64-pc-windows-gnu' || '' }}
+
+      - name: System C libs for GHC/pandoc link
+        run: |
+          set -euo pipefail
+          if [[ "${{ runner.os }}" == "Linux" ]]; then
+            sudo apt-get update
+            sudo apt-get install -y \
+              libgmp-dev libffi-dev libzstd-dev libbz2-dev liblzma-dev \
+              libelf-dev libdw-dev libnuma-dev pkg-config
+          elif [[ "${{ runner.os }}" == "macOS" ]]; then
+            brew install gmp libffi pkg-config || true
+          elif [[ "${{ runner.os }}" == "Windows" ]]; then
+            # Windows path uses cabal foreign-library DLL + C FFI (not static colink).
+            echo "Windows: will build snapper_pandoc.dll via cabal foreign-library"
+          fi
+
+      - name: Bootstrap GHCup into workspace prefix
+        run: |
+          set -euo pipefail
+          # Expand env for bash; GHA injects GHCUP_INSTALL_BASE_PREFIX above.
+          export GHCUP_INSTALL_BASE_PREFIX="${GHCUP_INSTALL_BASE_PREFIX}"
+          export BOOTSTRAP_HASKELL_GHC_VERSION="${SNAPPER_GHC_VERSION}"
+          export GHCUP_SKIP_UPDATE_CHECK=1
+          mkdir -p "$GHCUP_INSTALL_BASE_PREFIX"
+          echo "GHCup base: $GHCUP_INSTALL_BASE_PREFIX (want GHC ${SNAPPER_GHC_VERSION})"
+          curl --proto '=https' --tlsv1.2 -sSf https://get-ghcup.haskell.org | sh
+
+          # Locate ghcup bin dir. Unix uses $PREFIX/.ghcup/bin; Windows GHCup often
+          # uses $PREFIX/ghcup/bin (no leading dot). Runners may also ship /c/ghcup.
+          GHCUP_BIN=""
+          for cand in \
+            "${GHCUP_INSTALL_BASE_PREFIX}/.ghcup/bin" \
+            "${GHCUP_INSTALL_BASE_PREFIX}/ghcup/bin" \
+            "${HOME}/.ghcup/bin" \
+            "/c/ghcup/bin" \
+            "/usr/local/.ghcup/bin"; do
+            if [[ -x "${cand}/ghcup" || -x "${cand}/ghcup.exe" ]]; then
+              GHCUP_BIN="$cand"
+              break
+            fi
+          done
+          if [[ -z "$GHCUP_BIN" ]]; then
+            echo "ghcup binary not found after bootstrap" >&2
+            find "$GHCUP_INSTALL_BASE_PREFIX" -name 'ghcup*' 2>/dev/null | head -20 || true
+            exit 1
+          fi
+          echo "using GHCUP_BIN=$GHCUP_BIN"
+          export PATH="$GHCUP_BIN:$PATH"
+          echo "$GHCUP_BIN" >> "$GITHUB_PATH"
+          hash -r || true
+          command -v ghcup
+          ghcup --version
+          ghcup install ghc "${SNAPPER_GHC_VERSION}" --set
+          ghcup set ghc "${SNAPPER_GHC_VERSION}"
+          ghcup install cabal latest --set
+          ghcup set cabal latest || true
+
+          want="${SNAPPER_GHC_VERSION}"
+          # Always bind to the real compiler path (Windows runners keep a stale
+          # /c/ghcup/bin/ghc shim at 9.14.1 even after set 9.8.4).
+          GHC_REAL="$(ghcup whereis ghc "$want" 2>/dev/null | tr -d '\r' || true)"
+          if [[ -z "$GHC_REAL" ]]; then
+            # Fallback search under prefix / common install roots
+            GHC_REAL="$(find "$GHCUP_INSTALL_BASE_PREFIX" /c/ghcup "$HOME/.ghcup" \
+              -type f \( -name ghc -o -name ghc.exe \) 2>/dev/null \
+              | grep -E "ghc-${want//./\\.}|/${want}/" | head -1 || true)"
+          fi
+          if [[ -z "$GHC_REAL" || ! -e "$GHC_REAL" ]]; then
+            echo "FATAL: cannot locate ghc $want binary" >&2
+            ghcup list -t ghc || true
+            find "$GHCUP_INSTALL_BASE_PREFIX" -iname 'ghc*' 2>/dev/null | head -40 || true
+            exit 1
+          fi
+          echo "GHC_REAL=$GHC_REAL"
+          # Wrapper dir first on PATH so plain `ghc`/`cabal` hit the pin.
+          # Use printf (not indented heredocs) so shebangs stay at column 0.
+          WRAP="$GITHUB_WORKSPACE/.snapper-ghc-wrap/bin"
+          mkdir -p "$WRAP"
+          printf '#!/usr/bin/env bash\nexec "%s" "$@"\n' "$GHC_REAL" > "$WRAP/ghc"
+          chmod +x "$WRAP/ghc"
+          for tool in ghc-pkg ghci runghc; do
+            real="$(ghcup whereis "$tool" "$want" 2>/dev/null | tr -d '\r' || true)"
+            if [[ -n "$real" && -e "$real" ]]; then
+              printf '#!/usr/bin/env bash\nexec "%s" "$@"\n' "$real" > "$WRAP/$tool"
+              chmod +x "$WRAP/$tool"
+            fi
+          done
+          CABAL_REAL="$(ghcup whereis cabal 2>/dev/null | tr -d '\r' || command -v cabal)"
+          printf '#!/usr/bin/env bash\nexec "%s" --with-compiler="%s" "$@"\n' \
+            "$CABAL_REAL" "$GHC_REAL" > "$WRAP/cabal"
+          chmod +x "$WRAP/cabal"
+          export PATH="$WRAP:$GHCUP_BIN:$PATH"
+          echo "$WRAP" >> "$GITHUB_PATH"
+          hash -r || true
+          command -v ghc
+          got="$(ghc --numeric-version | tr -d '\r')"
+          echo "ghc --numeric-version=$got (want $want)"
+          ghc --version
+          if [[ "$got" != "$want" ]]; then
+            echo "FATAL: wrapper still wrong: got=$got want=$want" >&2
+            type -a ghc || true
+            ls -la "$WRAP" || true
+            exit 1
+          fi
+          # Persist for later steps (Windows path separators OK in GITHUB_ENV).
+          echo "SNAPPER_GHC_REAL=$GHC_REAL" >> "$GITHUB_ENV"
+          cabal --version
+          cabal update
+
+          # Windows: pin a mingw that matches ghc objects (not chocolatey).
+          # Prefer the mingw tree shipped in the GHC Windows bindist (next to ghc).
+          if [[ "${{ runner.os }}" == "Windows" ]]; then
+            # msys2 tool tag may be missing from metadata; ignore failure.
+            ghcup install msys2 latest 2>&1 | tail -15 || true
+            ghcup install msys2 2>&1 | tail -10 || true
+            MINGW_BIN=""
+            GHC_ROOT="$(cd "$(dirname "$GHC_REAL")/.." && pwd -W 2>/dev/null || cd "$(dirname "$GHC_REAL")/.." && pwd)"
+            echo "GHC_ROOT=$GHC_ROOT"
+            # GHC Windows bindists ship mingw/ (often LLVM/clang, not classic gcc).
+            if [[ -d "$GHC_ROOT/mingw" ]]; then
+              echo "bindist mingw inventory:"
+              find "$GHC_ROOT/mingw" -maxdepth 5 \( \
+                -name 'gcc.exe' -o -name 'clang.exe' -o -name 'ld.exe' -o -name 'lld.exe' \
+                -o -name 'x86_64-w64-mingw32-gcc.exe' -o -name 'x86_64-w64-mingw32-clang.exe' \
+                -o -name 'ar.exe' -o -name 'objdump.exe' \) 2>/dev/null | head -50 || true
+              ls -la "$GHC_ROOT/mingw" 2>/dev/null || true
+              ls -la "$GHC_ROOT/mingw/bin" 2>/dev/null | head -40 || true
+            fi
+            # Prefer tools under the GHC bindist mingw (object format match).
+            found="$(find "$GHC_ROOT/mingw" \
+              \( -name 'gcc.exe' -o -name 'clang.exe' -o -name 'x86_64-w64-mingw32-gcc.exe' \
+                 -o -name 'x86_64-w64-mingw32-clang.exe' \) 2>/dev/null | head -1 || true)"
+            if [[ -n "$found" ]]; then
+              MINGW_BIN="$(cd "$(dirname "$found")" && pwd)"
+              echo "found C compiler at $found → MINGW_BIN=$MINGW_BIN"
+            fi
+            if [[ -z "$MINGW_BIN" ]]; then
+              for d in \
+                "${GHC_ROOT}/mingw/bin" \
+                "${GHC_ROOT}/mingw/x86_64-w64-mingw32/bin" \
+                "${GHCUP_INSTALL_BASE_PREFIX}/ghcup/msys64/mingw64/bin" \
+                "${HOME}/.ghcup/msys64/mingw64/bin" \
+                "/c/ghcup/msys64/mingw64/bin"; do
+                if [[ -e "${d}/gcc.exe" || -e "${d}/clang.exe" \
+                   || -e "${d}/x86_64-w64-mingw32-gcc.exe" ]]; then
+                  MINGW_BIN="$d"
+                  break
+                fi
+              done
+            fi
+            if [[ -z "$MINGW_BIN" || ! -d "$MINGW_BIN" ]]; then
+              echo "bindist has no gcc/clang; list mingw tree:" >&2
+              find "$GHC_ROOT/mingw" -type f 2>/dev/null | head -80 || true
+              # After build-static flattens nested ar members into plain COFF,
+              # a standard MinGW (winlibs/choco) can link. Prefer that for the
+              # cargo step only — never for building the HS objects themselves.
+              for d in /c/mingw64/bin /mingw64/bin \
+                       "/c/ProgramData/mingw64/mingw64/bin" \
+                       "/c/Program Files/mingw-w64/x86_64-8.1.0-posix-seh-rt_v6-rev0/mingw64/bin"; do
+                if [[ -e "${d}/gcc.exe" || -e "${d}/x86_64-w64-mingw32-gcc.exe" ]]; then
+                  MINGW_BIN="$d"
+                  echo "fallback linker mingw (post-repack COFF): $MINGW_BIN"
+                  echo "SNAPPER_WINDOWS_LINKER_FALLBACK=1" >> "$GITHUB_ENV"
+                  break
+                fi
+              done
+            fi
+            if [[ -z "$MINGW_BIN" || ! -d "$MINGW_BIN" ]]; then
+              # Last resort: install a known MinGW for linking only.
+              choco install mingw -y --no-progress 2>&1 | tail -15 || true
+              for d in /c/mingw64/bin "/c/ProgramData/mingw64/mingw64/bin"; do
+                if [[ -e "${d}/gcc.exe" ]]; then MINGW_BIN="$d"; break; fi
+              done
+            fi
+            if [[ -z "$MINGW_BIN" || ! -d "$MINGW_BIN" ]]; then
+              echo "SNAPPER_MINGW_BIN=" >> "$GITHUB_ENV"
+              echo "SNAPPER_WINDOWS_MINGW_MISSING=1" >> "$GITHUB_ENV"
+              echo "windows: no linker gcc available after bindist+fallback" >&2
+            else
+              echo "SNAPPER_MINGW_BIN=$MINGW_BIN" >> "$GITHUB_ENV"
+              echo "$MINGW_BIN" >> "$GITHUB_PATH"
+              export PATH="$MINGW_BIN:$PATH"
+              echo "using mingw for cargo link: $MINGW_BIN"
+              LINKER_EXE=""
+              for c in gcc clang x86_64-w64-mingw32-gcc x86_64-w64-mingw32-clang; do
+                if [[ -x "$MINGW_BIN/${c}.exe" || -x "$MINGW_BIN/$c" ]]; then
+                  LINKER_EXE="$c"
+                  break
+                fi
+              done
+              [[ -n "$LINKER_EXE" ]] && echo "SNAPPER_WINDOWS_LINKER=$LINKER_EXE" >> "$GITHUB_ENV"
+              command -v gcc || true
+              gcc --version 2>/dev/null | head -2 || true
+              ls -la "$MINGW_BIN" | head -20 || true
+            fi
+          fi
+
+      - name: Register pandoc in package-env (cabal --lib)
+        if: runner.os != 'Windows'
+        run: |
+          set -euo pipefail
+          export PATH="${GHCUP_INSTALL_BASE_PREFIX}/.ghcup/bin:$HOME/.ghcup/bin:$PATH"
+          if [[ -n "${SNAPPER_MINGW_BIN:-}" ]]; then
+            export PATH="${SNAPPER_MINGW_BIN}:$PATH"
+          fi
+          # Absolute package-env so later steps / build-static survive `cd`.
+          ENV_ABS="${PWD}/.ghc.environment.snapper-colink"
+          # Full pandoc graph is large; expect tens of minutes.
+          cabal install --lib --package-env="$ENV_ABS" \
+            pandoc pandoc-types aeson text bytestring
+          if [[ ! -f "$ENV_ABS" ]]; then
+            # Cabal sometimes writes only a platform-named env file.
+            for f in .ghc.environment.*; do
+              [[ -f "$f" ]] || continue
+              ENV_ABS="${PWD}/$(basename "$f")"
+              break
+            done
+          fi
+          if [[ ! -f "$ENV_ABS" ]]; then
+            echo "no package-env file after cabal install --lib" >&2
+            ls -la .ghc.environment.* 2>/dev/null || true
+            exit 1
+          fi
+          # GitHub Actions GITHUB_ENV: use absolute path only.
+          echo "GHC_ENVIRONMENT=${ENV_ABS}" >> "$GITHUB_ENV"
+          export GHC_ENVIRONMENT="$ENV_ABS"
+          echo "GHC_ENVIRONMENT=$ENV_ABS"
+          ls -la .ghc.environment.* 2>/dev/null || true
+          head -40 "$ENV_ABS" || true
+          if ghc -package-env "$ENV_ABS" -package pandoc -e 'putStrLn "pandoc-ok"'; then
+            echo "pandoc visible via package-env"
+          else
+            echo "pandoc not usable via package-env; static build will fail closed" >&2
+            exit 1
+          fi
+
+      - name: Build static archive
+        id: static
+        if: runner.os != 'Windows'
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          export PATH="${GHCUP_INSTALL_BASE_PREFIX}/.ghcup/bin:$HOME/.ghcup/bin:$PATH"
+          # Windows: GHCup MSYS mingw only (same as ghc / cargo link).
+          if [[ "${{ runner.os }}" == "Windows" && -n "${SNAPPER_MINGW_BIN:-}" ]]; then
+            export PATH="${SNAPPER_MINGW_BIN}:$PATH"
+            command -v ar; command -v gcc; command -v ld
+          fi
+          # Re-resolve package-env if GITHUB_ENV path is missing or relative.
+          if [[ -z "${GHC_ENVIRONMENT:-}" || ! -f "${GHC_ENVIRONMENT}" ]]; then
+            if [[ -f "${PWD}/.ghc.environment.snapper-colink" ]]; then
+              export GHC_ENVIRONMENT="${PWD}/.ghc.environment.snapper-colink"
+            else
+              for f in .ghc.environment.*; do
+                [[ -f "$f" ]] || continue
+                export GHC_ENVIRONMENT="${PWD}/$(basename "$f")"
+                break
+              done
+            fi
+          fi
+          echo "GHC_ENVIRONMENT=${GHC_ENVIRONMENT:-unset}"
+          if [[ -n "${GHC_ENVIRONMENT:-}" && -f "$GHC_ENVIRONMENT" ]]; then
+            head -20 "$GHC_ENVIRONMENT"
+          else
+            echo "missing package-env; static build will fail" >&2
+          fi
+          # Run from repo root; build-static resolves env via walk + GHC_ENVIRONMENT.
+          ./native/snapper-pandoc/build-static.sh
+          ls -lh native/snapper-pandoc/lib/libsnapper_pandoc.a
+
+      - name: Link colink snapper (Unix)
+        if: runner.os != 'Windows' && steps.static.outcome == 'success'
+        run: |
+          set -euo pipefail
+          export SNAPPER_PANDOC_STATIC_LIB=$PWD/native/snapper-pandoc/lib/libsnapper_pandoc.a
+          # Do NOT set global RUSTFLAGS=-no-pie: that breaks proc-macro cdylibs.
+          # build.rs emits -fuse-ld=bfd / -no-pie via rustc-link-arg-bins only.
+          # macOS: ensure brew lib dirs are visible to the linker
+          if [[ "${{ runner.os }}" == "macOS" ]]; then
+            for d in /opt/homebrew/lib /usr/local/lib; do
+              [[ -d "$d" ]] && export LIBRARY_PATH="${d}:${LIBRARY_PATH:-}"
+            done
+          fi
+          # Colink product is the CLI bin. Cargo.toml lists cdylib+rlib for
+          # editor/wasm; --config cannot override that. Strip cdylib for this
+          # job so we never link a .so/.dll against the HS archive.
+          sed -i.bak 's/crate-type = \["cdylib", "rlib"\]/crate-type = ["rlib"]/' Cargo.toml
+          cargo build --release --features "cli,pandoc,pandoc-colink" --bin snapper
+          BIN=target/release/snapper
+          ls -lh "$BIN"
+          if [[ "${{ runner.os }}" == "Linux" ]]; then
+            ldd "$BIN" | tee /tmp/deps.txt
+            if grep -E 'libHS' /tmp/deps.txt; then echo "unexpected libHS"; exit 1; fi
+          else
+            otool -L "$BIN" | tee /tmp/deps.txt
+            if grep -E 'libHS' /tmp/deps.txt; then echo "unexpected HS dylib"; exit 1; fi
+          fi
+          unset SNAPPER_PANDOC_LIB SNAPPER_PANDOC_LIB_DIR
+          export SNAPPER_PANDOC_CACHE=0
+          "$BIN" --use-pandoc --pandoc-backend ffi -w 72 tests/fixtures/pandoc_ast/mixed.md | tee /tmp/out1.txt
+          "$BIN" --use-pandoc --pandoc-backend ffi -w 72 tests/fixtures/pandoc_ast/mixed.md | tee /tmp/out2.txt
+          diff -u /tmp/out1.txt /tmp/out2.txt
+          grep -q '```python' /tmp/out1.txt
+          grep -q '| a | b |' /tmp/out1.txt
+          echo "colink dual-run OK on ${{ runner.os }}"
+
+      # Windows: C FFI to cabal foreign-library DLL (not PE static absorb).
+      # Gate A = DLL + C exports; Gate B = dual-run FFI against real fixture.
+      - name: Build snapper_pandoc.dll (Windows Gate A)
+        if: runner.os == 'Windows'
+        id: win_dll
+        shell: bash
+        run: |
+          set -euo pipefail
+          # PATH order matters: never let /c/ghcup (stale 9.14.x shims) win over
+          # the pin wrappers. Prepend wrap LAST so it is first on PATH.
+          for d in \
+            /c/ghcup/bin \
+            "${HOME}/.ghcup/bin" \
+            "${GHCUP_INSTALL_BASE_PREFIX}/.ghcup/bin" \
+            "${GHCUP_INSTALL_BASE_PREFIX}/ghcup/bin"; do
+            [[ -d "$d" ]] && export PATH="${d}:$PATH"
+          done
+          WRAP="${GITHUB_WORKSPACE}/.snapper-ghc-wrap/bin"
+          if [[ ! -x "${WRAP}/ghc" ]]; then
+            echo "Gate A FAIL: missing ghc pin wrapper at $WRAP (bootstrap broken)" >&2
+            ls -la "$WRAP" 2>/dev/null || true
+            exit 1
+          fi
+          export PATH="${WRAP}:$PATH"
+          # Optional tools (objdump) after wrap so they do not shadow ghc/cabal.
+          for d in \
+            "${GHCUP_INSTALL_BASE_PREFIX}/ghcup/msys64/mingw64/bin" \
+            "${HOME}/.ghcup/msys64/mingw64/bin" \
+            /c/ghcup/msys64/mingw64/bin \
+            /c/msys64/mingw64/bin \
+            "${SNAPPER_MINGW_BIN:-}"; do
+            [[ -n "$d" ]] || continue
+            if [[ -x "${d}/gcc.exe" || -x "${d}/gcc" || -x "${d}/objdump.exe" ]]; then
+              # Append tools only — do not put them before WRAP.
+              export PATH="$PATH:${d}"
+              echo "Windows tool path (append): $d"
+              break
+            fi
+          done
+          command -v ghc
+          command -v cabal
+          ghc --version
+          cabal --version
+          got="$(ghc --numeric-version | tr -d '\r')"
+          want="${SNAPPER_GHC_VERSION}"
+          if [[ "$got" != "$want" ]]; then
+            echo "Gate A FAIL: ghc is $got, want $want (stale PATH won over wrap)" >&2
+            type -a ghc || true
+            type -a cabal || true
+            echo "PATH=$PATH"
+            exit 1
+          fi
+          # cabal wrapper must use --with-compiler pin (see bootstrap).
+          if ! cabal --version >/dev/null 2>&1; then
+            echo "Gate A FAIL: cabal not runnable" >&2
+            exit 1
+          fi
+
+          winpath() {
+            local p="$1"
+            if command -v cygpath >/dev/null 2>&1; then
+              cygpath -w "$p"
+            elif [[ "$p" =~ ^/([a-zA-Z])/(.*)$ ]]; then
+              echo "${BASH_REMATCH[1]^}:\\${BASH_REMATCH[2]//\//\\}"
+            else
+              echo "$p"
+            fi
+          }
+
+          pushd native/snapper-pandoc
+          test -f snapper_pandoc.def
+          # Absolute .def for the linker (cabal/ghc cwd is not always package root).
+          DEF_ABS="$(pwd -W 2>/dev/null || pwd)/snapper_pandoc.def"
+          if command -v cygpath >/dev/null 2>&1; then
+            DEF_ABS="$(cygpath -m "$PWD/snapper_pandoc.def")"
+          fi
+          # ld-options in .cabal uses relative name; also pin absolute via project.local.
+          # (printf, not unindented heredoc — bare "package:" breaks YAML of this step.)
+          printf 'package snapper-pandoc\n  ld-options: %s\n' "$DEF_ABS" > cabal.project.local
+          echo "PE export .def: $DEF_ABS"
+          cat cabal.project.local
+          cabal build snapper_pandoc -j
+          # Prefer the foreign-library product name cabal uses on Windows.
+          DLL="$(find dist-newstyle -type f \( \
+              -name 'snapper_pandoc.dll' -o -name 'libsnapper_pandoc.dll' \
+            \) 2>/dev/null | head -1 || true)"
+          if [[ -z "$DLL" || ! -f "$DLL" ]]; then
+            echo "Gate A FAIL: foreign-library DLL not found after cabal build" >&2
+            find dist-newstyle -type f \( -name '*.dll' -o -name '*.so' -o -name '*.a' \) \
+              2>/dev/null | head -60 || true
+            exit 1
+          fi
+          echo "foreign-library DLL: $DLL"
+          mkdir -p lib
+          cp -f "$DLL" lib/snapper_pandoc.dll
+          # Stage sibling + nearby runtime DLLs (gmp, winpthread, libHS*, …).
+          DLLDIR="$(cd "$(dirname "$DLL")" && pwd)"
+          echo "DLLDIR=$DLLDIR"
+          ls -la "$DLLDIR" | head -50 || true
+          find "$DLLDIR" -maxdepth 2 -type f \( -iname '*.dll' \) 2>/dev/null | while read -r f; do
+            cp -f "$f" lib/ 2>/dev/null || true
+          done
+          # Also harvest any .dll under the foreign-library component tree.
+          FL_ROOT="$(cd "$DLLDIR/.." && pwd)"
+          find "$FL_ROOT" -maxdepth 4 -type f -iname '*.dll' 2>/dev/null | while read -r f; do
+            cp -f "$f" lib/ 2>/dev/null || true
+          done
+          ls -lh lib/ | head -40
+
+          # Gate A: PE export table / GetProcAddress must resolve C ABI symbols.
+          if command -v objdump >/dev/null 2>&1; then
+            objdump -p lib/snapper_pandoc.dll 2>/dev/null | tee /tmp/win-dll-exports.txt \
+              | grep -E 'Export|snapper_pandoc|hs_init|Ordinal' | head -60 || true
+          fi
+          # Authoritative check: same API libloading uses (GetProcAddress).
+          # Prefer a path string LoadLibraryA accepts (mixed or Win).
+          DLL_FOR_LOAD="$(winpath "$(cd lib && pwd)/snapper_pandoc.dll")"
+          if command -v cygpath >/dev/null 2>&1; then
+            DLL_FOR_LOAD="$(cygpath -m "$(cd lib && pwd)/snapper_pandoc.dll")"
+          fi
+          gcc chk_exports.c -o /tmp/chk_exports.exe
+          if ! /tmp/chk_exports.exe "$DLL_FOR_LOAD"; then
+            echo "Gate A FAIL: GetProcAddress missing snapper_pandoc_parse/free" >&2
+            echo "DLL_FOR_LOAD=$DLL_FOR_LOAD"
+            ls -la lib/ || true
+            exit 1
+          fi
+          echo "Gate A: GetProcAddress OK"
+          # Also exercise the C ABI end-to-end (hs_init + parse) before Rust dual-run.
+          gcc chk_parse.c -o /tmp/chk_parse.exe
+          # Ensure DLL dir is on PATH for any residual runtime deps while loading.
+          export PATH="$(cd lib && pwd):${PATH:-}"
+          if ! /tmp/chk_parse.exe "$DLL_FOR_LOAD"; then
+            echo "Gate A FAIL: C-level hs_init+parse smoke failed" >&2
+            echo "DLL_FOR_LOAD=$DLL_FOR_LOAD"
+            exit 1
+          fi
+          echo "Gate A OK: foreign-library DLL exports + C parse smoke"
+          LIB_ABS="$(cd lib && pwd)"
+          echo "SNAPPER_PANDOC_LIB_DIR_UNIX=$LIB_ABS" >> "$GITHUB_ENV"
+          echo "SNAPPER_PANDOC_LIB_DIR=$(winpath "$LIB_ABS")" >> "$GITHUB_ENV"
+          echo "SNAPPER_PANDOC_LIB=$(winpath "$LIB_ABS/snapper_pandoc.dll")" >> "$GITHUB_ENV"
+          popd
+
+      - name: Dual-run FFI against snapper_pandoc.dll (Windows Gate B)
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          set -euo pipefail
+          winpath() {
+            local p="$1"
+            if command -v cygpath >/dev/null 2>&1; then
+              cygpath -w "$p"
+            elif [[ "$p" =~ ^/([a-zA-Z])/(.*)$ ]]; then
+              echo "${BASH_REMATCH[1]^}:\\${BASH_REMATCH[2]//\//\\}"
+            else
+              echo "$p"
+            fi
+          }
+
+          test -f native/snapper-pandoc/lib/snapper_pandoc.dll
+          LIB_UNIX="$(cd native/snapper-pandoc/lib && pwd)"
+          DLL_UNIX="$LIB_UNIX/snapper_pandoc.dll"
+          export SNAPPER_PANDOC_LIB="$(winpath "$DLL_UNIX")"
+          export SNAPPER_PANDOC_LIB_DIR="$(winpath "$LIB_UNIX")"
+          # MinGW runtime (libgcc/libwinpthread) for windows-gnu snapper.exe + HS DLL deps.
+          for d in \
+            "${SNAPPER_MINGW_BIN:-}" \
+            /c/mingw64/bin \
+            /mingw64/bin \
+            "${GHCUP_INSTALL_BASE_PREFIX}/ghcup/msys64/mingw64/bin"; do
+            [[ -n "$d" && -d "$d" ]] || continue
+            export PATH="${d}:$PATH"
+            echo "runtime PATH prepend: $d"
+          done
+          export PATH="$LIB_UNIX:${PATH:-}"
+          echo "SNAPPER_PANDOC_LIB=$SNAPPER_PANDOC_LIB"
+          echo "SNAPPER_PANDOC_LIB_DIR=$SNAPPER_PANDOC_LIB_DIR"
+
+          # Pure Rust binary — dynamic FFI only (no pandoc-colink / PE absorb).
+          # Default features (cli+pandoc+…): --no-default-features drops tokio/lsp
+          # paths the bin still references under feature gates that overlap.
+          rustup target add x86_64-pc-windows-gnu
+          cargo build --release --target x86_64-pc-windows-gnu \
+            --features "cli,pandoc" --bin snapper
+          BIN_REL=target/x86_64-pc-windows-gnu/release/snapper.exe
+          test -f "$BIN_REL"
+          BINDIR="$(cd "$(dirname "$BIN_REL")" && pwd)"
+          BIN="$BINDIR/snapper.exe"
+          ls -lh "$BIN"
+          # Co-locate all staged DLLs next to the exe (LoadLibrary search path).
+          cp -f "$LIB_UNIX"/*.dll "$BINDIR/" 2>/dev/null || true
+          cp -f "$DLL_UNIX" "$BINDIR/snapper_pandoc.dll"
+          # Also stage common MinGW runtime DLLs beside the exe.
+          for name in libgcc_s_seh-1.dll libwinpthread-1.dll libstdc++-6.dll \
+                      libgmp-10.dll libffi-8.dll; do
+            for d in ${SNAPPER_MINGW_BIN:-} /c/mingw64/bin /mingw64/bin; do
+              [[ -n "$d" && -f "$d/$name" ]] || continue
+              cp -f "$d/$name" "$BINDIR/" 2>/dev/null || true
+            done
+          done
+          ls -lh "$BINDIR"/*.dll 2>/dev/null | head -30 || true
+
+          export SNAPPER_PANDOC_CACHE=0
+          FIXTURE_UNIX="$PWD/tests/fixtures/pandoc_ast/mixed.md"
+          test -f "$FIXTURE_UNIX"
+          # Absolute Windows paths; dual-run via PowerShell to avoid Git-Bash
+          # path conversion (C parse OK, bash dual-run was exit 127 empty I/O).
+          BIN_WIN="$(winpath "$BIN")"
+          DLL_WIN="$(winpath "$BINDIR/snapper_pandoc.dll")"
+          FIX_WIN="$(winpath "$FIXTURE_UNIX")"
+          BINDIR_WIN="$(winpath "$BINDIR")"
+          echo "Gate B: BIN_WIN=$BIN_WIN DLL_WIN=$DLL_WIN FIX_WIN=$FIX_WIN"
+          # PowerShell: set env + PATH for DLL deps, run twice, write outputs.
+          powershell.exe -NoProfile -Command "
+            \$ErrorActionPreference = 'Stop'
+            \$env:SNAPPER_PANDOC_LIB = '$DLL_WIN'
+            \$env:SNAPPER_PANDOC_LIB_DIR = '$BINDIR_WIN'
+            \$env:SNAPPER_PANDOC_CACHE = '0'
+            \$env:RUST_BACKTRACE = '1'
+            \$env:PATH = '$BINDIR_WIN;' + \$env:PATH
+            Write-Host 'help smoke'
+            & '$BIN_WIN' --help | Select-Object -First 3
+            Write-Host 'run1'
+            & '$BIN_WIN' --use-pandoc --pandoc-backend ffi -w 72 '$FIX_WIN' |
+              Out-File -Encoding utf8 -FilePath '$BINDIR_WIN\\out1.txt'
+            if (\$LASTEXITCODE -ne 0) {
+              Write-Error \"run1 exit=\$LASTEXITCODE\"
+              exit \$LASTEXITCODE
+            }
+            Write-Host 'run2'
+            & '$BIN_WIN' --use-pandoc --pandoc-backend ffi -w 72 '$FIX_WIN' |
+              Out-File -Encoding utf8 -FilePath '$BINDIR_WIN\\out2.txt'
+            if (\$LASTEXITCODE -ne 0) {
+              Write-Error \"run2 exit=\$LASTEXITCODE\"
+              exit \$LASTEXITCODE
+            }
+            Write-Host 'dual-run files written'
+          "
+          # Validate from bash (Unix tools).
+          OUT1="$BINDIR/out1.txt"
+          OUT2="$BINDIR/out2.txt"
+          # Strip UTF-8 BOM if PowerShell added one.
+          sed -i '1s/^\xEF\xBB\xBF//' "$OUT1" "$OUT2" 2>/dev/null || true
+          ls -la "$OUT1" "$OUT2"
+          cat "$OUT1"
+          diff -u "$OUT1" "$OUT2"
+          grep -q '```python' "$OUT1"
+          grep -q '| a | b |' "$OUT1"
+          test "$(wc -c < "$OUT1")" -gt 50
+          echo "Gate B OK: Windows C FFI dual-run (foreign-library DLL)"
+
+      - name: Record skip if static build failed
+        if: runner.os != 'Windows' && steps.static.outcome != 'success'
+        run: |
+          echo "static archive build failed on ${{ matrix.os }} — see previous step logs"
+          echo "This is fail-closed: no silent pass without a one-binary colink smoke."
+          exit 1
