@@ -10,7 +10,7 @@ The easiest way to enforce semantic line breaks in CI.
 Add to your workflow:
 
 #+begin_src yaml
-- uses: TurtleTech-ehf/snapper@v0.6.0
+- uses: TurtleTech-ehf/snapper@v0.8.0
   with:
     files: '**/*.org **/*.tex **/*.md'
 #+end_src
@@ -20,7 +20,7 @@ This installs snapper and runs =--check= on the specified files.
 For GitHub Code Scanning integration (SARIF annotations on PRs):
 
 #+begin_src yaml
-- uses: TurtleTech-ehf/snapper@v0.6.0
+- uses: TurtleTech-ehf/snapper@v0.8.0
   with:
     files: '**/*.org **/*.tex **/*.md'
     sarif: 'true'
@@ -35,12 +35,13 @@ Add to =.pre-commit-config.yaml=:
 
 #+begin_src yaml
 - repo: https://github.com/TurtleTech-ehf/snapper
-  rev: v0.6.0
+  rev: v0.8.0
   hooks:
     - id: snapper
 #+end_src
 
-This runs =snapper --in-place= on changed files matching =.org=, =.tex=, =.md=, and =.txt=.
+This runs =snapper --in-place= on changed files matching =.org=, =.tex=/=.latex=, =.md=/=.markdown=, =.rst=, and =.txt= (extension match; pre-commit identify has no =org= type).
+Requires a Rust toolchain to build the hook from this repo.
 
 * Manual GitHub Actions
 :PROPERTIES:

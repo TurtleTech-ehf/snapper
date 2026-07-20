@@ -46,7 +46,9 @@ Nix:
 nix build github:TurtleTech-ehf/snapper
 #+end_src
 
-The crate is =snapper-fmt= on all registries; the binary it installs is =snapper=.
+The crate is =snapper-fmt= on all registries.
+Each install ships two CLI names for the same program: =snapper= and =snapper-fmt=.
+If [[https://github.com/openSUSE/snapper][openSUSE snapper]] (Btrfs/LVM snapshots) already owns =/usr/bin/snapper=, call this formatter as =snapper-fmt=.
 
 ** Basic usage
 :PROPERTIES:
@@ -202,10 +204,13 @@ Add to your =.pre-commit-config.yaml=:
 
 #+begin_src yaml
 - repo: https://github.com/TurtleTech-ehf/snapper
-  rev: v0.7.1
+  rev: v0.8.0
   hooks:
     - id: snapper
 #+end_src
+
+Runs =snapper --in-place= on =*.org=, =*.tex=/=*.latex=, =*.md=/=*.markdown=, =*.rst=, and =*.txt= (extension match; identify has no =org= type).
+Requires a Rust toolchain so pre-commit can build the hook from this repo.
 
 ** Editor integration
 :PROPERTIES:
