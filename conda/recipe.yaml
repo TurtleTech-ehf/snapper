@@ -27,9 +27,12 @@ tests:
   - script:
       - snapper --version
       - snapper --help
+      - snapper-fmt --version
+      - snapper-fmt --help
   - package_contents:
       bin:
         - snapper
+        - snapper-fmt
 
 about:
   homepage: https://snapper.turtletech.us
