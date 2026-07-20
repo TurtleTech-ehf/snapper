@@ -266,21 +266,8 @@ fn emit_windows(archive: &Path) {
         // windows-gnu driver already supplies CRT. Hand-rolling CRT broke
         // crt2.o (__set_app_type) while still missing strdup (GHA 18a6971).
         for lib in [
-            "z",
-            "ws2_32",
-            "user32",
-            "shell32",
-            "gdi32",
-            "advapi32",
-            "kernel32",
-            "ole32",
-            "oleaut32",
-            "rpcrt4",
-            "uuid",
-            "winmm",
-            "dbghelp",
-            "ntdll",
-            "pthread",
+            "z", "ws2_32", "user32", "shell32", "gdi32", "advapi32", "kernel32", "ole32",
+            "oleaut32", "rpcrt4", "uuid", "winmm", "dbghelp", "ntdll", "pthread",
         ] {
             link_arg(&format!("-l{lib}"));
         }
@@ -309,7 +296,11 @@ fn find_static_archive() -> Option<PathBuf> {
     }
     if let Ok(d) = env::var("SNAPPER_PANDOC_LIB_DIR") {
         let dir = PathBuf::from(&d);
-        for name in ["libsnapper_pandoc.a", "snapper_pandoc.lib", "libsnapper_pandoc.lib"] {
+        for name in [
+            "libsnapper_pandoc.a",
+            "snapper_pandoc.lib",
+            "libsnapper_pandoc.lib",
+        ] {
             let a = dir.join(name);
             if a.is_file() {
                 return Some(a);

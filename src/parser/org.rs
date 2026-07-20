@@ -447,7 +447,8 @@ mod tests {
         };
         let out = format_text(input, &cfg).unwrap();
         assert!(
-            out.lines().any(|l| l == "** Multi sentence. Second sentence in title"),
+            out.lines()
+                .any(|l| l == "** Multi sentence. Second sentence in title"),
             "headline must stay one line, got:\n{out}"
         );
         assert!(
