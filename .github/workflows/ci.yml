@@ -25,6 +25,25 @@ jobs:
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v2
 
+      - name: Cargo.lock matches package version
+        run: |
+          set -euo pipefail
+          pkg=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)
+          lock=$(awk '
+            /^name = "snapper-fmt"$/ {
+              getline
+              if ($1 == "version") {
+                gsub(/"/, "", $3)
+                print $3
+                exit
+              }
+            }
+          ' Cargo.lock)
+          echo "Cargo.toml version=$pkg"
+          echo "Cargo.lock package version=$lock"
+          test -n "$pkg" && test -n "$lock" && test "$pkg" = "$lock"
+          cargo metadata --locked --format-version 1 >/dev/null
+
       - name: Format check
         run: cargo fmt --check
 

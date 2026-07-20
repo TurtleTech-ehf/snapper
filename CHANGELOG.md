@@ -4,6 +4,15 @@ All notable changes to this project will be documented in this file. See [conven
 - - -
 ## Unreleased (main)
 
+#### Bug Fixes
+- (**pre-commit**) ship a real `id: snapper` hook (`snapper --in-place`) with extension-based `files` matching; drop leftover SemBr `id`/`entry` and invalid identify type `org`
+- (**lockfile**) CI asserts `Cargo.toml` package version equals the `snapper-fmt` entry in `Cargo.lock` and that `cargo metadata --locked` succeeds (catches the 0.7.9 tag skew)
+#### Features
+- (**cli**) install `snapper-fmt` as a second binary name (same program as `snapper`) so hosts that already own openSUSE's `snapper` can call the formatter without PATH surgery
+#### Documentation
+- Installation: name collision with openSUSE snapper; prefer `snapper-fmt` on those systems
+- Pre-commit section: which extensions the hook matches and that Rust is required to build it
+
 - - -
 
 ## v0.8.0 - 2026-07-20
