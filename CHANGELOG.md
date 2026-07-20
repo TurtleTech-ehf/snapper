@@ -4,6 +4,9 @@ All notable changes to this project will be documented in this file. See [conven
 - - -
 ## Unreleased (main)
 
+- - -
+
+## v0.8.1 - 2026-07-20
 #### Bug Fixes
 - (**pre-commit**) ship a real `id: snapper` hook (`snapper --in-place`) with extension-based `files` matching; drop leftover SemBr `id`/`entry` and invalid identify type `org`
 - (**lockfile**) CI asserts `Cargo.toml` package version equals the `snapper-fmt` entry in `Cargo.lock` and that `cargo metadata --locked` succeeds (catches the 0.7.9 tag skew)
