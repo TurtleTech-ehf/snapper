@@ -11,7 +11,7 @@ package:
 
 source:
   url: https://github.com/TurtleTech-ehf/snapper/archive/refs/tags/v${{ version }}.tar.gz
-  sha256: a8698ca92136deb67420e2ad9081c105bd66886ebcdc4977f6f25c77c518294b
+  sha256: c2b4c8bb49445d449d75967f64c6e001718d1797b6a5357b2d839449961a7442
 
 build:
   number: 0
