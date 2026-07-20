@@ -56,6 +56,15 @@ Models download on first use (~4MB, cached).
 The rule-based approach handles most academic text well and runs 18x faster.
 Use neural for languages where abbreviation rules fall short (Chinese, Turkish, etc.).
 
+* Why does =snapper= conflict with openSUSE?
+:PROPERTIES:
+:CUSTOM_ID: name-collision
+:END:
+
+[[https://github.com/openSUSE/snapper][openSUSE snapper]] is a different project (Btrfs/LVM volume snapshots) that also installs a =snapper= binary.
+This formatter's crate name is =snapper-fmt=; installers ship both =snapper= and =snapper-fmt= as names for the same program.
+On systems where openSUSE already owns =/usr/bin/snapper=, invoke =snapper-fmt= (or put the TurtleTech install directory first on =PATH=).
+
 * Can I use snapper as a library?
 :PROPERTIES:
 :CUSTOM_ID: library

@@ -19,6 +19,13 @@ name = "snapper"
 path = "src/main.rs"
 required-features = ["cli"]
 
+# Alias for hosts that already ship openSUSE's Btrfs tool as `snapper`
+# (https://github.com/openSUSE/snapper). Same binary, different argv0.
+[[bin]]
+name = "snapper-fmt"
+path = "src/main.rs"
+required-features = ["cli"]
+
 [[bin]]
 name = "snapper-gen-docs"
 path = "src/gen_docs.rs"

@@ -93,9 +93,11 @@ Nix:
 
     nix build github:TurtleTech-ehf/snapper
 
-The crate is `snapper-fmt` on all registries; the binary it installs is `snapper`.
+The crate is `snapper-fmt` on all registries. Each install ships two CLI names for the same program: `snapper` and `snapper-fmt`.
 
-Pre-built installers (cargo-dist) ship the **plain** binary: native Org/LaTeX/Markdown/RST parsers, no GHC, no embedded pandoc. Multi-format pandoc is opt-in at runtime or via an optional build feature (below).
+**Name collision:** [openSUSE snapper](https://github.com/openSUSE/snapper) is a different project (Btrfs/LVM snapshots) that also installs a `snapper` binary. On systems where that tool already owns `/usr/bin/snapper`, call this formatter as `snapper-fmt`, or put the TurtleTech install path ahead of the system path.
+
+Pre-built installers (cargo-dist) ship the **plain** binaries: native Org/LaTeX/Markdown/RST parsers, no GHC, no embedded pandoc. Multi-format pandoc is opt-in at runtime or via an optional build feature (below).
 
 
 <a id="usage"></a>
@@ -234,6 +236,9 @@ Configuration guide (org source in-tree): `docs/orgmode/howto/mcp-integration.or
       rev: v0.8.0
       hooks:
         - id: snapper
+
+Runs `snapper --in-place` on `*.org`, `*.tex` / `*.latex`, `*.md` / `*.markdown`, `*.rst`, and `*.txt` (matched by extension; pre-commit's identify database has no `org` type).
+Requires a Rust toolchain so pre-commit can build the hook from this repo.
 
 
 <a id="emacs"></a>

@@ -4,8 +4,9 @@
 //! sentence occupies its own line, producing minimal git diffs when
 //! collaborating on papers and documentation.
 //!
-//! The crate is published as `snapper-fmt` on crates.io; the binary it
-//! installs is called `snapper`.
+//! The crate is published as `snapper-fmt` on crates.io. Installers ship two
+//! CLI names for the same program: `snapper` and `snapper-fmt` (the latter
+//! avoids colliding with openSUSE's Btrfs snapshot tool of the same name).
 //!
 //! ## Supported formats
 //!

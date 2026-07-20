@@ -60,7 +60,11 @@ Nix:
 #+begin_src bash
 nix build github:TurtleTech-ehf/snapper
 #+end_src
-The crate is =snapper-fmt= on all registries; the binary it installs is =snapper=.
+The crate is =snapper-fmt= on all registries.
+Each install ships two CLI names for the same program: =snapper= and =snapper-fmt=.
+
+*Name collision:* [[https://github.com/openSUSE/snapper][openSUSE snapper]] is a different project (Btrfs/LVM snapshots) that also installs a =snapper= binary.
+On systems where that tool already owns =/usr/bin/snapper=, call this formatter as =snapper-fmt=, or put the TurtleTech install path ahead of the system path.
 * Usage
 :PROPERTIES:
 :CUSTOM_ID: usage
