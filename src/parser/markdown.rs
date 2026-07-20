@@ -202,10 +202,7 @@ impl FormatParser for MarkdownParser {
             // Setext heading: title line + underline of `=` or `-`.
             // Without this, title text is Prose and the underline is glued on
             // (or mid-title periods reflow), collapsing the heading.
-            if i + 1 < total
-                && is_setext_title_line(line)
-                && is_setext_underline(lines[i + 1])
-            {
+            if i + 1 < total && is_setext_title_line(line) && is_setext_underline(lines[i + 1]) {
                 close_list_item(&mut in_list_item, &mut current_prose, &mut regions);
                 flush_prose(&mut current_prose, &mut regions);
                 regions.push(Region::Structure(format!("{line}\n")));
@@ -506,7 +503,9 @@ mod tests {
         };
         let out = format_text(input, &cfg).unwrap();
         assert!(
-            out.starts_with("Setext Title With Period. Still Title\n=====================================\n"),
+            out.starts_with(
+                "Setext Title With Period. Still Title\n=====================================\n"
+            ),
             "setext title+underline must stay intact, got:\n{out}"
         );
         assert!(

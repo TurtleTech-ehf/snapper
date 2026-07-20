@@ -471,7 +471,9 @@ fn markdown_setext_heading_not_collapsed() {
     );
     let result = String::from_utf8(out.stdout).unwrap();
     assert!(
-        result.starts_with("Setext Title With Period. Still Title\n=====================================\n"),
+        result.starts_with(
+            "Setext Title With Period. Still Title\n=====================================\n"
+        ),
         "setext title+underline must stay intact, got:\n{result}"
     );
     assert!(
