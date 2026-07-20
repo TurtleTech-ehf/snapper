@@ -9,6 +9,7 @@ This document contains the help content for the `snapper` command-line program.
 * [`snapper sdiff`↴](#snapper-sdiff)
 * [`snapper git-diff`↴](#snapper-git-diff)
 * [`snapper lsp`↴](#snapper-lsp)
+* [`snapper mcp`↴](#snapper-mcp)
 * [`snapper watch`↴](#snapper-watch)
 
 ## `snapper`
@@ -23,6 +24,7 @@ Semantic line break formatter
 * `sdiff` — Sentence-level diff between two files
 * `git-diff` — Sentence-level diff against a git ref
 * `lsp` — Start the LSP server (stdin/stdout)
+* `mcp` — Start the MCP server (stdin/stdout)
 * `watch` — Watch files and reformat on change
 
 ###### **Arguments:**
@@ -43,10 +45,11 @@ Semantic line break formatter
   Default value: `0`
 * `--neural` — Use neural sentence detection (nnsplit LSTM model)
 * `--lang <LANG>` — Language for neural sentence detection (default: en). Available: en, de, fr, no, sv, zh, tr, ru, uk
-
-  Default value: `en`
 * `--model-path <MODEL_PATH>` — Path to custom ONNX model file for neural detection
 * `--use-pandoc` — Use pandoc as parser backend (universal format support)
+* `--pandoc-backend <BACKEND>` — Pandoc AST source when `--use-pandoc` is set: `auto` (prefer in-process FFI, else CLI), `ffi` (`libsnapper_pandoc`), or `cli` (`pandoc` subprocess). Default: `auto`. `ffi` fails explicitly if the library is missing
+
+  Default value: `auto`
 * `--check` — Exit with code 1 if any file would change
 * `--diff` — Show a unified diff of what would change
 * `--config <CONFIG>` — Path to config file (default: .snapperrc.toml in current or parent dirs)
@@ -57,6 +60,9 @@ Semantic line break formatter
 
   Possible values: `text`, `json`, `sarif`
 
+* `--format-code` — Pipe each code block's body through the per-language formatter configured under `[code.<lang>.formatter]` in `.snapperrc.toml`. The formatter runs after the in-block comment reflow. Missing binaries, non-zero exits, and timeouts surface as stderr diagnostics; snapper still exits 0
+
+  Default value: `false`
 
 
 
@@ -121,6 +127,14 @@ Sentence-level diff against a git ref
 Start the LSP server (stdin/stdout)
 
 **Usage:** `snapper lsp`
+
+
+
+## `snapper mcp`
+
+Start the MCP server (stdin/stdout)
+
+**Usage:** `snapper mcp`
 
 
 
