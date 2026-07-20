@@ -7,6 +7,9 @@ members = ["cargo:."]
 cargo-dist-version = "0.30.3"
 # CI backends to support
 ci = "github"
+# Keep hand-tuned release.yml (create-or-upload when a GH Release already
+# exists; see 2f6ace4). Stock `dist generate` would overwrite that branch.
+allow-dirty = ["ci"]
 # The installers to generate for each app
 installers = ["shell", "powershell", "homebrew"]
 tap = "TurtleTech-ehf/homebrew-tap"
