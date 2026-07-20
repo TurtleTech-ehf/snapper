@@ -98,6 +98,7 @@ These tokens within prose are not split across lines:
 :END:
 - Front matter (=---= or =+++=  delimited at file start)
 - Full ATX heading lines (=#= … =######= including title text)
+- Setext headings (title line plus ====== or ------ underline)
 - List item markers (=-=, =*=, =+=, =1.=)
 - Pipe tables
 
