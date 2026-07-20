@@ -3,6 +3,10 @@ All notable changes to this project will be documented in this file. See [conven
 
 - - -
 ## Unreleased (main)
+#### Bug Fixes
+- (**markdown**) keep setext headings (title + `=`/`-` underline) as Structure so multi-sentence titles do not reflow and underlines are not glued onto title text
+#### Tests
+- Unit and format_text coverage for setext equals/dashes and multi-sentence titles
 
 - - -
 

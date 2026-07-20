@@ -459,3 +459,23 @@ fn markdown_numbered_atx_heading_not_split() {
         "must not orphan ### 1. before title:\n{result}"
     );
 }
+
+#[test]
+fn markdown_setext_heading_not_collapsed() {
+    let input = "Setext Title With Period. Still Title\n=====================================\n\nBody after. Second body.\n";
+    let out = pipe_stdin(input, &["--format", "markdown"]);
+    assert!(
+        out.status.success(),
+        "stderr={}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let result = String::from_utf8(out.stdout).unwrap();
+    assert!(
+        result.starts_with("Setext Title With Period. Still Title\n=====================================\n"),
+        "setext title+underline must stay intact, got:\n{result}"
+    );
+    assert!(
+        !result.contains("Still Title ====="),
+        "must not glue underline onto title:\n{result}"
+    );
+}

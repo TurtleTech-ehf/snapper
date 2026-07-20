@@ -19,6 +19,11 @@ static LIST_ITEM_RE: LazyLock<Regex> =
 /// Also matches separator rows like `|---|---|`.
 static TABLE_ROW_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^\s*\|.*\|\s*$").unwrap());
 
+/// CommonMark setext underline: one or more `=` (level 1) or `-` (level 2),
+/// optional leading indent up to three spaces, optional trailing spaces.
+static SETEXT_UNDERLINE_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"^ {0,3}(?:=+|-+)\s*$").unwrap());
+
 pub struct MarkdownParser;
 
 /// Close an open list item: flush accumulated prose and emit the trailing newline.
@@ -28,6 +33,37 @@ fn close_list_item(in_list_item: &mut bool, current_prose: &mut String, regions:
         regions.push(Region::Structure("\n".to_string()));
         *in_list_item = false;
     }
+}
+
+/// True when `line` is a CommonMark setext underline (`===` or `---`).
+fn is_setext_underline(line: &str) -> bool {
+    let trimmed = line.trim_end();
+    if trimmed.is_empty() {
+        return false;
+    }
+    SETEXT_UNDERLINE_RE.is_match(trimmed)
+}
+
+/// True when `line` may be the text of a setext heading (non-empty, not an ATX
+/// marker line, not a table row, not a list item, not a fence opener).
+fn is_setext_title_line(line: &str) -> bool {
+    let trimmed = line.trim();
+    if trimmed.is_empty() {
+        return false;
+    }
+    if HEADING_RE.is_match(line) {
+        return false;
+    }
+    if TABLE_ROW_RE.is_match(line) {
+        return false;
+    }
+    if LIST_ITEM_RE.is_match(line) {
+        return false;
+    }
+    if FENCED_CODE_RE.is_match(line.trim_start()) {
+        return false;
+    }
+    true
 }
 
 impl FormatParser for MarkdownParser {
@@ -43,11 +79,15 @@ impl FormatParser for MarkdownParser {
         let mut in_frontmatter = false;
         let mut frontmatter_fence = String::new();
         let mut in_list_item = false;
-        let mut line_number = 0;
         let mut pragma_off = false;
 
-        for line in input.lines() {
-            line_number += 1;
+        let lines: Vec<&str> = input.lines().collect();
+        let total = lines.len();
+        let mut i = 0;
+
+        while i < total {
+            let line = lines[i];
+            let line_number = i + 1;
 
             // Check for snapper:off/on pragmas. Inside a fenced code block,
             // the markdown parser does NOT short-circuit on pragmas; the
@@ -60,6 +100,7 @@ impl FormatParser for MarkdownParser {
                     flush_prose(&mut current_prose, &mut regions);
                     pragma_off = !on;
                     regions.push(Region::Structure(format!("{line}\n")));
+                    i += 1;
                     continue;
                 }
 
@@ -67,6 +108,7 @@ impl FormatParser for MarkdownParser {
                     close_list_item(&mut in_list_item, &mut current_prose, &mut regions);
                     flush_prose(&mut current_prose, &mut regions);
                     regions.push(Region::Structure(format!("{line}\n")));
+                    i += 1;
                     continue;
                 }
             }
@@ -76,6 +118,7 @@ impl FormatParser for MarkdownParser {
                 in_frontmatter = true;
                 frontmatter_fence = line.trim().to_string();
                 regions.push(Region::Structure(format!("{line}\n")));
+                i += 1;
                 continue;
             }
 
@@ -84,6 +127,7 @@ impl FormatParser for MarkdownParser {
                     in_frontmatter = false;
                 }
                 regions.push(Region::Structure(format!("{line}\n")));
+                i += 1;
                 continue;
             }
 
@@ -112,6 +156,7 @@ impl FormatParser for MarkdownParser {
                     code_body.push_str(line);
                     code_body.push('\n');
                 }
+                i += 1;
                 continue;
             }
 
@@ -126,6 +171,7 @@ impl FormatParser for MarkdownParser {
                     .map(|c| c.get(1).unwrap().as_str().to_string());
                 code_header = format!("{line}\n");
                 code_body.clear();
+                i += 1;
                 continue;
             }
 
@@ -134,6 +180,7 @@ impl FormatParser for MarkdownParser {
                 close_list_item(&mut in_list_item, &mut current_prose, &mut regions);
                 flush_prose(&mut current_prose, &mut regions);
                 regions.push(Region::BlankLines(format!("{line}\n")));
+                i += 1;
                 continue;
             }
 
@@ -148,6 +195,22 @@ impl FormatParser for MarkdownParser {
                 close_list_item(&mut in_list_item, &mut current_prose, &mut regions);
                 flush_prose(&mut current_prose, &mut regions);
                 regions.push(Region::Structure(format!("{line}\n")));
+                i += 1;
+                continue;
+            }
+
+            // Setext heading: title line + underline of `=` or `-`.
+            // Without this, title text is Prose and the underline is glued on
+            // (or mid-title periods reflow), collapsing the heading.
+            if i + 1 < total
+                && is_setext_title_line(line)
+                && is_setext_underline(lines[i + 1])
+            {
+                close_list_item(&mut in_list_item, &mut current_prose, &mut regions);
+                flush_prose(&mut current_prose, &mut regions);
+                regions.push(Region::Structure(format!("{line}\n")));
+                regions.push(Region::Structure(format!("{}\n", lines[i + 1])));
+                i += 2;
                 continue;
             }
 
@@ -156,6 +219,7 @@ impl FormatParser for MarkdownParser {
                 close_list_item(&mut in_list_item, &mut current_prose, &mut regions);
                 flush_prose(&mut current_prose, &mut regions);
                 regions.push(Region::Structure(format!("{line}\n")));
+                i += 1;
                 continue;
             }
 
@@ -171,6 +235,7 @@ impl FormatParser for MarkdownParser {
                 if !text.is_empty() {
                     current_prose.push_str(text);
                 }
+                i += 1;
                 continue;
             }
 
@@ -179,6 +244,7 @@ impl FormatParser for MarkdownParser {
                 current_prose.push(' ');
             }
             current_prose.push_str(line.trim());
+            i += 1;
         }
 
         close_list_item(&mut in_list_item, &mut current_prose, &mut regions);
@@ -393,5 +459,79 @@ mod tests {
                 "level {hashes}"
             );
         }
+    }
+
+    #[test]
+    fn setext_heading_equals_is_structure() {
+        let input = "Setext Title With Period. Still Title\n=====================================\n\nBody after setext.\n";
+        let regions = MarkdownParser.parse(input);
+        assert!(
+            matches!(&regions[0], Region::Structure(s) if s == "Setext Title With Period. Still Title\n"),
+            "setext title must be Structure, got: {:?}",
+            regions[0]
+        );
+        assert!(
+            matches!(&regions[1], Region::Structure(s) if s.starts_with('=')),
+            "setext underline must be Structure, got: {:?}",
+            regions[1]
+        );
+        assert!(
+            !regions
+                .iter()
+                .any(|r| matches!(r, Region::Prose(p) if p.contains("Still Title"))),
+            "setext title must not be Prose: {regions:?}"
+        );
+    }
+
+    #[test]
+    fn setext_heading_dashes_is_structure() {
+        let input = "Secondary Setext Title\n----------------------\n\nParagraph text here.\n";
+        let regions = MarkdownParser.parse(input);
+        assert_eq!(
+            regions[0],
+            Region::Structure("Secondary Setext Title\n".to_string())
+        );
+        assert!(matches!(&regions[1], Region::Structure(s) if s.starts_with('-')));
+    }
+
+    #[test]
+    fn multi_sentence_setext_title_stays_one_line() {
+        use crate::format::Format;
+        use crate::{FormatConfig, format_text};
+
+        let input = "Setext Title With Period. Still Title\n=====================================\n\nBody after setext. Second body.\n";
+        let cfg = FormatConfig {
+            format: Format::Markdown,
+            ..Default::default()
+        };
+        let out = format_text(input, &cfg).unwrap();
+        assert!(
+            out.starts_with("Setext Title With Period. Still Title\n=====================================\n"),
+            "setext title+underline must stay intact, got:\n{out}"
+        );
+        assert!(
+            !out.contains("Still Title =====") && !out.contains("Still Title\nStill"),
+            "must not glue underline onto reflowed title:\n{out}"
+        );
+        assert_eq!(format_text(&out, &cfg).unwrap(), out);
+    }
+
+    #[test]
+    fn setext_after_prose_flushes_body() {
+        let input = "Body sentence one. Body two.\n\nHeading Here\n============\n";
+        let regions = MarkdownParser.parse(input);
+        let prose: Vec<_> = regions
+            .iter()
+            .filter_map(|r| match r {
+                Region::Prose(p) => Some(p.as_str()),
+                _ => None,
+            })
+            .collect();
+        assert!(prose.iter().any(|p| p.contains("Body sentence one")));
+        assert!(
+            regions
+                .iter()
+                .any(|r| matches!(r, Region::Structure(s) if s == "Heading Here\n"))
+        );
     }
 }
