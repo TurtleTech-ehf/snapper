@@ -7,5 +7,5 @@ wasm-pack build --target web --out-dir packages/snapper-wasm/pkg --no-default-fe
 (cd packages/snapper-wasm && npm install && npm run build)
 mkdir -p editors/word/assets
 (cd editors/word && npm install && npm run build)
-(cd editors/obsidian && npm install && npm run build || true)
+(cd editors/obsidian && npm install && npm run build)
 echo "Ready: packages/snapper-wasm/pkg + editors/word/dist"
