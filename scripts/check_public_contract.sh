@@ -35,6 +35,11 @@ unsupported_patterns=(
 
 failed=0
 
+if ! grep -Fq '"private": true' "$repo_root/npm/package.json"; then
+  printf 'unpublished npm wrapper must be private\n' >&2
+  failed=1
+fi
+
 for pattern in "${required_patterns[@]}"; do
   if ! grep -Fq "$pattern" "${public_sources[@]}"; then
     printf 'public docs are missing required content: %s\n' "$pattern" >&2
