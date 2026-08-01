@@ -108,12 +108,10 @@ snapper init
 :PROPERTIES:
 :CUSTOM_ID: mcp
 :END:
-Expose snapper's tools to Claude Desktop, Claude Code, and other MCP clients:
+The MCP server is an optional source-build feature; published release binaries do not include it.
+Install snapper with MCP support, then start the stdio server:
 #+begin_src bash
-npx @turtletech/snapper-mcp
-#+end_src
-Or directly:
-#+begin_src bash
+cargo install snapper-fmt --features mcp
 snapper mcp
 #+end_src
 Tools: =format_text=, =detect_format=, =check_formatting=, =split_sentences=.
@@ -135,7 +133,7 @@ Configuration guide (org source in-tree): =docs/orgmode/howto/mcp-integration.or
 :END:
 #+begin_src yaml
 - repo: https://github.com/TurtleTech-ehf/snapper
-  rev: v0.7.8
+  rev: v0.8.1
   hooks:
     - id: snapper
 #+end_src
@@ -188,14 +186,14 @@ This provides =formatprg= support for automatic formatting with the =gq= operato
 :PROPERTIES:
 :CUSTOM_ID: obsidian
 :END:
-Install the snapper plugin from Community Plugins (search "Snapper").
-Uses WebAssembly -- no binary installation required.
+Development preview; not listed in Community Plugins.
+The WebAssembly plugin source lives in =editors/obsidian= and is available for development builds only.
 ** Microsoft Word
 :PROPERTIES:
 :CUSTOM_ID: word
 :END:
-Install the snapper add-in from AppSource (Insert > Get Add-ins > search "Snapper").
-Uses WebAssembly -- no binary installation required.
+Development preview; not published in AppSource.
+The WebAssembly add-in source and sideloading instructions live in =editors/word=.
 ** Git smudge/clean filter
 :PROPERTIES:
 :CUSTOM_ID: git-filter

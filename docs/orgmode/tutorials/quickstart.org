@@ -162,14 +162,20 @@ Use =--dry-run= to preview.
 :CUSTOM_ID: mcp
 :END:
 
-Expose snapper to Claude Desktop, Claude Code, and other MCP clients:
+The MCP server is an optional source-build feature.
+Install it and configure an MCP client to run the stdio command:
+
+#+begin_src bash
+cargo install snapper-fmt --features mcp
+snapper mcp
+#+end_src
 
 #+begin_src json
 {
   "mcpServers": {
     "snapper": {
-      "command": "npx",
-      "args": ["@turtletech/snapper-mcp"]
+      "command": "snapper",
+      "args": ["mcp"]
     }
   }
 }
@@ -252,15 +258,15 @@ autocmd FileType org setlocal formatprg=snapper\ --format\ org
 :CUSTOM_ID: obsidian
 :END:
 
-Install from Community Plugins (search "Snapper").
-Uses WebAssembly -- no binary needed.
+Development preview; not listed in Community Plugins.
+Use the source in =editors/obsidian= for development builds.
 
 *** Word
 :PROPERTIES:
 :CUSTOM_ID: word
 :END:
 
-Install the snapper add-in from AppSource (Insert > Get Add-ins > search "Snapper").
-Uses WebAssembly -- no binary needed.
+Development preview; not published in AppSource.
+Use the source and sideloading instructions in =editors/word=.
 
 See [[file:../howto/editor-integration.org][Editor Integration]] for Vim, Helix, eglot, conform.nvim, and other setups.
