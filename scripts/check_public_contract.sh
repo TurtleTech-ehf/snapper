@@ -44,4 +44,20 @@ for pattern in "${unsupported_patterns[@]}"; do
   fi
 done
 
+release_version="$(sed -n '/^\[package\]$/,/^\[/s/^version = "\([^"]*\)"/\1/p' "$repo_root/Cargo.toml" | head -n 1)"
+word_versions=(
+  "$repo_root/editors/word/package.json"
+  "$repo_root/editors/word/manifest.xml"
+  "$repo_root/editors/word/README.md"
+  "$repo_root/editors/word/src/taskpane/taskpane.html"
+)
+
+for file in "${word_versions[@]}"; do
+  if ! grep -Fq "$release_version" "$file"; then
+    printf 'Word integration version does not match snapper %s: %s\n' \
+      "$release_version" "$file" >&2
+    failed=1
+  fi
+done
+
 exit "$failed"
