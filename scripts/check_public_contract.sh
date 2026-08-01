@@ -8,6 +8,9 @@ public_sources=(
   "$repo_root/npm/README.md"
   "$repo_root/docs/orgmode/tutorials/quickstart.org"
   "$repo_root/docs/orgmode/howto/editor-integration.org"
+  "$repo_root/docs/orgmode/howto/mcp-integration.org"
+  "$repo_root/editors/obsidian/README.md"
+  "$repo_root/editors/word/README.md"
 )
 
 required_patterns=(
@@ -20,6 +23,8 @@ required_patterns=(
 
 unsupported_patterns=(
   "npx @turtletech/snapper-mcp"
+  "@turtletech/snapper-mcp"
+  '"command": "npx"'
   "Install the snapper plugin from Community Plugins"
   "Install from Community Plugins"
   "Install the snapper add-in from AppSource"
@@ -33,6 +38,34 @@ failed=0
 for pattern in "${required_patterns[@]}"; do
   if ! grep -Fq "$pattern" "${public_sources[@]}"; then
     printf 'public docs are missing required content: %s\n' "$pattern" >&2
+    failed=1
+  fi
+done
+
+obsidian_sources=(
+  "$repo_root/readme_src.org"
+  "$repo_root/README.md"
+  "$repo_root/docs/orgmode/tutorials/quickstart.org"
+  "$repo_root/docs/orgmode/howto/editor-integration.org"
+  "$repo_root/editors/obsidian/README.md"
+)
+for file in "${obsidian_sources[@]}"; do
+  if ! grep -Fq "Development preview; not listed in Community Plugins" "$file"; then
+    printf 'Obsidian preview status missing from %s\n' "$file" >&2
+    failed=1
+  fi
+done
+
+word_preview_sources=(
+  "$repo_root/readme_src.org"
+  "$repo_root/README.md"
+  "$repo_root/docs/orgmode/tutorials/quickstart.org"
+  "$repo_root/docs/orgmode/howto/editor-integration.org"
+  "$repo_root/editors/word/README.md"
+)
+for file in "${word_preview_sources[@]}"; do
+  if ! grep -Fq "Development preview; not published in AppSource" "$file"; then
+    printf 'Word preview status missing from %s\n' "$file" >&2
     failed=1
   fi
 done
