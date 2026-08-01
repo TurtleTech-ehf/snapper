@@ -15,6 +15,13 @@ concurrency:
 permissions: read-all
 
 jobs:
+  public-contract:
+    name: Public availability contract
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: bash scripts/check_public_contract.sh
+
   lychee:
     name: Link check
     runs-on: ubuntu-latest
