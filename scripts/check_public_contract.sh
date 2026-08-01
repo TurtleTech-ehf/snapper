@@ -40,6 +40,11 @@ if ! grep -Fq '"private": true' "$repo_root/npm/package.json"; then
   failed=1
 fi
 
+if grep -Eq '\|\|[[:space:]]+true' "$repo_root/scripts/build_wasm_editors.sh"; then
+  printf 'editor build helper must propagate every build failure\n' >&2
+  failed=1
+fi
+
 for pattern in "${required_patterns[@]}"; do
   if ! grep -Fq "$pattern" "${public_sources[@]}"; then
     printf 'public docs are missing required content: %s\n' "$pattern" >&2
