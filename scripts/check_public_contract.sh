@@ -100,6 +100,19 @@ word_versions=(
   "$repo_root/editors/word/src/taskpane/taskpane.html"
 )
 
+wasm_package_versions=(
+  "$repo_root/packages/snapper-wasm/package.json"
+  "$repo_root/packages/snapper-wasm/package-lock.json"
+)
+
+for file in "${wasm_package_versions[@]}"; do
+  if ! grep -Fq "\"version\": \"$release_version\"" "$file"; then
+    printf 'WASM package version does not match snapper %s: %s\n' \
+      "$release_version" "$file" >&2
+    failed=1
+  fi
+done
+
 for file in "${word_versions[@]}"; do
   if ! grep -Fq "$release_version" "$file"; then
     printf 'Word integration version does not match snapper %s: %s\n' \
