@@ -17,6 +17,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Check public availability contract
+        run: bash scripts/check_public_contract.sh
+
       - uses: actions/checkout@v4
         with:
           repository: TurtleTech-ehf/ttech-ui
@@ -37,7 +40,7 @@ jobs:
           ln -sf ${{ github.workspace }}/ttech-ui node_modules/@turtletech/ui
 
       - name: Build ttech-ui svelte output
-        run: cd ${{ github.workspace }}/ttech-ui && npm run build:svelte 2>/dev/null || true
+        run: cd ${{ github.workspace }}/ttech-ui && npm run build:svelte
 
       - name: Build SvelteKit landing page
         run: cd site-svelte && pixi run -e docs npm run build
