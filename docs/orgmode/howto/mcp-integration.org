@@ -6,7 +6,14 @@
 :CUSTOM_ID: overview
 :END:
 
-Snapper includes an MCP (Model Context Protocol) server that exposes formatting tools to AI assistants like Claude Desktop and Claude Code.
+Snapper includes an optional MCP (Model Context Protocol) server that exposes formatting tools to MCP clients.
+
+Published release binaries do not include this feature.
+Install a source build with MCP support:
+
+#+begin_src bash
+cargo install snapper-fmt --features mcp
+#+end_src
 
 Start it with:
 
@@ -16,20 +23,14 @@ snapper mcp
 
 This launches the server on stdin/stdout using the MCP protocol.
 
-The MCP feature must be enabled at build time:
-
-#+begin_src bash
-cargo install snapper-fmt --features mcp
-#+end_src
-
 * Configuration
 :PROPERTIES:
 :CUSTOM_ID: configuration
 :END:
 
-** Claude Desktop / Claude Code
+** MCP client configuration
 :PROPERTIES:
-:CUSTOM_ID: claude-config
+:CUSTOM_ID: mcp-client-config
 :END:
 
 Add to your MCP configuration:
@@ -40,19 +41,6 @@ Add to your MCP configuration:
     "snapper": {
       "command": "snapper",
       "args": ["mcp"]
-    }
-  }
-}
-#+end_src
-
-Or with the npm wrapper:
-
-#+begin_src json
-{
-  "mcpServers": {
-    "snapper": {
-      "command": "npx",
-      "args": ["@turtletech/snapper-mcp"]
     }
   }
 }

@@ -1,41 +1,20 @@
-# @turtletech/snapper-mcp
+# Snapper MCP wrapper source
 
-MCP (Model Context Protocol) server for [snapper](https://snapper.turtletech.us), the semantic line break formatter.
+This directory contains wrapper source for Snapper's MCP server.
+It is not published on npm and is not an installation channel.
 
-## Quick start
-
-```bash
-npm install -g @turtletech/snapper-mcp
-```
-
-This installs a wrapper that runs `snapper mcp` on stdin/stdout. The `snapper` binary must be available in your PATH.
-
-On `npm install`, the package attempts to install snapper automatically via `cargo-binstall` or `cargo install`. If that fails, install manually:
+## Supported installation
 
 ```bash
-cargo binstall snapper-fmt
-# or from source with MCP support:
 cargo install snapper-fmt --features mcp
-# or via pip:
-pip install snapper-fmt
+snapper mcp
 ```
 
-## Claude Desktop / Claude Code
+The MCP feature is optional and is not present in published release binaries.
+
+## MCP client configuration
 
 Add to your MCP configuration:
-
-```json
-{
-  "mcpServers": {
-    "snapper": {
-      "command": "npx",
-      "args": ["@turtletech/snapper-mcp"]
-    }
-  }
-}
-```
-
-Or if snapper is already on your PATH:
 
 ```json
 {

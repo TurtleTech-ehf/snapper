@@ -1,6 +1,7 @@
 {
   "name": "@turtletech/snapper-mcp",
   "version": "0.8.1",
+  "private": true,
   "description": "MCP server for snapper semantic line break formatter",
   "main": "bin/run.js",
   "bin": {

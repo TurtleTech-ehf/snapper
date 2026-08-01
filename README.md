@@ -93,11 +93,10 @@ Nix:
 
     nix build github:TurtleTech-ehf/snapper
 
-The crate is `snapper-fmt` on all registries. Each install ships two CLI names for the same program: `snapper` and `snapper-fmt`.
+The crate is `snapper-fmt` on all registries.
+Each install ships two CLI names for the same program: `snapper` and `snapper-fmt`.
 
 **Name collision:** [openSUSE snapper](https://github.com/openSUSE/snapper) is a different project (Btrfs/LVM snapshots) that also installs a `snapper` binary. On systems where that tool already owns `/usr/bin/snapper`, call this formatter as `snapper-fmt`, or put the TurtleTech install path ahead of the system path.
-
-Pre-built installers (cargo-dist) ship the **plain** binaries: native Org/LaTeX/Markdown/RST parsers, no GHC, no embedded pandoc. Multi-format pandoc is opt-in at runtime or via an optional build feature (below).
 
 
 <a id="usage"></a>
@@ -140,33 +139,15 @@ Initialize a project (generates config, pre-commit, gitattributes):
 
     snapper init
 
-### Pandoc backend (optional multi-format)
-
-Parse with [pandoc](https://pandoc.org/), then reflow only prose from the AST (headers, code, tables, math stay structure):
-
-    # Uses system `pandoc` on PATH (JSON CLI), or in-process FFI if available
-    snapper --use-pandoc paper.typ
-    snapper --use-pandoc --pandoc-backend cli guide.adoc
-    snapper --use-pandoc --pandoc-backend ffi paper.md   # needs libsnapper_pandoc or colink build
-
-- **CLI backend** (default when FFI is missing): install the normal `pandoc` binary.
-- **FFI backend**: build `native/snapper-pandoc` and set `SNAPPER_PANDOC_LIB`, or build with feature `pandoc-colink` after `./native/snapper-pandoc/build-static.sh` so one binary absorbs the static archive (no env discovery; larger binary; not the default release artifact).
-- **UPX** (optional third-party packer) can shrink *on-disk* size of a finished
-  static-colink binary via `./native/snapper-pandoc/pack-upx.sh`; it is not a
-  tree-shaker and is **not** part of default CI or cargo-dist. See
-  `native/snapper-pandoc/README.md`.
-
 
 <a id="mcp"></a>
 
 ## MCP server (AI assistants)
 
-Expose snapper's tools to Claude Desktop, Claude Code, and other MCP clients:
+The MCP server is an optional source-build feature; published release binaries do not include it.
+Install snapper with MCP support, then start the stdio server:
 
-    npx @turtletech/snapper-mcp
-
-Or directly:
-
+    cargo install snapper-fmt --features mcp
     snapper mcp
 
 Tools: `format_text`, `detect_format`, `check_formatting`, `split_sentences`.
@@ -237,9 +218,6 @@ Configuration guide (org source in-tree): `docs/orgmode/howto/mcp-integration.or
       hooks:
         - id: snapper
 
-Runs `snapper --in-place` on `*.org`, `*.tex` / `*.latex`, `*.md` / `*.markdown`, `*.rst`, and `*.txt` (matched by extension; pre-commit's identify database has no `org` type).
-Requires a Rust toolchain so pre-commit can build the hook from this repo.
-
 
 <a id="emacs"></a>
 
@@ -293,16 +271,16 @@ This provides `formatprg` support for automatic formatting with the `gq` operato
 
 ## Obsidian
 
-Install the snapper plugin from Community Plugins (search "Snapper").
-Uses WebAssembly -- no binary installation required.
+Development preview; not listed in Community Plugins.
+The WebAssembly plugin source lives in `editors/obsidian` and is available for development builds only.
 
 
 <a id="word"></a>
 
 ## Microsoft Word
 
-Install the snapper add-in from AppSource (Insert > Get Add-ins > search "Snapper").
-Uses WebAssembly -- no binary installation required.
+Development preview; not published in AppSource.
+The WebAssembly add-in source and sideloading instructions live in `editors/word`.
 
 
 <a id="git-filter"></a>
