@@ -7,6 +7,8 @@ wasm-pack build --target web --out-dir packages/snapper-wasm/pkg --no-default-fe
 (cd packages/snapper-wasm && npm install && npm run build)
 mkdir -p editors/word/assets
 (cd editors/word && npm install && npm run build)
+(cd editors/word && npm audit --audit-level=moderate)
 (cd editors/obsidian && npm install && npm run build)
+(cd editors/obsidian && npm audit --audit-level=moderate)
 bash scripts/check_obsidian_bundle.sh
 echo "Ready: packages/snapper-wasm/pkg + editors/word/dist"
