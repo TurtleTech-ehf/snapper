@@ -16,14 +16,20 @@ type WasmModule = typeof import("../pkg/snapper_fmt.js");
 
 let wasmModule: WasmModule | null = null;
 
-async function loadWasm(): Promise<WasmModule> {
+async function loadWasm(
+  module?: BufferSource | WebAssembly.Module,
+): Promise<WasmModule> {
   if (wasmModule) return wasmModule;
   // Dynamic import of the wasm-pack generated JS glue.
   // The path is resolved at bundle time by the consuming build tool.
   wasmModule = await import("../pkg/snapper_fmt.js");
   // wasm-pack --target web requires calling the default init function.
   if ("default" in wasmModule && typeof wasmModule.default === "function") {
-    await (wasmModule as any).default();
+    if (module === undefined) {
+      await (wasmModule as any).default();
+    } else {
+      await (wasmModule as any).default({ module_or_path: module });
+    }
   }
   return wasmModule;
 }
@@ -33,8 +39,8 @@ export class SnapperFormatter {
   private wasm: WasmModule | null = null;
 
   /** Load and initialize the WASM module. Must be called before formatting. */
-  async init(): Promise<void> {
-    this.wasm = await loadWasm();
+  async init(module?: BufferSource | WebAssembly.Module): Promise<void> {
+    this.wasm = await loadWasm(module);
   }
 
   private ensureInit(): WasmModule {

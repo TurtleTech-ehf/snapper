@@ -25,6 +25,7 @@ const ctx = await esbuild.context({
   platform: "node",
   external: ["obsidian"],
   format: "cjs",
+  define: { "import.meta.url": "undefined" },
   sourcemap: watch ? "inline" : false,
   plugins: [wasmPlugin],
   logLevel: "info",
