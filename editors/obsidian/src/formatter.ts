@@ -1,12 +1,13 @@
 import { Editor } from "obsidian";
 import { SnapperFormatter, Format, type FormatOptions } from "@snapper/wasm";
+import wasmBytes from "@snapper/wasm/pkg/snapper_fmt_bg.wasm";
 import type { SnapperSettings } from "./settings";
 
 let formatter: SnapperFormatter | null = null;
 
 export async function initFormatter(): Promise<void> {
   formatter = new SnapperFormatter();
-  await formatter.init();
+  await formatter.init(wasmBytes);
 }
 
 function buildOptions(settings: SnapperSettings, filename?: string): FormatOptions {
