@@ -9,7 +9,7 @@
   },
   "devDependencies": {
     "obsidian": "^1.5.0",
-    "esbuild": "^0.20.0",
+    "esbuild": "^0.28.1",
     "typescript": "^5.4",
     "@snapper/wasm": "file:../../packages/snapper-wasm"
   },
