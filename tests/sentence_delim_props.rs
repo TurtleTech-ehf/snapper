@@ -173,10 +173,14 @@ fn code_block_comment_respects_quotes() {
 }
 
 /// True when `DelimState` ends outside all spans (balanced delimiters).
+///
+/// Matches production: protect inline code/links first so brackets inside
+/// `` `[` `` do not count as real nesting.
 fn delimiters_balanced(text: &str) -> bool {
-    use snapper_fmt::sentence::unicode::DelimState;
+    use snapper_fmt::sentence::unicode::{DelimState, protect_inline_tokens};
+    let (protected, _) = protect_inline_tokens(text);
     let mut state = DelimState::default();
-    state.feed(text);
+    state.feed(&protected);
     !state.is_inside()
 }
 

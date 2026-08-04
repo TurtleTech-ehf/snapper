@@ -3,6 +3,7 @@ use std::path::Path;
 use anyhow::{Context, Result};
 use imara_diff::{Algorithm, BasicLineDiffPrinter, Diff, InternedInput, UnifiedDiffConfig};
 
+use crate::diff::colorize_unified_diff;
 use crate::format::Format;
 use crate::parser::Region;
 use crate::sentence::SentenceSplitter;
@@ -88,35 +89,21 @@ pub fn sentence_diff(
         return Ok(String::new());
     }
 
-    let mut output = String::new();
     let old_name = old_path.display();
     let new_name = new_path.display();
-
-    if color {
-        output.push_str(&format!("\x1b[1m--- a/{old_name}\x1b[0m\n"));
-        output.push_str(&format!("\x1b[1m+++ b/{new_name}\x1b[0m\n"));
-        for line in diff_text.lines() {
-            if line.starts_with("@@") {
-                output.push_str(&format!("\x1b[36m{line}\x1b[0m\n"));
-            } else if line.starts_with('+') {
-                output.push_str(&format!("\x1b[32m{line}\x1b[0m\n"));
-            } else if line.starts_with('-') {
-                output.push_str(&format!("\x1b[31m{line}\x1b[0m\n"));
-            } else {
-                output.push_str(line);
-                output.push('\n');
-            }
-        }
-    } else {
-        output.push_str(&format!("--- a/{old_name}\n"));
-        output.push_str(&format!("+++ b/{new_name}\n"));
-        output.push_str(&diff_text);
-        if !diff_text.ends_with('\n') {
-            output.push('\n');
-        }
+    let mut plain = String::new();
+    plain.push_str(&format!("--- a/{old_name}\n"));
+    plain.push_str(&format!("+++ b/{new_name}\n"));
+    plain.push_str(&diff_text);
+    if !diff_text.ends_with('\n') {
+        plain.push('\n');
     }
 
-    Ok(output)
+    if color {
+        Ok(colorize_unified_diff(&plain))
+    } else {
+        Ok(plain)
+    }
 }
 
 #[cfg(test)]
@@ -156,6 +143,28 @@ mod tests {
         std::fs::write(&tmp2, "Hello world.\nThis is a test.\nAnother sentence.\n").unwrap();
         let result = sentence_diff(&tmp1, &tmp2, Some(Format::Plaintext), false).unwrap();
         assert!(result.is_empty(), "reflow should not produce a diff");
+        std::fs::remove_file(&tmp1).ok();
+        std::fs::remove_file(&tmp2).ok();
+    }
+
+    #[test]
+    fn colored_sentence_diff_contains_ansi() {
+        let tmp1 = std::env::temp_dir().join("sdiff_color_a.txt");
+        let tmp2 = std::env::temp_dir().join("sdiff_color_b.txt");
+        std::fs::write(&tmp1, "Hello world. This is old. Goodbye.\n").unwrap();
+        std::fs::write(&tmp2, "Hello world. This is new. Goodbye.\n").unwrap();
+        let colored = sentence_diff(&tmp1, &tmp2, Some(Format::Plaintext), true).unwrap();
+        let plain = sentence_diff(&tmp1, &tmp2, Some(Format::Plaintext), false).unwrap();
+        assert!(
+            colored.contains("\x1b["),
+            "color=true must emit ANSI: {colored:?}"
+        );
+        assert!(
+            !plain.contains("\x1b["),
+            "color=false must not emit ANSI: {plain:?}"
+        );
+        assert!(colored.contains("\x1b[31m-This is old.\x1b[0m"));
+        assert!(colored.contains("\x1b[32m+This is new.\x1b[0m"));
         std::fs::remove_file(&tmp1).ok();
         std::fs::remove_file(&tmp2).ok();
     }

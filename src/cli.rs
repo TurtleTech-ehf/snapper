@@ -2,6 +2,8 @@ use std::path::PathBuf;
 
 use clap::{Parser, Subcommand, ValueEnum};
 
+use crate::diff::ColorMode;
+
 #[derive(Debug, Clone, Copy, ValueEnum)]
 pub enum FormatArg {
     Org,
@@ -16,6 +18,28 @@ pub enum OutputFormat {
     Text,
     Json,
     Sarif,
+}
+
+/// Control when colored output is used (ruff-style).
+#[derive(Debug, Clone, Copy, ValueEnum, Default, PartialEq, Eq)]
+pub enum ColorWhen {
+    /// Display colors if the output goes to an interactive terminal.
+    #[default]
+    Auto,
+    /// Always display colors.
+    Always,
+    /// Never display colors.
+    Never,
+}
+
+impl From<ColorWhen> for ColorMode {
+    fn from(value: ColorWhen) -> Self {
+        match value {
+            ColorWhen::Auto => ColorMode::Auto,
+            ColorWhen::Always => ColorMode::Always,
+            ColorWhen::Never => ColorMode::Never,
+        }
+    }
 }
 
 #[derive(Debug, Parser)]
@@ -48,6 +72,11 @@ pub struct Cli {
     #[arg(short = 'w', long, default_value_t = 0)]
     pub max_width: usize,
 
+    /// Prefer soft breaks after independent-clause punctuation (comma,
+    /// semicolon, colon, em dash) when wrapping under `--max-width`.
+    #[arg(long, default_value_t = false)]
+    pub clause_breaks: bool,
+
     /// Use neural sentence detection (nnsplit LSTM model).
     #[arg(long)]
     pub neural: bool,
@@ -79,6 +108,15 @@ pub struct Cli {
     /// Show a unified diff of what would change.
     #[arg(long)]
     pub diff: bool,
+
+    /// Control when colored output is used.
+    ///
+    /// Possible values:
+    /// - auto:   Display colors if the output goes to an interactive terminal
+    /// - always: Always display colors
+    /// - never:  Never display colors
+    #[arg(long, value_enum, default_value_t = ColorWhen::Auto, global = true, value_name = "WHEN")]
+    pub color: ColorWhen,
 
     /// Path to config file (default: .snapperrc.toml in current or parent dirs).
     #[arg(long)]
@@ -118,7 +156,7 @@ pub enum Commands {
         /// Input format (auto-detected from extension if omitted).
         #[arg(short, long)]
         format: Option<FormatArg>,
-        /// Disable colored output.
+        /// Disable colored output (alias for `--color never`).
         #[arg(long)]
         no_color: bool,
     },
@@ -133,7 +171,7 @@ pub enum Commands {
         /// Input format (auto-detected from extension if omitted).
         #[arg(short, long)]
         format: Option<FormatArg>,
-        /// Disable colored output.
+        /// Disable colored output (alias for `--color never`).
         #[arg(long)]
         no_color: bool,
     },
