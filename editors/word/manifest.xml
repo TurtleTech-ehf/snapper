@@ -5,7 +5,7 @@
   xmlns:bt="http://schemas.microsoft.com/office/officeappbasictypes/1.0"
   xsi:type="TaskPaneApp">
   <Id>a8f3c2e1-9b4d-4e7a-8c5f-1d2e3f4a5b6c</Id>
-  <Version>0.8.1</Version>
+  <Version>0.9.0</Version>
   <ProviderName>TurtleTech ehf</ProviderName>
   <DefaultLocale>en-US</DefaultLocale>
   <DisplayName DefaultValue="Snapper — Semantic Line Breaks"/>
