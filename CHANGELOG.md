@@ -6,6 +6,17 @@ All notable changes to this project will be documented in this file. See [conven
 
 - - -
 
+## v0.9.1 - 2026-08-04
+#### Bug Fixes
+- (**reflow**) clause breaks only engage when a sentence exceeds `max_width` and only at whitespace after the punctuation; v0.9.0 split at every clause mark, including inside tokens (`1,000`, `10:30`, URLs, `--flags`, unspaced em dashes), which inserted spaces into rendered output
+- (**cli**) `--color auto` honors the `NO_COLOR` environment variable
+- (**neural**) nnsplit model loads are serialized process-wide; concurrent first-use construction could read a partially downloaded model
+#### Notes
+- v0.9.1 supersedes v0.9.0 on every channel; do not use v0.9.0 with `--clause-breaks`
+- `RELEASING.md` documents the release channels and recovery rules; `scripts/check_release_ready.sh` gates version parity, tag hygiene, and the conda sha256
+
+- - -
+
 ## v0.9.0 - 2026-08-04
 #### Features
 - (**cli** / **diff**) global `--color auto|always|never` for top-level `--diff`, `sdiff`, and `git-diff`; shared ANSI styling for headers, hunks, additions, and removals (closes #6)

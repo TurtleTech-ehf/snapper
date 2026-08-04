@@ -133,7 +133,7 @@ Configuration guide (org source in-tree): =docs/orgmode/howto/mcp-integration.or
 :END:
 #+begin_src yaml
 - repo: https://github.com/TurtleTech-ehf/snapper
-  rev: v0.9.0
+  rev: v0.9.1
   hooks:
     - id: snapper
 #+end_src
