@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use std::fs;
-use std::io::{self, Read};
+use std::io::{self, IsTerminal, Read};
 use std::path::Path;
 use std::process;
 use std::sync::Arc;
@@ -9,14 +9,26 @@ use anyhow::{Context, Result};
 use clap::Parser;
 use rayon::prelude::*;
 
-use snapper_fmt::cli::{Cli, Commands, OutputFormat, parse_range};
+use snapper_fmt::cli::{Cli, ColorWhen, Commands, OutputFormat, parse_range};
 use snapper_fmt::config::ProjectConfig;
+use snapper_fmt::diff::ColorMode;
 use snapper_fmt::format::Format;
 use snapper_fmt::output::{CheckResult, output_json, output_sarif};
 use snapper_fmt::sentence::SentenceSplitter;
 use snapper_fmt::{
     FormatConfig, build_splitter, format_range, format_text, format_text_with_splitter,
 };
+
+/// Resolve whether colored diff output should be used.
+///
+/// `no_color` (legacy subcommand flag) forces off; otherwise `--color` decides
+/// with auto = stdout is a TTY.
+fn resolve_color(when: ColorWhen, no_color: bool) -> bool {
+    if no_color {
+        return false;
+    }
+    ColorMode::from(when).should_colorize(io::stdout().is_terminal())
+}
 
 fn main() {
     if let Err(e) = run() {
@@ -39,7 +51,8 @@ fn run() -> Result<()> {
                 no_color,
             } => {
                 let fmt = format.map(Format::from_arg);
-                let result = snapper_fmt::sdiff::sentence_diff(old, new, fmt, !no_color)?;
+                let color = resolve_color(cli.color, *no_color);
+                let result = snapper_fmt::sdiff::sentence_diff(old, new, fmt, color)?;
                 if result.is_empty() {
                     eprintln!("No sentence-level differences.");
                 } else {
@@ -55,7 +68,8 @@ fn run() -> Result<()> {
                 no_color,
             } => {
                 let fmt = format.map(Format::from_arg);
-                let has_diff = snapper_fmt::git_diff::run_git_diff(git_ref, files, fmt, !no_color)?;
+                let color = resolve_color(cli.color, *no_color);
+                let has_diff = snapper_fmt::git_diff::run_git_diff(git_ref, files, fmt, color)?;
                 if has_diff {
                     process::exit(1);
                 }
@@ -115,7 +129,8 @@ fn run() -> Result<()> {
         };
 
         if cli.diff {
-            snapper_fmt::diff::print_diff("<stdin>", &input, &output);
+            let color = resolve_color(cli.color, false);
+            snapper_fmt::diff::print_diff("<stdin>", &input, &output, color);
         } else if let Some(ref path) = cli.output {
             fs::write(path, &output)
                 .with_context(|| format!("failed to write {}", path.display()))?;
@@ -167,10 +182,11 @@ fn run() -> Result<()> {
         let mut any_changed = false;
         let mut check_results: Vec<CheckResult> = Vec::new();
 
+        let color = resolve_color(cli.color, false);
         for (path_str, input, output) in &results {
             if cli.diff {
                 if output != input {
-                    snapper_fmt::diff::print_diff(path_str, input, output);
+                    snapper_fmt::diff::print_diff(path_str, input, output, color);
                     any_changed = true;
                 }
             } else if cli.check {
@@ -382,5 +398,15 @@ mod tests {
     fn both_zero_returns_zero() {
         assert_eq!(resolve_max_width(0, None, None), 0);
         assert_eq!(resolve_max_width(0, Some(0), None), 0);
+    }
+
+    #[test]
+    fn resolve_color_respects_never_and_no_color_flag() {
+        // no_color forces off regardless of ColorWhen
+        assert!(!resolve_color(ColorWhen::Always, true));
+        assert!(!resolve_color(ColorWhen::Auto, true));
+        assert!(!resolve_color(ColorWhen::Never, false));
+        // Always without no_color is always on (independent of TTY)
+        assert!(resolve_color(ColorWhen::Always, false));
     }
 }
