@@ -113,7 +113,7 @@ pub struct Cli {
     ///
     /// Possible values:
     /// - auto:   Display colors if the output goes to an interactive terminal
-    ///           and the `NO_COLOR` environment variable is unset
+    ///   and the `NO_COLOR` environment variable is unset
     /// - always: Always display colors
     /// - never:  Never display colors
     #[arg(long, value_enum, default_value_t = ColorWhen::Auto, global = true, value_name = "WHEN")]

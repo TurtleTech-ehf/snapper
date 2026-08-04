@@ -1,7 +1,14 @@
+use std::sync::Mutex;
+
 use nnsplit::NNSplit;
 
 use super::SentenceSplitter;
 use super::unicode::{UnicodeSentenceSplitter, protect_inline_tokens, restore_inline_tokens};
+
+/// nnsplit downloads models to `~/.cache/nnsplit/` on first use; concurrent
+/// loads race the download and can observe a partially written model
+/// ("model proto does not contain a graph"). Serialize loads process-wide.
+static MODEL_LOAD_LOCK: Mutex<()> = Mutex::new(());
 
 /// Sentence splitter using nnsplit's neural network (byte-level LSTM via tract).
 /// Models download and cache to ~/.cache/nnsplit/ on first use.
@@ -26,7 +33,10 @@ impl NeuralSentenceSplitter {
         extras: &[String],
     ) -> Result<Self, Box<dyn std::error::Error>> {
         let options = nnsplit::NNSplitOptions::default();
-        let inner = NNSplit::load(language, options)?;
+        let inner = {
+            let _guard = MODEL_LOAD_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+            NNSplit::load(language, options)?
+        };
         Ok(Self {
             inner,
             post: UnicodeSentenceSplitter::for_lang(language, extras),
@@ -45,7 +55,10 @@ impl NeuralSentenceSplitter {
         extras: &[String],
     ) -> Result<Self, Box<dyn std::error::Error>> {
         let options = nnsplit::NNSplitOptions::default();
-        let inner = NNSplit::new(path, options)?;
+        let inner = {
+            let _guard = MODEL_LOAD_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+            NNSplit::new(path, options)?
+        };
         Ok(Self {
             inner,
             post: UnicodeSentenceSplitter::for_lang(language, extras),
