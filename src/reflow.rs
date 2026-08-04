@@ -407,11 +407,7 @@ without additional human intervention.";
             ..Default::default()
         };
         let splitter = UnicodeSentenceSplitter::new();
-        let first = reflow(
-            &[Region::Prose(sentence.to_string())],
-            &splitter,
-            &config,
-        );
+        let first = reflow(&[Region::Prose(sentence.to_string())], &splitter, &config);
         let second = reflow(
             &[Region::Prose(first.trim_end().to_string())],
             &splitter,
