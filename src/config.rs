@@ -45,6 +45,8 @@ pub struct ProjectConfig {
     pub default_format: Option<String>,
     /// Default max width.
     pub max_width: Option<usize>,
+    /// Prefer soft breaks after independent-clause punctuation when wrapping.
+    pub clause_breaks: Option<bool>,
     /// Default language for abbreviation sets.
     pub lang: Option<String>,
 
@@ -169,6 +171,7 @@ extra_abbreviations = ["Dept", "Univ", "Corp"]
 ignore = ["*.bib", "*.cls"]
 format = "org"
 max_width = 80
+clause_breaks = true
 lang = "de"
 "#;
         let config = ProjectConfig::parse(toml).unwrap();
@@ -176,6 +179,7 @@ lang = "de"
         assert_eq!(config.ignore_patterns, vec!["*.bib", "*.cls"]);
         assert_eq!(config.default_format, Some("org".to_string()));
         assert_eq!(config.max_width, Some(80));
+        assert_eq!(config.clause_breaks, Some(true));
         assert_eq!(config.lang, Some("de".to_string()));
     }
 

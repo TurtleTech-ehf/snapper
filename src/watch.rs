@@ -136,6 +136,7 @@ fn format_file_in_place(
             .clone()
             .unwrap_or_else(|| "en".to_string()),
         extra_abbreviations: project_config.abbreviations_for_format(format_key),
+        clause_breaks: project_config.clause_breaks.unwrap_or(false),
         ..Default::default()
     };
 

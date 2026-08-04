@@ -302,6 +302,9 @@ fn build_format_config(
         .or_else(|| project_config.lang.clone())
         .unwrap_or_else(|| "en".to_string());
 
+    // CLI --clause-breaks wins when set; otherwise project config (default false).
+    let clause_breaks = cli.clause_breaks || project_config.clause_breaks.unwrap_or(false);
+
     FormatConfig {
         format,
         max_width,
@@ -317,6 +320,7 @@ fn build_format_config(
             .unwrap_or(snapper_fmt::parser::pandoc::PandocBackend::Cli),
         code: project_config.code.clone(),
         format_code: cli.format_code,
+        clause_breaks,
         ..Default::default()
     }
 }
