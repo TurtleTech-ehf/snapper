@@ -2,7 +2,7 @@
 
 Office add-in that formats document prose with **semantic line breaks** (one sentence per line) using the **snapper WASM** build (`@snapper/wasm`). Useful when drafting in Word and exporting to Org, Markdown, or LaTeX for git-friendly diffs.
 
-**Version:** 0.8.1 (tracks snapper-fmt)
+**Version:** 0.9.0 (tracks snapper-fmt)
 
 Development preview; not published in AppSource.
 
