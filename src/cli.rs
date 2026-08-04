@@ -72,6 +72,11 @@ pub struct Cli {
     #[arg(short = 'w', long, default_value_t = 0)]
     pub max_width: usize,
 
+    /// Prefer soft breaks after independent-clause punctuation (comma,
+    /// semicolon, colon, em dash) when wrapping under `--max-width`.
+    #[arg(long, default_value_t = false)]
+    pub clause_breaks: bool,
+
     /// Use neural sentence detection (nnsplit LSTM model).
     #[arg(long)]
     pub neural: bool,

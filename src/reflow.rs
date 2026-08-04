@@ -13,6 +13,9 @@ pub struct ReflowConfig<'a> {
     pub code: Option<&'a HashMap<String, CodeLang>>,
     /// When `true`, the per-language `formatter` runs after comment reflow.
     pub format_code: bool,
+    /// Prefer soft breaks after independent-clause punctuation (`,`, `;`,
+    /// `:`, em dash, `--`) when wrapping under `max_width`.
+    pub clause_breaks: bool,
 }
 
 /// Minimum region count before parallelizing reflow (large multi-MB org/md files).
@@ -103,7 +106,11 @@ fn reflow_one(
             let sentences = splitter.split(text);
             for (i, sentence) in sentences.iter().enumerate() {
                 if config.max_width > 0 {
-                    let wrapped = textwrap::fill(sentence, config.max_width);
+                    let wrapped = if config.clause_breaks {
+                        wrap_with_clause_breaks(sentence, config.max_width)
+                    } else {
+                        textwrap::fill(sentence, config.max_width)
+                    };
                     output.push_str(&wrapped);
                 } else {
                     output.push_str(sentence);
@@ -126,6 +133,138 @@ fn reflow_one(
         }
     }
     output
+}
+
+/// True when `word` ends with independent-clause punctuation (sembr rule 5).
+fn ends_with_clause_punct(word: &str) -> bool {
+    word.ends_with(',')
+        || word.ends_with(';')
+        || word.ends_with(':')
+        || word.ends_with('\u{2014}') // em dash —
+        || word.ends_with("--")
+}
+
+/// Split a sentence into clause segments ending at `,` / `;` / `:` / em dash /
+/// `--`, keeping the punctuation with the preceding segment. Whitespace after
+/// the punctuation starts the next segment.
+fn split_clauses(sentence: &str) -> Vec<String> {
+    let mut segments = Vec::new();
+    let mut current = String::new();
+    let chars: Vec<char> = sentence.chars().collect();
+    let mut i = 0;
+    while i < chars.len() {
+        let c = chars[i];
+        // ASCII double-hyphen em-dash surrogate
+        if c == '-' && i + 1 < chars.len() && chars[i + 1] == '-' {
+            current.push('-');
+            current.push('-');
+            i += 2;
+            // absorb trailing spaces into break (not into next segment)
+            while i < chars.len() && chars[i] == ' ' {
+                i += 1;
+            }
+            if !current.is_empty() {
+                segments.push(std::mem::take(&mut current));
+            }
+            continue;
+        }
+        current.push(c);
+        if matches!(c, ',' | ';' | ':' | '\u{2014}') {
+            i += 1;
+            while i < chars.len() && chars[i] == ' ' {
+                i += 1;
+            }
+            if !current.is_empty() {
+                segments.push(std::mem::take(&mut current));
+            }
+            continue;
+        }
+        i += 1;
+    }
+    if !current.is_empty() {
+        segments.push(current);
+    }
+    if segments.is_empty() && !sentence.is_empty() {
+        segments.push(sentence.to_string());
+    }
+    segments
+}
+
+/// Wrap `sentence` under `max_width`, preferring breaks after clause
+/// punctuation. Each clause is placed on its own line when it fits; clauses
+/// longer than `max_width` fall back to ordinary word wrapping.
+pub fn wrap_with_clause_breaks(sentence: &str, max_width: usize) -> String {
+    if max_width == 0 {
+        return sentence.to_string();
+    }
+    let clauses = split_clauses(sentence);
+    if clauses.is_empty() {
+        return String::new();
+    }
+    let mut lines: Vec<String> = Vec::new();
+    for clause in clauses {
+        let trimmed = clause.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        if trimmed.chars().count() <= max_width {
+            lines.push(trimmed.to_string());
+        } else {
+            // Long clause: pack words greedily, still preferring clause ends
+            // if any remain (usually none inside a single clause).
+            let wrapped = wrap_words_preferring_clause(trimmed, max_width);
+            for line in wrapped {
+                lines.push(line);
+            }
+        }
+    }
+    lines.join("\n")
+}
+
+/// Greedy word wrap that, when forced to break, prefers the last word that
+/// ends with clause punctuation; otherwise breaks at the last word boundary.
+fn wrap_words_preferring_clause(text: &str, max_width: usize) -> Vec<String> {
+    let words: Vec<&str> = text.split_whitespace().collect();
+    if words.is_empty() {
+        return Vec::new();
+    }
+    let mut lines = Vec::new();
+    let mut start = 0;
+    while start < words.len() {
+        let mut end = start;
+        let mut line_len = 0usize;
+        while end < words.len() {
+            let wlen = words[end].chars().count();
+            let next_len = if end == start {
+                wlen
+            } else {
+                line_len + 1 + wlen
+            };
+            if next_len > max_width && end > start {
+                break;
+            }
+            line_len = next_len;
+            end += 1;
+            // Single overlong word: take it alone
+            if end == start + 1 && line_len > max_width {
+                break;
+            }
+        }
+        // Prefer last clause-punct word in [start, end)
+        let mut break_at = end;
+        for j in (start..end).rev() {
+            if ends_with_clause_punct(words[j]) && j + 1 > start {
+                break_at = j + 1;
+                break;
+            }
+        }
+        if break_at == start {
+            break_at = end;
+        }
+        lines.push(words[start..break_at].join(" "));
+        start = break_at;
+    }
+    lines
 }
 
 /// When the next region is an inline structure island (pandoc `Math`/`Code` as
@@ -207,5 +346,90 @@ mod tests {
                 line
             );
         }
+    }
+
+    #[test]
+    fn clause_breaks_prefer_commas_under_max_width() {
+        // Issue #7 sample: max_width=80 with clause breaks should land soft
+        // breaks after the independent-clause commas rather than packing
+        // mid-phrase as plain textwrap::fill does.
+        let sentence = "It contains rules which govern how the Objectives are orchestrated, along with rules which can automatically activate the Objectives in the plan, without additional human intervention.";
+        let wrapped = wrap_with_clause_breaks(sentence, 80);
+        let expected = "\
+It contains rules which govern how the Objectives are orchestrated,
+along with rules which can automatically activate the Objectives in the plan,
+without additional human intervention.";
+        assert_eq!(
+            wrapped, expected,
+            "clause-first wrap:\n--- got ---\n{wrapped}\n--- expected ---\n{expected}"
+        );
+        for line in wrapped.lines() {
+            assert!(
+                line.chars().count() <= 80,
+                "line exceeds max_width: {line:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn clause_breaks_off_matches_textwrap_fill() {
+        let sentence = "It contains rules which govern how the Objectives are orchestrated, along with rules which can automatically activate the Objectives in the plan, without additional human intervention.";
+        let regions = vec![Region::Prose(sentence.to_string())];
+        let config = ReflowConfig {
+            max_width: 80,
+            clause_breaks: false,
+            ..Default::default()
+        };
+        let result = reflow(&regions, &UnicodeSentenceSplitter::new(), &config);
+        let plain = format!("{}\n", textwrap::fill(sentence, 80));
+        assert_eq!(result, plain);
+        // And that plain fill is *not* the clause-first shape
+        assert!(
+            result.contains("orchestrated, along with\n"),
+            "control path still packs past the first comma: {result:?}"
+        );
+    }
+
+    #[test]
+    fn clause_breaks_via_reflow_config() {
+        let sentence = "It contains rules which govern how the Objectives are orchestrated, along with rules which can automatically activate the Objectives in the plan, without additional human intervention.";
+        let regions = vec![Region::Prose(sentence.to_string())];
+        let config = ReflowConfig {
+            max_width: 80,
+            clause_breaks: true,
+            ..Default::default()
+        };
+        let result = reflow(&regions, &UnicodeSentenceSplitter::new(), &config);
+        assert!(
+            result.contains("orchestrated,\nalong with"),
+            "reflow with clause_breaks must break after first comma: {result:?}"
+        );
+        assert!(
+            result.contains("plan,\nwithout"),
+            "reflow with clause_breaks must break after second comma: {result:?}"
+        );
+    }
+
+    #[test]
+    fn clause_breaks_handles_semicolon_colon_emdash() {
+        let s = "First clause; second clause: third clause — fourth clause.";
+        let wrapped = wrap_with_clause_breaks(s, 80);
+        assert_eq!(
+            wrapped,
+            "First clause;\nsecond clause:\nthird clause —\nfourth clause."
+        );
+    }
+
+    #[test]
+    fn long_clause_still_word_wraps() {
+        let long = "This is a deliberately long independent clause without internal punctuation that must still wrap under a tight max width constraint for the test.";
+        let wrapped = wrap_with_clause_breaks(long, 40);
+        for line in wrapped.lines() {
+            assert!(
+                line.chars().count() <= 40,
+                "overlong clause must still wrap: {line:?}"
+            );
+        }
+        assert!(wrapped.contains('\n'));
     }
 }
