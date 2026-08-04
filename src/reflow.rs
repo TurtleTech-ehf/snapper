@@ -135,94 +135,33 @@ fn reflow_one(
     output
 }
 
-/// True when `word` ends with independent-clause punctuation (sembr rule 5).
+/// True when `word` ends with independent-clause punctuation (sembr rule 5),
+/// ignoring trailing closing quotes and brackets. Words come from whitespace
+/// splitting, so a match always marks a lossless break site: the punctuation
+/// is followed by real whitespace in the source.
 fn ends_with_clause_punct(word: &str) -> bool {
-    word.ends_with(',')
-        || word.ends_with(';')
-        || word.ends_with(':')
-        || word.ends_with('\u{2014}') // em dash —
-        || word.ends_with("--")
-}
-
-/// Split a sentence into clause segments ending at `,` / `;` / `:` / em dash /
-/// `--`, keeping the punctuation with the preceding segment. Whitespace after
-/// the punctuation starts the next segment.
-fn split_clauses(sentence: &str) -> Vec<String> {
-    let mut segments = Vec::new();
-    let mut current = String::new();
-    let chars: Vec<char> = sentence.chars().collect();
-    let mut i = 0;
-    while i < chars.len() {
-        let c = chars[i];
-        // ASCII double-hyphen em-dash surrogate
-        if c == '-' && i + 1 < chars.len() && chars[i + 1] == '-' {
-            current.push('-');
-            current.push('-');
-            i += 2;
-            // absorb trailing spaces into break (not into next segment)
-            while i < chars.len() && chars[i] == ' ' {
-                i += 1;
-            }
-            if !current.is_empty() {
-                segments.push(std::mem::take(&mut current));
-            }
-            continue;
-        }
-        current.push(c);
-        if matches!(c, ',' | ';' | ':' | '\u{2014}') {
-            i += 1;
-            while i < chars.len() && chars[i] == ' ' {
-                i += 1;
-            }
-            if !current.is_empty() {
-                segments.push(std::mem::take(&mut current));
-            }
-            continue;
-        }
-        i += 1;
-    }
-    if !current.is_empty() {
-        segments.push(current);
-    }
-    if segments.is_empty() && !sentence.is_empty() {
-        segments.push(sentence.to_string());
-    }
-    segments
+    let core = word.trim_end_matches(['"', '\'', ')', ']', '}']);
+    core.ends_with(',')
+        || core.ends_with(';')
+        || core.ends_with(':')
+        || core.ends_with('\u{2014}') // em dash —
+        || core.ends_with("--")
 }
 
 /// Wrap `sentence` under `max_width`, preferring breaks after clause
-/// punctuation. Each clause is placed on its own line when it fits; clauses
-/// longer than `max_width` fall back to ordinary word wrapping.
+/// punctuation (sembr rule 5). A sentence that already fits stays on one
+/// line. Breaks only ever land at whitespace, so tokens like `1,000`,
+/// `10:30`, URLs, and `--flags` are never split apart.
 pub fn wrap_with_clause_breaks(sentence: &str, max_width: usize) -> String {
     if max_width == 0 {
         return sentence.to_string();
     }
-    let clauses = split_clauses(sentence);
-    if clauses.is_empty() {
-        return String::new();
-    }
-    let mut lines: Vec<String> = Vec::new();
-    for clause in clauses {
-        let trimmed = clause.trim();
-        if trimmed.is_empty() {
-            continue;
-        }
-        if trimmed.chars().count() <= max_width {
-            lines.push(trimmed.to_string());
-        } else {
-            // Long clause: pack words greedily, still preferring clause ends
-            // if any remain (usually none inside a single clause).
-            let wrapped = wrap_words_preferring_clause(trimmed, max_width);
-            for line in wrapped {
-                lines.push(line);
-            }
-        }
-    }
-    lines.join("\n")
+    wrap_words_preferring_clause(sentence, max_width).join("\n")
 }
 
-/// Greedy word wrap that, when forced to break, prefers the last word that
-/// ends with clause punctuation; otherwise breaks at the last word boundary.
+/// Greedy word wrap that, when forced to break, prefers the last word on the
+/// line that ends with clause punctuation; otherwise breaks at the last word
+/// boundary that fits.
 fn wrap_words_preferring_clause(text: &str, max_width: usize) -> Vec<String> {
     let words: Vec<&str> = text.split_whitespace().collect();
     if words.is_empty() {
@@ -250,16 +189,16 @@ fn wrap_words_preferring_clause(text: &str, max_width: usize) -> Vec<String> {
                 break;
             }
         }
-        // Prefer last clause-punct word in [start, end)
+        // Only a forced break gets pulled back to a clause boundary; the
+        // final line of a sentence keeps its remaining words together.
         let mut break_at = end;
-        for j in (start..end).rev() {
-            if ends_with_clause_punct(words[j]) && j + 1 > start {
-                break_at = j + 1;
-                break;
+        if end < words.len() {
+            for j in (start..end).rev() {
+                if ends_with_clause_punct(words[j]) {
+                    break_at = j + 1;
+                    break;
+                }
             }
-        }
-        if break_at == start {
-            break_at = end;
         }
         lines.push(words[start..break_at].join(" "));
         start = break_at;
@@ -413,11 +352,68 @@ without additional human intervention.";
     #[test]
     fn clause_breaks_handles_semicolon_colon_emdash() {
         let s = "First clause; second clause: third clause — fourth clause.";
-        let wrapped = wrap_with_clause_breaks(s, 80);
+        // Fits under the limit: no break is forced, the sentence stays whole.
+        assert_eq!(wrap_with_clause_breaks(s, 80), s);
+        // Forced under a tight limit: every break lands after clause punctuation.
         assert_eq!(
-            wrapped,
+            wrap_with_clause_breaks(s, 20),
             "First clause;\nsecond clause:\nthird clause —\nfourth clause."
         );
+    }
+
+    #[test]
+    fn clause_breaks_leave_fitting_sentences_alone() {
+        let regions = vec![Region::Prose(
+            "Hello, world. Short, sweet, and done.".to_string(),
+        )];
+        let config = ReflowConfig {
+            max_width: 80,
+            clause_breaks: true,
+            ..Default::default()
+        };
+        let result = reflow(&regions, &UnicodeSentenceSplitter::new(), &config);
+        assert_eq!(result, "Hello, world.\nShort, sweet, and done.\n");
+    }
+
+    #[test]
+    fn clause_breaks_never_split_inside_tokens() {
+        // Clause punctuation not followed by whitespace stays inside its
+        // token; a break there would render as an inserted space.
+        let s = "Totals reached 1,000,000 by 10:30 via https://example.com/a,b using --clause-breaks and rock—paper logic in a sentence long enough to need wrapping.";
+        let wrapped = wrap_with_clause_breaks(s, 30);
+        let rejoined: Vec<&str> = wrapped.split_whitespace().collect();
+        let original: Vec<&str> = s.split_whitespace().collect();
+        assert_eq!(rejoined, original, "wrapping must be lossless: {wrapped:?}");
+        for token in [
+            "1,000,000",
+            "10:30",
+            "https://example.com/a,b",
+            "--clause-breaks",
+            "rock—paper",
+        ] {
+            assert!(
+                wrapped.lines().any(|l| l.contains(token)),
+                "{token:?} must stay on a single line: {wrapped:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn clause_breaks_idempotent() {
+        let sentence = "It contains rules which govern how the Objectives are orchestrated, along with rules which can automatically activate the Objectives in the plan, without additional human intervention.";
+        let config = ReflowConfig {
+            max_width: 80,
+            clause_breaks: true,
+            ..Default::default()
+        };
+        let splitter = UnicodeSentenceSplitter::new();
+        let first = reflow(&[Region::Prose(sentence.to_string())], &splitter, &config);
+        let second = reflow(
+            &[Region::Prose(first.trim_end().to_string())],
+            &splitter,
+            &config,
+        );
+        assert_eq!(first, second, "clause-break reflow must be idempotent");
     }
 
     #[test]
