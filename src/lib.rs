@@ -93,6 +93,10 @@ pub struct FormatConfig {
     /// after comment reflow. Default `false` preserves v0.7.7 behaviour
     /// (no subprocess is spawned).
     pub format_code: bool,
+    /// Prefer soft breaks after independent-clause punctuation when wrapping
+    /// under `max_width` (sembr rule 5). Default `false` keeps plain
+    /// `textwrap::fill` behaviour.
+    pub clause_breaks: bool,
 }
 
 impl Default for FormatConfig {
@@ -110,6 +114,7 @@ impl Default for FormatConfig {
             pandoc_backend: parser::pandoc::PandocBackend::default(),
             code: HashMap::new(),
             format_code: false,
+            clause_breaks: false,
         }
     }
 }
@@ -208,6 +213,7 @@ pub fn format_text_with_splitter(
         max_width: config.max_width,
         code: Some(&config.code),
         format_code: config.format_code,
+        clause_breaks: config.clause_breaks,
     };
 
     let mut output = reflow(&regions, splitter, &reflow_config);

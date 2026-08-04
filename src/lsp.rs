@@ -50,6 +50,7 @@ impl SnapperLsp {
             format,
             max_width: project.max_width_for_format(format_str).unwrap_or(0),
             extra_abbreviations: project.abbreviations_for_format(format_str),
+            clause_breaks: project.clause_breaks.unwrap_or(false),
             ..Default::default()
         }
     }

@@ -6,6 +6,15 @@ All notable changes to this project will be documented in this file. See [conven
 
 - - -
 
+## v0.9.0 - 2026-08-04
+#### Features
+- (**cli** / **diff**) global `--color auto|always|never` for top-level `--diff`, `sdiff`, and `git-diff`; shared ANSI styling for headers, hunks, additions, and removals (closes #6)
+- (**reflow**) `--clause-breaks` / `clause_breaks` config: prefer soft breaks after independent-clause punctuation (comma, semicolon, colon, em dash) under `max_width` (closes #7)
+#### Notes
+- Subcommand `--no-color` remains as an alias for `--color never`
+
+- - -
+
 ## v0.8.1 - 2026-07-20
 #### Bug Fixes
 - (**pre-commit**) ship a real `id: snapper` hook (`snapper --in-place`) with extension-based `files` matching; drop leftover SemBr `id`/`entry` and invalid identify type `org`

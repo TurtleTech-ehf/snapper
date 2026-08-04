@@ -473,6 +473,10 @@ impl DelimState {
 /// (unbalanced input like a lone `{`). Any earlier `\n` while `is_inside()`
 /// is rejected.
 ///
+/// Inline code / links / emphasis are stripped via [`protect_inline_tokens`]
+/// first so brackets inside `` `[` `` do not count as real spans (same as the
+/// production splitter path).
+///
 /// Implementation feeds whole lines (not per-char) so apostrophe heuristics
 /// see real `prev`/`next` neighbors; fails when a prior line left a span open.
 pub fn newlines_respect_delimiter_spans(formatted: &str) -> bool {
@@ -480,8 +484,9 @@ pub fn newlines_respect_delimiter_spans(formatted: &str) -> bool {
     if trimmed_end.is_empty() {
         return true;
     }
+    let (protected, _) = protect_inline_tokens(trimmed_end);
     let mut state = DelimState::default();
-    for line in trimmed_end.split('\n') {
+    for line in protected.split('\n') {
         if state.is_inside() {
             return false;
         }
@@ -795,6 +800,10 @@ mod tests {
             "See [note. One] more. Trailing.\n",
             "He said ``Hello world. How?'' Then.\n",
             "Don't stop. It's ok. Done.\n",
+            // Brackets inside inline code are opaque (protect_inline_tokens);
+            // outer `[…].` closes before the period, so a following sentence
+            // break is allowed.
+            "[`[`].A\"\"]\"}\"''\n",
         ];
         let cfg = FormatConfig {
             format: Format::Plaintext,
