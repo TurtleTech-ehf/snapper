@@ -22,12 +22,18 @@ use snapper_fmt::{
 /// Resolve whether colored diff output should be used.
 ///
 /// `no_color` (legacy subcommand flag) forces off; otherwise `--color` decides
-/// with auto = stdout is a TTY.
+/// with auto = stdout is a TTY and `NO_COLOR` unset.
 fn resolve_color(when: ColorWhen, no_color: bool) -> bool {
     if no_color {
         return false;
     }
-    ColorMode::from(when).should_colorize(io::stdout().is_terminal())
+    let mode = ColorMode::from(when);
+    // `auto` honors the NO_COLOR convention (https://no-color.org): any
+    // non-empty value disables color; explicit `always` still wins.
+    if mode == ColorMode::Auto && std::env::var_os("NO_COLOR").is_some_and(|v| !v.is_empty()) {
+        return false;
+    }
+    mode.should_colorize(io::stdout().is_terminal())
 }
 
 fn main() {

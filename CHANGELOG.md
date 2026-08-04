@@ -12,6 +12,8 @@ All notable changes to this project will be documented in this file. See [conven
 - (**reflow**) `--clause-breaks` / `clause_breaks` config: prefer soft breaks after independent-clause punctuation (comma, semicolon, colon, em dash) under `max_width` (closes #7)
 #### Notes
 - Subcommand `--no-color` remains as an alias for `--color never`
+- `--color auto` honors the `NO_COLOR` environment variable
+- Clause breaks only apply to sentences that exceed `max_width`, and only at whitespace after the punctuation; tokens such as `1,000`, `10:30`, URLs, and `--flags` never split
 
 - - -
 
