@@ -24,6 +24,30 @@ path the README, the quickstart, the npm wrapper README and the VS Code
 extension all hand to users. A release that skips it leaves that path serving
 an older CLI than the docs describe.
 
+### crates.io trusted publishing
+
+No registry credential is stored in this repository. The publish job proves
+its identity with a GitHub OIDC token, which crates.io accepts only for the
+exact triple it has on file:
+
+| Field | Value |
+|---|---|
+| repository | `TurtleTech-ehf/snapper` |
+| workflow filename | `crates.yml` |
+| environment | `crates-io` |
+
+Renaming the workflow file, moving the job to another workflow, or dropping
+the `environment:` key breaks publishing until the configuration on
+<https://crates.io/crates/snapper-fmt/settings> is updated to match. The job
+also needs `permissions: id-token: write`; without it the token exchange
+fails with no usable diagnostic.
+
+To exercise the exchange without consuming a version number:
+
+```sh
+gh workflow run crates.yml --ref main -f dry_run=true
+```
+
 ## Before the tag
 
 1. Branch `release/vX.Y.Z` off `main`. Bump the version everywhere it is
