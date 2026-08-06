@@ -155,6 +155,27 @@ That rule keeps the =//= inside ="// not a comment."= out of the reflow.
 String array of length two: open and close markers (for example =["/*", "*/"]=).
 One-line and multi-line block comments are reflowed as prose between the markers.
 
+** string_delims
+:PROPERTIES:
+:CUSTOM_ID: field-string-delims
+:END:
+
+String array of quote characters.
+Defaults to =["\"", "'"]=.
+
+Without a grammar, quoting is the only thing separating a comment marker from the same characters inside a literal: a marker that trails code reflows, while the same marker inside a quoted string does not.
+The tracking stays conservative: an unbalanced quote, such as a Rust lifetime or an apostrophe in a shell word, makes the rest of the line read as quoted, so a marker after it goes unreflowed rather than mangled.
+
+Grammar-backed languages ignore this field; the parse already knows which bytes belong to a string.
+
+** escape
+:PROPERTIES:
+:CUSTOM_ID: field-escape
+:END:
+
+String holding one character that escapes the next inside a string literal.
+Defaults to a backslash.
+
 ** formatter
 :PROPERTIES:
 :CUSTOM_ID: field-formatter
@@ -177,10 +198,15 @@ Fence aliases resolve as well: =rs=, =py=, =js=, =sh=.
 A build feature governs this, not a config field, and a =[code.<lang>]= entry remains required.
 The grammar decides which bytes form a comment; the entry supplies the markers used to re-emit it.
 
-Two builds carry no grammars and fall back to the line-start rule for every language:
+Two builds carry no grammars and fall back to the scanner for every language:
 
-- =wasm32-unknown-unknown=, the target behind the Obsidian, Word and VS Code integrations, where the C runtime and its grammars would need a =wasm= libc.
+- =wasm32-unknown-unknown=, the target behind the Obsidian and Word integrations, where the C runtime and its grammars would need a =wasm= libc.
 - Any build configured with =--no-default-features= that does not opt back in.
+
+The VS Code extension runs the CLI rather than the wasm build, so it has grammars.
+
+The scanner reads [[#field-string-delims][string_delims]] to find trailing comments on its own, so both engines agree on ordinary code.
+A grammar still wins on raw strings, heredocs, triple-quoted strings and nested comments, where quote counting alone gives the wrong answer.
 
 Block comments always go through the marker scanner, so a close marker inside a string ends the comment early regardless of the grammar.
 
