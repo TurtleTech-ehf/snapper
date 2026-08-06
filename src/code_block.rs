@@ -43,11 +43,25 @@ pub const FORMATTER_TIMEOUT_SECS: u64 = 30;
 /// piped through that formatter; failures degrade gracefully by returning
 /// the pre-formatter body and emitting a diagnostic on stderr.
 pub fn reflow_code_body(
+    lang: &str,
     body: &str,
     cfg: &CodeLang,
     splitter: &dyn SentenceSplitter,
     format_code: bool,
 ) -> String {
+    // A grammar, where one exists, catches the comments the line-start rule
+    // below cannot see. Its output feeds the scanner unchanged: re-splitting
+    // a single sentence yields that sentence, so the second pass is a no-op
+    // on anything the first already shaped.
+    #[cfg(feature = "treesitter")]
+    let body: &str = &{
+        let frozen = frozen_lines(body, cfg);
+        crate::ts_comments::reflow_line_comments(lang, body, cfg, splitter, &frozen)
+            .unwrap_or_else(|| body.to_string())
+    };
+    #[cfg(not(feature = "treesitter"))]
+    let _ = lang;
+
     let after_comment_reflow = reflow_comments(body, cfg, splitter);
     if format_code {
         if let Some(ref argv) = cfg.formatter {
@@ -164,7 +178,7 @@ fn reflow_comments(body: &str, cfg: &CodeLang, splitter: &dyn SentenceSplitter) 
 
         // Line-comment reflow.
         if let Some(ref marker) = cfg.line_comment {
-            if let Some((indent, rest)) = strip_line_comment(line, marker) {
+            if let Some((indent, marker, rest)) = strip_line_comment(line, marker) {
                 let prose = rest.trim();
                 if prose.is_empty() {
                     out.push_str(line);
@@ -202,6 +216,25 @@ fn reflow_comments(body: &str, cfg: &CodeLang, splitter: &dyn SentenceSplitter) 
     out
 }
 
+/// Zero-based line numbers no comment pass may rewrite: the `snapper:off`
+/// and `snapper:on` pragma lines themselves, and everything between them.
+#[cfg(feature = "treesitter")]
+fn frozen_lines(body: &str, cfg: &CodeLang) -> std::collections::HashSet<usize> {
+    let mut frozen = std::collections::HashSet::new();
+    let mut off = false;
+    for (i, line) in body.lines().enumerate() {
+        if let Some(on) = check_pragma_for(line, cfg) {
+            frozen.insert(i);
+            off = !on;
+            continue;
+        }
+        if off {
+            frozen.insert(i);
+        }
+    }
+    frozen
+}
+
 /// Recognise the snapper pragma carried inside a code-block comment.
 /// Accepts the language's `line_comment` marker in addition to the
 /// format-specific prefixes already recognised by `parser::check_pragma`.
@@ -235,16 +268,36 @@ fn split_at_marker<'a>(line: &'a str, marker: &str) -> Option<(&'a str, &'a str)
 }
 
 /// Strip a line-comment prefix from `line` if present. Returns
-/// `(indent, body_after_marker_and_one_optional_space)`.
-fn strip_line_comment<'a>(line: &'a str, marker: &str) -> Option<(&'a str, &'a str)> {
+/// `(indent, marker_as_written, body_after_marker_and_one_optional_space)`.
+///
+/// The marker returned is the one on the page, not the one in the config: a
+/// doc comment repeats or decorates the configured marker (`///`, `//!`,
+/// `;;;`), and re-emitting such a line under the short form would push the
+/// extra characters into the prose.
+fn strip_line_comment<'a>(line: &'a str, marker: &str) -> Option<(&'a str, &'a str, &'a str)> {
     let leading = line.len() - line.trim_start().len();
     let (indent, rest) = line.split_at(leading);
-    let after = rest.strip_prefix(marker)?;
+    rest.strip_prefix(marker)?;
+
+    let mut end = marker.len();
+    if let Some(last) = marker.chars().last() {
+        let bytes = rest.as_bytes();
+        while end < bytes.len() && bytes[end] == last as u8 {
+            end += 1;
+        }
+        // `//!` is a marker; `#!` opening the first line of a shell block is
+        // a shebang, so only multi-character markers absorb the bang.
+        if marker.len() > 1 && end < bytes.len() && bytes[end] == b'!' {
+            end += 1;
+        }
+    }
+    let (found, after) = rest.split_at(end);
+
     // Accept (but don't require) a single separating space; further leading
     // whitespace is preserved as part of the prose so quoted code blocks like
     // `//   code` round-trip.
     let after = after.strip_prefix(' ').unwrap_or(after);
-    Some((indent, after))
+    Some((indent, found, after))
 }
 
 /// Emit a same-line `/* ... */`-style comment as three lines:

@@ -55,6 +55,8 @@ pub mod reflow;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod sdiff;
 pub mod sentence;
+#[cfg(feature = "treesitter")]
+mod ts_comments;
 #[cfg(feature = "wasm")]
 pub mod wasm;
 #[cfg(feature = "watch")]

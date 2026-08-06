@@ -95,7 +95,13 @@ fn reflow_one(
                 .as_deref()
                 .and_then(|l| config.code.and_then(|m| m.get(l)));
             let reflowed = if let Some(cfg) = code_cfg {
-                crate::code_block::reflow_code_body(body, cfg, splitter, config.format_code)
+                crate::code_block::reflow_code_body(
+                    lang.as_deref().unwrap_or(""),
+                    body,
+                    cfg,
+                    splitter,
+                    config.format_code,
+                )
             } else {
                 body.clone()
             };
