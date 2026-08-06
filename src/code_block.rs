@@ -204,6 +204,19 @@ fn reflow_comments(body: &str, cfg: &CodeLang, splitter: &dyn SentenceSplitter) 
             }
         }
 
+        // A comment trailing real code. Without a grammar the only way to
+        // tell this marker from the same characters inside a literal is to
+        // track quoting, so that is what `trailing_comment_at` does.
+        if let Some(ref marker) = cfg.line_comment {
+            if let Some(at) = trailing_comment_at(line, marker, cfg) {
+                if let Some(rewritten) = rewrite_trailing(line, at, marker, splitter) {
+                    out.push_str(&rewritten);
+                    out.push('\n');
+                    continue;
+                }
+            }
+        }
+
         // Non-comment line: passthrough.
         out.push_str(line);
         out.push('\n');
@@ -255,6 +268,107 @@ fn check_pragma_for(line: &str, cfg: &CodeLang) -> Option<bool> {
         }
     }
     None
+}
+
+/// Byte offset of a comment marker that follows code on the same line, or
+/// `None` when the line has no such marker outside a string.
+///
+/// Quote tracking is what separates `x = 1; // note` from
+/// `let s = "// not a comment";`. It is deliberately conservative: an
+/// unbalanced quote (a Rust lifetime, an apostrophe in a shell word) leaves
+/// the rest of the line looking quoted, so a marker after it is missed
+/// rather than mistaken.
+fn trailing_comment_at(line: &str, marker: &str, cfg: &CodeLang) -> Option<usize> {
+    if marker.is_empty() {
+        return None;
+    }
+    let quotes = cfg.quote_chars();
+    let escape = cfg.escape_char();
+    let block_open = cfg
+        .block_comment
+        .as_ref()
+        .map(|pair| pair[0].as_str())
+        .unwrap_or("");
+
+    let bytes = line.as_bytes();
+    let mut in_string: Option<char> = None;
+    let mut i = 0;
+    let mut seen_code = false;
+
+    while i < bytes.len() {
+        let rest = &line[i..];
+        let ch = rest.chars().next()?;
+
+        match in_string {
+            Some(delim) => {
+                if ch == escape {
+                    i += ch.len_utf8();
+                    if let Some(next) = line[i..].chars().next() {
+                        i += next.len_utf8();
+                    }
+                    continue;
+                }
+                if ch == delim {
+                    in_string = None;
+                }
+            }
+            None => {
+                if quotes.contains(&ch) {
+                    in_string = Some(ch);
+                    seen_code = true;
+                } else if !block_open.is_empty() && rest.starts_with(block_open) {
+                    // A block comment on a code line is the scanner's blind
+                    // spot either way; leave the whole line alone.
+                    return None;
+                } else if rest.starts_with(marker) {
+                    return if seen_code { Some(i) } else { None };
+                } else if !ch.is_whitespace() {
+                    seen_code = true;
+                }
+            }
+        }
+        i += ch.len_utf8();
+    }
+    None
+}
+
+/// Rewrite a line whose comment starts at `at`, keeping the first sentence
+/// beside the code and aligning the rest under the marker. Returns `None`
+/// when the comment holds a single sentence and the line stands as written.
+fn rewrite_trailing(
+    line: &str,
+    at: usize,
+    marker: &str,
+    splitter: &dyn SentenceSplitter,
+) -> Option<String> {
+    let (code, comment) = line.split_at(at);
+    let (_, found, rest) = strip_line_comment(comment, marker)?;
+    let prose = rest.trim();
+    if prose.is_empty() {
+        return None;
+    }
+    let sentences = splitter.split(prose);
+    if sentences.len() < 2 {
+        return None;
+    }
+
+    let pad: String = code
+        .chars()
+        .map(|c| if c == '\t' { '\t' } else { ' ' })
+        .collect();
+    let mut out = String::with_capacity(line.len() + sentences.len() * (pad.len() + 4));
+    for (i, sentence) in sentences.iter().enumerate() {
+        if i == 0 {
+            out.push_str(code);
+        } else {
+            out.push('\n');
+            out.push_str(&pad);
+        }
+        out.push_str(found);
+        out.push(' ');
+        out.push_str(sentence);
+    }
+    Some(out)
 }
 
 /// Split a line at the first occurrence of `marker`. Returns
@@ -473,7 +587,7 @@ mod tests {
         CodeLang {
             line_comment: Some("//".to_string()),
             block_comment: Some(["/*".to_string(), "*/".to_string()]),
-            formatter: None,
+            ..Default::default()
         }
     }
 

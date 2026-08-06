@@ -27,7 +27,7 @@ fn code_map(entries: &[(&str, Option<&str>, Option<[&str; 2]>)]) -> HashMap<Stri
             CodeLang {
                 line_comment: lc.map(|s| s.to_string()),
                 block_comment: bc.map(|pair| [pair[0].to_string(), pair[1].to_string()]),
-                formatter: None,
+                ..Default::default()
             },
         );
     }
@@ -433,7 +433,6 @@ fn main() {
 }
 
 #[test]
-#[cfg(feature = "treesitter")]
 fn rust_marker_inside_string_literal_is_not_a_comment() {
     let input = "\
 ```rust
@@ -507,21 +506,70 @@ fn main() {
 }
 
 #[test]
-fn language_without_a_grammar_still_reflows_own_line_comments() {
+fn language_without_a_grammar_reflows_trailing_comments_too() {
     let input = "\
 ```lua
 -- First sentence. Second sentence.
-local x = 1 -- trailing stays put. Second here.
+local x = 1 -- Trailing one. Trailing two.
 ```
 ";
     let cfg = config(Format::Markdown, code_map(&[("lua", Some("--"), None)]));
     let out = round_trip(input, &cfg);
     assert!(
         out.contains("-- First sentence.\n-- Second sentence.\n"),
-        "scanner path must still split an own-line comment, got:\n{out}"
+        "own-line comment splits on the scanner path, got:\n{out}"
     );
     assert!(
-        out.contains("local x = 1 -- trailing stays put. Second here.\n"),
-        "no grammar for lua, so a trailing comment is left alone, got:\n{out}"
+        out.contains("local x = 1 -- Trailing one.\n            -- Trailing two.\n"),
+        "lua has no grammar, so the scanner must handle the trailing comment, got:\n{out}"
+    );
+}
+
+#[test]
+fn scanner_path_leaves_a_marker_inside_a_string_alone() {
+    let input = "\
+```lua
+local s = \"-- not a comment. Really not one.\"
+```
+";
+    let cfg = config(Format::Markdown, code_map(&[("lua", Some("--"), None)]));
+    let out = round_trip(input, &cfg);
+    assert_eq!(
+        out, input,
+        "quote tracking must keep a marker inside a literal out of the reflow"
+    );
+}
+
+#[test]
+fn scanner_and_grammar_agree_on_a_plain_trailing_comment() {
+    // The wasm builds behind the Obsidian and Word integrations carry no
+    // grammar, so the two engines have to produce the same text for code
+    // this ordinary.
+    let rust_input = "\
+```rust
+let n = 1; // Trailing one. Trailing two.
+```
+";
+    let lua_input = "\
+```lua
+local n = 1 -- Trailing one. Trailing two.
+```
+";
+    let rust_cfg = config(
+        Format::Markdown,
+        code_map(&[("rust", Some("//"), Some(["/*", "*/"]))]),
+    );
+    let lua_cfg = config(Format::Markdown, code_map(&[("lua", Some("--"), None)]));
+
+    let rust_out = round_trip(rust_input, &rust_cfg);
+    let lua_out = round_trip(lua_input, &lua_cfg);
+
+    assert!(
+        rust_out.contains("let n = 1; // Trailing one.\n           // Trailing two.\n"),
+        "grammar path, got:\n{rust_out}"
+    );
+    assert!(
+        lua_out.contains("local n = 1 -- Trailing one.\n            -- Trailing two.\n"),
+        "scanner path, got:\n{lua_out}"
     );
 }

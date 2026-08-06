@@ -157,7 +157,7 @@ fn code_block_comment_respects_quotes() {
                 snapper_fmt::config::CodeLang {
                     line_comment: Some("//".into()),
                     block_comment: None,
-                    formatter: None,
+                    ..Default::default()
                 },
             );
             m

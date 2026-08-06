@@ -23,12 +23,38 @@ pub struct FormatOverrides {
 /// - `formatter`: argv for an external formatter invoked via `--format-code`;
 ///   `formatter[0]` is the binary, the rest are its arguments. Stdin/stdout
 ///   carries block body.
+/// - `string_delims`: quote characters that open and close a string, used to
+///   tell a comment marker from the same characters inside a literal when no
+///   grammar is available. Defaults to `"` and `'`.
+/// - `escape`: character that escapes the next one inside a string. Defaults
+///   to a backslash.
 #[derive(Debug, Default, Clone, Deserialize, PartialEq, Eq)]
 #[serde(default)]
 pub struct CodeLang {
     pub line_comment: Option<String>,
     pub block_comment: Option<[String; 2]>,
     pub formatter: Option<Vec<String>>,
+    pub string_delims: Option<Vec<String>>,
+    pub escape: Option<String>,
+}
+
+impl CodeLang {
+    /// Quote characters for this language, falling back to the pair almost
+    /// every language shares.
+    pub(crate) fn quote_chars(&self) -> Vec<char> {
+        match self.string_delims {
+            Some(ref delims) => delims.iter().filter_map(|d| d.chars().next()).collect(),
+            None => vec!['"', '\''],
+        }
+    }
+
+    /// Escape character for this language.
+    pub(crate) fn escape_char(&self) -> char {
+        self.escape
+            .as_ref()
+            .and_then(|e| e.chars().next())
+            .unwrap_or('\\')
+    }
 }
 
 /// Per-project configuration loaded from `.snapperrc.toml`.
