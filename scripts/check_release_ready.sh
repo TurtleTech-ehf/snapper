@@ -73,11 +73,31 @@ rev_pinned=(
   readme_src.org
   docs/orgmode/tutorials/quickstart.org
   docs/orgmode/howto/ci-enforcement.org
+  docs/orgmode/howto/vale-integration.org
 )
 for file in "${rev_pinned[@]}"; do
   expect "rev: v$version" "$file"
 done
 expect "TurtleTech-ehf/snapper@v$version" docs/orgmode/howto/ci-enforcement.org
+
+# The list above only proves the current pin is present somewhere in each
+# file. Catch the other half: no prose doc may point a reader at a rev or a
+# release download for any other version. A snippet pinned at an older tag
+# resolves against that tag's hook definitions and installer assets.
+stale_pins="$(
+  git -C "$repo_root" ls-files -- '*.md' '*.org' ':!CHANGELOG.md' \
+  | while read -r doc; do
+      awk -v ver="v$version" -v f="$doc" '
+        /repo:[[:space:]]*https:\/\/github\.com\/TurtleTech-ehf\/snapper/ { ours = 1; next }
+        /repo:[[:space:]]*https:\/\/github\.com\// { ours = 0 }
+        ours && /rev:[[:space:]]*v[0-9]+\.[0-9]+\.[0-9]+/ && index($0, ver) == 0 { print f ":" FNR ":" $0 }
+        /snapper\/releases\/(tag|download)\/v[0-9]+\.[0-9]+\.[0-9]+/ && index($0, ver) == 0 { print f ":" FNR ":" $0 }
+      ' "$repo_root/$doc"
+    done
+)"
+if [[ -n "$stale_pins" ]]; then
+  fail "docs pin a version other than v$version:"$'\n'"$stale_pins"
+fi
 
 # CHANGELOG must document this release.
 expect "## v$version" CHANGELOG.md
