@@ -134,6 +134,19 @@ String.
 Marker for single-line comments (for example ="//"= or ="#"=).
 Comment text after the marker is reflowed with the sentence splitter; the marker and indentation are preserved.
 
+A marker that repeats or decorates this one keeps its written form, so =///= and =//!= survive a split instead of collapsing to =//=.
+A =#!= shebang is left alone.
+
+Where a grammar backs the language (see [[#grammar-backed-languages]]), the reflow also reaches a comment that follows code on the same line, aligning continuation sentences under the comment:
+
+#+begin_src rust
+let n = 1; // First sentence.
+           // Second sentence.
+#+end_src
+
+Without a grammar the marker must open the line.
+That rule keeps the =//= inside ="// not a comment."= out of the reflow.
+
 ** block_comment
 :PROPERTIES:
 :CUSTOM_ID: field-block-comment
@@ -152,6 +165,24 @@ Only runs when the CLI flag =--format-code= is set.
 Missing binaries, non-zero exits, and a ~30s watchdog timeout each leave the reflowed body in place (non-fatal).
 
 If a language has no =[code.<lang>]= entry (or the fence has no language), the block body passes through unchanged aside from normal trailing-newline preservation.
+
+** Grammar-backed languages
+:PROPERTIES:
+:CUSTOM_ID: grammar-backed-languages
+:END:
+
+The =treesitter= feature, on by default, parses code blocks in =rust=, =python=, =javascript=, =c=, =cpp=, =go=, =bash= and =html= to tell a comment from a string.
+Fence aliases resolve as well: =rs=, =py=, =js=, =sh=.
+
+A build feature governs this, not a config field, and a =[code.<lang>]= entry remains required.
+The grammar decides which bytes form a comment; the entry supplies the markers used to re-emit it.
+
+Two builds carry no grammars and fall back to the line-start rule for every language:
+
+- =wasm32-unknown-unknown=, the target behind the Obsidian, Word and VS Code integrations. The tree-sitter runtime and its grammars come as C sources and need a =wasm= libc.
+- Any build configured with =--no-default-features= that does not opt back in.
+
+Block comments always go through the marker scanner, so a close marker inside a string ends the comment early regardless of the grammar.
 
 * Precedence
 :PROPERTIES:
