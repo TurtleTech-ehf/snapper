@@ -10,6 +10,26 @@ keywords = ["semantic", "linebreak", "formatter", "latex", "orgmode"]
 categories = ["command-line-utilities", "text-processing"]
 readme = "README.md"
 homepage = "https://snapper.turtletech.us"
+# Ship what builds and tests the crate. The docs site, editor integrations,
+# branding and the packaging trees live in the repository and are reachable
+# from `repository`, so carrying them in every download buys nothing. Three
+# entries here are load-bearing rather than obvious: `tests` because
+# `src/parser/pandoc/ast.rs` pulls fixtures in with `include_str!`, `benches`
+# because `[[bench]]` names a target that has to resolve, and `native`
+# because the colink test reads the archive build scripts.
+include = [
+    "/src",
+    "/tests",
+    "/benches",
+    "/examples",
+    "/native",
+    "/build.rs",
+    "/Cargo.toml",
+    "/Cargo.lock",
+    "/README.md",
+    "/CHANGELOG.md",
+    "/LICENSE",
+]
 
 [lib]
 crate-type = ["cdylib", "rlib"]
