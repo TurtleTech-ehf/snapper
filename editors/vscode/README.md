@@ -1,6 +1,6 @@
 # snapper - Semantic Line Breaks
 
-Requires **snapper** CLI **0.9.1+** on your PATH (or set `snapper.path`). Install: `cargo install snapper-fmt` or the [release installer](https://github.com/TurtleTech-ehf/snapper/releases/tag/v0.8.0).
+Requires **snapper** CLI **0.9.1+** on your PATH (or set `snapper.path`). Install: `cargo install snapper-fmt` or the [release installer](https://github.com/TurtleTech-ehf/snapper/releases/tag/v0.9.1).
 
 
 Format prose so each sentence occupies its own line, producing clean git diffs for collaborative writing.

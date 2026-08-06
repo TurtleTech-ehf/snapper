@@ -67,7 +67,7 @@ A typical workflow:
 
 #+begin_src yaml
 - repo: https://github.com/TurtleTech-ehf/snapper
-  rev: v0.6.0
+  rev: v0.9.1
   hooks:
     - id: snapper
 - repo: https://github.com/errata-ai/vale
