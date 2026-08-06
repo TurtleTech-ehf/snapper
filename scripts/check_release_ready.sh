@@ -129,6 +129,19 @@ else
       fail "conda/recipe.yaml sha256 does not match the v$version tarball ($actual)"
     fi
   fi
+
+  # crates.io serves the install path the docs hand to users, so it must
+  # carry this version like every other channel.
+  if crates_json="$(curl -fsSL --retry 3 -A 'snapper-release' \
+      https://crates.io/api/v1/crates/snapper-fmt)"; then
+    crates_version="$(printf '%s' "$crates_json" | tr ',' '\n' \
+      | sed -n 's/.*"max_version":"\([^"]*\)".*/\1/p' | head -n 1)"
+    if [[ "$crates_version" != "$version" ]]; then
+      fail "crates.io serves snapper-fmt $crates_version, not $version"
+    fi
+  else
+    fail "could not reach crates.io to verify the published version"
+  fi
 fi
 
 if [[ "$failed" -eq 0 ]]; then
