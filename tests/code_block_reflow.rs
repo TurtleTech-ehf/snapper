@@ -400,3 +400,128 @@ fn no_lang_on_fence_passes_through_unchanged() {
     let out = round_trip(input, &cfg);
     assert_eq!(out, input);
 }
+
+// ---------------------------------------------------------------------------
+// Grammar-backed discovery: comments that do not open their line, and
+// markers that only look like comments. Both need a parse to tell apart.
+// ---------------------------------------------------------------------------
+
+#[test]
+#[cfg(feature = "treesitter")]
+fn rust_trailing_comment_reflows_aligned_under_itself() {
+    let input = "\
+```rust
+fn main() {
+    let n = 1; // Trailing note. Second sentence here.
+}
+```
+";
+    let cfg = config(
+        Format::Markdown,
+        code_map(&[("rust", Some("//"), Some(["/*", "*/"]))]),
+    );
+    let out = round_trip(input, &cfg);
+    let expected = "\
+```rust
+fn main() {
+    let n = 1; // Trailing note.
+               // Second sentence here.
+}
+```
+";
+    assert_eq!(out, expected);
+}
+
+#[test]
+#[cfg(feature = "treesitter")]
+fn rust_marker_inside_string_literal_is_not_a_comment() {
+    let input = "\
+```rust
+fn main() {
+    let s = \"// not a comment. Really not one.\";
+}
+```
+";
+    let cfg = config(
+        Format::Markdown,
+        code_map(&[("rust", Some("//"), Some(["/*", "*/"]))]),
+    );
+    let out = round_trip(input, &cfg);
+    assert_eq!(out, input);
+}
+
+#[test]
+#[cfg(feature = "treesitter")]
+fn rust_doc_comment_keeps_its_own_marker() {
+    let input = "\
+```rust
+/// Doc line one. Doc line two.
+fn x() {}
+```
+";
+    let cfg = config(
+        Format::Markdown,
+        code_map(&[("rust", Some("//"), Some(["/*", "*/"]))]),
+    );
+    let out = round_trip(input, &cfg);
+    assert!(
+        out.contains("/// Doc line one.\n/// Doc line two.\n"),
+        "doc marker must survive the split, got:\n{out}"
+    );
+}
+
+#[test]
+#[cfg(feature = "treesitter")]
+fn python_trailing_comment_reflows() {
+    let input = "\
+```python
+x = 1  # First sentence. Second sentence.
+```
+";
+    let cfg = config(Format::Markdown, code_map(&[("python", Some("#"), None)]));
+    let out = round_trip(input, &cfg);
+    assert!(
+        out.contains("x = 1  # First sentence.\n       # Second sentence.\n"),
+        "trailing python comment must align under itself, got:\n{out}"
+    );
+}
+
+#[test]
+#[cfg(feature = "treesitter")]
+fn pragma_freezes_a_trailing_comment() {
+    let input = "\
+```rust
+// snapper:off
+fn main() {
+    let n = 1; // Frozen note. Stays on one line.
+}
+// snapper:on
+```
+";
+    let cfg = config(
+        Format::Markdown,
+        code_map(&[("rust", Some("//"), Some(["/*", "*/"]))]),
+    );
+    let out = round_trip(input, &cfg);
+    assert_eq!(out, input);
+}
+
+#[test]
+fn language_without_a_grammar_still_reflows_own_line_comments() {
+    let input = "\
+```lua
+-- First sentence. Second sentence.
+local x = 1 -- trailing stays put. Second here.
+```
+";
+    let cfg = config(Format::Markdown, code_map(&[("lua", Some("--"), None)]));
+    let out = round_trip(input, &cfg);
+    assert!(
+        out.contains("-- First sentence.\n-- Second sentence.\n"),
+        "scanner path must still split an own-line comment, got:\n{out}"
+    );
+    assert!(
+        out.contains("local x = 1 -- trailing stays put. Second here.\n"),
+        "no grammar for lua, so a trailing comment is left alone, got:\n{out}"
+    );
+}

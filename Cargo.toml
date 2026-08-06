@@ -52,7 +52,7 @@ path = "src/gen_docs.rs"
 required-features = ["cli"]
 
 [features]
-default = ["cli", "neural", "lsp", "watch", "pandoc"]
+default = ["cli", "neural", "lsp", "watch", "pandoc", "treesitter"]
 cli = ["dep:clap", "dep:clap-markdown", "dep:rayon", "dep:ec4rs", "dep:glob"]
 neural = ["dep:nnsplit"]
 lsp = ["dep:tower-lsp", "dep:tokio"]
@@ -65,6 +65,20 @@ pandoc-ffi = ["pandoc"]
 pandoc-colink = ["pandoc"]
 wasm = ["dep:wasm-bindgen", "dep:serde-wasm-bindgen", "dep:js-sys"]
 mcp = ["dep:rmcp", "dep:schemars"]
+# Grammar-backed comment discovery inside code blocks. The runtime and the
+# grammars are C, so this is off for wasm32-unknown-unknown, which has no
+# libc for them; that target keeps the line-start scanner.
+treesitter = [
+    "dep:tree-sitter",
+    "dep:tree-sitter-rust",
+    "dep:tree-sitter-python",
+    "dep:tree-sitter-javascript",
+    "dep:tree-sitter-c",
+    "dep:tree-sitter-cpp",
+    "dep:tree-sitter-go",
+    "dep:tree-sitter-bash",
+    "dep:tree-sitter-html",
+]
 
 [dependencies]
 # Always-on (WASM-safe)
@@ -103,6 +117,17 @@ js-sys = { version = "0.3", optional = true }
 # MCP server
 rmcp = { version = "1.2", features = ["server", "transport-io", "macros"], optional = true }
 schemars = { version = "1.0", features = ["derive"], optional = true }
+
+# Grammars for code-block comment discovery
+tree-sitter = { version = "0.26", optional = true }
+tree-sitter-rust = { version = "0.24", optional = true }
+tree-sitter-python = { version = "0.25", optional = true }
+tree-sitter-javascript = { version = "0.25", optional = true }
+tree-sitter-c = { version = "0.24", optional = true }
+tree-sitter-cpp = { version = "0.23", optional = true }
+tree-sitter-go = { version = "0.25", optional = true }
+tree-sitter-bash = { version = "0.25", optional = true }
+tree-sitter-html = { version = "0.23", optional = true }
 
 [dev-dependencies]
 tempfile = "3"
