@@ -12,13 +12,17 @@ lingers.
 | GitHub Release (binaries, shell/powershell installers) | tag `v*` push | `Release` (cargo-dist) |
 | Homebrew tap `TurtleTech-ehf/homebrew-tap` | tag `v*` push | `Release` publish-homebrew-formula job |
 | PyPI `snapper-fmt` (sdist + wheels) | tag `v*` push | `Python wheels` publish job (trusted publishing) |
+| crates.io `snapper-fmt` | tag `v*` push | `crates.io` publish job (`CARGO_REGISTRY_TOKEN`) |
 | Docs site (Cloudflare Pages) | push to `main` or tag | `Build and Deploy` |
 | conda recipe mirror (`conda/recipe.yaml`) | manual, **after** the tag exists | see "After the tag" |
 | VS Code extension (`TurtleTech.snapper`) | manual marketplace publish | `editors/vscode` |
 | Obsidian plugin / Word add-in | not published (development preview) | built by `WASM` workflow only |
 | npm wrapper (`npm/`) | not published (`"private": true`) | none |
 
-crates.io is **not** a channel; nothing publishes there.
+crates.io carries the CLI because `cargo install snapper-fmt` is the install
+path the README, the quickstart, the npm wrapper README and the VS Code
+extension all hand to users. A release that skips it leaves that path serving
+an older CLI than the docs describe.
 
 ## Before the tag
 
@@ -61,7 +65,7 @@ be rebuilt in place.
 
 ## After the tag
 
-Watch **all three** tag-triggered workflows to completion; a release is not
+Watch **all four** tag-triggered workflows to completion; a release is not
 done while any of them is running or red:
 
 ```sh
@@ -73,6 +77,7 @@ Then verify each channel:
 ```sh
 gh release view vX.Y.Z                                  # assets + installers
 curl -s https://pypi.org/pypi/snapper-fmt/json | jq -r .info.version
+curl -s https://crates.io/api/v1/crates/snapper-fmt | jq -r .crate.max_version
 gh api repos/TurtleTech-ehf/homebrew-tap/commits --jq '.[0].commit.message'
 ```
 
