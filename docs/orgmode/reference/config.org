@@ -179,7 +179,7 @@ The grammar decides which bytes form a comment; the entry supplies the markers u
 
 Two builds carry no grammars and fall back to the line-start rule for every language:
 
-- =wasm32-unknown-unknown=, the target behind the Obsidian, Word and VS Code integrations. The tree-sitter runtime and its grammars come as C sources and need a =wasm= libc.
+- =wasm32-unknown-unknown=, the target behind the Obsidian, Word and VS Code integrations, where the C runtime and its grammars would need a =wasm= libc.
 - Any build configured with =--no-default-features= that does not opt back in.
 
 Block comments always go through the marker scanner, so a close marker inside a string ends the comment early regardless of the grammar.
