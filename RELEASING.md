@@ -12,7 +12,7 @@ lingers.
 | GitHub Release (binaries, shell/powershell installers) | tag `v*` push | `Release` (cargo-dist) |
 | Homebrew tap `TurtleTech-ehf/homebrew-tap` | tag `v*` push | `Release` publish-homebrew-formula job |
 | PyPI `snapper-fmt` (sdist + wheels) | tag `v*` push | `Python wheels` publish job (trusted publishing) |
-| crates.io `snapper-fmt` | tag `v*` push | `crates.io` publish job (`CARGO_REGISTRY_TOKEN`) |
+| crates.io `snapper-fmt` | tag `v*` push | `crates.io` publish job (trusted publishing) |
 | Docs site (Cloudflare Pages) | push to `main` or tag | `Build and Deploy` |
 | conda recipe mirror (`conda/recipe.yaml`) | manual, **after** the tag exists | see "After the tag" |
 | VS Code extension (`TurtleTech.snapper`) | manual marketplace publish | `editors/vscode` |

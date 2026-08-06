@@ -16,6 +16,11 @@ on:
         description: 'Tag or ref to publish (defaults to the triggering ref)'
         required: false
         type: string
+      dry_run:
+        description: 'Mint the token and package, but upload nothing'
+        required: false
+        default: true
+        type: boolean
 
 concurrency:
   group: crates-${{ github.ref }}
@@ -51,6 +56,9 @@ jobs:
     environment:
       name: crates-io
       url: https://crates.io/crates/snapper-fmt
+    permissions:
+      contents: read
+      id-token: write
     steps:
       - uses: actions/checkout@v4
         with:
@@ -58,7 +66,16 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@stable
 
+      # Trusted publishing: exchange this job's OIDC identity for a token
+      # that lives only for the length of the run. crates.io accepts it
+      # because the registry side pins this repository, this workflow file
+      # and the environment below; a mismatch fails here rather than
+      # reaching for a long-lived credential.
+      - name: Mint a trusted-publishing token
+        id: auth
+        uses: rust-lang/crates-io-auth-action@v1.0.5
+
       - name: Publish
         env:
-          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
-        run: cargo publish --locked
+          CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token }}
+        run: cargo publish --locked ${{ inputs.dry_run && '--dry-run' || '' }}
