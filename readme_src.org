@@ -33,6 +33,7 @@ Fenced and delimited source blocks are =Region::Code=: fence/open/close lines st
 Pass =--format-code= to also pipe each block body through an optional per-language =formatter= argv (missing binary, non-zero exit, and timeouts degrade to the reflowed body).
 Sentence detection relies on Unicode UAX #29 segmentation with abbreviation-aware post-processing that avoids false breaks at titles (Dr., Prof.), references (Fig., Eq.), and Latin terms (e.g., i.e., et al.).
 Org emphasis (=*bold*=, =/italic/=, =_underline_=, =+strike+=) is kept atomic so splits cannot open a pseudo-headline mid-span.
+Markdown =*em*= / =**strong**= (CommonMark flanking) and GFM =~~strike~~= are kept atomic the same way.
 * Installation
 :PROPERTIES:
 :CUSTOM_ID: installation
