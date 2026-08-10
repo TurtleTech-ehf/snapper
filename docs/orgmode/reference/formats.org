@@ -71,6 +71,7 @@ These tokens within prose are not split across lines:
 :END:
 - Preamble (everything before =\begin{document}=)
 - Non-prose environments: equation, align, figure, table, tabular, tikzpicture, and their starred variants (plus other non-code envs)
+- Extra names from =[latex].structure_envs= in =.snapperrc.toml= (for example =algorithm=, =comment=)
 - Display math: =\[...\]=
 - Comment lines (starting with =%=)
 - =\end{document}=
@@ -81,7 +82,9 @@ These tokens within prose are not split across lines:
 :CUSTOM_ID: latex-code
 :END:
 - =\\begin{...}= / =\\end{...}= lines are structure
+- Extra names from =[latex].verbatim_envs= (for example fancyvrb =Verbatim=) are code regions too
 - Body follows the same comment-reflow and optional =--format-code= rules as other formats when language is known (=minted= language arg, =lstlisting= =language== option)
+- Inline =\verb= / =\lstinline= (and extra =[latex].verbatim_commands=, for example =\Verb=) stay atomic; inner =.!?%= do not split or comment
 
 *** Prose regions (reflowed)
 :PROPERTIES:
