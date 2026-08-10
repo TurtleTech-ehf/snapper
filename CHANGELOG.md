@@ -8,6 +8,7 @@ All notable changes to this project will be documented in this file. See [conven
 - (**org** / **sentence**) verbatim and inline-code spans pair to the first closer that satisfies Org's border and post rules, so an `=` or `~` inside the span no longer orphans the real closer onto the next line
 - (**markdown** / **sentence**) inline code delimited by two or more backticks can contain a shorter backtick run
 - (**code-block**) a block-comment closer inside a string no longer ends the comment; quote-sequence closers (`"""`) still match naively so Python docstrings reflow
+- (**sentence**) abbreviation merge does not invent a space before LaTeX `~` (so `Eq.~\ref{}` stays attached once org `~code~` pairing no longer swallows that tilde)
 
 - - -
 
