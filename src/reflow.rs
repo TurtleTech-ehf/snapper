@@ -820,4 +820,231 @@ without additional human intervention.";
             );
         }
     }
+
+    fn wrap_sentence(sentence: &str, max_width: usize, clause_breaks: bool) -> String {
+        let regions = vec![Region::Prose(sentence.to_string())];
+        let config = ReflowConfig {
+            max_width,
+            clause_breaks,
+            ..Default::default()
+        };
+        reflow(&regions, &UnicodeSentenceSplitter::new(), &config)
+    }
+
+    fn assert_atomic_token(wrapped: &str, token: &str) {
+        assert!(
+            wrapped.lines().any(|l| l.contains(token)),
+            "{token:?} must stay on a single line:\n{wrapped}"
+        );
+        assert!(
+            !wrapped.contains('\u{00a0}'),
+            "wrap must not inject NBSP:\n{wrapped}"
+        );
+    }
+
+    #[test]
+    fn max_width_keeps_markdown_link_atomic() {
+        let token = "[the example site](https://ex.com)";
+        let sentence = "Please consult [the example site](https://ex.com) today.";
+        for clause in [false, true] {
+            let wrapped = wrap_sentence(sentence, 40, clause);
+            assert_atomic_token(&wrapped, token);
+        }
+    }
+
+    #[test]
+    fn max_width_keeps_markdown_image_atomic() {
+        let token = "![alt text here](https://img.example.com/a.png)";
+        let sentence = "Look at ![alt text here](https://img.example.com/a.png) now please.";
+        for clause in [false, true] {
+            let wrapped = wrap_sentence(sentence, 36, clause);
+            assert_atomic_token(&wrapped, token);
+        }
+    }
+
+    #[test]
+    fn max_width_keeps_inline_code_atomic() {
+        let token = "`some long inline code`";
+        let sentence = "Use `some long inline code` today.";
+        for clause in [false, true] {
+            let wrapped = wrap_sentence(sentence, 20, clause);
+            assert_atomic_token(&wrapped, token);
+        }
+    }
+
+    #[test]
+    fn max_width_keeps_org_link_atomic() {
+        let token = "[[https://example.com][the example site]]";
+        let sentence = "See [[https://example.com][the example site]] now.";
+        for clause in [false, true] {
+            let wrapped = wrap_sentence(sentence, 30, clause);
+            assert_atomic_token(&wrapped, token);
+        }
+    }
+
+    #[test]
+    fn max_width_keeps_math_atomic() {
+        let token = "$E = m c^{2}$";
+        let sentence = "The identity $E = m c^{2}$ holds in this frame.";
+        for clause in [false, true] {
+            let wrapped = wrap_sentence(sentence, 24, clause);
+            assert_atomic_token(&wrapped, token);
+        }
+    }
+
+    #[test]
+    fn max_width_keeps_autolink_atomic() {
+        let token = "<https://example.com/a/long-path>";
+        let sentence = "Visit <https://example.com/a/long-path> today.";
+        for clause in [false, true] {
+            let wrapped = wrap_sentence(sentence, 24, clause);
+            assert_atomic_token(&wrapped, token);
+        }
+    }
+
+    #[test]
+    fn overlong_atomic_token_sits_alone() {
+        let token = "[a deliberately long link description that exceeds width](https://example.com)";
+        let sentence = format!("See {token} now.");
+        for clause in [false, true] {
+            let wrapped = wrap_sentence(&sentence, 20, clause);
+            assert_atomic_token(&wrapped, token);
+            let line = wrapped
+                .lines()
+                .find(|l| l.contains(token))
+                .expect("token line");
+            assert_eq!(line.trim(), token, "overlong token sits alone:\n{wrapped}");
+        }
+    }
+
+    #[test]
+    fn textwrap_path_never_splits_numeric_url_or_flag_tokens() {
+        let s = "Totals reached 1,000,000 by 10:30 via https://example.com/a,b using --clause-breaks in a sentence long enough to wrap.";
+        let wrapped = wrap_sentence(s, 30, false);
+        let rejoined: Vec<&str> = wrapped.split_whitespace().collect();
+        let original: Vec<&str> = s.split_whitespace().collect();
+        assert_eq!(rejoined, original, "wrapping must be lossless: {wrapped:?}");
+        for token in ["1,000,000", "10:30", "https://example.com/a,b", "--clause-breaks"] {
+            assert!(
+                wrapped.lines().any(|l| l.contains(token)),
+                "{token:?} must stay on a single line: {wrapped:?}"
+            );
+        }
+        assert!(!wrapped.contains('\u{00a0}'));
+    }
+
+    #[test]
+    fn wrap_created_dash_escaped_in_markdown() {
+        // "The options are apples" is 22 chars; width 23 breaks before "-".
+        let input = "The options are apples - oranges extra.";
+        let config = crate::FormatConfig {
+            format: crate::format::Format::Markdown,
+            max_width: 23,
+            ..Default::default()
+        };
+        let result = crate::format_text(input, &config).unwrap();
+        assert!(
+            !result.lines().any(|l| l.starts_with("- ")),
+            "wrap must not invent a list:\n{result}"
+        );
+        assert!(
+            result.lines().any(|l| l.starts_with("\\- ")),
+            "wrap-created dash must be markdown-escaped:\n{result}"
+        );
+        assert!(!result.contains('\u{00a0}'));
+    }
+
+    #[test]
+    fn wrap_created_hash_star_plus_gt_and_ordered_escaped_in_markdown() {
+        let config = crate::FormatConfig {
+            format: crate::format::Format::Markdown,
+            max_width: 23,
+            ..Default::default()
+        };
+        let cases = [
+            ("The options are apples * oranges extra.", "\\* "),
+            ("The options are apples + oranges extra.", "\\+ "),
+            ("The options are apples > oranges extra.", "\\> "),
+            ("The options are apples # oranges extra.", "\\# "),
+            ("The options are apples 1. oranges extra.", "1\\. "),
+        ];
+        for (input, escaped_prefix) in cases {
+            let result = crate::format_text(input, &config).unwrap();
+            assert!(
+                result.lines().any(|l| l.starts_with(escaped_prefix)),
+                "expected a wrap-created line starting {escaped_prefix:?}:\n{result}"
+            );
+            assert!(
+                !result.lines().any(|l| {
+                    l.starts_with("* ")
+                        || l.starts_with("+ ")
+                        || l.starts_with("> ")
+                        || l.starts_with("# ")
+                        || l.starts_with("1. ")
+                }),
+                "wrap must not invent a block:\n{result}"
+            );
+        }
+    }
+
+    #[test]
+    fn wrap_created_dash_skips_cut_in_org() {
+        let input = "The options are apples - oranges extra.";
+        let config = crate::FormatConfig {
+            format: crate::format::Format::Org,
+            max_width: 23,
+            ..Default::default()
+        };
+        let result = crate::format_text(input, &config).unwrap();
+        assert!(
+            !result.lines().any(|l| l.starts_with("- ")),
+            "wrap must not invent an Org list:\n{result}"
+        );
+        assert!(
+            !result.contains('\\'),
+            "Org skips the cut instead of backslash-escaping:\n{result}"
+        );
+        assert!(
+            result.contains("apples -"),
+            "dash stays on the previous line:\n{result}"
+        );
+    }
+
+    #[test]
+    fn list_item_first_line_is_not_escaped() {
+        let input = "- item that is long enough to wrap onto a second line of words";
+        let config = crate::FormatConfig {
+            format: crate::format::Format::Markdown,
+            max_width: 24,
+            ..Default::default()
+        };
+        let result = crate::format_text(input, &config).unwrap();
+        assert!(
+            result.starts_with("- item"),
+            "first line of a list item stays a list:\n{result}"
+        );
+        assert!(
+            !result.starts_with("\\-"),
+            "must not escape the real list marker:\n{result}"
+        );
+    }
+
+    #[test]
+    fn wrap_escape_is_idempotent() {
+        let input = "The options are apples - oranges extra.";
+        let config = crate::FormatConfig {
+            format: crate::format::Format::Markdown,
+            max_width: 23,
+            ..Default::default()
+        };
+        let first = crate::format_text(input, &config).unwrap();
+        let second = crate::format_text(&first, &config).unwrap();
+        assert_eq!(first, second, "second pass must not change output");
+        assert!(
+            !first.contains("\\\\"),
+            "second pass must not accumulate backslashes:\n{first}"
+        );
+        let third = crate::format_text(&second, &config).unwrap();
+        assert_eq!(second, third);
+    }
 }
