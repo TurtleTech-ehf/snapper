@@ -101,7 +101,8 @@ These tokens within prose are not split across lines:
 - Front matter (=---= or =+++=  delimited at file start)
 - Full ATX heading lines (=#= … =######= including title text)
 - Setext headings (title line plus ====== or ------ underline)
-- List item markers (=-=, =*=, =+=, =1.=) and blockquote markers (=>=); continuation sentences hang at the marker width
+- List item markers (=-=, =*=, =+=, =1.=); continuation sentences hang at the marker width
+- Blockquote markers (=>= / nested => > =); continuation sentences repeat the quote prefix
 - Pipe tables
 
 *** Code regions (fenced =```= / =~~~=)
@@ -117,7 +118,8 @@ These tokens within prose are not split across lines:
 :CUSTOM_ID: markdown-prose
 :END:
 - Paragraph text
-- List item and blockquote text (after the marker); continuation sentences hang at the marker width
+- List item text (after the marker); continuation sentences hang at the marker width
+- Blockquote text (after the prefix); continuation sentences repeat the quote prefix
 
 ** reStructuredText (=--format rst=)
 :PROPERTIES:

@@ -13,7 +13,11 @@ static FENCED_LANG_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"^(?:`{3,}|~{3,})\s*([A-Za-z0-9_+.\-]+)").unwrap());
 
 static LIST_ITEM_RE: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"^(\s*(?:[-*+]|\d+[.)]|>) )(.*)$").unwrap());
+    LazyLock::new(|| Regex::new(r"^(\s*(?:[-*+]|\d+[.)]) )(.*)$").unwrap());
+
+/// Markdown blockquote prefix: optional indent plus one or more `> `.
+/// Nested `> > text` keeps the full prefix so reflow can repeat it.
+static QUOTE_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^(\s*(?:> )+)(.*)$").unwrap());
 
 /// Match a markdown table row: line whose trimmed form starts and ends with `|`.
 /// Also matches separator rows like `|---|---|`.
@@ -57,7 +61,7 @@ fn is_setext_title_line(line: &str) -> bool {
     if TABLE_ROW_RE.is_match(line) {
         return false;
     }
-    if LIST_ITEM_RE.is_match(line) {
+    if LIST_ITEM_RE.is_match(line) || QUOTE_RE.is_match(line) {
         return false;
     }
     if FENCED_CODE_RE.is_match(line.trim_start()) {
@@ -220,8 +224,24 @@ impl FormatParser for MarkdownParser {
                 continue;
             }
 
-            // List item or blockquote: emit marker as Structure, start accumulating
-            // text as prose. Continuation lines are appended until a block boundary.
+            // Blockquote: emit the full `> ` / `> > ` prefix as Structure.
+            // Checked before list items so nested `> >` is not flattened.
+            if let Some(caps) = QUOTE_RE.captures(line) {
+                close_list_item(&mut in_list_item, &mut current_prose, &mut regions);
+                flush_prose(&mut current_prose, &mut regions);
+                let marker = caps.get(1).unwrap().as_str();
+                let text = caps.get(2).unwrap().as_str();
+                regions.push(Region::Structure(marker.to_string()));
+                in_list_item = true;
+                if !text.is_empty() {
+                    current_prose.push_str(text);
+                }
+                i += 1;
+                continue;
+            }
+
+            // List item: emit marker as Structure, start accumulating text as prose.
+            // Continuation lines are appended until a block boundary.
             if let Some(caps) = LIST_ITEM_RE.captures(line) {
                 close_list_item(&mut in_list_item, &mut current_prose, &mut regions);
                 flush_prose(&mut current_prose, &mut regions);
@@ -562,8 +582,39 @@ mod tests {
         assert_eq!(format_text(&numbered, &cfg).unwrap(), numbered);
 
         let quote = format_text("> One. Two.\n", &cfg).unwrap();
-        assert_eq!(quote, "> One.\n  Two.\n");
+        assert_eq!(quote, "> One.\n> Two.\n");
         assert_eq!(format_text(&quote, &cfg).unwrap(), quote);
+    }
+
+    #[test]
+    fn nested_blockquote_keeps_full_prefix() {
+        let input = "> > Nested one. Nested two.";
+        let regions = MarkdownParser.parse(input);
+        assert_eq!(regions[0], Region::Structure("> > ".to_string()));
+        assert_eq!(
+            regions[1],
+            Region::Prose("Nested one. Nested two.".to_string())
+        );
+        assert_eq!(regions[2], Region::Structure("\n".to_string()));
+        assert_eq!(regions.len(), 3);
+    }
+
+    #[test]
+    fn nested_blockquote_reflow_repeats_prefix() {
+        use crate::format::Format;
+        use crate::{FormatConfig, format_text};
+
+        let input = "> Quoted one. Quoted two.\n> > Nested one. Nested two.\n";
+        let cfg = FormatConfig {
+            format: Format::Markdown,
+            ..Default::default()
+        };
+        let out = format_text(input, &cfg).unwrap();
+        assert_eq!(
+            out,
+            "> Quoted one.\n> Quoted two.\n> > Nested one.\n> > Nested two.\n"
+        );
+        assert_eq!(format_text(&out, &cfg).unwrap(), out);
     }
 
     #[test]

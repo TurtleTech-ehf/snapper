@@ -139,8 +139,12 @@ fn mixed_list_markdown_hangs_and_is_idempotent() {
         "markdown nested list must hang and stay two items: {first}"
     );
     assert!(
-        first.contains("> Quoted one.\n  Quoted two.\n"),
-        "markdown quote continuation must hang: {first}"
+        first.contains("> Quoted one.\n> Quoted two.\n"),
+        "markdown quote continuation must repeat the prefix: {first}"
+    );
+    assert!(
+        first.contains("> > Nested one.\n> > Nested two.\n"),
+        "nested markdown quote must keep the full prefix: {first}"
     );
     let tmp = tempfile::NamedTempFile::new().unwrap();
     fs::write(tmp.path(), &first).unwrap();

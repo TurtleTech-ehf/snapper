@@ -109,11 +109,11 @@ fn reflow_one(
             output.push_str(footer);
         }
         Region::Prose(text) => {
-            let hanging = match idx.checked_sub(1).and_then(|i| regions.get(i)) {
-                Some(Region::Structure(s)) => hanging_indent_width(s),
-                _ => 0,
+            let hang = match idx.checked_sub(1).and_then(|i| regions.get(i)) {
+                Some(Region::Structure(s)) => hanging_prefix(s),
+                _ => String::new(),
             };
-            let hang = " ".repeat(hanging);
+            let hanging = hang.chars().count();
             let wrap_width = if config.max_width > 0 && hanging > 0 {
                 config.max_width.saturating_sub(hanging).max(1)
             } else {
@@ -232,8 +232,38 @@ fn wrap_words_preferring_clause(text: &str, max_width: usize) -> Vec<String> {
     lines
 }
 
-/// Column width of a list or quote marker that continuation lines must hang
-/// at. Zero when `s` is not a marker (headings, fences, inline islands).
+/// Prefix emitted on continuation lines after a list or quote marker.
+/// Lists hang with spaces of marker width; Markdown quotes repeat the
+/// quote prefix (`> `, `> > `, including leading indent). Empty when `s`
+/// is not a marker (headings, fences, inline islands).
+fn hanging_prefix(s: &str) -> String {
+    if is_quote_marker(s) {
+        return s.to_string();
+    }
+    let width = hanging_indent_width(s);
+    if width > 0 {
+        " ".repeat(width)
+    } else {
+        String::new()
+    }
+}
+
+/// True when `s` is a Markdown quote marker: optional indent plus one or
+/// more `> ` runs, and nothing else.
+fn is_quote_marker(s: &str) -> bool {
+    if s.is_empty() || s.contains('\n') || !s.ends_with(' ') {
+        return false;
+    }
+    let trimmed = s.trim_start();
+    let bytes = trimmed.as_bytes();
+    if bytes.len() < 2 || bytes.len() % 2 != 0 {
+        return false;
+    }
+    bytes.chunks_exact(2).all(|c| c == b"> ")
+}
+
+/// Column width of a list marker that continuation lines hang at with
+/// spaces. Zero for quotes and non-markers.
 fn hanging_indent_width(s: &str) -> usize {
     if s.is_empty() || s.contains('\n') || !s.ends_with(' ') {
         return 0;
@@ -245,7 +275,7 @@ fn hanging_indent_width(s: &str) -> usize {
     // Parser markers are `core` plus one trailing space; leading indent is
     // part of the hang so nested `   - ` continues at column 5.
     let core = &trimmed[..trimmed.len() - 1];
-    let is_bullet = matches!(core, "-" | "*" | "+" | ">");
+    let is_bullet = matches!(core, "-" | "*" | "+");
     let is_ordered = (core.ends_with('.') || core.ends_with(')'))
         && core.len() > 1
         && core[..core.len() - 1].bytes().all(|b| b.is_ascii_digit());
@@ -496,7 +526,14 @@ without additional human intervention.";
         assert_eq!(hanging_indent_width("10. "), 4);
         assert_eq!(hanging_indent_width("1) "), 3);
         assert_eq!(hanging_indent_width("   - "), 5);
-        assert_eq!(hanging_indent_width("> "), 2);
+        // Quotes are a prefix hang, not a space-hang bullet.
+        assert_eq!(hanging_indent_width("> "), 0);
+        assert_eq!(hanging_indent_width("> > "), 0);
+        assert_eq!(hanging_prefix("> "), "> ");
+        assert_eq!(hanging_prefix("> > "), "> > ");
+        assert_eq!(hanging_prefix("  > "), "  > ");
+        assert_eq!(hanging_prefix("- "), "  ");
+        assert_eq!(hanging_prefix("1. "), "   ");
         assert_eq!(hanging_indent_width("\n"), 0);
         assert_eq!(hanging_indent_width("#+TITLE: Test\n"), 0);
         assert_eq!(hanging_indent_width("$x$"), 0);
@@ -531,7 +568,23 @@ without additional human intervention.";
             Region::Prose("One. Two.".to_string()),
             Region::Structure("\n".to_string()),
         ]);
-        assert_eq!(result, "> One.\n  Two.\n");
+        assert_eq!(result, "> One.\n> Two.\n");
+    }
+
+    #[test]
+    fn nested_quote_repeats_full_prefix() {
+        let result = reflow_regions(vec![
+            Region::Structure("> ".to_string()),
+            Region::Prose("Quoted one. Quoted two.".to_string()),
+            Region::Structure("\n".to_string()),
+            Region::Structure("> > ".to_string()),
+            Region::Prose("Nested one. Nested two.".to_string()),
+            Region::Structure("\n".to_string()),
+        ]);
+        assert_eq!(
+            result,
+            "> Quoted one.\n> Quoted two.\n> > Nested one.\n> > Nested two.\n"
+        );
     }
 
     #[test]
