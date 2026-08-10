@@ -445,14 +445,60 @@ fn md_link_ref_def(text: &str) -> bool {
     text.starts_with('[') && text.contains("]:")
 }
 
+/// CommonMark autolink after a leading `<`: scheme `:` (e.g. `https:`) or
+/// `local@host`. The inner run stops at `>` or whitespace.
+fn md_autolink_after_lt(rest: &str) -> bool {
+    let inner_end = rest
+        .find(|c: char| c == '>' || c.is_whitespace())
+        .unwrap_or(rest.len());
+    let inner = &rest[..inner_end];
+    if inner.is_empty() {
+        return false;
+    }
+    if let Some(colon) = inner.find(':') {
+        let scheme = &inner[..colon];
+        return !scheme.is_empty()
+            && scheme.as_bytes()[0].is_ascii_alphabetic()
+            && scheme
+                .bytes()
+                .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'+' | b'.' | b'-'));
+    }
+    if let Some(at) = inner.find('@') {
+        let local = &inner[..at];
+        let host = &inner[at + 1..];
+        return !local.is_empty() && !host.is_empty() && !host.contains('@');
+    }
+    false
+}
+
 fn md_html_opener(text: &str) -> bool {
     let Some(rest) = text.strip_prefix('<') else {
         return false;
     };
+    // Autolinks are inlines. Escaping `<https://...>` or `<user@host>`
+    // as an HTML block opener injects `\` and kills the autolink.
+    if md_autolink_after_lt(rest) {
+        return false;
+    }
     rest.starts_with('!')
         || rest.starts_with('?')
         || rest.starts_with('/')
         || rest.chars().next().is_some_and(|c| c.is_ascii_alphabetic())
+}
+
+/// True when a wrap-created backslash on `word` would break an inline
+/// token (autolink, link, image, code, math, Org link). Prefer skip-cut.
+fn escape_would_corrupt_inline(word: &str) -> bool {
+    if let Some(rest) = word.strip_prefix('<') {
+        if md_autolink_after_lt(rest) {
+            return true;
+        }
+    }
+    (word.starts_with('[') && word.contains("]("))
+        || word.starts_with("![")
+        || word.starts_with('`')
+        || (word.starts_with('$') && word.ends_with('$') && word.len() >= 2)
+        || word.starts_with("[[")
 }
 
 /// True when `line` at column 0 is a new block in `format`'s grammar.
@@ -653,14 +699,17 @@ fn wrap_atomic_words(
             }
         }
         // Skip-cut loops until the next line would not open a block.
-        if format != Format::Markdown {
-            while break_at < words.len() && break_at > start {
-                let candidate = words[break_at..].join(" ");
-                if !line_opens_block(format, &candidate) {
-                    break;
-                }
-                break_at += 1;
+        // Markdown usually escapes; skip-cut wins when `\` would corrupt
+        // an inline token (autolink, link, code, math).
+        while break_at < words.len() && break_at > start {
+            let candidate = words[break_at..].join(" ");
+            if !line_opens_block(format, &candidate) {
+                break;
             }
+            if format == Format::Markdown && !escape_would_corrupt_inline(words[break_at]) {
+                break;
+            }
+            break_at += 1;
         }
 
         let mut line = indent.to_string();
