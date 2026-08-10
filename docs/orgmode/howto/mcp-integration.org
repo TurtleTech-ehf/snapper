@@ -6,14 +6,8 @@
 :CUSTOM_ID: overview
 :END:
 
-Snapper includes an optional MCP (Model Context Protocol) server that exposes formatting tools to MCP clients.
-
-Published release binaries do not include this feature.
-Install a source build with MCP support:
-
-#+begin_src bash
-cargo install snapper-fmt --features mcp
-#+end_src
+Published =snapper= / =snapper-fmt= binaries include an MCP (Model Context Protocol) server.
+The =mcp= Cargo feature is on by default.
 
 Start it with:
 
@@ -22,6 +16,15 @@ snapper mcp
 #+end_src
 
 This launches the server on stdin/stdout using the MCP protocol.
+
+Agents should call this server or the =snapper= CLI to apply semantic line breaks.
+Do not apply [[https://sembr.org/][sembr.org]] or [[https://github.com/sembr/skills][sembr/skills]] rewrites by hand.
+
+From source with =--no-default-features=, rebuild with MCP:
+
+#+begin_src bash
+cargo install snapper-fmt --features mcp
+#+end_src
 
 * Configuration
 :PROPERTIES:
@@ -62,6 +65,8 @@ Parameters:
 - =text= (string, required): Text to format
 - =format= (string): Document format ("org", "latex", "markdown", "rst", "plaintext"; default: "plaintext")
 - =max_width= (integer): Maximum line width (default: 0, unlimited)
+- =clause_breaks= (boolean): Prefer soft breaks after independent-clause punctuation under =max_width= (same as CLI =--clause-breaks=; default: false)
+- =range= (object): Optional 1-indexed inclusive line range (=start= / =end=; same meaning as CLI =--range=)
 - =extra_abbreviations= (array of strings): Additional abbreviations
 
 Returns the formatted text.
