@@ -52,7 +52,7 @@ path = "src/gen_docs.rs"
 required-features = ["cli"]
 
 [features]
-default = ["cli", "neural", "lsp", "watch", "pandoc", "treesitter"]
+default = ["cli", "neural", "lsp", "watch", "pandoc", "treesitter", "mcp"]
 cli = ["dep:clap", "dep:clap-markdown", "dep:rayon", "dep:ec4rs", "dep:glob"]
 neural = ["dep:nnsplit"]
 lsp = ["dep:tower-lsp", "dep:tokio"]

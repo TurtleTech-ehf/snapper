@@ -115,11 +115,16 @@ snapper init
 :PROPERTIES:
 :CUSTOM_ID: mcp
 :END:
-The MCP server is an optional source-build feature; published release binaries do not include it.
-Install snapper with MCP support, then start the stdio server:
+Published =snapper= / =snapper-fmt= binaries include the MCP server (=mcp= is a default Cargo feature).
+Start the stdio server:
+#+begin_src bash
+snapper mcp
+#+end_src
+Agents should call snapper MCP (=format_text=) or the =snapper= CLI instead of applying [[https://sembr.org/][sembr.org]] / [[https://github.com/sembr/skills][sembr/skills]] wrapping by hand.
+=format_text= accepts =clause_breaks=, =range= (=start= / =end=, 1-indexed inclusive), and =max_width= (default 0).
+From source with =--no-default-features=, rebuild with MCP:
 #+begin_src bash
 cargo install snapper-fmt --features mcp
-snapper mcp
 #+end_src
 Tools: =format_text=, =detect_format=, =check_formatting=, =split_sentences=.
 Configuration guide (org source in-tree): =docs/orgmode/howto/mcp-integration.org=; HTML docs: https://snapper.turtletech.us/docs/howto/mcp-integration/ .
