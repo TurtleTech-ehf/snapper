@@ -141,13 +141,22 @@ pub struct SplitSentencesResult {
 // -- Server --
 
 pub struct SnapperMcpServer {
+    /// Held for `#[tool_router]` / `ServerHandler` generated accessors.
+    #[allow(dead_code)]
     tool_router: ToolRouter<Self>,
 }
 
 impl SnapperMcpServer {
     pub fn new() -> Self {
-        let tool_router = Self::tool_router();
-        Self { tool_router }
+        Self {
+            tool_router: Self::tool_router(),
+        }
+    }
+}
+
+impl Default for SnapperMcpServer {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -270,10 +279,9 @@ fn detect_format_heuristic(input: &str) -> Format {
     if lines
         .iter()
         .any(|l| l.starts_with("#+") || l.starts_with("* "))
+        && (input.contains(":PROPERTIES:") || input.contains(":END:") || input.contains("#+begin_"))
     {
-        if input.contains(":PROPERTIES:") || input.contains(":END:") || input.contains("#+begin_") {
-            return Format::Org;
-        }
+        return Format::Org;
     }
 
     if lines
