@@ -98,8 +98,8 @@ pub struct FormatConfig {
     /// (no subprocess is spawned).
     pub format_code: bool,
     /// Prefer soft breaks after independent-clause punctuation when wrapping
-    /// under `max_width` (sembr rule 5). Default `false` keeps plain
-    /// `textwrap::fill` behaviour.
+    /// under `max_width` (sembr rule 5). Default `false` uses greedy wrap
+    /// at atomic word boundaries.
     pub clause_breaks: bool,
     /// Run `format_text` to a byte fixpoint (cap 4). Production default
     /// `true`; tests set `false` so a planner that needs the backstop fails.

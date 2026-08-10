@@ -231,33 +231,28 @@ fn reflow_prose(
         _ => String::new(),
     };
     let hanging = hang.chars().count();
-    let wrap_width = if config.max_width > 0 && hanging > 0 {
-        config.max_width.saturating_sub(hanging).max(1)
-    } else {
-        config.max_width
-    };
     let sentences = splitter.split(text);
     let nsent = sentences.len();
     for (i, sentence) in sentences.iter().enumerate() {
-        let wrapped = if wrap_width > 0 {
-            wrap_prose(
+        if config.max_width > 0 {
+            let layout = WrapLayout {
+                initial_column: if i == 0 { hanging } else { 0 },
+                first_indent: if i == 0 { "" } else { hang.as_str() },
+                subsequent_indent: hang.as_str(),
+            };
+            let wrapped = wrap_prose(
                 sentence,
-                wrap_width,
+                config.max_width,
                 config.clause_breaks,
                 config.format,
-            )
+                layout,
+            );
+            output.push_str(&wrapped);
         } else {
-            sentence.clone()
-        };
-        let lines: Vec<&str> = wrapped.lines().collect();
-        for (j, line) in lines.iter().enumerate() {
-            if hanging > 0 && (i > 0 || j > 0) {
+            if hanging > 0 && i > 0 {
                 output.push_str(&hang);
             }
-            output.push_str(line);
-            if j + 1 < lines.len() {
-                output.push('\n');
-            }
+            output.push_str(sentence);
         }
         if i + 1 < nsent {
             output.push('\n');
@@ -313,14 +308,37 @@ fn ends_with_clause_punct(word: &str) -> bool {
 /// links, inline code, `$math$`, and tokens like `1,000`, `10:30`, URLs,
 /// and `--flags` are never split apart.
 pub fn wrap_with_clause_breaks(sentence: &str, max_width: usize) -> String {
-    wrap_prose(sentence, max_width, true, Format::Plaintext)
+    wrap_prose(
+        sentence,
+        max_width,
+        true,
+        Format::Plaintext,
+        WrapLayout::default(),
+    )
 }
 
-fn wrap_prose(sentence: &str, max_width: usize, clause_breaks: bool, format: Format) -> String {
+#[derive(Default)]
+struct WrapLayout<'a> {
+    /// Columns already occupied on the first emitted line (list marker).
+    initial_column: usize,
+    /// Prefix for the first emitted line (subsequent sentences of a hang).
+    first_indent: &'a str,
+    /// Prefix for wrap-created lines. Interrupt is tested on the content
+    /// after this indent; column-0 escape is the no-hang fallback.
+    subsequent_indent: &'a str,
+}
+
+fn wrap_prose(
+    sentence: &str,
+    max_width: usize,
+    clause_breaks: bool,
+    format: Format,
+    layout: WrapLayout<'_>,
+) -> String {
     if max_width == 0 {
         return sentence.to_string();
     }
-    wrap_atomic_words(sentence, max_width, clause_breaks, format).join("\n")
+    wrap_atomic_words(sentence, max_width, clause_breaks, format, layout).join("\n")
 }
 
 /// Whitespace words with links, images, inline code, autolinks, math, and
@@ -390,32 +408,159 @@ fn is_ordered_list_marker(word: &str) -> bool {
     bytes[..bytes.len() - 1].iter().all(|b| b.is_ascii_digit())
 }
 
-fn is_md_special_marker(word: &str) -> bool {
-    matches!(word, "-" | "*" | "+" | ">")
-        || ((1..=6).contains(&word.len()) && word.bytes().all(|b| b == b'#'))
-}
-
-/// True when `word` at column 0 would be read as a new block by this format.
-fn is_block_interrupt_word(word: &str, format: Format) -> bool {
-    if word.starts_with('\\') {
+fn ordered_list_start(text: &str) -> bool {
+    let bytes = text.as_bytes();
+    let mut i = 0;
+    while i < bytes.len() && bytes[i].is_ascii_digit() {
+        i += 1;
+    }
+    if i == 0 {
         return false;
     }
+    matches!(bytes.get(i), Some(b'.') | Some(b')')) && matches!(bytes.get(i + 1), Some(b' ') | None)
+}
+
+fn thematic_or_setext_token(text: &str) -> bool {
+    let first = text.split_whitespace().next().unwrap_or("");
+    if first.len() < 3 {
+        return false;
+    }
+    let b = first.as_bytes()[0];
+    matches!(b, b'-' | b'=' | b'*' | b'_') && first.bytes().all(|c| c == b)
+}
+
+fn atx_heading_start(text: &str) -> bool {
+    let n = text.bytes().take_while(|&b| b == b'#').count();
+    (1..=6).contains(&n) && (text.len() == n || text.as_bytes()[n] == b' ')
+}
+
+fn md_list_start(text: &str) -> bool {
+    text.starts_with("- ")
+        || text.starts_with("* ")
+        || text.starts_with("+ ")
+        || ordered_list_start(text)
+}
+
+fn md_link_ref_def(text: &str) -> bool {
+    text.starts_with('[') && text.contains("]:")
+}
+
+fn md_html_opener(text: &str) -> bool {
+    let Some(rest) = text.strip_prefix('<') else {
+        return false;
+    };
+    rest.starts_with('!')
+        || rest.starts_with('?')
+        || rest.starts_with('/')
+        || rest.chars().next().is_some_and(|c| c.is_ascii_alphabetic())
+}
+
+/// True when `line` at column 0 is a new block in `format`'s grammar.
+/// Already-escaped Markdown (`\-`, `\[ref]:`) does not match. A leading
+/// `\` is not an escape in LaTeX (`\begin`, `\section`).
+fn line_opens_block(format: Format, line: &str) -> bool {
     match format {
-        Format::Org => {
-            matches!(word, "-" | "+")
-                || (!word.is_empty() && word.bytes().all(|b| b == b'*'))
-                || is_ordered_list_marker(word)
-                || word.starts_with('#')
-        }
-        Format::Markdown | Format::Rst | Format::Latex | Format::Plaintext => {
-            is_md_special_marker(word) || is_ordered_list_marker(word)
-        }
+        Format::Plaintext => false,
+        Format::Markdown => md_opens_block(line),
+        Format::Org => org_opens_block(line),
+        Format::Latex => latex_opens_block(line),
+        Format::Rst => rst_opens_block(line),
     }
 }
 
-/// Markdown backslash-escape for a wrap-created line start. Already-escaped
-/// words are left alone so a second pass does not accumulate backslashes.
-fn escape_md_interrupt_word(word: &str) -> String {
+fn md_opens_block(line: &str) -> bool {
+    let t = line.trim_start();
+    if t.starts_with("```") || t.starts_with("~~~") {
+        return true;
+    }
+    if thematic_or_setext_token(t) {
+        return true;
+    }
+    if t.starts_with('>') {
+        return true;
+    }
+    if atx_heading_start(t) {
+        return true;
+    }
+    if md_list_start(t) {
+        return true;
+    }
+    if md_link_ref_def(t) {
+        return true;
+    }
+    if md_html_opener(t) {
+        return true;
+    }
+    false
+}
+
+fn org_opens_block(line: &str) -> bool {
+    let t = line.trim_start();
+    if t.starts_with('|') {
+        return true;
+    }
+    if t.starts_with('#') {
+        return true;
+    }
+    let stars = t.bytes().take_while(|&b| b == b'*').count();
+    if stars > 0 {
+        return t.len() == stars || matches!(t.as_bytes()[stars], b' ' | b'\t');
+    }
+    if t.starts_with("- ") || t.starts_with("+ ") {
+        return true;
+    }
+    ordered_list_start(t)
+}
+
+fn latex_opens_block(line: &str) -> bool {
+    let t = line.trim_start();
+    if t.starts_with('%') {
+        return true;
+    }
+    if t.starts_with("\\begin{") || t.starts_with("\\end{") || t.starts_with("\\[") {
+        return true;
+    }
+    const CMDS: &[&str] = &[
+        "\\part",
+        "\\chapter",
+        "\\section",
+        "\\subsection",
+        "\\subsubsection",
+        "\\paragraph",
+        "\\subparagraph",
+    ];
+    for cmd in CMDS {
+        if let Some(after) = t.strip_prefix(cmd) {
+            if after.is_empty()
+                || after.starts_with('{')
+                || after.starts_with('*')
+                || after.starts_with(' ')
+            {
+                return true;
+            }
+        }
+    }
+    false
+}
+
+fn rst_opens_block(line: &str) -> bool {
+    let t = line.trim_start();
+    if t == ".." || t.starts_with(".. ") || t.starts_with("..\t") {
+        return true;
+    }
+    if t.starts_with("- ") || t.starts_with("* ") || t.starts_with("+ ") {
+        return true;
+    }
+    if t.starts_with(':') && t[1..].contains(':') {
+        return true;
+    }
+    ordered_list_start(t)
+}
+
+/// Markdown backslash-escape for the first word of a wrap-created line.
+/// Already-escaped words are left alone so a second pass does not
+/// accumulate backslashes. Gated on Markdown only.
+fn escape_md_first_word(word: &str) -> String {
     if word.starts_with('\\') {
         return word.to_string();
     }
@@ -423,53 +568,69 @@ fn escape_md_interrupt_word(word: &str) -> String {
         let (digits, delim) = word.split_at(word.len() - 1);
         return format!("{digits}\\{delim}");
     }
-    if is_md_special_marker(word) {
-        return format!("\\{word}");
-    }
-    word.to_string()
+    let mut chars = word.chars();
+    let Some(first) = chars.next() else {
+        return String::new();
+    };
+    format!("\\{first}{}", chars.as_str())
 }
 
-fn word_for_line<'a>(
+fn displayed_first_word<'a>(
     word: &'a str,
-    wrap_created: bool,
-    first_on_line: bool,
+    may_escape: bool,
+    rest: &str,
     format: Format,
 ) -> Cow<'a, str> {
-    if format == Format::Markdown && wrap_created && first_on_line {
-        let escaped = escape_md_interrupt_word(word);
-        if escaped.as_str() != word {
-            return Cow::Owned(escaped);
-        }
+    if may_escape && format == Format::Markdown && line_opens_block(format, rest) {
+        Cow::Owned(escape_md_first_word(word))
+    } else {
+        Cow::Borrowed(word)
     }
-    Cow::Borrowed(word)
 }
 
 /// Greedy wrap over atomic words. Forced breaks prefer the last clause
 /// punctuation on the line. A wrap that would start a new block is
-/// escaped in Markdown or skipped in other formats. The first line of a
-/// sentence (including a list item's prose) is never escaped.
+/// escaped in Markdown or skipped (loop) in other formats. The first
+/// line of a list item is not escaped. Interrupt is tested on content
+/// after hanging indent.
 fn wrap_atomic_words(
     text: &str,
     max_width: usize,
     prefer_clause: bool,
     format: Format,
+    layout: WrapLayout<'_>,
 ) -> Vec<String> {
     let words = split_atomic_words(text);
     if words.is_empty() {
         return Vec::new();
     }
-    let skip_cut = format != Format::Markdown;
     let mut lines = Vec::new();
     let mut start = 0;
     while start < words.len() {
-        let wrap_created = start > 0;
+        let first = start == 0;
+        let indent = if first {
+            layout.first_indent
+        } else {
+            layout.subsequent_indent
+        };
+        let prefix_width = if first {
+            layout.initial_column + layout.first_indent.chars().count()
+        } else {
+            layout.subsequent_indent.chars().count()
+        };
+        // First line of the first sentence (marker already emitted) is not
+        // wrap-created. Later sentences and wrap-created lines may escape.
+        let may_escape = format == Format::Markdown && !(first && layout.first_indent.is_empty());
+
         let mut end = start;
-        let mut line_len = 0usize;
+        let mut line_len = prefix_width;
         while end < words.len() {
-            let displayed = word_for_line(words[end], wrap_created, end == start, format);
+            let rest = words[end..].join(" ");
+            let displayed =
+                displayed_first_word(words[end], may_escape && end == start, &rest, format);
             let wlen = displayed.chars().count();
             let next_len = if end == start {
-                wlen
+                line_len + wlen
             } else {
                 line_len + 1 + wlen
             };
@@ -478,13 +639,10 @@ fn wrap_atomic_words(
             }
             line_len = next_len;
             end += 1;
-            // Single overlong word: take it alone
             if end == start + 1 && line_len > max_width {
                 break;
             }
         }
-        // Only a forced break gets pulled back to a clause boundary; the
-        // final line of a sentence keeps its remaining words together.
         let mut break_at = end;
         if prefer_clause && end < words.len() {
             for j in (start..end).rev() {
@@ -494,21 +652,28 @@ fn wrap_atomic_words(
                 }
             }
         }
-        // Skip-cut: keep a wrap-created block marker on this line rather
-        // than inventing a list/heading at column 0.
-        if skip_cut
-            && break_at < words.len()
-            && break_at > start
-            && is_block_interrupt_word(words[break_at], format)
-        {
-            break_at += 1;
+        // Skip-cut loops until the next line would not open a block.
+        if format != Format::Markdown {
+            while break_at < words.len() && break_at > start {
+                let candidate = words[break_at..].join(" ");
+                if !line_opens_block(format, &candidate) {
+                    break;
+                }
+                break_at += 1;
+            }
         }
-        let mut line = String::new();
+
+        let mut line = indent.to_string();
+        let rest = words[start..break_at].join(" ");
         for (i, word) in words[start..break_at].iter().enumerate() {
             if i > 0 {
                 line.push(' ');
             }
-            line.push_str(&word_for_line(word, wrap_created, i == 0, format));
+            if i == 0 {
+                line.push_str(&displayed_first_word(word, may_escape, &rest, format));
+            } else {
+                line.push_str(word);
+            }
         }
         lines.push(line);
         start = break_at;
@@ -692,7 +857,7 @@ mod tests {
     fn clause_breaks_prefer_commas_under_max_width() {
         // Issue #7 sample: max_width=80 with clause breaks should land soft
         // breaks after the independent-clause commas rather than packing
-        // mid-phrase as plain textwrap::fill does.
+        // mid-phrase as greedy wrap without clause preference does.
         let sentence = "It contains rules which govern how the Objectives are orchestrated, along with rules which can automatically activate the Objectives in the plan, without additional human intervention.";
         let wrapped = wrap_with_clause_breaks(sentence, 80);
         let expected = "\
