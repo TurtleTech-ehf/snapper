@@ -69,7 +69,7 @@ Requires file arguments (not stdin).
 :END:
 
 Maximum line width.
-Sentences exceeding this width are wrapped at word boundaries using ~textwrap~.
+Sentences exceeding this width are wrapped at atomic word boundaries (links, inline code, math, and similar tokens stay on one line).
 Default: =0= (unlimited).
 Also respects =max_line_length= from =.editorconfig= if present.
 

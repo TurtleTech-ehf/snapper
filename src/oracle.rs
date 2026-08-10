@@ -56,7 +56,7 @@ fn structure_tree_ok(
     for (ra, rb) in a.iter().zip(&b) {
         match (ra, rb) {
             (Region::Prose(x), Region::Prose(y)) => {
-                if words(x) != words(y) {
+                if prose_tokens(format, x) != prose_tokens(format, y) {
                     return false;
                 }
             }
@@ -93,8 +93,35 @@ fn structure_tree_ok(
     true
 }
 
-fn words(s: &str) -> Vec<&str> {
-    s.split_whitespace().collect()
+fn prose_tokens(format: Format, s: &str) -> Vec<String> {
+    s.split_whitespace()
+        .map(|w| {
+            if format == Format::Markdown {
+                md_unescape_ascii_punct(w)
+            } else {
+                w.to_string()
+            }
+        })
+        .collect()
+}
+
+/// CommonMark: a backslash before ASCII punctuation is an escape.
+/// Wrap-created `\-` / `1\.` must compare equal to the source `-` / `1.`.
+fn md_unescape_ascii_punct(word: &str) -> String {
+    let mut out = String::with_capacity(word.len());
+    let bytes = word.as_bytes();
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'\\' && i + 1 < bytes.len() && bytes[i + 1].is_ascii_punctuation() {
+            out.push(bytes[i + 1] as char);
+            i += 2;
+        } else {
+            let ch = word[i..].chars().next().expect("i is in range");
+            out.push(ch);
+            i += ch.len_utf8();
+        }
+    }
+    out
 }
 
 /// Join adjacent list/quote items that share a marker.
@@ -309,5 +336,19 @@ mod tests {
             "- One.\n  Two.\n"
         ));
         assert!(matches(Format::Org, "- One. Two.\n", "- One.\n  Two.\n"));
+    }
+
+    #[test]
+    fn wrap_created_md_escape_matches_source_words() {
+        assert!(matches(
+            Format::Markdown,
+            "The options are apples - oranges extra.",
+            "The options are apples\n\\- oranges extra."
+        ));
+        assert!(matches(
+            Format::Markdown,
+            "The options are apples 1. oranges extra.",
+            "The options are apples\n1\\. oranges extra."
+        ));
     }
 }
