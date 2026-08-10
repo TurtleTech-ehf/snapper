@@ -9,6 +9,7 @@ use anyhow::{Context, Result};
 use clap::Parser;
 use rayon::prelude::*;
 
+use snapper_fmt::check::{DiagnosticKind, collect_diagnostics, resolve_long_threshold};
 use snapper_fmt::cli::{Cli, ColorWhen, Commands, OutputFormat, parse_range};
 use snapper_fmt::config::ProjectConfig;
 use snapper_fmt::diff::ColorMode;
@@ -186,6 +187,7 @@ fn run() -> Result<()> {
         };
 
         let mut any_changed = false;
+        let mut check_failed = false;
         let mut check_results: Vec<CheckResult> = Vec::new();
 
         let color = resolve_color(cli.color, false);
@@ -196,16 +198,49 @@ fn run() -> Result<()> {
                     any_changed = true;
                 }
             } else if cli.check {
-                if output != input {
+                let path = Path::new(path_str);
+                let format = resolve_format(
+                    cli.format.map(Format::from_arg),
+                    Some(path),
+                    &project_config,
+                )?;
+                let config = build_format_config(&cli, &project_config, format, Some(path));
+                let key = SplitterKey::from_config(&config);
+                let splitter = cache
+                    .get(&key)
+                    .ok_or_else(|| anyhow::anyhow!("splitter cache miss for {path_str}"))?;
+                let threshold =
+                    resolve_long_threshold(config.max_width, project_config.long_threshold);
+                let diagnostics = collect_diagnostics(input, format, splitter.as_ref(), threshold);
+                let would = output != input;
+                let long_fail =
+                    cli.strict_long && diagnostics.iter().any(|d| d.kind == DiagnosticKind::Long);
+                if would || !diagnostics.is_empty() {
                     match cli.output_format {
-                        OutputFormat::Text => eprintln!("would reformat: {path_str}"),
+                        OutputFormat::Text => {
+                            if would {
+                                eprintln!("would reformat: {path_str}");
+                            }
+                            for d in &diagnostics {
+                                eprintln!(
+                                    "{path_str}:{}:{}: {}",
+                                    d.line,
+                                    d.kind.as_str(),
+                                    d.excerpt
+                                );
+                            }
+                        }
                         _ => check_results.push(CheckResult {
                             file: path_str.clone(),
                             original_lines: input.lines().count(),
                             formatted_lines: output.lines().count(),
+                            would_reformat: would,
+                            diagnostics,
                         }),
                     }
-                    any_changed = true;
+                }
+                if would || long_fail {
+                    check_failed = true;
                 }
             } else if cli.in_place {
                 if output != input {
@@ -220,8 +255,8 @@ fn run() -> Result<()> {
             }
         }
 
-        // Structured output for check mode
-        if cli.check && !check_results.is_empty() {
+        // Structured output for check mode (empty array/run is still valid JSON).
+        if cli.check {
             match cli.output_format {
                 OutputFormat::Json => output_json(&check_results),
                 OutputFormat::Sarif => output_sarif(&check_results),
@@ -229,7 +264,10 @@ fn run() -> Result<()> {
             }
         }
 
-        if (cli.check || cli.diff) && any_changed {
+        if cli.diff && any_changed {
+            process::exit(1);
+        }
+        if cli.check && check_failed {
             process::exit(1);
         }
     }
