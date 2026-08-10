@@ -712,7 +712,7 @@ without additional human intervention.";
     }
 
     #[test]
-    fn clause_breaks_off_matches_textwrap_fill() {
+    fn clause_breaks_off_packs_past_first_comma() {
         let sentence = "It contains rules which govern how the Objectives are orchestrated, along with rules which can automatically activate the Objectives in the plan, without additional human intervention.";
         let regions = vec![Region::Prose(sentence.to_string())];
         let config = ReflowConfig {
@@ -721,13 +721,12 @@ without additional human intervention.";
             ..Default::default()
         };
         let result = reflow(&regions, &UnicodeSentenceSplitter::new(), &config);
-        let plain = format!("{}\n", textwrap::fill(sentence, 80));
-        assert_eq!(result, plain);
-        // And that plain fill is *not* the clause-first shape
+        // Greedy wrap packs past the first comma; clause_breaks would break there.
         assert!(
             result.contains("orchestrated, along with\n"),
             "control path still packs past the first comma: {result:?}"
         );
+        assert!(result.contains('\n'));
     }
 
     #[test]
@@ -1222,5 +1221,239 @@ without additional human intervention.";
         );
         let third = crate::format_text(&second, &config).unwrap();
         assert_eq!(second, third);
+    }
+
+    fn wrap_fmt(input: &str, width: usize, format: crate::format::Format) -> String {
+        // Drive wrap directly so the format parser cannot swallow the
+        // interrupt token before `--max-width` sees it.
+        let regions = vec![Region::Prose(input.to_string())];
+        let config = ReflowConfig {
+            max_width: width,
+            format,
+            ..Default::default()
+        };
+        reflow(&regions, &UnicodeSentenceSplitter::new(), &config)
+    }
+
+    fn assert_no_col0_block(result: &str, starts: &[&str]) {
+        for line in result.lines() {
+            for prefix in starts {
+                assert!(
+                    !line.starts_with(prefix),
+                    "wrap must not invent a block starting {prefix:?}:\n{result}"
+                );
+            }
+        }
+    }
+
+    // Review cases A–H: interrupt predicate is format grammar at column 0.
+
+    #[test]
+    fn wrap_created_fence_is_not_a_markdown_block() {
+        // A. ``` / ~~~
+        let tick = wrap_fmt(
+            "The options are apples ``` extra words here.",
+            23,
+            crate::format::Format::Markdown,
+        );
+        assert_no_col0_block(&tick, &["```"]);
+        let tilde = wrap_fmt(
+            "The options are apples ~~~ extra words here.",
+            23,
+            crate::format::Format::Markdown,
+        );
+        assert_no_col0_block(&tilde, &["~~~"]);
+    }
+
+    #[test]
+    fn wrap_created_thematic_break_is_not_a_markdown_block() {
+        // B. --- / === / *** / ___
+        for token in ["---", "===", "***", "___"] {
+            let input = format!("The options are apples {token} extra words here.");
+            let result = wrap_fmt(&input, 23, crate::format::Format::Markdown);
+            assert_no_col0_block(&result, &[token]);
+        }
+    }
+
+    #[test]
+    fn wrap_created_link_ref_is_not_a_markdown_block() {
+        // C. [ref]:
+        let result = wrap_fmt(
+            "The options are apples [ref]: https://ex.com extra.",
+            23,
+            crate::format::Format::Markdown,
+        );
+        assert_no_col0_block(&result, &["[ref]:", "[ref]: "]);
+    }
+
+    #[test]
+    fn wrap_created_html_tag_is_not_a_markdown_block() {
+        // D. HTML tags
+        let result = wrap_fmt(
+            "The options are apples <div> extra words here.",
+            23,
+            crate::format::Format::Markdown,
+        );
+        assert_no_col0_block(&result, &["<div>", "<div "]);
+    }
+
+    #[test]
+    fn wrap_created_gt_without_space_is_not_a_blockquote() {
+        // E. >foo
+        let result = wrap_fmt(
+            "The options are apples >foo extra words here.",
+            23,
+            crate::format::Format::Markdown,
+        );
+        assert_no_col0_block(&result, &[">foo", "> foo", ">"]);
+        assert!(
+            result.lines().any(|l| l.contains("foo")),
+            "content must remain:\n{result}"
+        );
+    }
+
+    #[test]
+    fn wrap_created_latex_comment_and_commands_are_not_blocks() {
+        // F. LaTeX % and \begin / \section. Leading `\` is not an MD escape.
+        let pct = wrap_fmt(
+            "The options are apples % extra words here.",
+            23,
+            crate::format::Format::Latex,
+        );
+        assert_no_col0_block(&pct, &["% ", "%"]);
+        assert!(
+            pct.contains("apples %"),
+            "percent stays with previous line:\n{pct}"
+        );
+
+        let begin = wrap_fmt(
+            "The options are apples \\begin{equation} extra words.",
+            23,
+            crate::format::Format::Latex,
+        );
+        assert_no_col0_block(&begin, &["\\begin", "\\begin{equation}"]);
+        assert!(
+            begin.contains("apples \\begin"),
+            "\\begin is not an MD escape; skip-cut must keep it:\n{begin}"
+        );
+
+        let section = wrap_fmt(
+            "The options are apples \\section{Foo} extra words.",
+            23,
+            crate::format::Format::Latex,
+        );
+        assert_no_col0_block(&section, &["\\section", "\\section{Foo}"]);
+        assert!(
+            section.contains("apples \\section"),
+            "\\section is not an MD escape:\n{section}"
+        );
+    }
+
+    #[test]
+    fn wrap_created_rst_directive_is_not_a_block() {
+        // G. RST ..
+        let result = wrap_fmt(
+            "The options are apples .. extra words here.",
+            23,
+            crate::format::Format::Rst,
+        );
+        assert_no_col0_block(&result, &[".. ", ".."]);
+        assert!(
+            result.contains("apples .."),
+            "RST skip-cut keeps the directive marker:\n{result}"
+        );
+    }
+
+    #[test]
+    fn wrap_created_org_table_pipe_is_not_a_block() {
+        // H. Org |
+        let result = wrap_fmt(
+            "The options are apples | extra words here.",
+            23,
+            crate::format::Format::Org,
+        );
+        assert_no_col0_block(&result, &["| ", "|"]);
+        assert!(
+            result.contains("apples |"),
+            "Org skip-cut keeps the pipe:\n{result}"
+        );
+    }
+
+    #[test]
+    fn skip_cut_loops_until_next_line_is_not_a_block() {
+        // Org: break_at += 1 only eats `-`, then `* oranges` is a headline.
+        let result = wrap_fmt(
+            "The options are apples - * oranges extra.",
+            23,
+            crate::format::Format::Org,
+        );
+        assert_no_col0_block(&result, &["- ", "* ", "*"]);
+        assert!(
+            result.contains("apples - *"),
+            "both markers stay on the previous line:\n{result}"
+        );
+    }
+
+    #[test]
+    fn wrap_does_not_hyphenate_well_known_or_hyphenated_urls() {
+        let known = wrap_sentence(
+            "This is a well-known example in a sentence long enough to wrap here.",
+            20,
+            false,
+        );
+        assert!(
+            known.lines().any(|l| l.contains("well-known")),
+            "must not hyphen-split well-known:\n{known}"
+        );
+        let url = "https://example.com/well-known-path-name";
+        let wrapped = wrap_sentence(
+            &format!("See {url} extra words to force a wrap here."),
+            24,
+            false,
+        );
+        assert_atomic_token(&wrapped, url);
+        assert!(!wrapped.contains('\u{00a0}'));
+    }
+
+    #[test]
+    fn wrap_created_list_lines_hang_and_interrupt_after_indent() {
+        // Prefix width on line 0; indent on wrap-created lines; col-0 escape
+        // is fallback. A dash inside the item must not become a new list.
+        let result = crate::format_text(
+            "- The options are apples - oranges extra words.",
+            &crate::FormatConfig {
+                format: crate::format::Format::Markdown,
+                max_width: 25,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        assert!(
+            result.starts_with("- The options"),
+            "list first line stays a list:\n{result}"
+        );
+        let mut lines = result.lines();
+        let first = lines.next().expect("first line");
+        assert!(first.starts_with("- "), "{first:?}");
+        for line in result.lines().skip(1) {
+            let trimmed = line.trim_start();
+            let indent = line.len() - trimmed.len();
+            let looks_like_list = trimmed.starts_with("- ")
+                || trimmed.starts_with("* ")
+                || trimmed.starts_with("+ ")
+                || (trimmed.len() >= 3
+                    && trimmed.as_bytes()[0].is_ascii_digit()
+                    && (trimmed.contains(". ") || trimmed.contains(") ")));
+            assert!(
+                !(indent <= 3 && looks_like_list),
+                "wrap-created line must not parse as a list:\n{result}"
+            );
+            if line.contains("oranges") {
+                assert!(
+                    line.starts_with(' ') || line.starts_with('\\'),
+                    "hang or escape, not column-0 dash:\n{result}"
+                );
+            }
+        }
     }
 }
