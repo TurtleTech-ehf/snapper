@@ -127,13 +127,7 @@ fn append_piece(
         return;
     }
     if piece_from == 0 {
-        push_prose_line(
-            prose,
-            prose_span,
-            line,
-            join_space,
-            include_term_if_soft,
-        );
+        push_prose_line(prose, prose_span, line, join_space, include_term_if_soft);
         *list_term = if include_term_if_soft {
             None
         } else {
@@ -425,7 +419,10 @@ impl FormatParser for MarkdownParser {
                         break;
                     }
                 }
-                let end = lines.get(i.saturating_sub(1)).map(|l| l.end).unwrap_or(input.len());
+                let end = lines
+                    .get(i.saturating_sub(1))
+                    .map(|l| l.end)
+                    .unwrap_or(input.len());
                 regions.push(SpannedRegion::structure(input, ByteSpan::new(start, end)));
                 continue;
             }
@@ -1114,7 +1111,9 @@ mod tests {
             .iter()
             .skip_while(|r| !matches!(r, Region::Structure(s) if s.ends_with("  \n")));
         assert!(
-            !after_break.clone().any(|r| matches!(r, Region::Structure(s) if is_quote_resume(s))),
+            !after_break
+                .clone()
+                .any(|r| matches!(r, Region::Structure(s) if is_quote_resume(s))),
             "must not emit `>` after a quote hard break into non-quote, got: {regions:?}"
         );
 
