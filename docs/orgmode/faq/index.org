@@ -36,7 +36,8 @@ For fully transparent integration, use a git smudge/clean filter (see the how-to
 
 Snapper maintains curated abbreviation lists for English (80+), German, French, Icelandic, and Polish.
 After Unicode sentence boundary detection, it merges any splits that occurred at known abbreviation periods.
-Select a language with =--lang de= (or set =lang = "de"= in =.snapperrc.toml=). You can also add project-specific abbreviations via =extra_abbreviations= in the config file.
+Select a language with =--lang de= (or set =lang = "de"= in =.snapperrc.toml=).
+You can also add project-specific abbreviations via =extra_abbreviations= in the config file.
 
 * What about non-English text?
 :PROPERTIES:
@@ -61,7 +62,9 @@ Use neural for languages where abbreviation rules fall short (Chinese, Turkish, 
 :CUSTOM_ID: name-collision
 :END:
 
-[[https://github.com/openSUSE/snapper][openSUSE snapper]] is a different project (Btrfs/LVM volume snapshots) that also installs a =snapper= binary. This formatter's crate name is =snapper-fmt=; installers ship both =snapper= and =snapper-fmt= as names for the same program. On systems where openSUSE already owns =/usr/bin/snapper=, invoke =snapper-fmt= (or put the TurtleTech install directory first on =PATH=).
+[[https://github.com/openSUSE/snapper][openSUSE snapper]] is a different project (Btrfs/LVM volume snapshots) that also installs a =snapper= binary.
+This formatter's crate name is =snapper-fmt=; installers ship both =snapper= and =snapper-fmt= as names for the same program.
+On systems where openSUSE already owns =/usr/bin/snapper=, invoke =snapper-fmt= (or put the TurtleTech install directory first on =PATH=).
 
 * Can I use snapper as a library?
 :PROPERTIES:

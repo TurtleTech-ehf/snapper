@@ -477,6 +477,31 @@ mod tests {
     }
 
     #[test]
+    fn verbatim_inner_equals_does_not_orphan_closer() {
+        use crate::format::Format;
+        use crate::{FormatConfig, format_text};
+
+        // The period after `note.` is inside the first span. Closing on the
+        // inner `=` would emit a line that starts with `=` and leave the
+        // document's markup unterminated.
+        let input = "so =x = 1 -- note.= reflows while =s = \"x\"= does not.\n";
+        let cfg = FormatConfig {
+            format: Format::Org,
+            ..Default::default()
+        };
+        let out = format_text(input, &cfg).unwrap();
+        assert_eq!(
+            out, input,
+            "verbatim spans with inner `=` must stay one sentence, got:\n{out}"
+        );
+        assert!(
+            !out.lines().any(|l| l.starts_with('=')),
+            "must not orphan a closer onto its own line, got:\n{out}"
+        );
+        assert_eq!(format_text(&out, &cfg).unwrap(), out);
+    }
+
+    #[test]
     fn bold_emphasis_with_period_does_not_become_headline() {
         use crate::format::Format;
         use crate::{FormatConfig, format_text};

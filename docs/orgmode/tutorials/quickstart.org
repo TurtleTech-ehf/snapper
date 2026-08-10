@@ -40,6 +40,12 @@ pip:
 pip install snapper-fmt
 #+end_src
 
+conda-forge:
+
+#+begin_src bash
+conda install -c conda-forge snapper-fmt
+#+end_src
+
 Nix:
 
 #+begin_src bash

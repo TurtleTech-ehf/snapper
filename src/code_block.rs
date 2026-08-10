@@ -56,7 +56,7 @@ pub fn reflow_code_body(
     #[cfg(feature = "treesitter")]
     let body: &str = &{
         let frozen = frozen_lines(body, cfg);
-        crate::ts_comments::reflow_line_comments(lang, body, cfg, splitter, &frozen)
+        crate::ts_comments::reflow_grammar_comments(lang, body, cfg, splitter, &frozen)
             .unwrap_or_else(|| body.to_string())
     };
     #[cfg(not(feature = "treesitter"))]
@@ -109,7 +109,7 @@ fn reflow_comments(body: &str, cfg: &CodeLang, splitter: &dyn SentenceSplitter) 
                     // Same-line open + close (e.g. `/* one sentence. */`)?
                     let trimmed_after = after_open.trim_start();
                     if !close.is_empty() {
-                        if let Some(idx) = trimmed_after.find(close) {
+                        if let Some(idx) = find_close(trimmed_after, close, cfg) {
                             let interior = &trimmed_after[..idx];
                             // Emit: indent + open\n + reflowed interior\n + indent + close\n
                             emit_block_comment(&mut out, indent, open, close, interior, splitter);
@@ -121,7 +121,7 @@ fn reflow_comments(body: &str, cfg: &CodeLang, splitter: &dyn SentenceSplitter) 
                     let mut close_indent: Option<String> = None;
                     let mut closed = false;
                     for next in iter.by_ref() {
-                        if let Some(idx) = next.find(close) {
+                        if let Some(idx) = find_close(next, close, cfg) {
                             // Found close. Anything before it (on this line)
                             // joins the interior; the close marker stays on
                             // its own emitted line at its original indent.
@@ -369,6 +369,51 @@ fn rewrite_trailing(
         out.push_str(sentence);
     }
     Some(out)
+}
+
+/// Byte offset of `close` on `line`, skipping matches that sit inside a
+/// string. When `close` is itself a quote sequence (`"""`, `'''`), the first
+/// match is the closer and quoting does not apply.
+fn find_close(line: &str, close: &str, cfg: &CodeLang) -> Option<usize> {
+    if close.is_empty() {
+        return None;
+    }
+    let quotes = cfg.quote_chars();
+    if close.chars().all(|c| quotes.contains(&c)) {
+        return line.find(close);
+    }
+    let escape = cfg.escape_char();
+    let bytes = line.as_bytes();
+    let mut in_string: Option<char> = None;
+    let mut i = 0;
+    while i < bytes.len() {
+        let rest = &line[i..];
+        let ch = rest.chars().next()?;
+        match in_string {
+            Some(delim) => {
+                if ch == escape {
+                    i += ch.len_utf8();
+                    if let Some(next) = line[i..].chars().next() {
+                        i += next.len_utf8();
+                    }
+                    continue;
+                }
+                if ch == delim {
+                    in_string = None;
+                }
+            }
+            None => {
+                if rest.starts_with(close) {
+                    return Some(i);
+                }
+                if quotes.contains(&ch) {
+                    in_string = Some(ch);
+                }
+            }
+        }
+        i += ch.len_utf8();
+    }
+    None
 }
 
 /// Split a line at the first occurrence of `marker`. Returns

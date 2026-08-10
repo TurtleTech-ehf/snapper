@@ -73,6 +73,9 @@ curl -LsSf https://github.com/TurtleTech-ehf/snapper/releases/latest/download/sn
 # pip
 pip install snapper-fmt
 
+# conda-forge
+conda install -c conda-forge snapper-fmt
+
 # Homebrew
 brew install TurtleTech-ehf/tap/snapper-fmt
 
