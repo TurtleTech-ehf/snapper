@@ -245,12 +245,29 @@ fn reflow_prose(
         }
     }
     if !sentences.is_empty() {
+        // Splitter trims; keep a mid-line TeX ` % comment` space (not newlines).
+        if text.ends_with([' ', '\t']) && !output.ends_with(char::is_whitespace) {
+            let trail: String = text
+                .chars()
+                .rev()
+                .take_while(|c| *c == ' ' || *c == '\t')
+                .collect::<String>()
+                .chars()
+                .rev()
+                .collect();
+            output.push_str(&trail);
+        }
         // No forced paragraph break before inline islands (math/code) or
         // tight punctuation structures — those continue the same line.
-        let suppress = matches!(
-            regions.get(idx + 1),
-            Some(Region::Structure(s)) if suppress_prose_trailing_newline(s)
-        );
+        let suppress = match regions.get(idx + 1) {
+            Some(Region::Structure(s)) if suppress_prose_trailing_newline(s) => true,
+            Some(Region::Structure(s))
+                if s.trim_start().starts_with('%') && text.ends_with([' ', '\t']) =>
+            {
+                true
+            }
+            _ => false,
+        };
         if !suppress {
             output.push('\n');
         }
