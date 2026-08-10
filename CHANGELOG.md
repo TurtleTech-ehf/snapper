@@ -4,6 +4,10 @@ All notable changes to this project will be documented in this file. See [conven
 - - -
 ## Unreleased (main)
 
+#### Features
+- (**safety**) native parsers record source byte ranges and splice reflowed prose into the original document; Structure/Code/Blank are input slices
+- (**safety**) `format_text` runs to a byte fixpoint (cap 4) or returns the original; a format-local oracle mismatch (Markdown HTML, or native prose word sequence) also returns the original
+- (**safety**) `format_bytes` refuses invalid UTF-8 with `InvalidUtf8Error`; property tests and a `cargo fuzz` target drive `format_text` per format with the backstops off
 #### Bug Fixes
 - (**reflow**) list continuation sentences hang at the marker width so Org rejoins the item on reparse; Markdown quotes repeat the `>` prefix (`> One.` / `> Two.`, nested `> >`)
 - (**latex**) a trailing `%` eats the newline (TeX nospace join), so `foo%\\nbar` is no longer emitted as `foo% bar` (which comments out `bar`); mid-line `%` comments leave prose
