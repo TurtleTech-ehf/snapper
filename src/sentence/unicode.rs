@@ -116,15 +116,19 @@ pub fn protect_inline_tokens(text: &str) -> (String, Vec<String>) {
 
 /// Org `=`/`~` and Markdown backtick spans, paired to the real closer.
 ///
-/// Org markers follow the emphasis border/post rules: the opener sits after
-/// a pre character (start of text, whitespace, or `('"{`), the first and last
+/// Org markers follow the same walk as pandoc's org reader
+/// (`verbatimBetween` / `emphasisStart` / `emphasisEnd`, the Emacs
+/// `org-emphasis-regexp-components` defaults). The opener sits after a pre
+/// character (start of text, whitespace, or `('"{`), the first and last
 /// interior characters are not whitespace, and the closer is the first
 /// matching marker whose next character is a post character (end of text,
 /// whitespace, or `-.,:!?;'")}[`). Inner copies of the marker are content.
+/// `pandoc -f org` reports those spans as `Code` inlines with class
+/// `verbatim` or bare `Code`.
 ///
-/// Markdown inline code uses CommonMark fence-length matching: a run of `n`
-/// backticks closes on the next run of exactly `n` backticks, so a double
-/// span can hold a single backtick.
+/// Markdown inline code uses CommonMark / pandoc fence-length matching: a
+/// run of `n` backticks closes on the next run of exactly `n` backticks, so
+/// a double span can hold a single backtick.
 fn protect_paired_spans(text: &str, placeholders: &mut Vec<String>) -> String {
     let mut out = String::with_capacity(text.len());
     let bytes = text.as_bytes();
@@ -158,7 +162,8 @@ fn push_placeholder(out: &mut String, placeholders: &mut Vec<String>, span: &str
 }
 
 fn find_org_paired_span(text: &str, open_at: usize, marker: char) -> Option<usize> {
-    // org-emphasis-regexp-components: pre / post. Border is whitespace.
+    // pandoc org reader / org-emphasis-regexp-components defaults.
+    // Border (forbidden at the inner edges) is whitespace.
     const PRE: &str = " \t\n('\"{";
     const POST: &str = " \t\n-.,:!?;'\")}[";
 
@@ -775,8 +780,9 @@ mod tests {
 
     #[test]
     fn org_verbatim_inner_equals_pairs_to_the_real_closer() {
-        // `=[^=]+ =` reads the inner `=` as a closer and leaves the period
-        // after `note.` unprotected. Both spans must be captured whole.
+        // `pandoc -f org` makes two Code inlines, class verbatim, contents
+        // `x = 1 -- note.` and `s = "x"`. A `=[^=]+=` regex instead closes
+        // on the inner `=` and leaves the period after `note.` unprotected.
         let text = r#"so =x = 1 -- note.= reflows while =s = "x"= does not."#;
         let (protected, placeholders) = protect_inline_tokens(text);
         assert_eq!(

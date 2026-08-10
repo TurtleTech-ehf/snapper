@@ -459,3 +459,31 @@ fn default_path_numbered_atx_source_line_not_split() {
             .any(|l| l.trim() == "### 1." || l.trim() == "### 1")
     );
 }
+
+/// Pandoc's org reader already emits each `=...=` as one Code inline
+/// (class verbatim). The walker keeps that as Structure, so a closer
+/// cannot land on its own line. Native pairing is meant to match this.
+#[test]
+fn pandoc_org_verbatim_inner_equals_stays_one_span() {
+    if !snapper_fmt::parser::pandoc::pandoc_available() {
+        eprintln!("skipping: pandoc CLI not on PATH");
+        return;
+    }
+    let input = "so =x = 1 -- note.= reflows while =s = \"x\"= does not.\n";
+    let cfg = FormatConfig {
+        format: Format::Org,
+        use_pandoc: true,
+        pandoc_backend: PandocBackend::Cli,
+        pandoc_format: Some("org".into()),
+        ..Default::default()
+    };
+    let out = format_text(input, &cfg).expect("pandoc org format");
+    assert!(
+        !out.lines().any(|l| l.trim() == "=" || l.starts_with("= ")),
+        "pandoc path must not orphan a verbatim closer, got:\n{out}"
+    );
+    assert!(
+        out.contains("x = 1") && out.contains("s ="),
+        "both verbatim bodies must survive, got:\n{out}"
+    );
+}
