@@ -65,7 +65,9 @@ Parameters:
 - =text= (string, required): Text to format
 - =format= (string): Document format ("org", "latex", "markdown", "rst", "plaintext"; default: "plaintext")
 - =max_width= (integer): Maximum line width (default: 0, unlimited)
-- =clause_breaks= (boolean): Prefer soft breaks after independent-clause punctuation under =max_width= (same as CLI =--clause-breaks=; default: false)
+- =clause_breaks= (boolean): Prefer soft breaks after independent-clause punctuation (same as CLI =--clause-breaks=; default: false).
+  With =max_width= 0, always break at whitespace after the punctuation.
+  With =max_width= greater than 0, overflowing sentences prefer those marks.
 - =range= (object): Optional 1-indexed inclusive line range (=start= / =end=; same meaning as CLI =--range=)
 - =extra_abbreviations= (array of strings): Additional abbreviations
 
@@ -94,6 +96,7 @@ Parameters:
 - =text= (string, required): Text to check
 - =format= (string): Document format (default: "plaintext")
 - =max_width= (integer): Maximum line width; also the =long= threshold when set (default: 0)
+- =clause_breaks= (boolean): Same two-mode contract as =format_text= (default: false)
 
 Returns:
 - =would_reformat= (boolean): identical to CLI =--check= (formatted output differs from input)

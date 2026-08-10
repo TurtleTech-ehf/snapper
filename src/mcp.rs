@@ -35,8 +35,10 @@ pub struct FormatTextParams {
     /// Extra abbreviations that should not trigger sentence breaks.
     #[serde(default)]
     pub extra_abbreviations: Vec<String>,
-    /// Prefer soft breaks after independent-clause punctuation when wrapping
-    /// under `max_width` (same as CLI `--clause-breaks`).
+    /// Prefer soft breaks after independent-clause punctuation
+    /// (same as CLI `--clause-breaks`).
+    /// `max_width` 0 always breaks at whitespace after the punctuation;
+    /// `max_width` greater than 0 is wrap-prefer.
     #[serde(default)]
     pub clause_breaks: bool,
     /// Optional 1-indexed inclusive line range. Same meaning as CLI `--range`.
@@ -60,6 +62,12 @@ pub struct CheckFormattingParams {
     /// Maximum line width (0 = unlimited). Used as the `long` threshold when set.
     #[serde(default)]
     pub max_width: usize,
+    /// Prefer soft breaks after independent-clause punctuation
+    /// (same as CLI `--clause-breaks`; default false).
+    /// `max_width` 0 always breaks at whitespace after the punctuation;
+    /// `max_width` greater than 0 is wrap-prefer.
+    #[serde(default)]
+    pub clause_breaks: bool,
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -190,14 +198,14 @@ impl SnapperMcpServer {
 
     #[tool(
         name = "check_formatting",
-        description = "Check text for semantic line break violations. Returns would_reformat (identical to CLI --check), line diagnostics (fused/wrap/long), and fused line numbers."
+        description = "Check text for semantic line break violations. Honors clause_breaks (same two-mode contract as format_text). Returns would_reformat (identical to CLI --check), line diagnostics (fused/wrap/long), and fused line numbers."
     )]
     fn check_formatting(
         &self,
         Parameters(params): Parameters<CheckFormattingParams>,
     ) -> Json<CheckFormattingResult> {
         let format = parse_format(&params.format);
-        let config = make_config(format, params.max_width, vec![], false);
+        let config = make_config(format, params.max_width, vec![], params.clause_breaks);
         let splitter = crate::build_splitter(&config).unwrap();
         let would = would_reformat(&params.text, &config).unwrap_or(true);
         let threshold = resolve_long_threshold(params.max_width, None);
@@ -334,12 +342,17 @@ mod tests {
     }
 
     fn check(text: &str) -> CheckFormattingResult {
+        check_with(text, false)
+    }
+
+    fn check_with(text: &str, clause_breaks: bool) -> CheckFormattingResult {
         let server = SnapperMcpServer::new();
         server
             .check_formatting(Parameters(CheckFormattingParams {
                 text: text.to_string(),
                 format: "plaintext".to_string(),
                 max_width: 0,
+                clause_breaks,
             }))
             .0
     }
@@ -416,14 +429,18 @@ mod tests {
     }
 
     #[test]
-    fn format_text_clause_breaks_noop_without_max_width() {
+    fn format_text_clause_breaks_unlimited_breaks_after_commas() {
         let sentence = "It contains rules which govern how the Objectives are orchestrated, along with rules which can automatically activate the Objectives in the plan, without additional human intervention.";
         let mut params = plaintext(sentence);
         params.clause_breaks = true;
         let out = format(params);
         assert!(
-            !out.contains("orchestrated,\n"),
-            "unlimited max_width must not clause-break: {out:?}"
+            out.contains("orchestrated,\nalong with"),
+            "clause_breaks with max_width 0 must break after first comma: {out:?}"
+        );
+        assert!(
+            out.contains("plan,\nwithout"),
+            "clause_breaks with max_width 0 must break after second comma: {out:?}"
         );
     }
 
@@ -465,5 +482,27 @@ mod tests {
         );
         assert!(ok.passed);
         assert!(ok.violations.is_empty());
+    }
+
+    #[test]
+    fn check_formatting_params_clause_breaks_defaults_false() {
+        let params: CheckFormattingParams = serde_json::from_str(r#"{"text":"Hi."}"#).unwrap();
+        assert!(!params.clause_breaks);
+        assert_eq!(params.max_width, 0);
+    }
+
+    #[test]
+    fn check_formatting_clause_breaks_matches_format_text() {
+        let fused = check_with("Hello, world.\n", true);
+        assert!(
+            fused.would_reformat,
+            "fused clause with clause_breaks must be would_reformat"
+        );
+
+        let broken = check_with("Hello,\nworld.\n", true);
+        assert!(
+            !broken.would_reformat,
+            "already-broken clauses must be clean"
+        );
     }
 }

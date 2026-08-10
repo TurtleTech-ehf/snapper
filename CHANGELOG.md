@@ -10,7 +10,7 @@ All notable changes to this project will be documented in this file. See [conven
 - (**cli** / **check**) `--check --output-format json|sarif` emits 1-indexed `fused` / `wrap` / `long` diagnostics with excerpts; `long` is advisory unless `--strict-long`; stdin `--check` honors the same JSON/SARIF and exit codes; SARIF URIs are repo-relative (or `file:` plus `invocations[0].workingDirectory`)
 - (**mcp**) `mcp` is a default feature, so published `snapper` / `snapper-fmt` binaries include the stdio server; agents should call it (or the CLI) instead of applying sembr/skills by hand
 - (**mcp**) `format_text` accepts `clause_breaks`, `range` (`start`/`end`, 1-indexed inclusive), and `max_width` (default 0)
-- (**mcp**) `check_formatting` returns `would_reformat` identical to CLI `--check`, plus the same line diagnostics
+- (**mcp**) `check_formatting` accepts `clause_breaks` (default false) and returns `would_reformat` identical to CLI `--check`, plus the same line diagnostics
 - (**safety**) native parsers record source byte ranges and splice reflowed prose into the original document; Structure/Code/Blank are input slices
 - (**safety**) `format_text` runs to a byte fixpoint (cap 4, including A/B cycles) or returns the original; a format-local oracle (region-kind + slice tree; Markdown HTML plus a code-byte check) mismatch also returns the original
 - (**safety**) `format_bytes` refuses invalid UTF-8 with `InvalidUtf8Error`; `--use-pandoc` refuses (`PandocCannotSplice`) because the AST has no source offsets
