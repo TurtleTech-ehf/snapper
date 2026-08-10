@@ -6,6 +6,7 @@
 use serde::Serialize;
 
 use crate::format::Format;
+use crate::parser::source_line_payloads;
 use crate::sentence::SentenceSplitter;
 use crate::{FormatConfig, format_text};
 
@@ -78,24 +79,31 @@ pub fn collect_diagnostics(
     long_threshold: usize,
 ) -> Vec<LineDiagnostic> {
     let lines: Vec<&str> = input.lines().collect();
-    let prose = classify_prose_lines(&lines, format);
+    let payloads = source_line_payloads(input, format);
+    debug_assert_eq!(
+        payloads.len(),
+        lines.len(),
+        "parser line map must cover every source line (got {} payloads for {} lines)",
+        payloads.len(),
+        lines.len()
+    );
     let mut diagnostics = Vec::new();
-    let mut prev_prose: Option<&str> = None;
+    let mut prev_prose: Option<String> = None;
 
     for (idx, line) in lines.iter().enumerate() {
         if line.trim().is_empty() {
             prev_prose = None;
             continue;
         }
-        if !prose[idx] {
+        let Some(payload) = payloads.get(idx).and_then(|p| p.as_deref()) else {
             prev_prose = None;
             continue;
-        }
+        };
 
         let line_no = idx + 1;
         let excerpt = excerpt_of(line);
 
-        if splitter.split(line.trim()).len() > 1 {
+        if splitter.split(payload.trim()).len() > 1 {
             diagnostics.push(LineDiagnostic {
                 line: line_no,
                 kind: DiagnosticKind::Fused,
@@ -103,9 +111,9 @@ pub fn collect_diagnostics(
             });
         }
 
-        if let Some(prev) = prev_prose {
+        if let Some(prev) = prev_prose.as_deref() {
             if !ends_clause_or_quote(prev) {
-                if let Some(word) = leading_lowercase_word(line) {
+                if let Some(word) = leading_lowercase_word(payload) {
                     if !WRAP_CONNECTORS.contains(&word.as_str()) {
                         diagnostics.push(LineDiagnostic {
                             line: line_no,
@@ -117,8 +125,8 @@ pub fn collect_diagnostics(
             }
         }
 
-        let width = line.chars().count();
-        if width > long_threshold && has_clause_boundary_hint(line) {
+        let width = payload.chars().count();
+        if width > long_threshold && has_clause_boundary_hint(payload) {
             diagnostics.push(LineDiagnostic {
                 line: line_no,
                 kind: DiagnosticKind::Long,
@@ -126,7 +134,7 @@ pub fn collect_diagnostics(
             });
         }
 
-        prev_prose = Some(line);
+        prev_prose = Some(payload.to_string());
     }
 
     diagnostics
@@ -206,196 +214,6 @@ fn has_clause_boundary_hint(line: &str) -> bool {
         i += len;
     }
     false
-}
-
-fn classify_prose_lines(lines: &[&str], format: Format) -> Vec<bool> {
-    let mut prose = vec![false; lines.len()];
-    let mut in_code = false;
-    let mut rst_code_indent: Option<usize> = None;
-
-    for (idx, line) in lines.iter().enumerate() {
-        if line.trim().is_empty() {
-            continue;
-        }
-        match format {
-            Format::Plaintext => {
-                prose[idx] = true;
-            }
-            Format::Markdown => {
-                if is_md_fence(line) {
-                    in_code = !in_code;
-                    continue;
-                }
-                if in_code || is_md_structure(line) {
-                    continue;
-                }
-                prose[idx] = true;
-            }
-            Format::Org => {
-                if is_org_src_begin(line) {
-                    in_code = true;
-                    continue;
-                }
-                if is_org_src_end(line) {
-                    in_code = false;
-                    continue;
-                }
-                if in_code || is_org_structure(line) {
-                    continue;
-                }
-                prose[idx] = true;
-            }
-            Format::Latex => {
-                if let Some(name) = latex_begin_env(line) {
-                    if is_latex_code_env(name) {
-                        in_code = true;
-                    }
-                    continue;
-                }
-                if let Some(name) = latex_end_env(line) {
-                    if is_latex_code_env(name) {
-                        in_code = false;
-                    }
-                    continue;
-                }
-                if in_code || is_latex_structure(line) {
-                    continue;
-                }
-                prose[idx] = true;
-            }
-            Format::Rst => {
-                if is_rst_code_directive(line) {
-                    rst_code_indent = Some(leading_spaces(line));
-                    continue;
-                }
-                if let Some(indent) = rst_code_indent {
-                    if leading_spaces(line) > indent {
-                        continue;
-                    }
-                    rst_code_indent = None;
-                }
-                if is_rst_structure(line) {
-                    continue;
-                }
-                prose[idx] = true;
-            }
-        }
-    }
-    prose
-}
-
-fn is_md_fence(line: &str) -> bool {
-    let t = line.trim_start();
-    t.starts_with("```") || t.starts_with("~~~")
-}
-
-fn is_md_structure(line: &str) -> bool {
-    let t = line.trim_start();
-    let hashes = t.bytes().take_while(|&b| b == b'#').count();
-    if (1..=6).contains(&hashes) && t.as_bytes().get(hashes) == Some(&b' ') {
-        return true;
-    }
-    let trimmed = line.trim();
-    if trimmed.starts_with('|') && trimmed.ends_with('|') {
-        return true;
-    }
-    if trimmed == "---" || trimmed == "+++" {
-        return true;
-    }
-    let end_trimmed = line.trim_end();
-    let indent = line.len() - line.trim_start().len();
-    let body = end_trimmed.trim_start();
-    if indent <= 3
-        && !body.is_empty()
-        && (body.chars().all(|c| c == '=') || body.chars().all(|c| c == '-'))
-    {
-        return true;
-    }
-    trimmed.starts_with("<!--")
-}
-
-fn is_org_src_begin(line: &str) -> bool {
-    let u = line.trim_start().to_ascii_uppercase();
-    u.starts_with("#+BEGIN_SRC") || u.starts_with("#+BEGIN_EXAMPLE")
-}
-
-fn is_org_src_end(line: &str) -> bool {
-    let u = line.trim_start().to_ascii_uppercase();
-    u.starts_with("#+END_SRC") || u.starts_with("#+END_EXAMPLE")
-}
-
-fn is_org_structure(line: &str) -> bool {
-    let t = line.trim_start();
-    let stars = t.bytes().take_while(|&b| b == b'*').count();
-    if stars > 0 && t.as_bytes().get(stars) == Some(&b' ') {
-        return true;
-    }
-    if t.starts_with("#+") {
-        return true;
-    }
-    let trimmed = line.trim();
-    if trimmed.starts_with(':') && trimmed.ends_with(':') && trimmed.len() > 2 {
-        return true;
-    }
-    trimmed.starts_with('|')
-}
-
-fn latex_begin_env(line: &str) -> Option<&str> {
-    let t = line.trim_start();
-    let rest = t.strip_prefix("\\begin{")?;
-    rest.split('}').next()
-}
-
-fn latex_end_env(line: &str) -> Option<&str> {
-    let t = line.trim_start();
-    let rest = t.strip_prefix("\\end{")?;
-    rest.split('}').next()
-}
-
-fn is_latex_code_env(name: &str) -> bool {
-    matches!(name, "verbatim" | "lstlisting" | "minted")
-}
-
-fn is_latex_structure(line: &str) -> bool {
-    let t = line.trim_start();
-    if t.starts_with('%') {
-        return true;
-    }
-    t.starts_with("\\documentclass")
-        || t.starts_with("\\usepackage")
-        || t.starts_with("\\section")
-        || t.starts_with("\\subsection")
-        || t.starts_with("\\subsubsection")
-        || t.starts_with("\\chapter")
-        || t.starts_with("\\part")
-        || t.starts_with("\\paragraph")
-        || t.starts_with("\\title")
-        || t.starts_with("\\author")
-        || t.starts_with("\\maketitle")
-}
-
-fn is_rst_code_directive(line: &str) -> bool {
-    let t = line.trim_start();
-    t.starts_with(".. code-block::")
-        || t.starts_with(".. sourcecode::")
-        || t.starts_with(".. code::")
-}
-
-fn is_rst_structure(line: &str) -> bool {
-    let t = line.trim_start();
-    if t.starts_with(".. ") {
-        return true;
-    }
-    let body = line.trim();
-    !body.is_empty()
-        && (body.chars().all(|c| c == '=')
-            || body.chars().all(|c| c == '-')
-            || body.chars().all(|c| c == '~')
-            || body.chars().all(|c| c == '`'))
-}
-
-fn leading_spaces(line: &str) -> usize {
-    line.bytes().take_while(|&b| b == b' ').count()
 }
 
 #[cfg(test)]
@@ -579,6 +397,171 @@ mod tests {
         );
     }
 
+    fn assert_no_kind_on(
+        found: &[LineDiagnostic],
+        kind: DiagnosticKind,
+        lines: &[usize],
+        msg: &str,
+    ) {
+        for line in lines {
+            assert!(
+                found.iter().all(|d| !(d.line == *line && d.kind == kind)),
+                "{msg}: line {line} has {kind:?} in {found:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn org_quote_comment_drawer_are_not_prose() {
+        let input = concat!(
+            "#+BEGIN_QUOTE\n",
+            "Quoted hello. Quoted world.\n",
+            "#+END_QUOTE\n",
+            "# Comment hello. Comment world.\n",
+            ":PROPERTIES:\n",
+            ":ID: drawer-value-hello. Drawer world with extra padding so a comma, stays structure.\n",
+            ":END:\n",
+            "\n",
+            "Real prose. Second sentence.\n",
+        );
+        let splitter = UnicodeSentenceSplitter::new();
+        let found = collect_diagnostics(input, Format::Org, &splitter, DEFAULT_LONG_THRESHOLD);
+        assert_no_kind_on(
+            &found,
+            DiagnosticKind::Fused,
+            &[2, 4, 6],
+            "org quote/comment/drawer must not be fused",
+        );
+        assert!(
+            found
+                .iter()
+                .any(|d| d.line == 9 && d.kind == DiagnosticKind::Fused),
+            "real org prose should still be fused, got {found:?}"
+        );
+    }
+
+    #[test]
+    fn markdown_front_matter_and_setext_are_not_prose() {
+        let input = concat!(
+            "---\n",
+            "title: Hello. World in front matter.\n",
+            "---\n",
+            "\n",
+            "Setext Title. Still Title\n",
+            "=========================\n",
+            "\n",
+            "Body one. Body two.\n",
+        );
+        let splitter = UnicodeSentenceSplitter::new();
+        let found = collect_diagnostics(input, Format::Markdown, &splitter, DEFAULT_LONG_THRESHOLD);
+        assert_no_kind_on(
+            &found,
+            DiagnosticKind::Fused,
+            &[2, 5],
+            "front matter and setext title must not be fused",
+        );
+        assert!(
+            found
+                .iter()
+                .any(|d| d.line == 8 && d.kind == DiagnosticKind::Fused),
+            "markdown body should still be fused, got {found:?}"
+        );
+    }
+
+    #[test]
+    fn latex_preamble_and_equation_are_not_prose() {
+        let input = concat!(
+            "\\documentclass{article}\n",
+            "\\usepackage{amsmath}\n",
+            "\\begin{document}\n",
+            "\\begin{equation}\n",
+            "E = mc^2 + a very long expression, with commas, that exceeds one hundred twenty characters easily xxxxxxxxxxxxxxxxx\n",
+            "\\end{equation}\n",
+            "Body one. Body two.\n",
+            "\\end{document}\n",
+        );
+        let splitter = UnicodeSentenceSplitter::new();
+        let found = collect_diagnostics(input, Format::Latex, &splitter, DEFAULT_LONG_THRESHOLD);
+        assert_no_kind_on(
+            &found,
+            DiagnosticKind::Fused,
+            &[1, 2, 3, 4, 5, 6, 8],
+            "latex preamble and equation must not be fused",
+        );
+        assert!(
+            found
+                .iter()
+                .all(|d| !(d.line == 5 && d.kind == DiagnosticKind::Long)),
+            "equation body must not be long, got {found:?}"
+        );
+        assert!(
+            found
+                .iter()
+                .any(|d| d.line == 7 && d.kind == DiagnosticKind::Fused),
+            "latex body should still be fused, got {found:?}"
+        );
+    }
+
+    #[test]
+    fn rst_title_and_note_body_are_not_prose() {
+        let input = concat!(
+            "Title Here. With Period.\n",
+            "========================\n",
+            "\n",
+            ".. note::\n",
+            "\n",
+            "   This is a note. With two sentences.\n",
+            "\n",
+            "Body one. Body two.\n",
+        );
+        let splitter = UnicodeSentenceSplitter::new();
+        let found = collect_diagnostics(input, Format::Rst, &splitter, DEFAULT_LONG_THRESHOLD);
+        assert_no_kind_on(
+            &found,
+            DiagnosticKind::Fused,
+            &[1, 4, 6],
+            "rst title and note body must not be fused",
+        );
+        assert!(
+            found
+                .iter()
+                .any(|d| d.line == 8 && d.kind == DiagnosticKind::Fused),
+            "rst body should still be fused, got {found:?}"
+        );
+    }
+
+    #[test]
+    fn snapper_off_region_is_not_prose() {
+        let input = concat!(
+            "Hello world. This is a test.\n",
+            "snapper:off\n",
+            "Do not. Touch this.\n",
+            "snapper:on\n",
+            "After one. After two.\n",
+        );
+        let splitter = UnicodeSentenceSplitter::new();
+        let found =
+            collect_diagnostics(input, Format::Plaintext, &splitter, DEFAULT_LONG_THRESHOLD);
+        assert_no_kind_on(
+            &found,
+            DiagnosticKind::Fused,
+            &[2, 3, 4],
+            "snapper:off body must not be fused",
+        );
+        assert!(
+            found
+                .iter()
+                .any(|d| d.line == 1 && d.kind == DiagnosticKind::Fused),
+            "prose before snapper:off should be fused, got {found:?}"
+        );
+        assert!(
+            found
+                .iter()
+                .any(|d| d.line == 5 && d.kind == DiagnosticKind::Fused),
+            "prose after snapper:on should be fused, got {found:?}"
+        );
+    }
+
     #[test]
     fn would_reformat_matches_format_identity() {
         let config = FormatConfig {
@@ -587,6 +570,133 @@ mod tests {
         };
         assert!(would_reformat("Hello world. This is a test.\n", &config).unwrap());
         assert!(!would_reformat("Hello world.\nThis is a test.\n", &config).unwrap());
+    }
+
+    fn no_fused(input: &str, format: Format) -> Vec<LineDiagnostic> {
+        let splitter = UnicodeSentenceSplitter::new();
+        collect_diagnostics(input, format, &splitter, DEFAULT_LONG_THRESHOLD)
+    }
+
+    #[test]
+    fn numbered_list_payload_is_item_text() {
+        use crate::parser::source_line_payloads;
+        let md = source_line_payloads("1. Hello world.\n", Format::Markdown);
+        assert_eq!(md[0].as_deref(), Some("Hello world."));
+        let org = source_line_payloads("1. Hello world.\n", Format::Org);
+        assert_eq!(org[0].as_deref(), Some("Hello world."));
+        let tex = source_line_payloads(
+            "\\begin{document}\nSee Fig. 1. % TODO cite\n\\end{document}\n",
+            Format::Latex,
+        );
+        assert_eq!(tex[1].as_deref(), Some("See Fig. 1. "));
+    }
+
+    #[test]
+    fn numbered_list_item_is_not_fused_markdown() {
+        let input = "1. Hello world.\n";
+        let found = no_fused(input, Format::Markdown);
+        assert!(
+            found.iter().all(|d| d.kind != DiagnosticKind::Fused),
+            "numbered list body is one sentence; marker is not fused, got {found:?}"
+        );
+        let config = FormatConfig {
+            format: Format::Markdown,
+            ..Default::default()
+        };
+        assert!(
+            !would_reformat(input, &config).unwrap(),
+            "1. Hello world. must be identity under markdown"
+        );
+    }
+
+    #[test]
+    fn numbered_list_item_is_not_fused_org() {
+        let input = "1. Hello world.\n";
+        let found = no_fused(input, Format::Org);
+        assert!(
+            found.iter().all(|d| d.kind != DiagnosticKind::Fused),
+            "org numbered list body is one sentence; marker is not fused, got {found:?}"
+        );
+        let config = FormatConfig {
+            format: Format::Org,
+            ..Default::default()
+        };
+        assert!(
+            !would_reformat(input, &config).unwrap(),
+            "1. Hello world. must be identity under org"
+        );
+    }
+
+    #[test]
+    fn latex_mid_line_comment_is_not_fused() {
+        let input = "See Fig. 1. % TODO cite\n";
+        let found = no_fused(input, Format::Latex);
+        assert!(
+            found.iter().all(|d| d.kind != DiagnosticKind::Fused),
+            "latex comment is structure; Fig. 1. is one sentence, got {found:?}"
+        );
+        let config = FormatConfig {
+            format: Format::Latex,
+            ..Default::default()
+        };
+        assert!(
+            !would_reformat(input, &config).unwrap(),
+            "See Fig. 1. % TODO cite must be identity under latex"
+        );
+    }
+
+    #[test]
+    fn latex_body_mid_line_comment_is_not_fused() {
+        let input = "\\begin{document}\nSee Fig. 1. % TODO cite\n\\end{document}\n";
+        let found = no_fused(input, Format::Latex);
+        assert!(
+            found.iter().all(|d| d.kind != DiagnosticKind::Fused),
+            "body-line comment must not fuse Fig. 1. with TODO, got {found:?}"
+        );
+        let config = FormatConfig {
+            format: Format::Latex,
+            ..Default::default()
+        };
+        assert!(
+            !would_reformat(input, &config).unwrap(),
+            "document with See Fig. 1. % TODO cite must be identity, got {}",
+            crate::format_text(input, &config).unwrap()
+        );
+    }
+
+    #[test]
+    fn parser_line_map_covers_every_source_line() {
+        use crate::parser::source_line_payloads;
+        let cases = [
+            (
+                Format::Org,
+                "#+BEGIN_QUOTE\nQuoted hello. Quoted world.\n#+END_QUOTE\n# Comment.\n:PROPERTIES:\n:ID: x\n:END:\n\nReal. Two.\n",
+            ),
+            (
+                Format::Markdown,
+                "---\ntitle: Hello. World.\n---\n\nSetext Title. Still\n===================\n\nBody. Two.\n",
+            ),
+            (
+                Format::Latex,
+                "\\documentclass{article}\n\\begin{document}\n\\begin{equation}\nE=mc^2\n\\end{equation}\nBody. Two.\n\\end{document}\n",
+            ),
+            (
+                Format::Rst,
+                "Title Here. With Period.\n========================\n\n.. note::\n\n   Note. Two.\n\nBody. Two.\n",
+            ),
+            (
+                Format::Plaintext,
+                "Hello. World.\nsnapper:off\nDo not. Touch.\nsnapper:on\nAfter. Two.\n",
+            ),
+        ];
+        for (fmt, input) in cases {
+            let kinds = source_line_payloads(input, fmt);
+            assert_eq!(
+                kinds.len(),
+                input.lines().count(),
+                "line map length mismatch for {fmt:?}"
+            );
+        }
     }
 
     #[test]

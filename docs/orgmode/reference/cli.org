@@ -90,6 +90,7 @@ Missing binaries, non-zero exits, and a ~30s timeout are non-fatal; the reflowed
 Check mode for CI.
 Exits with code 1 if any file would change, without modifying anything.
 Prints the paths of files that would be reformatted to stderr.
+With no file arguments, checks stdin (JSON/SARIF on stdout, same exit codes).
 
 *** =--diff=
 :PROPERTIES:

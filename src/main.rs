@@ -135,9 +135,52 @@ fn run() -> Result<()> {
             format_text(&input, &config)?
         };
 
-        if cli.diff {
+        if cli.check {
+            let splitter = build_splitter(&config).context("failed to build sentence splitter")?;
+            let threshold = resolve_long_threshold(config.max_width, project_config.long_threshold);
+            let diagnostics = collect_diagnostics(&input, format, splitter.as_ref(), threshold);
+            let would = output != input;
+            let long_fail =
+                cli.strict_long && diagnostics.iter().any(|d| d.kind == DiagnosticKind::Long);
+            let file = cli
+                .stdin_filepath
+                .as_ref()
+                .map(|p| p.display().to_string())
+                .unwrap_or_else(|| "<stdin>".to_string());
+            let check_results = if would || !diagnostics.is_empty() {
+                vec![CheckResult {
+                    file,
+                    original_lines: input.lines().count(),
+                    formatted_lines: output.lines().count(),
+                    would_reformat: would,
+                    diagnostics,
+                }]
+            } else {
+                Vec::new()
+            };
+            match cli.output_format {
+                OutputFormat::Json => output_json(&check_results),
+                OutputFormat::Sarif => output_sarif(&check_results),
+                OutputFormat::Text => {
+                    if would {
+                        eprintln!("would reformat: <stdin>");
+                    }
+                    if let Some(r) = check_results.first() {
+                        for d in &r.diagnostics {
+                            eprintln!("<stdin>:{}:{}: {}", d.line, d.kind.as_str(), d.excerpt);
+                        }
+                    }
+                }
+            }
+            if would || long_fail {
+                process::exit(1);
+            }
+        } else if cli.diff {
             let color = resolve_color(cli.color, false);
             snapper_fmt::diff::print_diff("<stdin>", &input, &output, color);
+            if output != input {
+                process::exit(1);
+            }
         } else if let Some(ref path) = cli.output {
             fs::write(path, &output)
                 .with_context(|| format!("failed to write {}", path.display()))?;

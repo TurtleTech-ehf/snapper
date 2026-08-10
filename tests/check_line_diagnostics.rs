@@ -228,3 +228,144 @@ fn would_reformat_matches_cli_check_identity() {
         }
     }
 }
+
+fn pipe_check(input: &str, extra: &[&str]) -> (bool, String, String) {
+    let mut cmd = snapper_binary();
+    let mut args = vec!["--check", "--format", "plaintext"];
+    args.extend_from_slice(extra);
+    cmd.args(&args)
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped());
+    let mut child = cmd.spawn().expect("spawn snapper");
+    {
+        use std::io::Write;
+        child
+            .stdin
+            .take()
+            .unwrap()
+            .write_all(input.as_bytes())
+            .unwrap();
+    }
+    let out = child.wait_with_output().expect("wait snapper");
+    (
+        out.status.success(),
+        String::from_utf8(out.stdout).unwrap(),
+        String::from_utf8_lossy(&out.stderr).into_owned(),
+    )
+}
+
+#[test]
+fn stdin_check_json_emits_diagnostics_and_exit_1() {
+    let (ok, stdout, stderr) = pipe_check(
+        "Hello world. This is a test.\n",
+        &["--output-format", "json"],
+    );
+    assert!(!ok, "stdin fused check must exit 1, stderr={stderr}");
+    let parsed: serde_json::Value =
+        serde_json::from_str(&stdout).unwrap_or_else(|e| panic!("stdin json: {stdout:?}: {e}"));
+    let diags = diagnostics(&parsed);
+    assert!(
+        diags.iter().any(|d| d["kind"] == "fused" && d["line"] == 1),
+        "stdin json must include fused, got {parsed}"
+    );
+}
+
+#[test]
+fn stdin_check_json_clean_exits_0() {
+    let (ok, stdout, stderr) = pipe_check(
+        "Hello world.\nThis is a test.\n",
+        &["--output-format", "json"],
+    );
+    assert!(ok, "clean stdin check must exit 0, stderr={stderr}");
+    let parsed: serde_json::Value =
+        serde_json::from_str(&stdout).unwrap_or_else(|e| panic!("stdin json: {stdout:?}: {e}"));
+    assert!(
+        parsed.as_array().is_some(),
+        "clean stdin json must be an array, got {parsed}"
+    );
+}
+
+#[test]
+fn strict_long_does_not_fail_structure_equation() {
+    let dir = tempfile::tempdir().unwrap();
+    let body = concat!(
+        "\\documentclass{article}\n",
+        "\\begin{document}\n",
+        "\\begin{equation}\n",
+        "E = mc^2 + a very long expression, with commas, that exceeds one hundred twenty characters easily xxxxxxxxxxxxxxxxx\n",
+        "\\end{equation}\n",
+        "\\end{document}\n",
+    );
+    let path = dir.path().join("eq.tex");
+    fs::write(&path, body).unwrap();
+    let output = snapper_binary()
+        .args([
+            "--check",
+            "--strict-long",
+            "--output-format",
+            "json",
+            "--format",
+            "latex",
+            &path.to_string_lossy(),
+        ])
+        .output()
+        .expect("run snapper");
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        output.status.success(),
+        "--strict-long must not fail a structure-only equation, stderr={stderr} stdout={stdout}"
+    );
+    if !stdout.trim().is_empty() {
+        let parsed: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+        let diags = diagnostics(&parsed);
+        assert!(
+            diags.iter().all(|d| d["kind"] != "long"),
+            "equation must not yield long: {parsed}"
+        );
+        for file in parsed.as_array().unwrap() {
+            assert_ne!(file["would_reformat"], true, "{parsed}");
+        }
+    }
+}
+
+#[test]
+fn sarif_uri_is_repo_relative_or_file_with_workdir() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = write_txt(dir.path(), "fused.txt", "Hello world. This is a test.\n");
+    let output = snapper_binary()
+        .current_dir(dir.path())
+        .args([
+            "--check",
+            "--output-format",
+            "sarif",
+            "--format",
+            "plaintext",
+            "fused.txt",
+        ])
+        .output()
+        .expect("run snapper");
+    assert!(!output.status.success());
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    let parsed: serde_json::Value = serde_json::from_str(&stdout).expect("sarif json");
+    let uri = parsed["runs"][0]["results"][0]["locations"][0]["physicalLocation"]
+        ["artifactLocation"]["uri"]
+        .as_str()
+        .unwrap_or("");
+    let wd = parsed["runs"][0]["invocations"][0]["workingDirectory"]["uri"]
+        .as_str()
+        .unwrap_or("");
+    let relative = uri == "fused.txt" || uri == "./fused.txt";
+    let file_uri = uri.starts_with("file:");
+    assert!(
+        relative || (file_uri && wd.starts_with("file:")),
+        "SARIF uri must be repo-relative or file: with workingDirectory, got uri={uri:?} wd={wd:?} path={path}"
+    );
+    if !relative {
+        assert!(
+            wd.starts_with("file:"),
+            "file: uri requires invocations[0].workingDirectory.uri, wd={wd:?}"
+        );
+    }
+}
