@@ -123,10 +123,12 @@ Also selectable via =--clause-breaks=.
 
 When true, snapper inserts a soft break after independent-clause punctuation (comma, semicolon, colon, em dash, or ASCII =--=) that is already followed by whitespace.
 
-- =max_width = 0= (the default): every such mark starts a new line. A sentence that is already one independent clause stays one line.
+- =max_width = 0= (the default): every such mark starts a new line.
+  A sentence that is already one independent clause stays one line.
 - =max_width > 0=: overflowing sentences prefer those marks; a sentence that already fits stays on one line.
 
-Tokens such as =1,000=, =10:30=, URLs, =--flags=, and unspaced dashes never split. =--check= uses the same mode when this flag or config is on.
+Tokens such as =1,000=, =10:30=, URLs, =--flags=, and unspaced dashes never split.
+=--check= uses the same mode when this flag or config is on.
 
 ** long_threshold
 :PROPERTIES:
