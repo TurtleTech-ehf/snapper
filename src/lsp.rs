@@ -478,7 +478,7 @@ fn detect_format_from_uri(uri: &Url, language_id: &str) -> Format {
         _ => {}
     }
     if let Ok(path) = uri.to_file_path() {
-        Format::from_path(&path)
+        Format::recognized_from_path(&path).unwrap_or(Format::Plaintext)
     } else {
         Format::Plaintext
     }

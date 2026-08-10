@@ -10,7 +10,9 @@ use crate::format::Format;
 pub fn format_file(path: &str, max_width: usize) -> Result<String> {
     let content =
         std::fs::read_to_string(path).with_context(|| format!("failed to read {}", path))?;
-    let fmt = Format::from_path(Path::new(path));
+    let fmt = Format::recognized_from_path(Path::new(path)).ok_or_else(|| {
+        anyhow::anyhow!("{path}: not a prose format; pass --format or use .org/.tex/.md/.rst/.txt")
+    })?;
     let config = FormatConfig {
         format: fmt,
         max_width,
@@ -27,7 +29,9 @@ pub fn format_file_with(
 ) -> Result<String> {
     let content =
         std::fs::read_to_string(path).with_context(|| format!("failed to read {}", path))?;
-    let fmt = Format::from_path(Path::new(path));
+    let fmt = Format::recognized_from_path(Path::new(path)).ok_or_else(|| {
+        anyhow::anyhow!("{path}: not a prose format; pass --format or use .org/.tex/.md/.rst/.txt")
+    })?;
     let config = FormatConfig {
         format: fmt,
         max_width,
@@ -104,6 +108,15 @@ mod tests {
         std::fs::write(&tmp, "Hello world.\nThis is a test.\n").unwrap();
         let changed = format_in_place(tmp.to_str().unwrap(), 0).unwrap();
         assert!(!changed);
+        std::fs::remove_file(&tmp).ok();
+    }
+
+    #[test]
+    fn format_file_refuses_source_extension() {
+        let tmp = std::env::temp_dir().join("snap_files_refuse.rs");
+        std::fs::write(&tmp, "fn main() { let x = 1.0; }\n").unwrap();
+        let err = format_file(tmp.to_str().unwrap(), 0).unwrap_err();
+        assert!(err.to_string().contains("not a prose format"), "got: {err}");
         std::fs::remove_file(&tmp).ok();
     }
 }

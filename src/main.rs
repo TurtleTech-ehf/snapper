@@ -122,7 +122,7 @@ fn run() -> Result<()> {
             cli.format.map(Format::from_arg),
             cli.stdin_filepath.as_deref(),
             &project_config,
-        );
+        )?;
         let config =
             build_format_config(&cli, &project_config, format, cli.stdin_filepath.as_deref());
 
@@ -163,7 +163,7 @@ fn run() -> Result<()> {
                 cli.format.map(Format::from_arg),
                 Some(path),
                 &project_config,
-            );
+            )?;
             let config = build_format_config(&cli, &project_config, format, Some(path));
             let key = SplitterKey::from_config(&config);
             if let std::collections::hash_map::Entry::Vacant(e) = splitter_cache.entry(key) {
@@ -270,7 +270,7 @@ fn process_file(
     let input =
         fs::read_to_string(path).with_context(|| format!("failed to read {}", path.display()))?;
 
-    let format = resolve_format(cli.format.map(Format::from_arg), Some(path), project_config);
+    let format = resolve_format(cli.format.map(Format::from_arg), Some(path), project_config)?;
     let config = build_format_config(cli, project_config, format, Some(path));
     let key = SplitterKey::from_config(&config);
     let splitter = splitter_cache
@@ -335,23 +335,30 @@ fn resolve_format(
     cli_format: Option<Format>,
     path: Option<&Path>,
     project_config: &ProjectConfig,
-) -> Format {
+) -> Result<Format> {
     if let Some(format) = cli_format {
-        return format;
+        return Ok(format);
     }
 
     if let Some(path) = path {
-        let detected = Format::from_path(path);
-        if detected != Format::Plaintext {
-            return detected;
+        if let Some(detected) = Format::recognized_from_path(path) {
+            return Ok(detected);
         }
+        let hint = match path.extension().and_then(|e| e.to_str()) {
+            Some(ext) => format!("extension .{ext}"),
+            None => "no file extension".to_string(),
+        };
+        anyhow::bail!(
+            "{}: not a prose format ({hint}); pass --format or use .org/.tex/.md/.rst/.txt",
+            path.display()
+        );
     }
 
-    project_config
+    Ok(project_config
         .default_format
         .as_deref()
-        .map(Format::from_extension)
-        .unwrap_or(Format::Plaintext)
+        .and_then(Format::recognized_from_extension)
+        .unwrap_or(Format::Plaintext))
 }
 
 fn should_skip_path(path: &Path, cli: &Cli, project_config: &ProjectConfig) -> bool {
