@@ -388,10 +388,22 @@ fn hanging_indent_width(s: &str) -> usize {
     }
 }
 
-/// When the next region is an inline structure island (pandoc `Math`/`Code` as
-/// Structure), do not end the preceding prose with a hard line break.
+/// Markdown hard break payloads: two or more spaces plus newline, or `\\\n`.
+fn is_hard_break_structure(s: &str) -> bool {
+    let Some(body) = s.strip_suffix('\n') else {
+        return false;
+    };
+    if body == "\\" {
+        return true;
+    }
+    body.len() >= 2 && body.bytes().all(|b| b == b' ')
+}
+
 fn suppress_prose_trailing_newline(s: &str) -> bool {
     if s == "\n" || s.starts_with('}') || s.starts_with(']') || s.starts_with(')') {
+        return true;
+    }
+    if is_hard_break_structure(s) {
         return true;
     }
     // Islands may carry a leading space for glue after reflow trims prose.

@@ -52,6 +52,110 @@ fn close_list_item(
     }
 }
 
+fn starts_html_comment(line: &str) -> bool {
+    line.trim_start().starts_with("<!--")
+}
+
+fn html_comment_closed(text: &str) -> bool {
+    match text.find("<!--") {
+        Some(i) => text[i + 4..].contains("-->"),
+        None => text.contains("-->"),
+    }
+}
+
+/// Two or more trailing spaces, or an unescaped trailing backslash.
+/// Returns `(content_len, hard_at)` relative to `text`.
+fn hard_break_rel(text: &str) -> Option<(usize, usize)> {
+    let bytes = text.as_bytes();
+    if !bytes.is_empty() && *bytes.last().unwrap() == b'\\' {
+        let mut n = 0usize;
+        let mut i = bytes.len();
+        while i > 0 && bytes[i - 1] == b'\\' {
+            n += 1;
+            i -= 1;
+        }
+        if n % 2 == 1 {
+            return Some((text.len() - 1, text.len() - 1));
+        }
+        return None;
+    }
+    let stripped = text.trim_end_matches(' ');
+    if text.len() - stripped.len() >= 2 {
+        return Some((stripped.len(), stripped.len()));
+    }
+    None
+}
+
+/// Append `line.text[piece_from..]` to the running prose buffer.
+///
+/// A hard break flushes prose and emits the break (spaces or `\`, plus the
+/// line terminator) as Structure so splice copies those source bytes.
+fn append_piece(
+    prose: &mut String,
+    prose_span: &mut Option<ByteSpan>,
+    list_term: &mut Option<ByteSpan>,
+    line: &Line<'_>,
+    piece_from: usize,
+    join_space: bool,
+    include_term_if_soft: bool,
+    input: &str,
+    regions: &mut Vec<SpannedRegion>,
+) {
+    let piece = &line.text[piece_from..];
+    if let Some((content_end, hard_at)) = hard_break_rel(piece) {
+        let raw = &piece[..content_end];
+        let trimmed = raw.trim_start();
+        let left = raw.len() - trimmed.len();
+        if !trimmed.is_empty() {
+            if !prose.is_empty() && join_space {
+                prose.push(' ');
+            }
+            prose.push_str(trimmed);
+            let start = line.start + piece_from + left;
+            let end = line.start + piece_from + content_end;
+            match prose_span {
+                None => *prose_span = Some(ByteSpan::new(start, end)),
+                Some(s) => s.end = end,
+            }
+        }
+        flush_prose_spanned(prose, prose_span, regions);
+        let hard = ByteSpan::new(line.start + piece_from + hard_at, line.end);
+        if !hard.is_empty() {
+            regions.push(SpannedRegion::structure(input, hard));
+        }
+        *list_term = None;
+        return;
+    }
+    if piece_from == 0 {
+        push_prose_line(
+            prose,
+            prose_span,
+            line,
+            join_space,
+            include_term_if_soft,
+        );
+        *list_term = if include_term_if_soft {
+            None
+        } else {
+            Some(line.terminator_span())
+        };
+        return;
+    }
+    if !piece.is_empty() {
+        if !prose.is_empty() && join_space {
+            prose.push(' ');
+        }
+        prose.push_str(piece);
+        let start = line.start + piece_from;
+        let end = line.start + line.text.len();
+        match prose_span {
+            None => *prose_span = Some(ByteSpan::new(start, end)),
+            Some(s) => s.end = end,
+        }
+    }
+    *list_term = Some(line.terminator_span());
+}
+
 /// True when `line` is a CommonMark setext underline (`===` or `---`).
 fn is_setext_underline(line: &str) -> bool {
     let trimmed = line.trim_end();
@@ -296,8 +400,41 @@ impl FormatParser for MarkdownParser {
                 continue;
             }
 
+            // HTML comment block (not a snapper pragma — those are handled above).
+            if starts_html_comment(line_text) {
+                close_list_item(
+                    &mut in_list_item,
+                    &mut current_prose,
+                    &mut prose_span,
+                    &mut list_term,
+                    input,
+                    &mut regions,
+                );
+                flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
+                if html_comment_closed(line_text) {
+                    regions.push(SpannedRegion::structure(input, line.span()));
+                    i += 1;
+                    continue;
+                }
+                let start = line.start;
+                i += 1;
+                while i < total {
+                    let done = lines[i].text.contains("-->");
+                    i += 1;
+                    if done {
+                        break;
+                    }
+                }
+                let end = lines.get(i.saturating_sub(1)).map(|l| l.end).unwrap_or(input.len());
+                regions.push(SpannedRegion::structure(input, ByteSpan::new(start, end)));
+                continue;
+            }
+
             // Blockquote: emit the full `> ` / `> > ` prefix as Structure.
             // Checked before list items so nested `> >` is not flattened.
+            // Each source quote line is its own item so splice ranges stay
+            // contiguous. A hard break is Structure; the next line supplies
+            // its own `>` (no pre-emitted resume marker).
             if let Some(caps) = QUOTE_RE.captures(line_text) {
                 close_list_item(
                     &mut in_list_item,
@@ -310,17 +447,33 @@ impl FormatParser for MarkdownParser {
                 flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
                 let marker = caps.get(1).unwrap().as_str();
                 let text = caps.get(2).unwrap().as_str();
+                if text.trim().is_empty() {
+                    regions.push(SpannedRegion::structure(input, line.span()));
+                    i += 1;
+                    continue;
+                }
+                if HEADING_RE.is_match(text)
+                    || TABLE_ROW_RE.is_match(text)
+                    || FENCED_CODE_RE.is_match(text.trim_start())
+                {
+                    regions.push(SpannedRegion::structure(input, line.span()));
+                    i += 1;
+                    continue;
+                }
                 let marker_span = ByteSpan::new(line.start, line.start + marker.len());
                 regions.push(SpannedRegion::structure(input, marker_span));
                 in_list_item = true;
-                list_term = Some(line.terminator_span());
-                if !text.is_empty() {
-                    current_prose.push_str(text);
-                    prose_span = Some(ByteSpan::new(
-                        line.start + marker.len(),
-                        line.start + line_text.len(),
-                    ));
-                }
+                append_piece(
+                    &mut current_prose,
+                    &mut prose_span,
+                    &mut list_term,
+                    line,
+                    marker.len(),
+                    false,
+                    false,
+                    input,
+                    &mut regions,
+                );
                 i += 1;
                 continue;
             }
@@ -338,28 +491,49 @@ impl FormatParser for MarkdownParser {
                 );
                 flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
                 let marker = caps.get(1).unwrap().as_str();
-                let text = caps.get(2).unwrap().as_str();
                 let marker_span = ByteSpan::new(line.start, line.start + marker.len());
                 regions.push(SpannedRegion::structure(input, marker_span));
                 in_list_item = true;
-                list_term = Some(line.terminator_span());
-                if !text.is_empty() {
-                    current_prose.push_str(text);
-                    prose_span = Some(ByteSpan::new(
-                        line.start + marker.len(),
-                        line.start + line_text.len(),
-                    ));
-                }
+                append_piece(
+                    &mut current_prose,
+                    &mut prose_span,
+                    &mut list_term,
+                    line,
+                    marker.len(),
+                    false,
+                    false,
+                    input,
+                    &mut regions,
+                );
                 i += 1;
                 continue;
             }
 
             // Regular prose (also serves as list-item continuation when in_list_item)
             if in_list_item {
-                push_prose_line(&mut current_prose, &mut prose_span, line, true, false);
-                list_term = Some(line.terminator_span());
+                append_piece(
+                    &mut current_prose,
+                    &mut prose_span,
+                    &mut list_term,
+                    line,
+                    0,
+                    true,
+                    false,
+                    input,
+                    &mut regions,
+                );
             } else {
-                push_prose_line(&mut current_prose, &mut prose_span, line, true, true);
+                append_piece(
+                    &mut current_prose,
+                    &mut prose_span,
+                    &mut list_term,
+                    line,
+                    0,
+                    true,
+                    true,
+                    input,
+                    &mut regions,
+                );
             }
             i += 1;
         }
@@ -928,5 +1102,83 @@ mod tests {
         assert!(out.contains("Final thing.\nLast sentence."));
         assert!(out.contains("<!-- snapper:off -->"));
         assert!(out.contains("<!-- snapper:on -->"));
+    }
+
+    #[test]
+    fn quote_hard_break_then_nonquote_has_no_stray_marker() {
+        use crate::format::Format;
+        use crate::{FormatConfig, format_text};
+
+        let input = "> line  \nNext sentence.\n";
+        let regions = MarkdownParser.parse(input);
+        let after_break = regions
+            .iter()
+            .skip_while(|r| !matches!(r, Region::Structure(s) if s.ends_with("  \n")));
+        assert!(
+            !after_break.clone().any(|r| matches!(r, Region::Structure(s) if is_quote_resume(s))),
+            "must not emit `>` after a quote hard break into non-quote, got: {regions:?}"
+        );
+
+        let cfg = FormatConfig {
+            format: Format::Markdown,
+            ..Default::default()
+        };
+        let out = format_text(input, &cfg).unwrap();
+        assert!(
+            !out.contains("> \n") && !out.lines().any(|l| l == ">" || l.trim() == ">"),
+            "stray empty quote line, got:\n{out:?}"
+        );
+        assert!(
+            out.starts_with("> line  \nNext sentence."),
+            "hard break then non-quote body, got:\n{out:?}"
+        );
+        assert_eq!(format_text(&out, &cfg).unwrap(), out);
+
+        let still_quote = format_text("> line  \n> continued.\n", &cfg).unwrap();
+        assert!(
+            still_quote.starts_with("> line  \n> continued."),
+            "in-quote hard break must still resume `>`, got:\n{still_quote:?}"
+        );
+    }
+
+    fn is_quote_resume(s: &str) -> bool {
+        !s.is_empty()
+            && !s.contains('\n')
+            && s.contains('>')
+            && s.bytes().all(|b| b == b'>' || b == b' ')
+    }
+
+    #[test]
+    fn quote_wrap_repeats_prefix_under_max_width() {
+        use crate::format::Format;
+        use crate::{FormatConfig, format_text};
+
+        let input = "> One two three four five six seven eight.\n";
+        let cfg = FormatConfig {
+            format: Format::Markdown,
+            max_width: 20,
+            ..Default::default()
+        };
+        let out = format_text(input, &cfg).unwrap();
+        let lines: Vec<_> = out.lines().filter(|l| !l.is_empty()).collect();
+        assert!(
+            lines.len() > 1,
+            "sentence must wrap under max_width=20, got:\n{out}"
+        );
+        for line in &lines {
+            assert!(
+                line.starts_with("> "),
+                "every wrap line keeps `>`, not a space hang, got:\n{out}"
+            );
+            assert!(
+                line.chars().count() <= 20,
+                "prefix counts toward max_width: {line:?} ({out})"
+            );
+        }
+        assert!(
+            !out.contains("\n  "),
+            "must not hang quote wrap with spaces: {out:?}"
+        );
+        assert_eq!(format_text(&out, &cfg).unwrap(), out);
     }
 }
