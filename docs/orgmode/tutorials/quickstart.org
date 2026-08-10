@@ -223,7 +223,7 @@ Add to your =.pre-commit-config.yaml=:
 
 #+begin_src yaml
 - repo: https://github.com/TurtleTech-ehf/snapper
-  rev: v0.9.1
+  rev: v0.10.0
   hooks:
     - id: snapper
 #+end_src
