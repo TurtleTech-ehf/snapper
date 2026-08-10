@@ -282,8 +282,13 @@ pub fn format_text_with_splitter(
 
     let candidate = if config.render_backstop
         && candidate != work_input
-        && !oracle::matches_ex(config.format, work_input, &candidate, config.format_code)
-    {
+        && !oracle::matches_ex(
+            config.format,
+            work_input,
+            &candidate,
+            config.format_code,
+            Some(config),
+        ) {
         work_input.to_string()
     } else {
         candidate

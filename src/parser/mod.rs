@@ -53,8 +53,13 @@ pub trait FormatParser {
 /// `None` means the line has no prose rewrite range (structure, code, blank,
 /// pragma-off). `Some` is the original-source slice the parser sent to the
 /// splitter for that line (list/quote body, mid-line comment prefix).
-pub fn source_line_payloads(input: &str, format: crate::format::Format) -> Vec<Option<String>> {
-    let spanned = parser_for_format(format).parse_full(input);
+/// `config` supplies `[latex]` extras; `None` keeps the built-in lists.
+pub fn source_line_payloads(
+    input: &str,
+    format: crate::format::Format,
+    config: Option<&crate::FormatConfig>,
+) -> Vec<Option<String>> {
+    let spanned = parser_for_format_config(format, config).parse_full(input);
     iter_lines(input)
         .into_iter()
         .map(|line| line_prose_payload(input, line, &spanned))

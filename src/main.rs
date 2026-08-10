@@ -138,7 +138,8 @@ fn run() -> Result<()> {
         if cli.check {
             let splitter = build_splitter(&config).context("failed to build sentence splitter")?;
             let threshold = resolve_long_threshold(config.max_width, project_config.long_threshold);
-            let diagnostics = collect_diagnostics(&input, format, splitter.as_ref(), threshold);
+            let diagnostics =
+                collect_diagnostics(&input, format, splitter.as_ref(), threshold, Some(&config));
             let would = output != input;
             let long_fail =
                 cli.strict_long && diagnostics.iter().any(|d| d.kind == DiagnosticKind::Long);
@@ -254,7 +255,8 @@ fn run() -> Result<()> {
                     .ok_or_else(|| anyhow::anyhow!("splitter cache miss for {path_str}"))?;
                 let threshold =
                     resolve_long_threshold(config.max_width, project_config.long_threshold);
-                let diagnostics = collect_diagnostics(input, format, splitter.as_ref(), threshold);
+                let diagnostics =
+                    collect_diagnostics(input, format, splitter.as_ref(), threshold, Some(&config));
                 let would = output != input;
                 let long_fail =
                     cli.strict_long && diagnostics.iter().any(|d| d.kind == DiagnosticKind::Long);

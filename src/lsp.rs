@@ -97,7 +97,7 @@ impl SnapperLsp {
             resolve_long_threshold(config.max_width, project.long_threshold)
         };
 
-        collect_diagnostics(text, *format, splitter.as_ref(), threshold)
+        collect_diagnostics(text, *format, splitter.as_ref(), threshold, Some(&config))
             .into_iter()
             .map(|d| {
                 let line = d.line.saturating_sub(1) as u32;

@@ -1158,6 +1158,32 @@ mod tests {
     }
 
     #[test]
+    fn extra_verb_does_not_steal_verbatim() {
+        let extras = ["Verb".to_string()];
+        assert_eq!(
+            latex_verb_span_end_with(r"\Verbatim|x.y|", 0, &extras),
+            None,
+            "Verb must not match as a prefix of Verbatim"
+        );
+        assert_eq!(
+            latex_verb_span_end_with(r"\Verb|x.y|", 0, &extras),
+            Some(r"\Verb|x.y|".len())
+        );
+        let text = r"Use \Verbatim|x.y| here. Next.";
+        let (_, placeholders) = protect_inline_tokens_with(text, &extras);
+        assert!(
+            placeholders.iter().all(|p| p != r"\Verbatim|x.y|"),
+            "Verbatim must not become a verb span, got {placeholders:?}"
+        );
+        assert_eq!(
+            UnicodeSentenceSplitter::new()
+                .with_verbatim_commands(extras.to_vec())
+                .split(text),
+            vec![r"Use \Verbatim|x.y| here.".to_string(), "Next.".to_string()]
+        );
+    }
+
+    #[test]
     fn latex_lstinline_inner_percent_stays_atomic() {
         let text = r"Code \lstinline!%! here. Next.";
         let (_, placeholders) = protect_inline_tokens(text);

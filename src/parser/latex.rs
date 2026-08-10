@@ -1440,20 +1440,46 @@ Some text.
             format: crate::format::Format::Latex,
             latex_verbatim_commands: vec!["Verb".into()],
             ..Default::default()
-        }
-        .without_safety_backstops();
+        };
+        assert!(
+            cfg.render_backstop && cfg.fixpoint_backstop,
+            "this case is the production backstop path"
+        );
         let out = format_text(input, &cfg).unwrap();
         assert!(
             out.contains(r"\Verb!%!"),
             "configured Verb with inner % must stay intact, got:\n{out}"
         );
         assert!(
-            out.contains("here."),
-            "text after configured Verb must not be commented out, got:\n{out}"
+            out.contains("Code \\Verb!%! here.\nNext sentence."),
+            "production backstops must not revert the whole file, got:\n{out}"
         );
         assert!(
-            out.contains("Next sentence."),
-            "following sentence must remain, got:\n{out}"
+            !out.contains("Code \\Verb!%! here. Next sentence."),
+            "inner % is not a comment; the fused line must split, got:\n{out}"
+        );
+        assert_eq!(format_text(&out, &cfg).unwrap(), out);
+    }
+
+    #[test]
+    fn configured_verb_does_not_steal_verbatim() {
+        use crate::format_text;
+
+        let input =
+            "\\begin{document}\nUse \\Verbatim|x.y| here. Next sentence.\n\\end{document}\n";
+        let cfg = crate::FormatConfig {
+            format: crate::format::Format::Latex,
+            latex_verbatim_commands: vec!["Verb".into()],
+            ..Default::default()
+        };
+        let out = format_text(input, &cfg).unwrap();
+        assert!(
+            out.contains("Use \\Verbatim|x.y| here.\nNext sentence."),
+            "\\Verb must not consume \\Verbatim, so the next sentence must split, got:\n{out}"
+        );
+        assert!(
+            out.contains(r"\Verbatim|x.y|"),
+            "\\Verbatim must remain in the source, got:\n{out}"
         );
         assert_eq!(format_text(&out, &cfg).unwrap(), out);
     }
