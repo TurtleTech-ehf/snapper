@@ -14,6 +14,14 @@ use crate::format::Format;
 
 // -- Tool parameter types --
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, schemars::JsonSchema)]
+pub struct LineRange {
+    /// 1-indexed inclusive start line.
+    pub start: usize,
+    /// 1-indexed inclusive end line.
+    pub end: usize,
+}
+
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 pub struct FormatTextParams {
     /// Text to format with semantic line breaks.
@@ -27,6 +35,15 @@ pub struct FormatTextParams {
     /// Extra abbreviations that should not trigger sentence breaks.
     #[serde(default)]
     pub extra_abbreviations: Vec<String>,
+    /// Prefer soft breaks after independent-clause punctuation
+    /// (same as CLI `--clause-breaks`).
+    /// `max_width` 0 always breaks at whitespace after the punctuation;
+    /// `max_width` greater than 0 is wrap-prefer.
+    #[serde(default)]
+    pub clause_breaks: bool,
+    /// Optional 1-indexed inclusive line range. Same meaning as CLI `--range`.
+    #[serde(default)]
+    pub range: Option<LineRange>,
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -45,6 +62,12 @@ pub struct CheckFormattingParams {
     /// Maximum line width (0 = unlimited). Used as the `long` threshold when set.
     #[serde(default)]
     pub max_width: usize,
+    /// Prefer soft breaks after independent-clause punctuation
+    /// (same as CLI `--clause-breaks`; default false).
+    /// `max_width` 0 always breaks at whitespace after the punctuation;
+    /// `max_width` greater than 0 is wrap-prefer.
+    #[serde(default)]
+    pub clause_breaks: bool,
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -61,11 +84,17 @@ fn parse_format(s: &str) -> Format {
     Format::from_extension(s)
 }
 
-fn make_config(format: Format, max_width: usize, extra_abbreviations: Vec<String>) -> FormatConfig {
+fn make_config(
+    format: Format,
+    max_width: usize,
+    extra_abbreviations: Vec<String>,
+    clause_breaks: bool,
+) -> FormatConfig {
     FormatConfig {
         format,
         max_width,
         extra_abbreviations,
+        clause_breaks,
         ..Default::default()
     }
 }
@@ -112,13 +141,22 @@ pub struct SplitSentencesResult {
 // -- Server --
 
 pub struct SnapperMcpServer {
+    /// Held for `#[tool_router]` / `ServerHandler` generated accessors.
+    #[allow(dead_code)]
     tool_router: ToolRouter<Self>,
 }
 
 impl SnapperMcpServer {
     pub fn new() -> Self {
-        let tool_router = Self::tool_router();
-        Self { tool_router }
+        Self {
+            tool_router: Self::tool_router(),
+        }
+    }
+}
+
+impl Default for SnapperMcpServer {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -126,15 +164,25 @@ impl SnapperMcpServer {
 impl SnapperMcpServer {
     #[tool(
         name = "format_text",
-        description = "Format text with semantic line breaks. Each sentence is placed on its own line, producing minimal git diffs. Preserves math, tables, and other structure; source-block fences stay fixed while configured language comments reflow (optional external formatters are CLI-only via --format-code)."
+        description = "Format text with semantic line breaks. Each sentence is placed on its own line, producing minimal git diffs. Preserves math, tables, and other structure; source-block fences stay fixed while configured language comments reflow (optional external formatters are CLI-only via --format-code). Supports clause_breaks and an optional 1-indexed range (same as the CLI)."
     )]
     fn format_text(
         &self,
         Parameters(params): Parameters<FormatTextParams>,
     ) -> Result<Json<FormatTextResult>, rmcp::ErrorData> {
         let format = parse_format(&params.format);
-        let config = make_config(format, params.max_width, params.extra_abbreviations);
-        match crate::format_text(&params.text, &config) {
+        let config = make_config(
+            format,
+            params.max_width,
+            params.extra_abbreviations,
+            params.clause_breaks,
+        );
+        let result = if let Some(range) = params.range {
+            crate::format_range(&params.text, &config, range.start, range.end)
+        } else {
+            crate::format_text(&params.text, &config)
+        };
+        match result {
             Ok(formatted) => Ok(Json(FormatTextResult { formatted })),
             Err(e) => Err(rmcp::ErrorData::internal_error(
                 format!("formatting failed: {e}"),
@@ -159,14 +207,14 @@ impl SnapperMcpServer {
 
     #[tool(
         name = "check_formatting",
-        description = "Check text for semantic line break violations. Returns would_reformat (identical to CLI --check), line diagnostics (fused/wrap/long), and fused line numbers."
+        description = "Check text for semantic line break violations. Honors clause_breaks (same two-mode contract as format_text). Returns would_reformat (identical to CLI --check), line diagnostics (fused/wrap/long), and fused line numbers."
     )]
     fn check_formatting(
         &self,
         Parameters(params): Parameters<CheckFormattingParams>,
     ) -> Json<CheckFormattingResult> {
         let format = parse_format(&params.format);
-        let config = make_config(format, params.max_width, vec![]);
+        let config = make_config(format, params.max_width, vec![], params.clause_breaks);
         let splitter = crate::build_splitter(&config).unwrap();
         let would = would_reformat(&params.text, &config).unwrap_or(true);
         let threshold = resolve_long_threshold(params.max_width, None);
@@ -231,10 +279,9 @@ fn detect_format_heuristic(input: &str) -> Format {
     if lines
         .iter()
         .any(|l| l.starts_with("#+") || l.starts_with("* "))
+        && (input.contains(":PROPERTIES:") || input.contains(":END:") || input.contains("#+begin_"))
     {
-        if input.contains(":PROPERTIES:") || input.contains(":END:") || input.contains("#+begin_") {
-            return Format::Org;
-        }
+        return Format::Org;
     }
 
     if lines
@@ -276,4 +323,194 @@ pub async fn run_mcp() -> anyhow::Result<()> {
         .map_err(|e| anyhow::anyhow!("MCP server failed to start: {e}"))?;
     running.waiting().await?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn format(params: FormatTextParams) -> String {
+        let server = SnapperMcpServer::new();
+        server
+            .format_text(Parameters(params))
+            .expect("format_text")
+            .0
+            .formatted
+    }
+
+    fn plaintext(text: &str) -> FormatTextParams {
+        FormatTextParams {
+            text: text.to_string(),
+            format: "plaintext".to_string(),
+            max_width: 0,
+            extra_abbreviations: vec![],
+            clause_breaks: false,
+            range: None,
+        }
+    }
+
+    fn check(text: &str) -> CheckFormattingResult {
+        check_with(text, false)
+    }
+
+    fn check_with(text: &str, clause_breaks: bool) -> CheckFormattingResult {
+        let server = SnapperMcpServer::new();
+        server
+            .check_formatting(Parameters(CheckFormattingParams {
+                text: text.to_string(),
+                format: "plaintext".to_string(),
+                max_width: 0,
+                clause_breaks,
+            }))
+            .0
+    }
+
+    #[test]
+    fn default_features_include_mcp() {
+        let manifest = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/Cargo.toml"));
+        let after = manifest
+            .split("[features]")
+            .nth(1)
+            .expect("Cargo.toml [features]");
+        let default_line = after
+            .lines()
+            .find(|l| l.starts_with("default"))
+            .expect("default = [...]");
+        assert!(
+            default_line.contains("\"mcp\""),
+            "default features must include mcp so release binaries ship the server: {default_line}"
+        );
+    }
+
+    #[test]
+    fn dist_workspace_does_not_strip_mcp() {
+        let dist = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/dist-workspace.toml"));
+        assert!(
+            !dist.contains("no-default-features")
+                && !dist.contains("default-features")
+                && !dist.lines().any(|l| l.contains("features")
+                    && !l.contains("cargo-dist-version")
+                    && !l.trim_start().starts_with('#')),
+            "dist-workspace.toml must not override default features (mcp ships via Cargo.toml default)"
+        );
+    }
+
+    #[test]
+    fn format_text_params_max_width_defaults_to_zero() {
+        let params: FormatTextParams = serde_json::from_str(r#"{"text":"Hi."}"#).unwrap();
+        assert_eq!(params.max_width, 0);
+        assert!(!params.clause_breaks);
+        assert!(params.range.is_none());
+    }
+
+    #[test]
+    fn format_text_params_accept_clause_breaks_range_and_max_width() {
+        let params: FormatTextParams = serde_json::from_str(
+            r#"{
+                "text": "Hi.",
+                "clause_breaks": true,
+                "range": {"start": 2, "end": 3},
+                "max_width": 80
+            }"#,
+        )
+        .unwrap();
+        assert!(params.clause_breaks);
+        assert_eq!(params.range, Some(LineRange { start: 2, end: 3 }));
+        assert_eq!(params.max_width, 80);
+    }
+
+    #[test]
+    fn format_text_clause_breaks_wraps_after_commas() {
+        let sentence = "It contains rules which govern how the Objectives are orchestrated, along with rules which can automatically activate the Objectives in the plan, without additional human intervention.";
+        let mut params = plaintext(sentence);
+        params.max_width = 80;
+        params.clause_breaks = true;
+        let out = format(params);
+        assert!(
+            out.contains("orchestrated,\nalong with"),
+            "clause_breaks must break after first comma: {out:?}"
+        );
+        assert!(
+            out.contains("plan,\nwithout"),
+            "clause_breaks must break after second comma: {out:?}"
+        );
+    }
+
+    #[test]
+    fn format_text_clause_breaks_unlimited_breaks_after_commas() {
+        let sentence = "It contains rules which govern how the Objectives are orchestrated, along with rules which can automatically activate the Objectives in the plan, without additional human intervention.";
+        let mut params = plaintext(sentence);
+        params.clause_breaks = true;
+        let out = format(params);
+        assert!(
+            out.contains("orchestrated,\nalong with"),
+            "clause_breaks with max_width 0 must break after first comma: {out:?}"
+        );
+        assert!(
+            out.contains("plan,\nwithout"),
+            "clause_breaks with max_width 0 must break after second comma: {out:?}"
+        );
+    }
+
+    #[test]
+    fn format_text_range_formats_only_specified_lines() {
+        let mut params = plaintext(
+            "Line one. Stay same.\nLine two. Should split. Into two.\nLine three. Stay same.\n",
+        );
+        params.range = Some(LineRange { start: 2, end: 2 });
+        let out = format(params);
+        assert!(
+            out.starts_with("Line one. Stay same.\n"),
+            "lines before range stay: {out:?}"
+        );
+        assert!(
+            out.contains("Line two.\nShould split.\nInto two.\n"),
+            "range line must reflow: {out:?}"
+        );
+        assert!(
+            out.ends_with("Line three. Stay same.\n"),
+            "lines after range stay: {out:?}"
+        );
+    }
+
+    #[test]
+    fn check_formatting_would_reformat_matches_cli_check() {
+        let fused = check("Hello world. This is a test.\n");
+        assert!(
+            fused.would_reformat,
+            "fused input must match CLI --check dirty"
+        );
+        assert!(!fused.passed);
+        assert_eq!(fused.violations, vec![1]);
+
+        let ok = check("Hello world.\nThis is a test.\n");
+        assert!(
+            !ok.would_reformat,
+            "already-formatted input must match CLI --check clean"
+        );
+        assert!(ok.passed);
+        assert!(ok.violations.is_empty());
+    }
+
+    #[test]
+    fn check_formatting_params_clause_breaks_defaults_false() {
+        let params: CheckFormattingParams = serde_json::from_str(r#"{"text":"Hi."}"#).unwrap();
+        assert!(!params.clause_breaks);
+        assert_eq!(params.max_width, 0);
+    }
+
+    #[test]
+    fn check_formatting_clause_breaks_matches_format_text() {
+        let fused = check_with("Hello, world.\n", true);
+        assert!(
+            fused.would_reformat,
+            "fused clause with clause_breaks must be would_reformat"
+        );
+
+        let broken = check_with("Hello,\nworld.\n", true);
+        assert!(
+            !broken.would_reformat,
+            "already-broken clauses must be clean"
+        );
+    }
 }

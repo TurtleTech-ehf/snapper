@@ -151,11 +151,16 @@ Initialize a project (generates config, pre-commit, gitattributes):
 
 ## MCP server (AI assistants)
 
-The MCP server is an optional source-build feature; published release binaries do not include it.
-Install snapper with MCP support, then start the stdio server:
+Published `snapper` / `snapper-fmt` binaries include the MCP server (`mcp` is a default Cargo feature).
+Start the stdio server:
+
+    snapper mcp
+
+Agents should call snapper MCP (`format_text`) or the `snapper` CLI instead of applying [sembr.org](https://sembr.org/) / [sembr/skills](https://github.com/sembr/skills) wrapping by hand.
+`format_text` accepts `clause_breaks`, `range` (`start` / `end`, 1-indexed inclusive), and `max_width` (default 0).
+From source with `--no-default-features`, rebuild with MCP:
 
     cargo install snapper-fmt --features mcp
-    snapper mcp
 
 Tools: `format_text`, `detect_format`, `check_formatting`, `split_sentences`.
 Configuration guide (org source in-tree): `docs/orgmode/howto/mcp-integration.org`; HTML docs: <https://snapper.turtletech.us/docs/howto/mcp-integration/> .

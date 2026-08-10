@@ -168,12 +168,19 @@ Use =--dry-run= to preview.
 :CUSTOM_ID: mcp
 :END:
 
-The MCP server is an optional source-build feature.
-Install it and configure an MCP client to run the stdio command:
+Published =snapper= / =snapper-fmt= binaries include the MCP server.
+Configure an MCP client to run the stdio command:
+
+#+begin_src bash
+snapper mcp
+#+end_src
+
+Agents should call this server or the =snapper= CLI instead of applying [[https://sembr.org/][sembr.org]] / [[https://github.com/sembr/skills][sembr/skills]] wrapping by hand.
+
+From source with =--no-default-features=, rebuild with MCP:
 
 #+begin_src bash
 cargo install snapper-fmt --features mcp
-snapper mcp
 #+end_src
 
 #+begin_src json
