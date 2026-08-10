@@ -107,13 +107,153 @@ impl Default for UnicodeSentenceSplitter {
 /// (UAX or neural) cannot cut inside them. Shared by rules and neural paths.
 pub fn protect_inline_tokens(text: &str) -> (String, Vec<String>) {
     let mut placeholders: Vec<String> = Vec::new();
-    let after_spans = protect_paired_spans(text, &mut placeholders);
+    let after_verb = protect_latex_verbatim(text, &mut placeholders);
+    let after_spans = protect_paired_spans(&after_verb, &mut placeholders);
     let protected = INLINE_TOKEN_RE.replace_all(&after_spans, |caps: &regex::Captures| {
         let idx = placeholders.len();
         placeholders.push(caps[0].to_string());
         format!("\x00PH{idx}\x00")
     });
     (protected.into_owned(), placeholders)
+}
+
+/// `\verb|...|` / `\lstinline[...]!...!` so inner `.!?%` cannot split or comment.
+fn protect_latex_verbatim(text: &str, placeholders: &mut Vec<String>) -> String {
+    let mut out = String::with_capacity(text.len());
+    let bytes = text.as_bytes();
+    let mut i = 0;
+    while i < text.len() {
+        if bytes[i] == b'\\' {
+            if let Some(end) = latex_verb_span_end(text, i) {
+                push_placeholder(&mut out, placeholders, &text[i..end]);
+                i = end;
+                continue;
+            }
+        }
+        let ch = text[i..].chars().next().expect("i is in range");
+        out.push(ch);
+        i += ch.len_utf8();
+    }
+    out
+}
+
+/// Byte end of a `\verb` / `\lstinline` span starting at `at`, or `None`.
+///
+/// `\verb` / `\verb*`: next character is the delimiter; content runs to the
+/// same character. `\lstinline` / `\lstinline*` may take optional `[...]`
+/// before a delimiter or a `{...}` brace body. With no closer, the span
+/// runs to end of line so an inner `%` is not a comment.
+pub(crate) fn latex_verb_span_end(text: &str, at: usize) -> Option<usize> {
+    let rest = text.get(at..)?;
+    if !rest.starts_with('\\') {
+        return None;
+    }
+    let after_bs = at + 1;
+    let tail = text.get(after_bs..)?;
+    let (mut i, is_lst) = if let Some(stripped) = tail.strip_prefix("lstinline") {
+        if stripped.starts_with(|c: char| c.is_ascii_alphabetic()) {
+            return None;
+        }
+        (after_bs + "lstinline".len(), true)
+    } else {
+        let stripped = tail.strip_prefix("verb")?;
+        if stripped.starts_with(|c: char| c.is_ascii_alphabetic()) {
+            return None;
+        }
+        (after_bs + "verb".len(), false)
+    };
+
+    if text.get(i..)?.starts_with('*') {
+        i += 1;
+    }
+
+    if is_lst {
+        i = skip_ascii_ws(text, i);
+        if text.get(i..).is_some_and(|s| s.starts_with('[')) {
+            match skip_bracket_group(text, i) {
+                Some(end) => i = skip_ascii_ws(text, end),
+                None => return Some(line_end(text, i)),
+            }
+        }
+    }
+
+    let delim = text.get(i..).and_then(|s| s.chars().next())?;
+    if delim == '\n' {
+        return None;
+    }
+    i += delim.len_utf8();
+
+    if is_lst && delim == '{' {
+        return Some(find_unescaped_brace_close(text, i).unwrap_or_else(|| line_end(text, i)));
+    }
+
+    while i < text.len() {
+        let ch = text[i..].chars().next()?;
+        if ch == '\n' {
+            return Some(i);
+        }
+        if ch == delim {
+            return Some(i + ch.len_utf8());
+        }
+        i += ch.len_utf8();
+    }
+    Some(text.len())
+}
+
+fn line_end(text: &str, from: usize) -> usize {
+    text[from..]
+        .find('\n')
+        .map(|rel| from + rel)
+        .unwrap_or(text.len())
+}
+
+fn skip_ascii_ws(text: &str, mut i: usize) -> usize {
+    while i < text.len() && matches!(text.as_bytes()[i], b' ' | b'\t') {
+        i += 1;
+    }
+    i
+}
+
+fn skip_bracket_group(text: &str, open_at: usize) -> Option<usize> {
+    let bytes = text.as_bytes();
+    if bytes.get(open_at) != Some(&b'[') {
+        return None;
+    }
+    let mut depth = 0;
+    let mut i = open_at;
+    while i < bytes.len() {
+        match bytes[i] {
+            b'\n' => return None,
+            b'[' => depth += 1,
+            b']' => {
+                depth -= 1;
+                if depth == 0 {
+                    return Some(i + 1);
+                }
+            }
+            _ => {}
+        }
+        i += 1;
+    }
+    None
+}
+
+fn find_unescaped_brace_close(text: &str, mut i: usize) -> Option<usize> {
+    let bytes = text.as_bytes();
+    while i < bytes.len() {
+        if bytes[i] == b'\n' {
+            return None;
+        }
+        if bytes[i] == b'\\' && i + 1 < bytes.len() {
+            i += 2;
+            continue;
+        }
+        if bytes[i] == b'}' {
+            return Some(i + 1);
+        }
+        i += 1;
+    }
+    None
 }
 
 /// Org `=`/`~` and Markdown backtick spans, paired to the real closer.
@@ -731,6 +871,64 @@ mod tests {
                 "Next.".to_string(),
             ]
         );
+    }
+
+    #[test]
+    fn latex_verb_inner_punct_stays_atomic() {
+        let text = r"Use \verb|a.b! c| here. Next.";
+        let (_, placeholders) = protect_inline_tokens(text);
+        assert!(
+            placeholders.iter().any(|p| p == r"\verb|a.b! c|"),
+            "verb span must be protected, got {placeholders:?}"
+        );
+        assert_eq!(
+            split(text),
+            vec![r"Use \verb|a.b! c| here.".to_string(), "Next.".to_string()]
+        );
+    }
+
+    #[test]
+    fn latex_lstinline_inner_percent_stays_atomic() {
+        let text = r"Code \lstinline!%! here. Next.";
+        let (_, placeholders) = protect_inline_tokens(text);
+        assert!(
+            placeholders.iter().any(|p| p == r"\lstinline!%!"),
+            "lstinline span must be protected, got {placeholders:?}"
+        );
+        assert_eq!(
+            split(text),
+            vec![r"Code \lstinline!%! here.".to_string(), "Next.".to_string()]
+        );
+    }
+
+    #[test]
+    fn latex_lstinline_optional_args_stay_atomic() {
+        let text = r"See \lstinline[language=TeX]!a.b%! please. Next.";
+        let (_, placeholders) = protect_inline_tokens(text);
+        assert!(
+            placeholders
+                .iter()
+                .any(|p| p == r"\lstinline[language=TeX]!a.b%!"),
+            "lstinline with optional args must be protected, got {placeholders:?}"
+        );
+        assert_eq!(
+            split(text),
+            vec![
+                r"See \lstinline[language=TeX]!a.b%! please.".to_string(),
+                "Next.".to_string()
+            ]
+        );
+    }
+
+    #[test]
+    fn unmatched_latex_verb_extends_to_eol() {
+        let text = r"See \verb|a%b. Next";
+        let (_, placeholders) = protect_inline_tokens(text);
+        assert!(
+            placeholders.iter().any(|p| p == r"\verb|a%b. Next"),
+            "unmatched verb must run to EOL, got {placeholders:?}"
+        );
+        assert_eq!(split(text), vec![text.to_string()]);
     }
 
     #[test]
