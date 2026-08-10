@@ -26,7 +26,7 @@ The classification depends on the format.
 - Table rows (lines starting with =|=)
 - Comment lines (starting with =#= but not =#+= )
 - Full headline lines (stars, optional TODO keyword, and title text)
-- List item markers (=-=, =+=, =1.=)
+- List item markers (=-=, =+=, =1.=); continuation sentences hang at the marker width
 - LaTeX environments (=\begin{equation}= ... =\end{equation}=, =\begin{align}=, etc.)
 - Display math (=\[= ... =\]=)
 - Inline export snippets (=@@latex:\newpage@@=, =@@html:<br>@@=)
@@ -45,7 +45,7 @@ The classification depends on the format.
 :CUSTOM_ID: org-prose
 :END:
 - Paragraph text
-- List item text (after the marker)
+- List item text (after the marker); continuation sentences hang at the marker width so Org rejoins the item
 
 *** Inline tokens (kept atomic)
 :PROPERTIES:
@@ -101,7 +101,8 @@ These tokens within prose are not split across lines:
 - Front matter (=---= or =+++=  delimited at file start)
 - Full ATX heading lines (=#= … =######= including title text)
 - Setext headings (title line plus ====== or ------ underline)
-- List item markers (=-=, =*=, =+=, =1.=)
+- List item markers (=-=, =*=, =+=, =1.=); continuation sentences hang at the marker width
+- Blockquote markers (=>= / nested => > =); continuation sentences repeat the quote prefix
 - Pipe tables
 
 *** Code regions (fenced =```= / =~~~=)
@@ -117,7 +118,8 @@ These tokens within prose are not split across lines:
 :CUSTOM_ID: markdown-prose
 :END:
 - Paragraph text
-- List item text (after the marker)
+- List item text (after the marker); continuation sentences hang at the marker width
+- Blockquote text (after the prefix); continuation sentences repeat the quote prefix
 
 ** reStructuredText (=--format rst=)
 :PROPERTIES:

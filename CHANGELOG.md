@@ -5,6 +5,7 @@ All notable changes to this project will be documented in this file. See [conven
 ## Unreleased (main)
 
 #### Bug Fixes
+- (**reflow**) list continuation sentences hang at the marker width so Org rejoins the item on reparse; Markdown quotes repeat the `>` prefix (`> One.` / `> Two.`, nested `> >`)
 - (**latex**) a trailing `%` eats the newline (TeX nospace join), so `foo%\\nbar` is no longer emitted as `foo% bar` (which comments out `bar`); mid-line `%` comments leave prose
 - (**sentence**) `w.r.t.` is a multi-word abbreviation; `\\(...\\)` and `$$...$$` stay atomic like `$...$`
 - (**cli**) unknown source extensions (`.rs`, `.py`, no extension) are refused unless `--format` is explicit; `.txt` remains plaintext
