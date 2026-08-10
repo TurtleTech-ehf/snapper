@@ -1,7 +1,7 @@
 //! MCP (Model Context Protocol) server for snapper.
 //!
-//! Exposes formatting tools to AI assistants (Claude Desktop/Code, etc.)
-//! via the standard MCP protocol on stdin/stdout.
+//! Exposes formatting tools to MCP clients via the standard MCP protocol
+//! on stdin/stdout.
 
 use rmcp::handler::server::router::tool::ToolRouter;
 use rmcp::handler::server::wrapper::Parameters;
@@ -9,8 +9,8 @@ use rmcp::{Json, ServerHandler, ServiceExt, tool, tool_router};
 use serde::{Deserialize, Serialize};
 
 use crate::FormatConfig;
+use crate::check::{DiagnosticKind, collect_diagnostics, resolve_long_threshold, would_reformat};
 use crate::format::Format;
-use crate::sentence::SentenceSplitter;
 
 // -- Tool parameter types --
 
@@ -42,6 +42,9 @@ pub struct CheckFormattingParams {
     /// Document format: "org", "latex", "markdown", "rst", or "plaintext".
     #[serde(default = "default_format")]
     pub format: String,
+    /// Maximum line width (0 = unlimited). Used as the `long` threshold when set.
+    #[serde(default)]
+    pub max_width: usize,
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -80,11 +83,25 @@ pub struct DetectFormatResult {
 }
 
 #[derive(Debug, Serialize, schemars::JsonSchema)]
+pub struct LineDiagnosticDto {
+    /// 1-indexed source line.
+    pub line: usize,
+    /// `fused`, `wrap`, or `long`.
+    pub kind: String,
+    /// Source line excerpt.
+    pub excerpt: String,
+}
+
+#[derive(Debug, Serialize, schemars::JsonSchema)]
 pub struct CheckFormattingResult {
-    /// Line numbers (1-indexed) containing multiple sentences.
+    /// Line numbers (1-indexed) containing multiple sentences (fused).
     pub violations: Vec<usize>,
-    /// Whether the text passes the formatting check.
+    /// Whether the text matches formatted output (same as CLI `--check` without `--strict-long`).
     pub passed: bool,
+    /// True when `format_text` would change the input. Identical to CLI `--check`.
+    pub would_reformat: bool,
+    /// Line-level fused / wrap / long diagnostics.
+    pub diagnostics: Vec<LineDiagnosticDto>,
 }
 
 #[derive(Debug, Serialize, schemars::JsonSchema)]
@@ -142,18 +159,37 @@ impl SnapperMcpServer {
 
     #[tool(
         name = "check_formatting",
-        description = "Check text for semantic line break violations. Returns line numbers where multiple sentences appear on a single line."
+        description = "Check text for semantic line break violations. Returns would_reformat (identical to CLI --check), line diagnostics (fused/wrap/long), and fused line numbers."
     )]
     fn check_formatting(
         &self,
         Parameters(params): Parameters<CheckFormattingParams>,
     ) -> Json<CheckFormattingResult> {
         let format = parse_format(&params.format);
-        let config = make_config(format, 0, vec![]);
+        let config = make_config(format, params.max_width, vec![]);
         let splitter = crate::build_splitter(&config).unwrap();
-        let violations = find_violations(&params.text, splitter.as_ref());
-        let passed = violations.is_empty();
-        Json(CheckFormattingResult { violations, passed })
+        let would = would_reformat(&params.text, &config).unwrap_or(true);
+        let threshold = resolve_long_threshold(params.max_width, None);
+        let diagnostics = collect_diagnostics(&params.text, format, splitter.as_ref(), threshold);
+        let violations: Vec<usize> = diagnostics
+            .iter()
+            .filter(|d| d.kind == DiagnosticKind::Fused)
+            .map(|d| d.line)
+            .collect();
+        let dto = diagnostics
+            .into_iter()
+            .map(|d| LineDiagnosticDto {
+                line: d.line,
+                kind: d.kind.as_str().to_string(),
+                excerpt: d.excerpt,
+            })
+            .collect();
+        Json(CheckFormattingResult {
+            violations,
+            passed: !would,
+            would_reformat: would,
+            diagnostics: dto,
+        })
     }
 
     #[tool(
@@ -222,22 +258,6 @@ fn format_name(f: Format) -> String {
         Format::Plaintext => "plaintext",
     }
     .to_string()
-}
-
-/// Find lines containing multiple sentences.
-fn find_violations(input: &str, splitter: &dyn SentenceSplitter) -> Vec<usize> {
-    let mut violations = Vec::new();
-    for (idx, line) in input.lines().enumerate() {
-        let trimmed = line.trim();
-        if trimmed.is_empty() {
-            continue;
-        }
-        let sentences = splitter.split(trimmed);
-        if sentences.len() > 1 {
-            violations.push(idx + 1);
-        }
-    }
-    violations
 }
 
 /// Run the MCP server on stdin/stdout.

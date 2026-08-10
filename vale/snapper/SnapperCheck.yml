@@ -22,8 +22,28 @@ script: |
     exit 0
   fi
   # Vale external actions expect line:column:message on stdout for violations.
-  if ! snapper --check "$file" >/dev/null 2>&1; then
-    # Report one alert at the top of the file; precise line mapping would need
-    # a dedicated --check-lines mode. Prefer `snapper --check` in CI for SARIF.
+  json="$(snapper --check --output-format json "$file" 2>/dev/null || true)"
+  if [ -z "$json" ]; then
+    exit 0
+  fi
+  if command -v python3 >/dev/null 2>&1; then
+    printf '%s\n' "$json" | python3 -c '
+import json, sys
+try:
+    data = json.load(sys.stdin)
+except Exception:
+    sys.exit(0)
+if not isinstance(data, list):
+    sys.exit(0)
+for item in data:
+    for d in item.get("diagnostics") or []:
+        kind = d.get("kind") or "fused"
+        if kind == "long":
+            continue
+        line = d.get("line") or 1
+        excerpt = (d.get("excerpt") or "").replace("\n", " ")
+        print(f"{line}:1:{kind}: {excerpt}")
+'
+  elif ! snapper --check "$file" >/dev/null 2>&1; then
     echo "1:1:file needs semantic line break formatting (snapper --check failed)"
   fi

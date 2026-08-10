@@ -31,7 +31,7 @@ Add to your MCP configuration:
 
 - **format_text** -- Format text with semantic line breaks (supports Org, LaTeX, Markdown, RST, plaintext)
 - **detect_format** -- Detect document format from content
-- **check_formatting** -- Find lines with multiple sentences
+- **check_formatting** -- `would_reformat` (same as CLI `--check`) plus fused/wrap/long line diagnostics
 - **split_sentences** -- Split text into individual sentences
 
 ## Links

@@ -51,6 +51,9 @@ Semantic line break formatter
 
   Default value: `auto`
 * `--check` — Exit with code 1 if any file would change
+* `--strict-long` — Treat advisory `long` diagnostics as `--check` failures
+
+  Default value: `false`
 * `--diff` — Show a unified diff of what would change
 * `--config <CONFIG>` — Path to config file (default: .snapperrc.toml in current or parent dirs)
 * `--range <RANGE>` — Only format lines in this range (1-indexed, inclusive). Format: START:END

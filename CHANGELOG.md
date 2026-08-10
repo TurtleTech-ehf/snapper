@@ -5,12 +5,16 @@ All notable changes to this project will be documented in this file. See [conven
 ## Unreleased (main)
 
 #### Features
+- (**cli** / **check**) `--check --output-format json|sarif` emits 1-indexed `fused` / `wrap` / `long` diagnostics with excerpts; `long` is advisory unless `--strict-long`; stdin `--check` honors the same JSON/SARIF and exit codes; SARIF URIs are repo-relative (or `file:` plus `invocations[0].workingDirectory`)
+- (**mcp**) `check_formatting` returns `would_reformat` identical to CLI `--check`, plus the same line diagnostics
 - (**safety**) native parsers record source byte ranges and splice reflowed prose into the original document; Structure/Code/Blank are input slices
 - (**safety**) `format_text` runs to a byte fixpoint (cap 4, including A/B cycles) or returns the original; a format-local oracle (region-kind + slice tree; Markdown HTML plus a code-byte check) mismatch also returns the original
 - (**safety**) `format_bytes` refuses invalid UTF-8 with `InvalidUtf8Error`; `--use-pandoc` refuses (`PandocCannotSplice`) because the AST has no source offsets
 - (**safety**) property tests and a `cargo fuzz` target (fixture corpus) drive `format_text` per format with the backstops off
 - (**code-block**) comment reflow copies non-comment lines as original slices; only comment spans are rewritten
 #### Bug Fixes
+- (**check**) fused and long run on the parser prose payload, so `1. Hello world.` and `See Fig. 1. % TODO cite` are not false fused
+- (**reflow**) splice keeps the trailing space before a mid-line TeX `%` comment so that line stays one source line
 - (**reflow**) list continuation sentences hang at the marker width so Org rejoins the item on reparse; Markdown quotes repeat the `>` prefix (`> One.` / `> Two.`, nested `> >`)
 - (**latex**) a trailing `%` eats the newline (TeX nospace join), so `foo%\\nbar` is no longer emitted as `foo% bar` (which comments out `bar`); mid-line `%` comments leave prose
 - (**sentence**) `w.r.t.` is a multi-word abbreviation; `\\(...\\)` and `$$...$$` stay atomic like `$...$`
