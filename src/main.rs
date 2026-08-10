@@ -138,7 +138,8 @@ fn run() -> Result<()> {
         if cli.check {
             let splitter = build_splitter(&config).context("failed to build sentence splitter")?;
             let threshold = resolve_long_threshold(config.max_width, project_config.long_threshold);
-            let diagnostics = collect_diagnostics(&input, format, splitter.as_ref(), threshold);
+            let diagnostics =
+                collect_diagnostics(&input, format, splitter.as_ref(), threshold, Some(&config));
             let would = output != input;
             let long_fail =
                 cli.strict_long && diagnostics.iter().any(|d| d.kind == DiagnosticKind::Long);
@@ -254,7 +255,8 @@ fn run() -> Result<()> {
                     .ok_or_else(|| anyhow::anyhow!("splitter cache miss for {path_str}"))?;
                 let threshold =
                     resolve_long_threshold(config.max_width, project_config.long_threshold);
-                let diagnostics = collect_diagnostics(input, format, splitter.as_ref(), threshold);
+                let diagnostics =
+                    collect_diagnostics(input, format, splitter.as_ref(), threshold, Some(&config));
                 let would = output != input;
                 let long_fail =
                     cli.strict_long && diagnostics.iter().any(|d| d.kind == DiagnosticKind::Long);
@@ -399,6 +401,9 @@ fn build_format_config(
         neural_lang,
         neural_model_path: cli.model_path.clone(),
         extra_abbreviations: project_config.abbreviations_for_format(format_key),
+        latex_verbatim_envs: project_config.latex_verbatim_envs(),
+        latex_structure_envs: project_config.latex_structure_envs(),
+        latex_verbatim_commands: project_config.latex_verbatim_commands(),
         use_pandoc: cli.use_pandoc,
         #[cfg(feature = "pandoc")]
         pandoc_backend: cli

@@ -489,6 +489,36 @@ fn config_per_format_width_applies() {
 }
 
 #[test]
+fn config_latex_envs_and_commands_apply() {
+    let dir = tempfile::tempdir().unwrap();
+    fs::write(
+        dir.path().join(".snapperrc.toml"),
+        "[latex]\nverbatim_envs = [\"Verbatim\"]\nstructure_envs = [\"algorithm\", \"comment\"]\nverbatim_commands = [\"Verb\"]\n",
+    )
+    .unwrap();
+    let input = "\\begin{document}\n\\begin{algorithm}\nFirst step. Second step.\n\\end{algorithm}\nUse \\Verb|a.b! c| here. Next sentence.\n\\end{document}\n";
+    let out = pipe_stdin_in_dir(input, &["--format", "latex"], dir.path());
+    assert!(
+        out.status.success(),
+        "stderr={}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let result = String::from_utf8(out.stdout).unwrap();
+    assert!(
+        result.contains("First step. Second step."),
+        "algorithm body must not reflow, got:\n{result}"
+    );
+    assert!(
+        !result.contains("First step.\nSecond step."),
+        "algorithm must stay one source line, got:\n{result}"
+    );
+    assert!(
+        result.contains("Use \\Verb|a.b! c| here.\nNext sentence."),
+        "configured Verb must tokenize like verb, got:\n{result}"
+    );
+}
+
+#[test]
 fn markdown_numbered_atx_heading_not_split() {
     // snapper-25kc / rtrash README regression
     let input =

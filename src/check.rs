@@ -71,15 +71,18 @@ const WRAP_CONNECTORS: &[&str] = &[
 /// Collect fused / wrap / long diagnostics for `input`.
 ///
 /// `long_threshold` is character count, already resolved by
-/// [`resolve_long_threshold`].
+/// [`resolve_long_threshold`]. `config` supplies `[latex]` extras so
+/// `--check` uses the same region kinds as `format_text`. `None` keeps
+/// the built-in lists.
 pub fn collect_diagnostics(
     input: &str,
     format: Format,
     splitter: &dyn SentenceSplitter,
     long_threshold: usize,
+    config: Option<&FormatConfig>,
 ) -> Vec<LineDiagnostic> {
     let lines: Vec<&str> = input.lines().collect();
-    let payloads = source_line_payloads(input, format);
+    let payloads = source_line_payloads(input, format, config);
     debug_assert_eq!(
         payloads.len(),
         lines.len(),
@@ -223,7 +226,13 @@ mod tests {
 
     fn diags(input: &str) -> Vec<LineDiagnostic> {
         let splitter = UnicodeSentenceSplitter::new();
-        collect_diagnostics(input, Format::Plaintext, &splitter, DEFAULT_LONG_THRESHOLD)
+        collect_diagnostics(
+            input,
+            Format::Plaintext,
+            &splitter,
+            DEFAULT_LONG_THRESHOLD,
+            None,
+        )
     }
 
     fn kinds_on(diags: &[LineDiagnostic], line: usize) -> Vec<DiagnosticKind> {
@@ -363,7 +372,7 @@ mod tests {
     fn long_uses_resolved_threshold() {
         let splitter = UnicodeSentenceSplitter::new();
         let line = "Short clause, still short.\n";
-        let found = collect_diagnostics(line, Format::Plaintext, &splitter, 5);
+        let found = collect_diagnostics(line, Format::Plaintext, &splitter, 5, None);
         assert!(
             found.iter().any(|d| d.kind == DiagnosticKind::Long),
             "threshold 5 must flag a comma-bearing line, got {found:?}"
@@ -390,7 +399,13 @@ mod tests {
     fn structure_and_code_are_not_prose() {
         let md = "# Title. Still a heading.\n\n```\nHello. World.\n```\n\nBody sentence.\n";
         let splitter = UnicodeSentenceSplitter::new();
-        let found = collect_diagnostics(md, Format::Markdown, &splitter, DEFAULT_LONG_THRESHOLD);
+        let found = collect_diagnostics(
+            md,
+            Format::Markdown,
+            &splitter,
+            DEFAULT_LONG_THRESHOLD,
+            None,
+        );
         assert!(
             found.iter().all(|d| d.kind != DiagnosticKind::Fused),
             "headings and fenced code must not produce fused, got {found:?}"
@@ -425,7 +440,8 @@ mod tests {
             "Real prose. Second sentence.\n",
         );
         let splitter = UnicodeSentenceSplitter::new();
-        let found = collect_diagnostics(input, Format::Org, &splitter, DEFAULT_LONG_THRESHOLD);
+        let found =
+            collect_diagnostics(input, Format::Org, &splitter, DEFAULT_LONG_THRESHOLD, None);
         assert_no_kind_on(
             &found,
             DiagnosticKind::Fused,
@@ -453,7 +469,13 @@ mod tests {
             "Body one. Body two.\n",
         );
         let splitter = UnicodeSentenceSplitter::new();
-        let found = collect_diagnostics(input, Format::Markdown, &splitter, DEFAULT_LONG_THRESHOLD);
+        let found = collect_diagnostics(
+            input,
+            Format::Markdown,
+            &splitter,
+            DEFAULT_LONG_THRESHOLD,
+            None,
+        );
         assert_no_kind_on(
             &found,
             DiagnosticKind::Fused,
@@ -481,7 +503,13 @@ mod tests {
             "\\end{document}\n",
         );
         let splitter = UnicodeSentenceSplitter::new();
-        let found = collect_diagnostics(input, Format::Latex, &splitter, DEFAULT_LONG_THRESHOLD);
+        let found = collect_diagnostics(
+            input,
+            Format::Latex,
+            &splitter,
+            DEFAULT_LONG_THRESHOLD,
+            None,
+        );
         assert_no_kind_on(
             &found,
             DiagnosticKind::Fused,
@@ -515,7 +543,8 @@ mod tests {
             "Body one. Body two.\n",
         );
         let splitter = UnicodeSentenceSplitter::new();
-        let found = collect_diagnostics(input, Format::Rst, &splitter, DEFAULT_LONG_THRESHOLD);
+        let found =
+            collect_diagnostics(input, Format::Rst, &splitter, DEFAULT_LONG_THRESHOLD, None);
         assert_no_kind_on(
             &found,
             DiagnosticKind::Fused,
@@ -540,8 +569,13 @@ mod tests {
             "After one. After two.\n",
         );
         let splitter = UnicodeSentenceSplitter::new();
-        let found =
-            collect_diagnostics(input, Format::Plaintext, &splitter, DEFAULT_LONG_THRESHOLD);
+        let found = collect_diagnostics(
+            input,
+            Format::Plaintext,
+            &splitter,
+            DEFAULT_LONG_THRESHOLD,
+            None,
+        );
         assert_no_kind_on(
             &found,
             DiagnosticKind::Fused,
@@ -603,19 +637,20 @@ mod tests {
 
     fn no_fused(input: &str, format: Format) -> Vec<LineDiagnostic> {
         let splitter = UnicodeSentenceSplitter::new();
-        collect_diagnostics(input, format, &splitter, DEFAULT_LONG_THRESHOLD)
+        collect_diagnostics(input, format, &splitter, DEFAULT_LONG_THRESHOLD, None)
     }
 
     #[test]
     fn numbered_list_payload_is_item_text() {
         use crate::parser::source_line_payloads;
-        let md = source_line_payloads("1. Hello world.\n", Format::Markdown);
+        let md = source_line_payloads("1. Hello world.\n", Format::Markdown, None);
         assert_eq!(md[0].as_deref(), Some("Hello world."));
-        let org = source_line_payloads("1. Hello world.\n", Format::Org);
+        let org = source_line_payloads("1. Hello world.\n", Format::Org, None);
         assert_eq!(org[0].as_deref(), Some("Hello world."));
         let tex = source_line_payloads(
             "\\begin{document}\nSee Fig. 1. % TODO cite\n\\end{document}\n",
             Format::Latex,
+            None,
         );
         assert_eq!(
             tex[1].as_deref().map(str::trim),
@@ -723,13 +758,49 @@ mod tests {
             ),
         ];
         for (fmt, input) in cases {
-            let kinds = source_line_payloads(input, fmt);
+            let kinds = source_line_payloads(input, fmt, None);
             assert_eq!(
                 kinds.len(),
                 input.lines().count(),
                 "line map length mismatch for {fmt:?}"
             );
         }
+    }
+
+    #[test]
+    fn configured_verb_inner_percent_is_fused_not_comment() {
+        let input = "\\begin{document}\nCode \\Verb!%! here. Next sentence.\n\\end{document}\n";
+        let config = FormatConfig {
+            format: Format::Latex,
+            latex_verbatim_commands: vec!["Verb".into()],
+            ..Default::default()
+        };
+        let splitter = UnicodeSentenceSplitter::new().with_verbatim_commands(vec!["Verb".into()]);
+        let found = collect_diagnostics(
+            input,
+            Format::Latex,
+            &splitter,
+            DEFAULT_LONG_THRESHOLD,
+            Some(&config),
+        );
+        assert!(
+            found
+                .iter()
+                .any(|d| d.line == 2 && d.kind == DiagnosticKind::Fused),
+            "configured Verb inner % is content; the line is fused, got {found:?}"
+        );
+        let payloads = source_line_payloads(input, Format::Latex, Some(&config));
+        assert_eq!(
+            payloads[1].as_deref().map(str::trim),
+            Some("Code \\Verb!%! here. Next sentence."),
+            "extras must keep % inside Verb as prose, got {payloads:?}"
+        );
+        let builtin = source_line_payloads(input, Format::Latex, None);
+        assert_ne!(
+            builtin[1].as_deref().map(str::trim),
+            Some("Code \\Verb!%! here. Next sentence."),
+            "built-in lists treat % as a comment, got {builtin:?}"
+        );
     }
 
     #[test]

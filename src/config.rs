@@ -12,6 +12,17 @@ use serde::Deserialize;
 pub struct FormatOverrides {
     pub extra_abbreviations: Vec<String>,
     pub max_width: Option<usize>,
+    /// Extra LaTeX environments treated as code (no reflow).
+    /// Meaningful under `[latex]` only. Missing or empty keeps the built-in
+    /// minted/lstlisting/verbatim list; entries are added to it.
+    pub verbatim_envs: Vec<String>,
+    /// Extra LaTeX environments treated as structure (no reflow).
+    /// Meaningful under `[latex]` only. Missing or empty keeps
+    /// `NON_PROSE_ENVS`; entries are added to that list.
+    pub structure_envs: Vec<String>,
+    /// Extra LaTeX command names tokenized like `\verb` before split.
+    /// Meaningful under `[latex]` only. Missing or empty keeps verb/lstinline.
+    pub verbatim_commands: Vec<String>,
 }
 
 /// Per-language entry under the `[code]` table.
@@ -162,6 +173,30 @@ impl ProjectConfig {
             _ => None,
         };
         overrides.and_then(|ov| ov.max_width).or(self.max_width)
+    }
+
+    /// Extra `[latex].verbatim_envs` names. Empty when the key is missing.
+    pub fn latex_verbatim_envs(&self) -> Vec<String> {
+        self.latex
+            .as_ref()
+            .map(|ov| ov.verbatim_envs.clone())
+            .unwrap_or_default()
+    }
+
+    /// Extra `[latex].structure_envs` names. Empty when the key is missing.
+    pub fn latex_structure_envs(&self) -> Vec<String> {
+        self.latex
+            .as_ref()
+            .map(|ov| ov.structure_envs.clone())
+            .unwrap_or_default()
+    }
+
+    /// Extra `[latex].verbatim_commands` names. Empty when the key is missing.
+    pub fn latex_verbatim_commands(&self) -> Vec<String> {
+        self.latex
+            .as_ref()
+            .map(|ov| ov.verbatim_commands.clone())
+            .unwrap_or_default()
     }
 
     #[cfg(any(feature = "cli", feature = "watch"))]
@@ -329,5 +364,38 @@ max_width = 72
         let config = ProjectConfig::parse(toml).unwrap();
         assert_eq!(config.max_width_for_format("rst"), Some(72));
         assert_eq!(config.abbreviations_for_format("rst"), vec!["Fig"]);
+    }
+
+    #[test]
+    fn parse_latex_env_and_command_lists() {
+        let toml = r#"
+[latex]
+extra_abbreviations = ["Thm"]
+verbatim_envs = ["Verbatim"]
+structure_envs = ["algorithm", "comment"]
+verbatim_commands = ["Verb"]
+"#;
+        let config = ProjectConfig::parse(toml).unwrap();
+        assert_eq!(config.latex_verbatim_envs(), vec!["Verbatim"]);
+        assert_eq!(config.latex_structure_envs(), vec!["algorithm", "comment"]);
+        assert_eq!(config.latex_verbatim_commands(), vec!["Verb"]);
+        assert_eq!(config.abbreviations_for_format("latex"), vec!["Thm"]);
+    }
+
+    #[test]
+    fn missing_latex_env_keys_are_empty_extras() {
+        let config = ProjectConfig::parse("[latex]\nextra_abbreviations = [\"Thm\"]\n").unwrap();
+        assert!(config.latex_verbatim_envs().is_empty());
+        assert!(config.latex_structure_envs().is_empty());
+        assert!(config.latex_verbatim_commands().is_empty());
+    }
+
+    #[test]
+    fn latex_other_regex_key_is_ignored() {
+        // latexindent's `other:` regex matching is not supported.
+        let config = ProjectConfig::parse("[latex]\nother = \".*code\"\n").unwrap();
+        assert!(config.latex_verbatim_envs().is_empty());
+        assert!(config.latex_structure_envs().is_empty());
+        assert!(config.latex_verbatim_commands().is_empty());
     }
 }
