@@ -16,7 +16,9 @@ pub struct ReflowConfig<'a> {
     /// When `true`, the per-language `formatter` runs after comment reflow.
     pub format_code: bool,
     /// Prefer soft breaks after independent-clause punctuation (`,`, `;`,
-    /// `:`, em dash, `--`) when wrapping under `max_width`.
+    /// `:`, em dash, `--`). When `max_width` is 0, every such mark that is
+    /// already followed by whitespace starts a new line. When `max_width`
+    /// is greater than 0, overflowing sentences prefer those marks.
     pub clause_breaks: bool,
     /// Markup format of the document being reflowed. Wrap-created line
     /// starts that the format parser would read as a new block are
@@ -234,7 +236,7 @@ fn reflow_prose(
     let sentences = splitter.split(text);
     let nsent = sentences.len();
     for (i, sentence) in sentences.iter().enumerate() {
-        if config.max_width > 0 {
+        if config.max_width > 0 || config.clause_breaks {
             let layout = WrapLayout {
                 initial_column: if i == 0 { hanging } else { 0 },
                 first_indent: if i == 0 { "" } else { hang.as_str() },
@@ -303,10 +305,12 @@ fn ends_with_clause_punct(word: &str) -> bool {
 }
 
 /// Wrap `sentence` under `max_width`, preferring breaks after clause
-/// punctuation (sembr rule 5). A sentence that already fits stays on one
-/// line. Breaks only ever land at whitespace outside atomic tokens, so
-/// links, inline code, `$math$`, and tokens like `1,000`, `10:30`, URLs,
-/// and `--flags` are never split apart.
+/// punctuation (sembr rule 5). When `max_width` is 0, every independent
+/// clause is placed on its own line. When `max_width` is greater than 0,
+/// a sentence that already fits stays on one line and overflow prefers
+/// a clause boundary. Breaks only ever land at whitespace outside atomic
+/// tokens, so links, inline code, `$math$`, and tokens like `1,000`,
+/// `10:30`, URLs, and `--flags` are never split apart.
 pub fn wrap_with_clause_breaks(sentence: &str, max_width: usize) -> String {
     wrap_prose(
         sentence,
@@ -336,7 +340,10 @@ fn wrap_prose(
     layout: WrapLayout<'_>,
 ) -> String {
     if max_width == 0 {
-        return sentence.to_string();
+        if !clause_breaks {
+            return sentence.to_string();
+        }
+        return break_at_clause_punct(sentence, format, layout).join("\n");
     }
     wrap_atomic_words(sentence, max_width, clause_breaks, format, layout).join("\n")
 }
@@ -634,6 +641,86 @@ fn displayed_first_word<'a>(
     }
 }
 
+/// Skip a cut that would make the next line open a new block. Markdown
+/// usually escapes instead; skip-cut still wins when `\` would corrupt
+/// an inline token (autolink, link, code, math).
+fn skip_block_opening_cut(
+    words: &[&str],
+    start: usize,
+    mut break_at: usize,
+    format: Format,
+) -> usize {
+    while break_at < words.len() && break_at > start {
+        let candidate = words[break_at..].join(" ");
+        if !line_opens_block(format, &candidate) {
+            break;
+        }
+        if format == Format::Markdown && !escape_would_corrupt_inline(words[break_at]) {
+            break;
+        }
+        break_at += 1;
+    }
+    break_at
+}
+
+fn emit_wrapped_line(
+    words: &[&str],
+    start: usize,
+    break_at: usize,
+    indent: &str,
+    may_escape: bool,
+    format: Format,
+) -> String {
+    let mut line = indent.to_string();
+    let rest = words[start..break_at].join(" ");
+    for (i, word) in words[start..break_at].iter().enumerate() {
+        if i > 0 {
+            line.push(' ');
+        }
+        if i == 0 {
+            line.push_str(&displayed_first_word(word, may_escape, &rest, format));
+        } else {
+            line.push_str(word);
+        }
+    }
+    line
+}
+
+/// Insert a newline after every independent-clause mark that is already
+/// followed by whitespace. A sentence with no such mark stays one line.
+/// Hang and interrupt handling match the `max_width` wrap path.
+fn break_at_clause_punct(text: &str, format: Format, layout: WrapLayout<'_>) -> Vec<String> {
+    let words = split_atomic_words(text);
+    if words.is_empty() {
+        return Vec::new();
+    }
+    let mut lines = Vec::new();
+    let mut start = 0;
+    while start < words.len() {
+        let first = start == 0;
+        let indent = if first {
+            layout.first_indent
+        } else {
+            layout.subsequent_indent
+        };
+        // First line of the first sentence (marker already emitted) is not
+        // wrap-created. Later sentences and wrap-created lines may escape.
+        let may_escape = format == Format::Markdown && !(first && layout.first_indent.is_empty());
+
+        let last_breakable = words.len().saturating_sub(1);
+        let mut break_at = words[start..last_breakable]
+            .iter()
+            .position(|w| ends_with_clause_punct(w))
+            .map_or(words.len(), |i| start + i + 1);
+        break_at = skip_block_opening_cut(&words, start, break_at, format);
+        lines.push(emit_wrapped_line(
+            &words, start, break_at, indent, may_escape, format,
+        ));
+        start = break_at;
+    }
+    lines
+}
+
 /// Greedy wrap over atomic words. Forced breaks prefer the last clause
 /// punctuation on the line. A wrap that would start a new block is
 /// escaped in Markdown or skipped (loop) in other formats. The first
@@ -698,33 +785,10 @@ fn wrap_atomic_words(
                 }
             }
         }
-        // Skip-cut loops until the next line would not open a block.
-        // Markdown usually escapes; skip-cut wins when `\` would corrupt
-        // an inline token (autolink, link, code, math).
-        while break_at < words.len() && break_at > start {
-            let candidate = words[break_at..].join(" ");
-            if !line_opens_block(format, &candidate) {
-                break;
-            }
-            if format == Format::Markdown && !escape_would_corrupt_inline(words[break_at]) {
-                break;
-            }
-            break_at += 1;
-        }
-
-        let mut line = indent.to_string();
-        let rest = words[start..break_at].join(" ");
-        for (i, word) in words[start..break_at].iter().enumerate() {
-            if i > 0 {
-                line.push(' ');
-            }
-            if i == 0 {
-                line.push_str(&displayed_first_word(word, may_escape, &rest, format));
-            } else {
-                line.push_str(word);
-            }
-        }
-        lines.push(line);
+        break_at = skip_block_opening_cut(&words, start, break_at, format);
+        lines.push(emit_wrapped_line(
+            &words, start, break_at, indent, may_escape, format,
+        ));
         start = break_at;
     }
     lines
@@ -1087,6 +1151,226 @@ without additional human intervention.";
             );
         }
         assert!(wrapped.contains('\n'));
+    }
+
+    const ISSUE7: &str = "It contains rules which govern how the Objectives are orchestrated, along with rules which can automatically activate the Objectives in the plan, without additional human intervention.";
+
+    const ISSUE7_CLAUSES: &str = "\
+It contains rules which govern how the Objectives are orchestrated,
+along with rules which can automatically activate the Objectives in the plan,
+without additional human intervention.";
+
+    const UDHR: &str = "All human beings are born free and equal in dignity and rights. They are endowed with reason and conscience and should act towards one another in a spirit of brotherhood.";
+
+    /// SemBr spec sample: sentence breaks only. The spec's extra break after
+    /// "conscience" is rule 6 (dependent clause, no punct) and is not inserted.
+    const UDHR_SENTENCES: &str = "\
+All human beings are born free and equal in dignity and rights.
+They are endowed with reason and conscience and should act towards one another in a spirit of brotherhood.
+";
+
+    fn reflow_clauses(input: &str) -> String {
+        let regions = vec![Region::Prose(input.to_string())];
+        let config = ReflowConfig {
+            clause_breaks: true,
+            ..Default::default()
+        };
+        reflow(&regions, &UnicodeSentenceSplitter::new(), &config)
+    }
+
+    #[test]
+    fn clause_breaks_unlimited_issue7_sample() {
+        assert_eq!(wrap_with_clause_breaks(ISSUE7, 0), ISSUE7_CLAUSES);
+        let result = reflow_clauses(ISSUE7);
+        assert_eq!(result, format!("{ISSUE7_CLAUSES}\n"));
+    }
+
+    #[test]
+    fn clause_breaks_unlimited_udhr_one_clause_stays() {
+        let result = reflow_clauses(UDHR);
+        assert_eq!(result, UDHR_SENTENCES);
+        assert!(
+            !result.contains("conscience\n"),
+            "rule 6 conscience break is not inserted: {result:?}"
+        );
+        let second = result.lines().nth(1).expect("second sentence");
+        assert!(
+            second.contains("conscience and should"),
+            "second sentence stays one independent clause: {result:?}"
+        );
+    }
+
+    #[test]
+    fn clause_breaks_unlimited_off_by_default() {
+        let result = reflow_text("Hello, world.");
+        assert_eq!(result, "Hello, world.\n");
+    }
+
+    #[test]
+    fn clause_breaks_unlimited_breaks_fitting_multi_clause() {
+        // max_width=0 plus clause_breaks breaks even when the sentence fits.
+        let result = reflow_clauses("Hello, world.");
+        assert_eq!(result, "Hello,\nworld.\n");
+        let result = reflow_clauses("Short, sweet, and done.");
+        assert_eq!(result, "Short,\nsweet,\nand done.\n");
+    }
+
+    #[test]
+    fn clause_breaks_unlimited_semicolon_colon_emdash() {
+        let s = "First clause; second clause: third clause — fourth clause -- fifth.";
+        assert_eq!(
+            wrap_with_clause_breaks(s, 0),
+            "First clause;\nsecond clause:\nthird clause —\nfourth clause --\nfifth."
+        );
+    }
+
+    #[test]
+    fn clause_breaks_unlimited_never_split_inside_tokens() {
+        let s = "Totals reached 1,000,000 by 10:30 via https://example.com/a,b using --clause-breaks and rock—paper logic, then continued.";
+        let wrapped = wrap_with_clause_breaks(s, 0);
+        assert_eq!(
+            wrapped,
+            "Totals reached 1,000,000 by 10:30 via https://example.com/a,b using --clause-breaks and rock—paper logic,\nthen continued."
+        );
+        let rejoined: Vec<&str> = wrapped.split_whitespace().collect();
+        let original: Vec<&str> = s.split_whitespace().collect();
+        assert_eq!(rejoined, original, "breaking must be lossless: {wrapped:?}");
+        for token in [
+            "1,000,000",
+            "10:30",
+            "https://example.com/a,b",
+            "--clause-breaks",
+            "rock—paper",
+        ] {
+            assert!(
+                wrapped.lines().any(|l| l.contains(token)),
+                "{token:?} must stay on a single line: {wrapped:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn clause_breaks_unlimited_no_render_change_latex_ref() {
+        // Preamble is structure; wrap the sentence in a document body.
+        let input =
+            "\\begin{document}\nSee Eq.~\\ref{eq:diff}, then the next clause.\n\\end{document}\n";
+        let config = crate::FormatConfig {
+            format: crate::format::Format::Latex,
+            clause_breaks: true,
+            ..Default::default()
+        };
+        let result = crate::format_text(input, &config).unwrap();
+        assert_eq!(
+            result,
+            "\\begin{document}\nSee Eq.~\\ref{eq:diff},\nthen the next clause.\n\\end{document}\n"
+        );
+        assert!(
+            result.contains("Eq.~\\ref{eq:diff}"),
+            "LaTeX ~ must stay attached: {result:?}"
+        );
+    }
+
+    #[test]
+    fn clause_breaks_unlimited_no_render_change_markdown_link() {
+        let input = "See [the example site](https://ex.com/a,b), then more.\n";
+        let config = crate::FormatConfig {
+            format: crate::format::Format::Markdown,
+            clause_breaks: true,
+            ..Default::default()
+        };
+        let result = crate::format_text(input, &config).unwrap();
+        assert_eq!(
+            result,
+            "See [the example site](https://ex.com/a,b),\nthen more.\n"
+        );
+        assert!(
+            result.contains("[the example site](https://ex.com/a,b)"),
+            "markdown link must stay atomic: {result:?}"
+        );
+    }
+
+    #[test]
+    fn clause_breaks_unlimited_no_render_change_hyphenated_words() {
+        let input = "This well-known state-of-the-art method works, then more.";
+        let result = reflow_clauses(input);
+        assert_eq!(
+            result,
+            "This well-known state-of-the-art method works,\nthen more.\n"
+        );
+        assert!(result.contains("well-known"));
+        assert!(result.contains("state-of-the-art"));
+        assert!(
+            !result.contains("well-\n"),
+            "must not break inside a hyphenated word: {result:?}"
+        );
+    }
+
+    #[test]
+    fn clause_breaks_unlimited_hanging_indent() {
+        let regions = vec![
+            Region::Structure("- ".to_string()),
+            Region::Prose(ISSUE7.to_string()),
+            Region::Structure("\n".to_string()),
+        ];
+        let config = ReflowConfig {
+            clause_breaks: true,
+            ..Default::default()
+        };
+        let result = reflow(&regions, &UnicodeSentenceSplitter::new(), &config);
+        assert_eq!(
+            result,
+            "\
+- It contains rules which govern how the Objectives are orchestrated,
+  along with rules which can automatically activate the Objectives in the plan,
+  without additional human intervention.
+"
+        );
+    }
+
+    #[test]
+    fn clause_breaks_unlimited_quote_repeats_prefix() {
+        let regions = vec![
+            Region::Structure("> ".to_string()),
+            Region::Prose("First clause, second clause.".to_string()),
+            Region::Structure("\n".to_string()),
+        ];
+        let config = ReflowConfig {
+            clause_breaks: true,
+            ..Default::default()
+        };
+        let result = reflow(&regions, &UnicodeSentenceSplitter::new(), &config);
+        assert_eq!(result, "> First clause,\n> second clause.\n");
+    }
+
+    #[test]
+    fn clause_breaks_unlimited_idempotent() {
+        let first = reflow_clauses(ISSUE7);
+        let second = reflow_clauses(first.trim_end());
+        assert_eq!(
+            first, second,
+            "unlimited clause-break reflow must be idempotent"
+        );
+        let again = crate::format_text(
+            &first,
+            &crate::FormatConfig {
+                format: crate::format::Format::Plaintext,
+                clause_breaks: true,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        assert_eq!(first, again);
+    }
+
+    #[test]
+    fn clause_breaks_under_max_width_still_leaves_fitting_alone() {
+        // max_width > 0 keeps the wrap-prefer path: a fitting sentence
+        // is not force-broken even when clause_breaks is on.
+        assert_eq!(
+            wrap_with_clause_breaks("Hello, world.", 80),
+            "Hello, world."
+        );
+        assert_eq!(wrap_with_clause_breaks(ISSUE7, 80), ISSUE7_CLAUSES);
     }
 
     fn reflow_regions(regions: Vec<Region>) -> String {

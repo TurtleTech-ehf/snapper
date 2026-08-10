@@ -97,9 +97,12 @@ pub struct FormatConfig {
     /// after comment reflow. Default `false` preserves v0.7.7 behaviour
     /// (no subprocess is spawned).
     pub format_code: bool,
-    /// Prefer soft breaks after independent-clause punctuation when wrapping
-    /// under `max_width` (sembr rule 5). Default `false` uses greedy wrap
-    /// at atomic word boundaries.
+    /// Prefer soft breaks after independent-clause punctuation (sembr
+    /// rule 5). When `max_width` is 0, every such mark that is already
+    /// followed by whitespace starts a new line. When `max_width` is
+    /// greater than 0, overflowing sentences prefer those marks.
+    /// Default `false` keeps one sentence per line (greedy wrap only
+    /// under `max_width`).
     pub clause_breaks: bool,
     /// Run `format_text` to a byte fixpoint (cap 4). Production default
     /// `true`; tests set `false` so a planner that needs the backstop fails.
