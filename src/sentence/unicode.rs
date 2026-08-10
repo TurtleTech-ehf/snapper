@@ -35,9 +35,11 @@ static INLINE_TOKEN_RE: LazyLock<Regex> = LazyLock::new(|| {
             // paired below: a regex that forbids the delimiter inside the
             // span closes on the first inner copy and leaves the real closer
             // (and any period before it) unprotected.
-            r#"https?://\S+[^.\s!?,;:)\]'""]"#, // URLs (don't swallow trailing punctuation)
-            r"file:\S+",                        // Org file: links
-            r"@@[a-zA-Z]+:[^@]*@@",             // Org inline export snippets: @@backend:value@@
+            r"<[A-Za-z][A-Za-z0-9+.\-]*:[^\s<>]*>", // Autolink: <http://...>
+            r"<[^\s<>@]+@[^\s<>]+>",                // Autolink: <user@host>
+            r#"https?://\S+[^.\s!?,;:)\]'""]"#,     // URLs (don't swallow trailing punctuation)
+            r"file:\S+",                            // Org file: links
+            r"@@[a-zA-Z]+:[^@]*@@",                 // Org inline export snippets: @@backend:value@@
         ]
         .join("|"),
     )
@@ -234,6 +236,58 @@ fn find_md_code_span(text: &str, open_at: usize) -> Option<usize> {
         }
     }
     None
+}
+
+/// Byte ranges of inline tokens that wrapping must not split (links, images,
+/// inline code, autolinks, math, Org `[[...]]`, paired spans).
+///
+/// Ranges are half-open `[start, end)`, sorted, non-overlapping, and merged
+/// when a regex match wraps a paired span.
+pub fn atomic_inline_spans(text: &str) -> Vec<(usize, usize)> {
+    let mut spans = Vec::new();
+    let bytes = text.as_bytes();
+    let mut i = 0;
+    while i < text.len() {
+        if bytes[i] == b'`' {
+            if let Some(end) = find_md_code_span(text, i) {
+                spans.push((i, end));
+                i = end;
+                continue;
+            }
+        } else if bytes[i] == b'=' || bytes[i] == b'~' {
+            let marker = bytes[i] as char;
+            if let Some(end) = find_org_paired_span(text, i, marker) {
+                spans.push((i, end));
+                i = end;
+                continue;
+            }
+        }
+        let ch = text[i..].chars().next().expect("i is in range");
+        i += ch.len_utf8();
+    }
+    for m in INLINE_TOKEN_RE.find_iter(text) {
+        spans.push((m.start(), m.end()));
+    }
+    merge_byte_ranges(spans)
+}
+
+fn merge_byte_ranges(mut spans: Vec<(usize, usize)>) -> Vec<(usize, usize)> {
+    if spans.len() <= 1 {
+        return spans;
+    }
+    spans.sort_unstable_by_key(|&(start, _)| start);
+    let mut out = Vec::with_capacity(spans.len());
+    let mut cur = spans[0];
+    for &(start, end) in &spans[1..] {
+        if start <= cur.1 {
+            cur.1 = cur.1.max(end);
+        } else {
+            out.push(cur);
+            cur = (start, end);
+        }
+    }
+    out.push(cur);
+    out
 }
 
 /// Restore placeholders produced by [`protect_inline_tokens`] into each segment.
@@ -828,6 +882,42 @@ mod tests {
         assert_eq!(
             split("Use `std.io.Read` for input. Then process."),
             vec!["Use `std.io.Read` for input.", "Then process."]
+        );
+    }
+
+    #[test]
+    fn autolink_preserved() {
+        assert_eq!(
+            split("Visit <https://example.com/a.b> today. Then read more."),
+            vec!["Visit <https://example.com/a.b> today.", "Then read more."]
+        );
+    }
+
+    #[test]
+    fn atomic_inline_spans_cover_wrap_tokens() {
+        let text = "See [the example site](https://ex.com) and `some long code` plus $E = m$ and [[https://example.com][the example site]] and <https://ex.com/a>.";
+        let spans = atomic_inline_spans(text);
+        let tokens: Vec<&str> = spans.iter().map(|&(s, e)| &text[s..e]).collect();
+        assert!(
+            tokens
+                .iter()
+                .any(|t| *t == "[the example site](https://ex.com)"),
+            "markdown link: {tokens:?}"
+        );
+        assert!(
+            tokens.iter().any(|t| *t == "`some long code`"),
+            "inline code: {tokens:?}"
+        );
+        assert!(tokens.iter().any(|t| *t == "$E = m$"), "math: {tokens:?}");
+        assert!(
+            tokens
+                .iter()
+                .any(|t| *t == "[[https://example.com][the example site]]"),
+            "org link: {tokens:?}"
+        );
+        assert!(
+            tokens.iter().any(|t| *t == "<https://ex.com/a>"),
+            "autolink: {tokens:?}"
         );
     }
 
