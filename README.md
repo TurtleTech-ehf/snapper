@@ -130,6 +130,14 @@ Limit line width (wrap long sentences at word boundaries):
 
     snapper --max-width 80 paper.org
 
+Break after independent-clause punctuation (comma, semicolon, colon, em dash).
+With the default unlimited width this inserts a newline after every such mark that already has whitespace after it:
+
+    snapper --clause-breaks paper.org
+
+With `--max-width` set, overflowing sentences prefer those marks.
+A one-clause sentence stays one line.
+
 Preview changes as a unified diff before committing:
 
     snapper --diff paper.org
@@ -226,7 +234,7 @@ Configuration guide (org source in-tree): `docs/orgmode/howto/mcp-integration.or
 ## Pre-commit hook
 
     - repo: https://github.com/TurtleTech-ehf/snapper
-      rev: v0.9.1
+      rev: v0.10.0
       hooks:
         - id: snapper
 
@@ -333,8 +341,15 @@ Drop a `.snapperrc.toml` in your project root:
     ignore = ["*.bib", "*.cls"]
     format = "org"
     max_width = 0
+    clause_breaks = false
+
+    [latex]
+    verbatim_envs = ["Verbatim"]
+    structure_envs = ["algorithm", "comment"]
+    verbatim_commands = ["Verb"]
 
 `snapper` walks up from the current directory to find it.
+Missing `[latex]` keys keep the built-in minted/lstlisting/verbatim, equation/figure, and verb/lstinline lists.
 
 
 <a id="documentation"></a>
