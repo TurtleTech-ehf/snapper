@@ -1461,6 +1461,10 @@ without additional human intervention.";
             ..Default::default()
         };
         let first = crate::format_text(input, &config).unwrap();
+        assert!(
+            first.lines().any(|l| l.starts_with("\\- ")),
+            "first pass must emit the wrap-created escape:\n{first}"
+        );
         let second = crate::format_text(&first, &config).unwrap();
         assert_eq!(first, second, "second pass must not change output");
         assert!(
