@@ -62,6 +62,9 @@ format = "{default_format}"
 # Maximum line width (0 = unlimited)
 max_width = 0
 
+# Advisory long-line threshold when max_width is 0 (default 120)
+# long_threshold = 120
+
 # Per-language code-block reflow and formatter delegation.
 # Each language entry may set any combination of:
 #   line_comment   -- marker for single-line comments

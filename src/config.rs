@@ -71,6 +71,9 @@ pub struct ProjectConfig {
     pub default_format: Option<String>,
     /// Default max width.
     pub max_width: Option<usize>,
+    /// Character threshold for advisory `long` diagnostics when `max_width` is
+    /// unset. Defaults to 120 when omitted.
+    pub long_threshold: Option<usize>,
     /// Prefer soft breaks after independent-clause punctuation when wrapping.
     pub clause_breaks: Option<bool>,
     /// Default language for abbreviation sets.
@@ -205,8 +208,15 @@ lang = "de"
         assert_eq!(config.ignore_patterns, vec!["*.bib", "*.cls"]);
         assert_eq!(config.default_format, Some("org".to_string()));
         assert_eq!(config.max_width, Some(80));
+        assert_eq!(config.long_threshold, None);
         assert_eq!(config.clause_breaks, Some(true));
         assert_eq!(config.lang, Some("de".to_string()));
+    }
+
+    #[test]
+    fn parse_long_threshold() {
+        let config = ProjectConfig::parse("long_threshold = 100\n").unwrap();
+        assert_eq!(config.long_threshold, Some(100));
     }
 
     #[test]

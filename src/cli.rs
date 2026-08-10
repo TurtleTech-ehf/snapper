@@ -131,6 +131,12 @@ pub struct Cli {
     #[arg(long, default_value = "text")]
     pub output_format: OutputFormat,
 
+    /// Treat advisory `long` diagnostics as `--check` failures.
+    ///
+    /// `long` never fails the check on its own unless this flag is set.
+    #[arg(long, default_value_t = false)]
+    pub strict_long: bool,
+
     /// Pipe each code block's body through the per-language formatter
     /// configured under `[code.<lang>.formatter]` in `.snapperrc.toml`.
     /// The formatter runs after the in-block comment reflow. Missing
