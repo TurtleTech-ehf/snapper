@@ -624,4 +624,59 @@ mod tests {
             .count();
         assert!(struct_count >= 4); // \begin, two content lines, \end
     }
+
+    #[test]
+    fn list_multi_sentence_hangs_and_rejoins() {
+        use crate::format::Format;
+        use crate::{FormatConfig, format_text};
+
+        let input = "- One. Two.\n";
+        let cfg = FormatConfig {
+            format: Format::Org,
+            ..Default::default()
+        };
+        let out = format_text(input, &cfg).unwrap();
+        assert_eq!(out, "- One.\n  Two.\n");
+        let second = format_text(&out, &cfg).unwrap();
+        assert_eq!(second, out, "format_text twice must equal once");
+
+        let regions = OrgParser.parse(&out);
+        assert_eq!(regions[0], Region::Structure("- ".to_string()));
+        assert_eq!(regions[1], Region::Prose("One. Two.".to_string()));
+        assert_eq!(regions[2], Region::Structure("\n".to_string()));
+        assert_eq!(regions.len(), 3);
+    }
+
+    #[test]
+    fn nested_list_stays_two_items_after_reflow() {
+        use crate::format::Format;
+        use crate::{FormatConfig, format_text};
+
+        let input = "1. Parent one. Parent two.\n   - Child one. Child two.\n";
+        let cfg = FormatConfig {
+            format: Format::Org,
+            ..Default::default()
+        };
+        let out = format_text(input, &cfg).unwrap();
+        assert_eq!(
+            out,
+            "1. Parent one.\n   Parent two.\n   - Child one.\n     Child two.\n"
+        );
+        assert_eq!(format_text(&out, &cfg).unwrap(), out);
+
+        let regions = OrgParser.parse(&out);
+        assert_eq!(regions[0], Region::Structure("1. ".to_string()));
+        assert_eq!(
+            regions[1],
+            Region::Prose("Parent one. Parent two.".to_string())
+        );
+        assert_eq!(regions[2], Region::Structure("\n".to_string()));
+        assert_eq!(regions[3], Region::Structure("   - ".to_string()));
+        assert_eq!(
+            regions[4],
+            Region::Prose("Child one. Child two.".to_string())
+        );
+        assert_eq!(regions[5], Region::Structure("\n".to_string()));
+        assert_eq!(regions.len(), 6);
+    }
 }
