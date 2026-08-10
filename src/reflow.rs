@@ -707,13 +707,11 @@ fn break_at_clause_punct(text: &str, format: Format, layout: WrapLayout<'_>) -> 
         // wrap-created. Later sentences and wrap-created lines may escape.
         let may_escape = format == Format::Markdown && !(first && layout.first_indent.is_empty());
 
-        let mut break_at = words.len();
-        for j in start..words.len().saturating_sub(1) {
-            if ends_with_clause_punct(words[j]) {
-                break_at = j + 1;
-                break;
-            }
-        }
+        let last_breakable = words.len().saturating_sub(1);
+        let mut break_at = words[start..last_breakable]
+            .iter()
+            .position(|w| ends_with_clause_punct(w))
+            .map_or(words.len(), |i| start + i + 1);
         break_at = skip_block_opening_cut(&words, start, break_at, format);
         lines.push(emit_wrapped_line(
             &words, start, break_at, indent, may_escape, format,
