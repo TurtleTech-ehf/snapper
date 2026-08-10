@@ -878,6 +878,34 @@ mod tests {
     }
 
     #[test]
+    fn org_code_span_with_dot_pl_stays_atomic() {
+        let text = "~latexindent.pl~ covers LaTeX only. Snapper handles Org.";
+        let (_, placeholders) = protect_inline_tokens(text);
+        assert_eq!(placeholders, vec!["~latexindent.pl~".to_string()]);
+        assert_eq!(
+            split(text),
+            vec![
+                "~latexindent.pl~ covers LaTeX only.".to_string(),
+                "Snapper handles Org.".to_string(),
+            ]
+        );
+    }
+
+    #[test]
+    fn markdown_code_span_with_dot_pl_stays_atomic() {
+        let text = "`latexindent.pl` covers LaTeX only. Snapper handles Org.";
+        let (_, placeholders) = protect_inline_tokens(text);
+        assert_eq!(placeholders, vec!["`latexindent.pl`".to_string()]);
+        assert_eq!(
+            split(text),
+            vec![
+                "`latexindent.pl` covers LaTeX only.".to_string(),
+                "Snapper handles Org.".to_string(),
+            ]
+        );
+    }
+
+    #[test]
     fn org_code_inner_tilde_pairs_to_the_real_closer() {
         let text = r#"so ~x ~ 1 -- note.~ reflows while ~s ~ "x"~ does not."#;
         let (_, placeholders) = protect_inline_tokens(text);

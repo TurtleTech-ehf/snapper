@@ -46,7 +46,7 @@ By breaking at sentence boundaries instead, each edit affects only the sentence 
 This convention, often called [semantic line breaks](https://sembr.org/), enjoys longstanding support from technical writers.
 `snapper` is a deterministic formatter (UAX #29 plus abbreviation tables and optional nnsplit).
 It is not [admk/sembr](https://github.com/admk/sembr) (learned clause breaks) and not [sembr/skills](https://github.com/sembr/skills) (agent rewrite instructions).
-latexindent.pl covers LaTeX only; snapper is a standalone Rust binary for Org-mode, LaTeX, Markdown, RST, and plaintext.
+`latexindent.pl` covers LaTeX only; snapper is a standalone Rust binary for Org-mode, LaTeX, Markdown, RST, and plaintext.
 
 
 <a id="design"></a>
