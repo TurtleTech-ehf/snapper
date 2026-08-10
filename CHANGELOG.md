@@ -4,6 +4,9 @@ All notable changes to this project will be documented in this file. See [conven
 - - -
 ## Unreleased (main)
 
+- - -
+
+## v0.10.0 - 2026-08-10
 #### Features
 - (**latex**) `[latex].verbatim_envs` / `structure_envs` / `verbatim_commands` in `.snapperrc.toml` add names to the built-in lists (minted/lstlisting/verbatim, `NON_PROSE_ENVS`, `\\verb`/`\\lstinline`); missing keys keep today's defaults. Extra command names are tokenized like `\\verb` before split. No regex `other:` key
 - (**reflow**) `--clause-breaks` / `clause_breaks` with `max_width = 0` inserts a newline after every independent-clause mark (`,`, `;`, `:`, em dash, `--`) that is already followed by whitespace; a one-clause sentence stays one line; `max_width > 0` keeps wrap-prefer-clause. Tokens such as `1,000`, URLs, `--flags`, and unspaced dashes never split. `--check` uses the same mode
@@ -35,6 +38,10 @@ All notable changes to this project will be documented in this file. See [conven
 - (**code-block**) a block-comment closer inside a string no longer ends the comment; quote-sequence closers (`"""`) still match naively so Python docstrings reflow
 - (**sentence**) abbreviation merge does not invent a space before LaTeX `~` (so `Eq.~\ref{}` stays attached once org `~code~` pairing no longer swallows that tilde)
 - (**sentence**) restore wrapped placeholders from the outside in, so a markdown-link regex match that contains a paired-span token cannot leak `\x00PHn\x00` into output
+#### Notes
+- Native `format_text` refuses `--use-pandoc` (`PandocCannotSplice`); splice needs source offsets the AST does not carry
+- `--clause-breaks` with the default `max_width = 0` is SemBr rule 5 (break at existing whitespace after clause punct); `max_width > 0` still wrap-prefers
+- Published binaries include the MCP server (`mcp` is a default feature)
 
 - - -
 
