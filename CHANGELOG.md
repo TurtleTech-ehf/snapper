@@ -20,6 +20,8 @@ All notable changes to this project will be documented in this file. See [conven
 - (**sentence**) `w.r.t.` is a multi-word abbreviation; `\\(...\\)` and `$$...$$` stay atomic like `$...$`
 - (**cli**) unknown source extensions (`.rs`, `.py`, no extension) are refused unless `--format` is explicit; `.txt` remains plaintext
 - (**org** / **sentence**) verbatim and inline-code spans pair to the first closer that satisfies Org's border and post rules, so an `=` or `~` inside the span no longer orphans the real closer onto the next line
+- (**sentence**) CommonMark `*`/`**` and GFM `~~` pair by flanking rules, so `**the end. Still bold**` stays one sentence while `**complex**. Equity` may split after the closer
+- (**markdown**) `>` is kept on each reflowed content line (including `max_width` wraps; prefix counts toward width); two-space and backslash hard breaks are not joined with a space; a quote hard break does not leave a stray `>` on the next non-quote line; multiline `<!-- ... -->` is structure (`<!-- snapper:off -->` still works)
 #### Documentation
 - README distinguishes snapper from admk/sembr and sembr/skills; crate keywords include `sembr` and `markdown`
 - (**markdown** / **sentence**) inline code delimited by two or more backticks can contain a shorter backtick run
