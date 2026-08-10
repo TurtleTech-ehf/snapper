@@ -4,6 +4,11 @@ All notable changes to this project will be documented in this file. See [conven
 - - -
 ## Unreleased (main)
 
+#### Bug Fixes
+- (**org** / **sentence**) verbatim and inline-code spans pair to the first closer that satisfies Org's border and post rules, so an `=` or `~` inside the span no longer orphans the real closer onto the next line
+- (**markdown** / **sentence**) inline code delimited by two or more backticks can contain a shorter backtick run
+- (**code-block**) a block-comment closer inside a string no longer ends the comment; quote-sequence closers (`"""`) still match naively so Python docstrings reflow
+
 - - -
 
 ## v0.9.1 - 2026-08-04

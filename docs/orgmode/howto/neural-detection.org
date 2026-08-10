@@ -31,7 +31,8 @@ For English academic papers, the rule-based detector produces better results (fa
 snapper --neural paper.org
 #+end_src
 
-On first run, the English model (~4MB) downloads and caches to =~/.cache/nnsplit/en/=. Subsequent runs load from cache.
+On first run, the English model (~4MB) downloads and caches to =~/.cache/nnsplit/en/=.
+Subsequent runs load from cache.
 
 * Non-English languages
 :PROPERTIES:

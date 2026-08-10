@@ -7,10 +7,11 @@
 //! which bytes are a comment and which are a string, so this pass rewrites
 //! the comments it finds and leaves every other byte alone.
 //!
-//! Only line comments are handled here. Block comments keep their existing
-//! open/close-on-own-line shape from the scanner, which runs after this pass
-//! and is a no-op on the output produced here (one sentence re-split is that
-//! same sentence).
+//! Line comments keep the per-line marker shape. Block comments stay on the
+//! scanner: languages that use `*/` end a comment at the first closer, even
+//! when that closer sits inside a string, so a grammar span cannot reach the
+//! real end. Python docstrings are string nodes, not comments, and also stay
+//! on the scanner.
 
 use std::collections::HashSet;
 
@@ -42,7 +43,7 @@ fn language_for(lang: &str) -> Option<tree_sitter::Language> {
 ///
 /// `frozen` carries zero-based line numbers the caller has ruled out, which
 /// is how `snapper:off` regions and the pragma lines themselves survive.
-pub(crate) fn reflow_line_comments(
+pub(crate) fn reflow_grammar_comments(
     lang: &str,
     body: &str,
     cfg: &CodeLang,
