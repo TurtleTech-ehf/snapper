@@ -12,7 +12,15 @@ use snapper_fmt::parser::Region;
 use snapper_fmt::parser::pandoc::{
     PandocBackend, PandocParser, ffi_available, regions_from_pandoc_json,
 };
-use snapper_fmt::{FormatConfig, format_text};
+use snapper_fmt::{FormatConfig, PandocCannotSplice, format_text};
+
+fn assert_pandoc_refuses(input: &str, cfg: &FormatConfig) {
+    let err = format_text(input, cfg).expect_err("pandoc must refuse splice");
+    assert!(
+        err.downcast_ref::<PandocCannotSplice>().is_some(),
+        "expected PandocCannotSplice, got {err:?}"
+    );
+}
 
 fn fixture(name: &str) -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -131,18 +139,7 @@ fn format_text_cli_backend_stable_across_two_runs_when_pandoc_present() {
         pandoc_format: Some("markdown".into()),
         ..Default::default()
     };
-    let run1 = format_text(&input, &cfg).expect("run1");
-    let run2 = format_text(&input, &cfg).expect("run2");
-    assert_eq!(run1, run2, "AST/CLI reflow must be stable across two runs");
-    // Header title from AST (no requirement for invented ### markers).
-    assert!(
-        run1.to_lowercase().contains("title"),
-        "Header title text should remain after pandoc+snapper: {run1}"
-    );
-    assert!(
-        run1.contains("print") || run1.contains("python"),
-        "CodeBlock body should remain (not sentence-reflowed away): {run1}"
-    );
+    assert_pandoc_refuses(&input, &cfg);
 }
 
 #[test]
@@ -184,9 +181,7 @@ fn format_text_ffi_live_stable_when_lib_present() {
         pandoc_format: Some("markdown".into()),
         ..Default::default()
     };
-    let run1 = format_text(&input, &cfg).expect("ffi run1");
-    let run2 = format_text(&input, &cfg).expect("ffi run2");
-    assert_eq!(run1, run2);
+    assert_pandoc_refuses(&input, &cfg);
 }
 
 /// Pandoc parse first: Header node → Structure; title never Prose (no reflow).
@@ -225,9 +220,10 @@ fn numbered_heading_after_pandoc_parse_not_prose() {
     );
 }
 
-/// End-to-end: pandoc parse → snapper reflow on prose only.
+/// Pandoc has no source offsets, so format_text refuses rather than
+/// reconstruct (and rather than drop `###` from ATX lines).
 #[test]
-fn format_text_pandoc_then_snapper_numbered_header_stable() {
+fn format_text_pandoc_refuses_numbered_heading() {
     let input = read_fixture("numbered_heading.md");
     let backend = if ffi_available() {
         PandocBackend::Ffi
@@ -244,43 +240,22 @@ fn format_text_pandoc_then_snapper_numbered_header_stable() {
         pandoc_format: Some("markdown".into()),
         ..Default::default()
     };
-    let run1 = format_text(&input, &cfg).expect("run1");
-    let run2 = format_text(&input, &cfg).expect("run2");
-    assert_eq!(run1, run2, "stable across two runs");
-
-    let heading_line = run1
-        .lines()
-        .find(|l| l.contains("cargo binstall"))
-        .expect("heading title present after pandoc+snapper");
+    assert_pandoc_refuses(&input, &cfg);
+    let native = format_text(
+        &input,
+        &FormatConfig {
+            format: Format::Markdown,
+            use_pandoc: false,
+            ..Default::default()
+        }
+        .without_safety_backstops(),
+    )
+    .unwrap();
     assert!(
-        heading_line.contains("1.") && heading_line.contains("cargo binstall"),
-        "Header title not sentence-split: {heading_line:?}\nfull:\n{run1}"
-    );
-    // Success is node-kind based — do not require invented ATX `###` markers.
-    assert!(
-        !heading_line.trim_start().starts_with("###"),
-        "pandoc path must not invent ATX markers as structure proof: {heading_line:?}"
-    );
-    assert!(
-        !run1.lines().any(|l| {
-            let t = l.trim();
-            t == "1." || t == "`cargo binstall` (preferred binary install)"
-        }),
-        "title must not be split by snapper reflow:\n{run1}"
-    );
-
-    // Body Para was reflowed: multi-sentence prose becomes separate lines.
-    assert!(
-        run1.contains("Hello world.\n") && run1.contains("Second sentence"),
-        "prose Para must be reflowed by snapper:\n{run1}"
-    );
-    assert!(
-        run1.contains("print") || run1.contains("python"),
-        "code preserved: {run1}"
-    );
-    assert!(
-        run1.contains('|') && (run1.contains("---") || run1.contains('1')),
-        "Table cells as structure from AST:\n{run1}"
+        native
+            .lines()
+            .any(|l| l == "### 1. `cargo binstall` (preferred binary install)"),
+        "native splice must keep ATX hashes:\n{native}"
     );
 }
 
@@ -303,11 +278,18 @@ fn format_text_pandoc_math_and_code_protected() {
         pandoc_format: Some("markdown".into()),
         ..Default::default()
     };
-    let run1 = format_text(&input, &cfg).expect("run1");
-    let run2 = format_text(&input, &cfg).expect("run2");
-    assert_eq!(run1, run2);
+    assert_pandoc_refuses(&input, &cfg);
+    let run1 = format_text(
+        &input,
+        &FormatConfig {
+            format: Format::Markdown,
+            ..Default::default()
+        }
+        .without_safety_backstops(),
+    )
+    .expect("native");
 
-    // Ordinary multi-sentence prose reflowed.
+    // Ordinary multi-sentence prose reflowed (native splice).
     assert!(
         run1.contains("First sentence.\n") && run1.contains("Second sentence"),
         "plain prose reflowed:\n{run1}"
@@ -360,44 +342,28 @@ fn format_text_pandoc_latex_math_code_envs() {
         pandoc_format: Some("latex".into()),
         ..Default::default()
     };
-    let out = match format_text(&input, &cfg) {
-        Ok(o) => o,
-        Err(e) => {
-            eprintln!("skipping latex pandoc path: {e}");
-            return;
-        }
-    };
-    // Require real sentence reflow (fixture has "Hello world. Second sentence." on one line).
-    assert!(
-        out.contains("Hello world.\n") && out.contains("Second sentence"),
-        "latex pandoc must reflow multi-sentence prose:\n{out}"
-    );
-    let native = format_text(
+    assert_pandoc_refuses(&input, &cfg);
+    let out = format_text(
         &input,
         &FormatConfig {
             format: Format::Latex,
             use_pandoc: false,
             ..Default::default()
-        },
+        }
+        .without_safety_backstops(),
     )
     .expect("native latex");
     assert!(
-        native.contains("Hello world.\n") && native.contains("Second sentence"),
-        "native latex reflow for parity:\n{native}"
+        out.contains("Hello world.\n") && out.contains("Second sentence"),
+        "native latex must reflow multi-sentence prose:\n{out}"
     );
-    // Equation / display math not orphaned by "E = mc" / "2." split as prose lines only.
     assert!(
         !out.lines().any(|l| l.trim() == "2." && !l.contains("mc")),
         "math period must not orphan a bare '2.' prose line:\n{out}"
     );
-    // minted/lstlisting/verbatim → CodeBlock with fence emit + lang when known
     assert!(
-        out.contains("```") && (out.contains("print(1.0)") || out.contains("print")),
-        "latex-origin CodeBlocks as fenced code units:\n{out}"
-    );
-    assert!(
-        out.contains("```python") || out.matches("```").count() >= 2,
-        "language fence or multiple code units:\n{out}"
+        out.contains("print(1.0)") || out.contains("\\begin{minted}"),
+        "native latex keeps minted/lstlisting bodies:\n{out}"
     );
 }
 
@@ -419,14 +385,25 @@ fn format_text_pandoc_table_list_quote() {
         pandoc_format: Some("markdown".into()),
         ..Default::default()
     };
-    let run1 = format_text(&input, &cfg).expect("run1");
-    let run2 = format_text(&input, &cfg).expect("run2");
-    assert_eq!(run1, run2);
+    assert_pandoc_refuses(&input, &cfg);
+    let run1 = format_text(
+        &input,
+        &FormatConfig {
+            format: Format::Markdown,
+            use_pandoc: false,
+            ..Default::default()
+        }
+        .without_safety_backstops(),
+    )
+    .expect("native");
     assert!(
         run1.contains("| a |") || run1.contains("| a | b |"),
         "table cells:\n{run1}"
     );
-    assert!(run1.contains("---"), "table separator:\n{run1}");
+    assert!(
+        run1.contains("---") || run1.contains("| - |"),
+        "table separator:\n{run1}"
+    );
     assert!(
         run1.contains("- ") || run1.lines().any(|l| l.starts_with("-")),
         "list markers:\n{run1}"
@@ -446,7 +423,8 @@ fn default_path_numbered_atx_source_line_not_split() {
         format: Format::Markdown,
         use_pandoc: false,
         ..Default::default()
-    };
+    }
+    .without_safety_backstops();
     let out = format_text(&input, &cfg).expect("default format");
     assert!(
         out.lines()
@@ -477,10 +455,20 @@ fn pandoc_org_verbatim_inner_equals_stays_one_span() {
         pandoc_format: Some("org".into()),
         ..Default::default()
     };
-    let out = format_text(input, &cfg).expect("pandoc org format");
+    assert_pandoc_refuses(input, &cfg);
+    let out = format_text(
+        input,
+        &FormatConfig {
+            format: Format::Org,
+            use_pandoc: false,
+            ..Default::default()
+        }
+        .without_safety_backstops(),
+    )
+    .expect("native org");
     assert!(
         !out.lines().any(|l| l.trim() == "=" || l.starts_with("= ")),
-        "pandoc path must not orphan a verbatim closer, got:\n{out}"
+        "native path must not orphan a verbatim closer, got:\n{out}"
     );
     assert!(
         out.contains("x = 1") && out.contains("s ="),

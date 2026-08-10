@@ -77,55 +77,49 @@ pub fn reflow_code_body(
     after_comment_reflow
 }
 
-/// Run the comment-reflow pass. Pure function; no I/O.
+/// Run the comment-reflow pass. Non-comment lines stay original slices;
+/// only comment spans are rewritten.
 fn reflow_comments(body: &str, cfg: &CodeLang, splitter: &dyn SentenceSplitter) -> String {
+    let lines = crate::parser::iter_lines(body);
     let mut out = String::with_capacity(body.len());
-    let mut iter = body.lines().peekable();
+    let mut i = 0;
     let mut pragma_off = false;
-    // Track whether the original body ended with a trailing newline so we
-    // can reproduce it byte-identically.
-    let trailing_newline = body.ends_with('\n');
 
-    while let Some(line) = iter.next() {
-        // Pragma check first; lines between off/on are verbatim.
-        if let Some(on) = check_pragma_for(line, cfg) {
+    while i < lines.len() {
+        let line = lines[i];
+        let slice = &body[line.start..line.end];
+
+        if let Some(on) = check_pragma_for(line.text, cfg) {
             pragma_off = !on;
-            out.push_str(line);
-            out.push('\n');
+            out.push_str(slice);
+            i += 1;
             continue;
         }
         if pragma_off {
-            out.push_str(line);
-            out.push('\n');
+            out.push_str(slice);
+            i += 1;
             continue;
         }
 
-        // Try block-comment open. If matched, accumulate to the close marker
-        // and reflow the interior as plaintext.
         if let Some(ref pair) = cfg.block_comment {
             let [open, close] = [pair[0].as_str(), pair[1].as_str()];
             if !open.is_empty() {
-                if let Some((indent, after_open)) = split_at_marker(line, open) {
-                    // Same-line open + close (e.g. `/* one sentence. */`)?
+                if let Some((indent, after_open)) = split_at_marker(line.text, open) {
                     let trimmed_after = after_open.trim_start();
                     if !close.is_empty() {
                         if let Some(idx) = find_close(trimmed_after, close, cfg) {
                             let interior = &trimmed_after[..idx];
-                            // Emit: indent + open\n + reflowed interior\n + indent + close\n
                             emit_block_comment(&mut out, indent, open, close, interior, splitter);
+                            i += 1;
                             continue;
                         }
                     }
-                    // Multi-line block comment: gather body until close marker.
                     let mut interior = after_open.to_string();
                     let mut close_indent: Option<String> = None;
-                    let mut closed = false;
-                    for next in iter.by_ref() {
-                        if let Some(idx) = find_close(next, close, cfg) {
-                            // Found close. Anything before it (on this line)
-                            // joins the interior; the close marker stays on
-                            // its own emitted line at its original indent.
-                            let pre = &next[..idx];
+                    let mut closed_at = None;
+                    for (j, next) in lines.iter().enumerate().skip(i + 1) {
+                        if let Some(idx) = find_close(next.text, close, cfg) {
+                            let pre = &next.text[..idx];
                             let pre_trim = pre.trim();
                             if !pre_trim.is_empty() {
                                 if !interior.is_empty() && !interior.ends_with(' ') {
@@ -133,14 +127,14 @@ fn reflow_comments(body: &str, cfg: &CodeLang, splitter: &dyn SentenceSplitter) 
                                 }
                                 interior.push_str(pre_trim);
                             }
-                            close_indent =
-                                Some(next[..next.len() - next.trim_start().len()].to_string());
-                            closed = true;
+                            close_indent = Some(
+                                next.text[..next.text.len() - next.text.trim_start().len()]
+                                    .to_string(),
+                            );
+                            closed_at = Some(j);
                             break;
                         }
-                        let stripped = next.trim_start();
-                        // Strip a leading `*` decoration commonly used in
-                        // C/Java/JS doc comments, plus one optional space.
+                        let stripped = next.text.trim_start();
                         let stripped = stripped
                             .strip_prefix("* ")
                             .or_else(|| stripped.strip_prefix('*'))
@@ -150,7 +144,7 @@ fn reflow_comments(body: &str, cfg: &CodeLang, splitter: &dyn SentenceSplitter) 
                         }
                         interior.push_str(stripped.trim());
                     }
-                    if closed {
+                    if let Some(j) = closed_at {
                         let ci = close_indent.unwrap_or_else(|| indent.to_string());
                         emit_block_comment_multi(
                             &mut out,
@@ -161,70 +155,63 @@ fn reflow_comments(body: &str, cfg: &CodeLang, splitter: &dyn SentenceSplitter) 
                             interior.trim(),
                             splitter,
                         );
+                        i = j + 1;
                         continue;
                     }
-                    // Unterminated block comment: emit interior we accumulated
-                    // and bail out (best-effort; keep input shape).
-                    out.push_str(line);
-                    out.push('\n');
-                    if !interior.is_empty() {
-                        out.push_str(interior.trim_end());
-                        out.push('\n');
+                    // Unterminated: copy original slices through EOF.
+                    for keep in &lines[i..] {
+                        out.push_str(&body[keep.start..keep.end]);
                     }
-                    continue;
+                    break;
                 }
             }
         }
 
-        // Line-comment reflow.
         if let Some(ref marker) = cfg.line_comment {
-            if let Some((indent, marker, rest)) = strip_line_comment(line, marker) {
+            if let Some((indent, marker, rest)) = strip_line_comment(line.text, marker) {
                 let prose = rest.trim();
                 if prose.is_empty() {
-                    out.push_str(line);
-                    out.push('\n');
+                    out.push_str(slice);
+                    i += 1;
                     continue;
                 }
-                // If this comment line is the pragma itself we already handled
-                // it above. Reflow as plaintext.
                 let sentences = splitter.split(prose);
-                if sentences.is_empty() {
-                    out.push_str(line);
-                    out.push('\n');
+                if sentences.len() <= 1 {
+                    out.push_str(slice);
+                    i += 1;
                     continue;
                 }
-                for s in &sentences {
+                for (k, s) in sentences.iter().enumerate() {
                     out.push_str(indent);
                     out.push_str(marker);
                     out.push(' ');
                     out.push_str(s);
-                    out.push('\n');
+                    if k + 1 < sentences.len() {
+                        out.push('\n');
+                    } else {
+                        out.push_str(
+                            &body[line.terminator_span().start..line.terminator_span().end],
+                        );
+                    }
                 }
+                i += 1;
                 continue;
             }
         }
 
-        // A comment trailing real code. Without a grammar the only way to
-        // tell this marker from the same characters inside a literal is to
-        // track quoting, so that is what `trailing_comment_at` does.
         if let Some(ref marker) = cfg.line_comment {
-            if let Some(at) = trailing_comment_at(line, marker, cfg) {
-                if let Some(rewritten) = rewrite_trailing(line, at, marker, splitter) {
+            if let Some(at) = trailing_comment_at(line.text, marker, cfg) {
+                if let Some(rewritten) = rewrite_trailing(line.text, at, marker, splitter) {
                     out.push_str(&rewritten);
-                    out.push('\n');
+                    out.push_str(&body[line.terminator_span().start..line.terminator_span().end]);
+                    i += 1;
                     continue;
                 }
             }
         }
 
-        // Non-comment line: passthrough.
-        out.push_str(line);
-        out.push('\n');
-    }
-
-    // Reproduce trailing-newline shape of the input.
-    if !trailing_newline && out.ends_with('\n') {
-        out.pop();
+        out.push_str(slice);
+        i += 1;
     }
     out
 }
