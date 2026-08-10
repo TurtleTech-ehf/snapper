@@ -73,7 +73,10 @@ pub struct Cli {
     pub max_width: usize,
 
     /// Prefer soft breaks after independent-clause punctuation (comma,
-    /// semicolon, colon, em dash) when wrapping under `--max-width`.
+    /// semicolon, colon, em dash). With `--max-width 0` (the default),
+    /// insert a newline after every such mark that is already followed
+    /// by whitespace. With `--max-width` set, prefer those marks when
+    /// wrapping an overflowing sentence.
     #[arg(long, default_value_t = false)]
     pub clause_breaks: bool,
 
