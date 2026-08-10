@@ -1,11 +1,13 @@
+use std::borrow::Cow;
 use std::collections::HashMap;
 
 use crate::config::CodeLang;
+use crate::format::Format;
 use crate::parser::{Region, RegionOrigin, SpannedRegion};
 use crate::sentence::SentenceSplitter;
+use crate::sentence::unicode::atomic_inline_spans;
 
 /// Configuration for the reflow engine.
-#[derive(Default)]
 pub struct ReflowConfig<'a> {
     /// Maximum line width. 0 means unlimited.
     pub max_width: usize,
@@ -16,6 +18,22 @@ pub struct ReflowConfig<'a> {
     /// Prefer soft breaks after independent-clause punctuation (`,`, `;`,
     /// `:`, em dash, `--`) when wrapping under `max_width`.
     pub clause_breaks: bool,
+    /// Markup format of the document being reflowed. Wrap-created line
+    /// starts that the format parser would read as a new block are
+    /// escaped (Markdown) or the cut is skipped (Org and the rest).
+    pub format: Format,
+}
+
+impl Default for ReflowConfig<'_> {
+    fn default() -> Self {
+        Self {
+            max_width: 0,
+            code: None,
+            format_code: false,
+            clause_breaks: false,
+            format: Format::Plaintext,
+        }
+    }
 }
 
 /// Minimum region count before parallelizing reflow (large multi-MB org/md files).
@@ -222,11 +240,12 @@ fn reflow_prose(
     let nsent = sentences.len();
     for (i, sentence) in sentences.iter().enumerate() {
         let wrapped = if wrap_width > 0 {
-            if config.clause_breaks {
-                wrap_with_clause_breaks(sentence, wrap_width)
-            } else {
-                textwrap::fill(sentence, wrap_width)
-            }
+            wrap_prose(
+                sentence,
+                wrap_width,
+                config.clause_breaks,
+                config.format,
+            )
         } else {
             sentence.clone()
         };
@@ -290,30 +309,165 @@ fn ends_with_clause_punct(word: &str) -> bool {
 
 /// Wrap `sentence` under `max_width`, preferring breaks after clause
 /// punctuation (sembr rule 5). A sentence that already fits stays on one
-/// line. Breaks only ever land at whitespace, so tokens like `1,000`,
-/// `10:30`, URLs, and `--flags` are never split apart.
+/// line. Breaks only ever land at whitespace outside atomic tokens, so
+/// links, inline code, `$math$`, and tokens like `1,000`, `10:30`, URLs,
+/// and `--flags` are never split apart.
 pub fn wrap_with_clause_breaks(sentence: &str, max_width: usize) -> String {
+    wrap_prose(sentence, max_width, true, Format::Plaintext)
+}
+
+fn wrap_prose(sentence: &str, max_width: usize, clause_breaks: bool, format: Format) -> String {
     if max_width == 0 {
         return sentence.to_string();
     }
-    wrap_words_preferring_clause(sentence, max_width).join("\n")
+    wrap_atomic_words(sentence, max_width, clause_breaks, format).join("\n")
 }
 
-/// Greedy word wrap that, when forced to break, prefers the last word on the
-/// line that ends with clause punctuation; otherwise breaks at the last word
-/// boundary that fits.
-fn wrap_words_preferring_clause(text: &str, max_width: usize) -> Vec<String> {
-    let words: Vec<&str> = text.split_whitespace().collect();
+/// Whitespace words with links, images, inline code, autolinks, math, and
+/// Org `[[...]]` kept whole (internal spaces do not split). Adjacent
+/// non-space text glues to a token so `foo[a](b)bar` is one word.
+fn split_atomic_words(text: &str) -> Vec<&str> {
+    let spans = atomic_inline_spans(text);
+    let mut words = Vec::new();
+    let mut buf_start: Option<usize> = None;
+    let mut buf_end = 0usize;
+    let mut pos = 0usize;
+    let mut span_i = 0usize;
+
+    while pos < text.len() {
+        if span_i < spans.len() && pos >= spans[span_i].1 {
+            span_i += 1;
+            continue;
+        }
+        if span_i < spans.len() && pos == spans[span_i].0 {
+            let end = spans[span_i].1;
+            if buf_start.is_none() {
+                buf_start = Some(pos);
+            }
+            buf_end = end;
+            pos = end;
+            span_i += 1;
+            continue;
+        }
+        let rest_end = if span_i < spans.len() {
+            spans[span_i].0
+        } else {
+            text.len()
+        };
+        if pos < rest_end {
+            let gap = &text[pos..rest_end];
+            for (i, ch) in gap.char_indices() {
+                if ch.is_whitespace() {
+                    if let Some(start) = buf_start.take() {
+                        words.push(&text[start..buf_end]);
+                    }
+                } else {
+                    let abs = pos + i;
+                    if buf_start.is_none() {
+                        buf_start = Some(abs);
+                    }
+                    buf_end = abs + ch.len_utf8();
+                }
+            }
+        }
+        pos = rest_end;
+    }
+    if let Some(start) = buf_start {
+        words.push(&text[start..buf_end]);
+    }
+    words
+}
+
+fn is_ordered_list_marker(word: &str) -> bool {
+    let bytes = word.as_bytes();
+    if bytes.len() < 2 {
+        return false;
+    }
+    let delim = *bytes.last().unwrap();
+    if delim != b'.' && delim != b')' {
+        return false;
+    }
+    bytes[..bytes.len() - 1].iter().all(|b| b.is_ascii_digit())
+}
+
+fn is_md_special_marker(word: &str) -> bool {
+    matches!(word, "-" | "*" | "+" | ">")
+        || ((1..=6).contains(&word.len()) && word.bytes().all(|b| b == b'#'))
+}
+
+/// True when `word` at column 0 would be read as a new block by this format.
+fn is_block_interrupt_word(word: &str, format: Format) -> bool {
+    if word.starts_with('\\') {
+        return false;
+    }
+    match format {
+        Format::Org => {
+            matches!(word, "-" | "+")
+                || (!word.is_empty() && word.bytes().all(|b| b == b'*'))
+                || is_ordered_list_marker(word)
+                || word.starts_with('#')
+        }
+        Format::Markdown | Format::Rst | Format::Latex | Format::Plaintext => {
+            is_md_special_marker(word) || is_ordered_list_marker(word)
+        }
+    }
+}
+
+/// Markdown backslash-escape for a wrap-created line start. Already-escaped
+/// words are left alone so a second pass does not accumulate backslashes.
+fn escape_md_interrupt_word(word: &str) -> String {
+    if word.starts_with('\\') {
+        return word.to_string();
+    }
+    if is_ordered_list_marker(word) {
+        let (digits, delim) = word.split_at(word.len() - 1);
+        return format!("{digits}\\{delim}");
+    }
+    if is_md_special_marker(word) {
+        return format!("\\{word}");
+    }
+    word.to_string()
+}
+
+fn word_for_line<'a>(
+    word: &'a str,
+    wrap_created: bool,
+    first_on_line: bool,
+    format: Format,
+) -> Cow<'a, str> {
+    if format == Format::Markdown && wrap_created && first_on_line {
+        let escaped = escape_md_interrupt_word(word);
+        if escaped.as_str() != word {
+            return Cow::Owned(escaped);
+        }
+    }
+    Cow::Borrowed(word)
+}
+
+/// Greedy wrap over atomic words. Forced breaks prefer the last clause
+/// punctuation on the line. A wrap that would start a new block is
+/// escaped in Markdown or skipped in other formats. The first line of a
+/// sentence (including a list item's prose) is never escaped.
+fn wrap_atomic_words(
+    text: &str,
+    max_width: usize,
+    prefer_clause: bool,
+    format: Format,
+) -> Vec<String> {
+    let words = split_atomic_words(text);
     if words.is_empty() {
         return Vec::new();
     }
+    let skip_cut = format != Format::Markdown;
     let mut lines = Vec::new();
     let mut start = 0;
     while start < words.len() {
+        let wrap_created = start > 0;
         let mut end = start;
         let mut line_len = 0usize;
         while end < words.len() {
-            let wlen = words[end].chars().count();
+            let displayed = word_for_line(words[end], wrap_created, end == start, format);
+            let wlen = displayed.chars().count();
             let next_len = if end == start {
                 wlen
             } else {
@@ -332,7 +486,7 @@ fn wrap_words_preferring_clause(text: &str, max_width: usize) -> Vec<String> {
         // Only a forced break gets pulled back to a clause boundary; the
         // final line of a sentence keeps its remaining words together.
         let mut break_at = end;
-        if end < words.len() {
+        if prefer_clause && end < words.len() {
             for j in (start..end).rev() {
                 if ends_with_clause_punct(words[j]) {
                     break_at = j + 1;
@@ -340,7 +494,23 @@ fn wrap_words_preferring_clause(text: &str, max_width: usize) -> Vec<String> {
                 }
             }
         }
-        lines.push(words[start..break_at].join(" "));
+        // Skip-cut: keep a wrap-created block marker on this line rather
+        // than inventing a list/heading at column 0.
+        if skip_cut
+            && break_at < words.len()
+            && break_at > start
+            && is_block_interrupt_word(words[break_at], format)
+        {
+            break_at += 1;
+        }
+        let mut line = String::new();
+        for (i, word) in words[start..break_at].iter().enumerate() {
+            if i > 0 {
+                line.push(' ');
+            }
+            line.push_str(&word_for_line(word, wrap_created, i == 0, format));
+        }
+        lines.push(line);
         start = break_at;
     }
     lines
@@ -904,7 +1074,8 @@ without additional human intervention.";
 
     #[test]
     fn overlong_atomic_token_sits_alone() {
-        let token = "[a deliberately long link description that exceeds width](https://example.com)";
+        let token =
+            "[a deliberately long link description that exceeds width](https://example.com)";
         let sentence = format!("See {token} now.");
         for clause in [false, true] {
             let wrapped = wrap_sentence(&sentence, 20, clause);
@@ -924,7 +1095,12 @@ without additional human intervention.";
         let rejoined: Vec<&str> = wrapped.split_whitespace().collect();
         let original: Vec<&str> = s.split_whitespace().collect();
         assert_eq!(rejoined, original, "wrapping must be lossless: {wrapped:?}");
-        for token in ["1,000,000", "10:30", "https://example.com/a,b", "--clause-breaks"] {
+        for token in [
+            "1,000,000",
+            "10:30",
+            "https://example.com/a,b",
+            "--clause-breaks",
+        ] {
             assert!(
                 wrapped.lines().any(|l| l.contains(token)),
                 "{token:?} must stay on a single line: {wrapped:?}"

@@ -305,6 +305,7 @@ fn format_once(
         code: Some(&config.code),
         format_code,
         clause_breaks: config.clause_breaks,
+        format: config.format,
     };
 
     // Two pipelines:
