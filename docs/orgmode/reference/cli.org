@@ -90,6 +90,7 @@ Missing binaries, non-zero exits, and a ~30s timeout are non-fatal; the reflowed
 Check mode for CI.
 Exits with code 1 if any file would change, without modifying anything.
 Prints the paths of files that would be reformatted to stderr.
+With no file arguments, checks stdin (JSON/SARIF on stdout, same exit codes).
 
 *** =--diff=
 :PROPERTIES:
@@ -119,8 +120,18 @@ Example: =snapper --range 10:20 paper.org=
 Output format for =--check= mode.
 Default: =text= (prints filenames to stderr).
 
-- =json= : outputs a JSON array with file paths and line counts
-- =sarif= : outputs SARIF v2.1.0 for GitHub Code Scanning integration
+- =json= : outputs a JSON array of files, each with =would_reformat= and a =diagnostics= array of 1-indexed =line= / =kind= (=fused= / =wrap= / =long=) / =excerpt=
+- =sarif= : outputs SARIF v2.1.0 for GitHub Code Scanning, with one result per diagnostic (=snapper/fused=, =snapper/wrap=, =snapper/long=) plus =snapper/needs-reformat= when the file would change
+
+*** =--strict-long=
+:PROPERTIES:
+:CUSTOM_ID: opt-strict-long
+:END:
+
+Treat advisory =long= diagnostics as =--check= failures.
+
+A =long= finding is never the sole cause of exit 1 unless this flag is set.
+The threshold is =--max-width= when that is non-zero, otherwise =long_threshold= from =.snapperrc.toml= (default 120).
 
 *** =--neural=
 :PROPERTIES:
@@ -245,5 +256,5 @@ Works with any LSP-compatible editor (Neovim, Emacs eglot, VS Code, Helix).
 :CUSTOM_ID: exit-codes
 :END:
 
-- =0= : Success (or =--check= / =--diff= with no changes needed)
-- =1= : =--check= or =--diff= found files that would change, or any error
+- =0= : Success (or =--check= / =--diff= with no changes needed; advisory =long= diagnostics do not fail =--check= unless =--strict-long=)
+- =1= : =--check= or =--diff= found files that would change, =--strict-long= saw a =long= diagnostic, or any error

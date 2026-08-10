@@ -6,9 +6,10 @@ use tower_lsp::jsonrpc::Result;
 use tower_lsp::lsp_types::*;
 use tower_lsp::{Client, LanguageServer, LspService, Server};
 
+use crate::check::{DiagnosticKind, collect_diagnostics, resolve_long_threshold};
 use crate::config::ProjectConfig;
 use crate::format::Format;
-use crate::{FormatConfig, format_text};
+use crate::{FormatConfig, build_splitter, format_text};
 
 pub struct SnapperLsp {
     client: Client,
@@ -81,39 +82,40 @@ impl SnapperLsp {
 
     fn compute_diagnostics(&self, uri: &Url) -> Vec<Diagnostic> {
         let docs = self.documents.lock().expect("document store poisoned");
-        let Some((text, _)) = docs.get(uri) else {
+        let Some((text, format)) = docs.get(uri) else {
             return vec![];
         };
+        let config = self.make_config(*format);
+        let Ok(splitter) = build_splitter(&config) else {
+            return vec![];
+        };
+        let threshold = {
+            let project = self.project_config.lock().expect("config lock poisoned");
+            resolve_long_threshold(config.max_width, project.long_threshold)
+        };
 
-        let mut diagnostics = Vec::new();
-        // Flag lines that contain multiple sentences (period + space + capital)
-        for (i, line) in text.lines().enumerate() {
-            let chars: Vec<char> = line.chars().collect();
-            if chars.is_empty() {
-                continue;
-            }
-
-            // Highlight the exact space character where a split should occur
-            for j in 1..chars.len().saturating_sub(1) {
-                if (chars[j - 1] == '.' || chars[j - 1] == '!' || chars[j - 1] == '?')
-                    && chars[j] == ' '
-                    && chars.get(j + 1).is_some_and(|c| c.is_uppercase())
-                {
-                    diagnostics.push(Diagnostic {
-                        range: Range {
-                            start: Position::new(i as u32, j as u32),
-                            end: Position::new(i as u32, (j + 1) as u32),
-                        },
-                        severity: Some(DiagnosticSeverity::HINT),
-                        source: Some("snapper".to_string()),
-                        message: "Semantic line break recommended here. Consider running snapper."
-                            .to_string(),
-                        ..Default::default()
-                    });
+        collect_diagnostics(text, *format, splitter.as_ref(), threshold)
+            .into_iter()
+            .map(|d| {
+                let line = d.line.saturating_sub(1) as u32;
+                let end_col = d.excerpt.chars().count() as u32;
+                let severity = match d.kind {
+                    DiagnosticKind::Long => DiagnosticSeverity::INFORMATION,
+                    DiagnosticKind::Fused | DiagnosticKind::Wrap => DiagnosticSeverity::WARNING,
+                };
+                Diagnostic {
+                    range: Range {
+                        start: Position::new(line, 0),
+                        end: Position::new(line, end_col),
+                    },
+                    severity: Some(severity),
+                    source: Some("snapper".to_string()),
+                    code: Some(NumberOrString::String(d.kind.as_str().to_string())),
+                    message: format!("{}: {}", d.kind.as_str(), d.excerpt),
+                    ..Default::default()
                 }
-            }
-        }
-        diagnostics
+            })
+            .collect()
     }
 }
 

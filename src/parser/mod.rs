@@ -48,6 +48,44 @@ pub trait FormatParser {
     }
 }
 
+/// Per-source-line prose payload from the same `parse_full` walk format uses.
+///
+/// `None` means the line has no prose rewrite range (structure, code, blank,
+/// pragma-off). `Some` is the original-source slice the parser sent to the
+/// splitter for that line (list/quote body, mid-line comment prefix).
+pub fn source_line_payloads(input: &str, format: crate::format::Format) -> Vec<Option<String>> {
+    let spanned = parser_for_format(format).parse_full(input);
+    iter_lines(input)
+        .into_iter()
+        .map(|line| line_prose_payload(input, line, &spanned))
+        .collect()
+}
+
+fn line_prose_payload(input: &str, line: Line<'_>, spanned: &[SpannedRegion]) -> Option<String> {
+    let lo = line.start;
+    let hi = line.start + line.text.len();
+    let mut out = String::new();
+    for sr in spanned {
+        if !matches!(sr.region, Region::Prose(_)) {
+            continue;
+        }
+        let Some(origin) = sr.origin else {
+            continue;
+        };
+        let span = origin.whole();
+        let start = span.start.max(lo);
+        let end = span.end.min(hi);
+        if start < end {
+            out.push_str(&input[start..end]);
+        }
+    }
+    if out.trim().is_empty() {
+        None
+    } else {
+        Some(out)
+    }
+}
+
 /// Create the appropriate parser for a given format.
 pub fn parser_for_format(format: crate::format::Format) -> Box<dyn FormatParser> {
     use crate::format::Format;

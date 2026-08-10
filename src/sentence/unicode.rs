@@ -256,7 +256,8 @@ fn find_unescaped_brace_close(text: &str, mut i: usize) -> Option<usize> {
     None
 }
 
-/// Org `=`/`~` and Markdown backtick spans, paired to the real closer.
+/// Org `=`/`~`, Markdown backtick spans, CommonMark `*`/`**`, and GFM `~~`,
+/// paired to the real closer.
 ///
 /// Org markers follow the same walk as pandoc's org reader
 /// (`verbatimBetween` / `emphasisStart` / `emphasisEnd`, the Emacs
@@ -271,6 +272,9 @@ fn find_unescaped_brace_close(text: &str, mut i: usize) -> Option<usize> {
 /// Markdown inline code uses CommonMark / pandoc fence-length matching: a
 /// run of `n` backticks closes on the next run of exactly `n` backticks, so
 /// a double span can hold a single backtick.
+///
+/// Markdown `*` / `**` use CommonMark flanking (not Org's pre/post classes).
+/// GFM `~~strike~~` is an exact two-tilde run.
 fn protect_paired_spans(text: &str, placeholders: &mut Vec<String>) -> String {
     let mut out = String::with_capacity(text.len());
     let bytes = text.as_bytes();
@@ -282,9 +286,27 @@ fn protect_paired_spans(text: &str, placeholders: &mut Vec<String>) -> String {
                 i = end;
                 continue;
             }
-        } else if bytes[i] == b'=' || bytes[i] == b'~' {
-            let marker = bytes[i] as char;
-            if let Some(end) = find_org_paired_span(text, i, marker) {
+        } else if bytes[i] == b'=' {
+            if let Some(end) = find_org_paired_span(text, i, '=') {
+                push_placeholder(&mut out, placeholders, &text[i..end]);
+                i = end;
+                continue;
+            }
+        } else if bytes[i] == b'~' {
+            // GFM `~~strike~~` before Org `~code~` so a double run is not
+            // eaten as one org span that happens to close at the last tilde.
+            if let Some(end) = find_md_strike_span(text, i) {
+                push_placeholder(&mut out, placeholders, &text[i..end]);
+                i = end;
+                continue;
+            }
+            if let Some(end) = find_org_paired_span(text, i, '~') {
+                push_placeholder(&mut out, placeholders, &text[i..end]);
+                i = end;
+                continue;
+            }
+        } else if bytes[i] == b'*' {
+            if let Some(end) = find_md_emphasis_span(text, i) {
                 push_placeholder(&mut out, placeholders, &text[i..end]);
                 i = end;
                 continue;
@@ -344,6 +366,127 @@ fn find_org_paired_span(text: &str, open_at: usize, marker: char) -> Option<usiz
         j += ch.len_utf8();
     }
     None
+}
+
+/// CommonMark flanking for `*` / `**` (and longer runs).
+///
+/// Edges of the text count as whitespace. A run can open when it is
+/// left-flanking (and not also right-flanking unless the previous character
+/// is punctuation). It closes on the nearest later run of `*` that is
+/// right-flanking and satisfies the rule of three: the sum of opener and
+/// closer lengths is not a multiple of 3, unless both lengths are.
+fn find_md_emphasis_span(text: &str, open_at: usize) -> Option<usize> {
+    let bytes = text.as_bytes();
+    if bytes.get(open_at) != Some(&b'*') {
+        return None;
+    }
+    let n = count_ascii_run(bytes, open_at, b'*');
+    if n == 0 {
+        return None;
+    }
+    let before = md_edge_char(text, open_at, false);
+    let after = md_edge_char(text, open_at + n, true);
+    let (left, right) = md_flanking(before, after);
+    if !(left && (!right || is_md_punctuation(before))) {
+        return None;
+    }
+
+    let mut j = open_at + n;
+    while j < text.len() {
+        let ch = text[j..].chars().next()?;
+        if ch == '*' {
+            let m = count_ascii_run(bytes, j, b'*');
+            let c_before = md_edge_char(text, j, false);
+            let c_after = md_edge_char(text, j + m, true);
+            let (c_left, c_right) = md_flanking(c_before, c_after);
+            let can_close = c_right && (!c_left || is_md_punctuation(c_after));
+            let three_ok = ((n + m) % 3 != 0) || (n % 3 == 0);
+            if can_close && three_ok && j > open_at + n {
+                return Some(j + m);
+            }
+            j += m;
+            continue;
+        }
+        j += ch.len_utf8();
+    }
+    None
+}
+
+/// GFM strikethrough: a run of exactly two `~` that is not followed by
+/// whitespace, closed by the next exact `~~` that is not preceded by
+/// whitespace.
+fn find_md_strike_span(text: &str, open_at: usize) -> Option<usize> {
+    let bytes = text.as_bytes();
+    if bytes.get(open_at) != Some(&b'~') || bytes.get(open_at + 1) != Some(&b'~') {
+        return None;
+    }
+    if bytes.get(open_at + 2) == Some(&b'~') {
+        return None;
+    }
+    let after_open = open_at + 2;
+    if after_open >= text.len() {
+        return None;
+    }
+    let first = text[after_open..].chars().next()?;
+    if first.is_whitespace() {
+        return None;
+    }
+    let mut j = after_open;
+    while j < text.len() {
+        let ch = text[j..].chars().next()?;
+        if ch == '~'
+            && bytes.get(j + 1) == Some(&b'~')
+            && bytes.get(j + 2) != Some(&b'~')
+            && j > after_open
+        {
+            let prev = text[..j].chars().next_back()?;
+            if !prev.is_whitespace() {
+                return Some(j + 2);
+            }
+        }
+        j += ch.len_utf8();
+    }
+    None
+}
+
+fn count_ascii_run(bytes: &[u8], start: usize, marker: u8) -> usize {
+    let mut n = 0;
+    while start + n < bytes.len() && bytes[start + n] == marker {
+        n += 1;
+    }
+    n
+}
+
+fn md_edge_char(text: &str, byte: usize, after: bool) -> char {
+    if after {
+        if byte >= text.len() {
+            '\n'
+        } else {
+            text[byte..].chars().next().unwrap_or('\n')
+        }
+    } else if byte == 0 {
+        '\n'
+    } else {
+        text[..byte].chars().next_back().unwrap_or('\n')
+    }
+}
+
+fn is_md_punctuation(c: char) -> bool {
+    if c.is_ascii() {
+        c.is_ascii_punctuation()
+    } else {
+        !c.is_alphanumeric() && !c.is_whitespace()
+    }
+}
+
+fn md_flanking(before: char, after: char) -> (bool, bool) {
+    let after_ws = after.is_whitespace();
+    let before_ws = before.is_whitespace();
+    let after_p = is_md_punctuation(after);
+    let before_p = is_md_punctuation(before);
+    let left = !after_ws && (!after_p || before_ws || before_p);
+    let right = !before_ws && (!before_p || after_ws || after_p);
+    (left, right)
 }
 
 fn find_md_code_span(text: &str, open_at: usize) -> Option<usize> {
@@ -1354,6 +1497,96 @@ mod tests {
         assert_eq!(
             split(r#"End of quote: "done." Start again."#),
             vec![r#"End of quote: "done.""#, "Start again."]
+        );
+    }
+
+    #[test]
+    fn markdown_strong_with_internal_period_not_split() {
+        // CommonMark `**`: a period next to the closer is still inside the span.
+        let text = "This is **the end. Still bold** after.";
+        let (_, placeholders) = protect_inline_tokens(text);
+        assert!(
+            placeholders.iter().any(|p| p == "**the end. Still bold**"),
+            "strong span must be one token, got {placeholders:?}"
+        );
+        assert_eq!(split(text), vec![text.to_string()]);
+    }
+
+    #[test]
+    fn markdown_strong_may_split_after_closer() {
+        assert_eq!(
+            split("It is **complex**. Equity is hard."),
+            vec![
+                "It is **complex**.".to_string(),
+                "Equity is hard.".to_string()
+            ]
+        );
+    }
+
+    #[test]
+    fn markdown_em_with_internal_period_not_split() {
+        let text = "This is *the end. Still em* after.";
+        let (_, placeholders) = protect_inline_tokens(text);
+        assert!(
+            placeholders.iter().any(|p| p == "*the end. Still em*"),
+            "em span must be one token, got {placeholders:?}"
+        );
+        assert_eq!(split(text), vec![text.to_string()]);
+    }
+
+    #[test]
+    fn markdown_strike_with_internal_period_not_split() {
+        let text = "This is ~~the end. Still strike~~ after.";
+        let (_, placeholders) = protect_inline_tokens(text);
+        assert!(
+            placeholders
+                .iter()
+                .any(|p| p == "~~the end. Still strike~~"),
+            "strike span must be one token, got {placeholders:?}"
+        );
+        assert_eq!(split(text), vec![text.to_string()]);
+    }
+
+    #[test]
+    fn markdown_strong_inner_star_does_not_close_early() {
+        // Org `*bold*` closes on the first inner `*`. CommonMark flanking
+        // keeps `**a * b. C**` as one strong span, so the period stays inside.
+        let text = "Wrap **a * b. C** after. Next.";
+        let (_, placeholders) = protect_inline_tokens(text);
+        assert!(
+            placeholders.iter().any(|p| p == "**a * b. C**"),
+            "must not close strong on the inner star, got {placeholders:?}"
+        );
+        assert_eq!(
+            split(text),
+            vec!["Wrap **a * b. C** after.".to_string(), "Next.".to_string()]
+        );
+    }
+
+    #[test]
+    fn markdown_emphasis_format_text_does_not_break_inside_span() {
+        use crate::format::Format;
+        use crate::{FormatConfig, format_text};
+
+        let cfg = FormatConfig {
+            format: Format::Markdown,
+            ..Default::default()
+        };
+        let out = format_text("This is **the end. Still bold** after.\n", &cfg).unwrap();
+        assert!(
+            !out.contains("end.\nStill"),
+            "must not split inside **...**, got:\n{out}"
+        );
+        assert_eq!(format_text(&out, &cfg).unwrap(), out);
+
+        let out = format_text("It is **complex**. Equity is hard.\n", &cfg).unwrap();
+        assert!(
+            out.contains("**complex**.") && out.contains("Equity is hard."),
+            "may split after the closer, got:\n{out}"
+        );
+        assert!(
+            !out.contains("**complex.\n"),
+            "must not split before the closer, got:\n{out}"
         );
     }
 }

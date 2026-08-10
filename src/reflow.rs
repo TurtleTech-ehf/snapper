@@ -245,12 +245,29 @@ fn reflow_prose(
         }
     }
     if !sentences.is_empty() {
+        // Splitter trims; keep a mid-line TeX ` % comment` space (not newlines).
+        if text.ends_with([' ', '\t']) && !output.ends_with(char::is_whitespace) {
+            let trail: String = text
+                .chars()
+                .rev()
+                .take_while(|c| *c == ' ' || *c == '\t')
+                .collect::<String>()
+                .chars()
+                .rev()
+                .collect();
+            output.push_str(&trail);
+        }
         // No forced paragraph break before inline islands (math/code) or
         // tight punctuation structures — those continue the same line.
-        let suppress = matches!(
-            regions.get(idx + 1),
-            Some(Region::Structure(s)) if suppress_prose_trailing_newline(s)
-        );
+        let suppress = match regions.get(idx + 1) {
+            Some(Region::Structure(s)) if suppress_prose_trailing_newline(s) => true,
+            Some(Region::Structure(s))
+                if s.trim_start().starts_with('%') && text.ends_with([' ', '\t']) =>
+            {
+                true
+            }
+            _ => false,
+        };
         if !suppress {
             output.push('\n');
         }
@@ -336,8 +353,8 @@ pub(crate) fn is_hanging_marker(s: &str) -> bool {
 
 /// Prefix emitted on continuation lines after a list or quote marker.
 /// Lists hang with spaces of marker width; Markdown quotes repeat the
-/// quote prefix (`> `, `> > `, including leading indent). Empty when `s`
-/// is not a marker (headings, fences, inline islands).
+/// quote prefix (`> `, `> > `, `>> `, including leading indent). Empty
+/// when `s` is not a marker (headings, fences, inline islands).
 fn hanging_prefix(s: &str) -> String {
     if is_quote_marker(s) {
         return s.to_string();
@@ -350,18 +367,14 @@ fn hanging_prefix(s: &str) -> String {
     }
 }
 
-/// True when `s` is a Markdown quote marker: optional indent plus one or
-/// more `> ` runs, and nothing else.
+/// True when `s` is a Markdown quote marker: optional indent plus `>`
+/// runs (`> `, `> > `, `>> `).
 fn is_quote_marker(s: &str) -> bool {
-    if s.is_empty() || s.contains('\n') || !s.ends_with(' ') {
+    if s.is_empty() || s.contains('\n') {
         return false;
     }
-    let trimmed = s.trim_start();
-    let bytes = trimmed.as_bytes();
-    if bytes.len() < 2 || bytes.len() % 2 != 0 {
-        return false;
-    }
-    bytes.chunks_exact(2).all(|c| c == b"> ")
+    let trimmed = s.trim_start_matches(' ');
+    !trimmed.is_empty() && trimmed.contains('>') && trimmed.bytes().all(|b| b == b'>' || b == b' ')
 }
 
 /// Column width of a list marker that continuation lines hang at with
@@ -388,10 +401,22 @@ fn hanging_indent_width(s: &str) -> usize {
     }
 }
 
-/// When the next region is an inline structure island (pandoc `Math`/`Code` as
-/// Structure), do not end the preceding prose with a hard line break.
+/// Markdown hard break payloads: two or more spaces plus newline, or `\\\n`.
+fn is_hard_break_structure(s: &str) -> bool {
+    let Some(body) = s.strip_suffix('\n') else {
+        return false;
+    };
+    if body == "\\" {
+        return true;
+    }
+    body.len() >= 2 && body.bytes().all(|b| b == b' ')
+}
+
 fn suppress_prose_trailing_newline(s: &str) -> bool {
     if s == "\n" || s.starts_with('}') || s.starts_with(']') || s.starts_with(')') {
+        return true;
+    }
+    if is_hard_break_structure(s) {
         return true;
     }
     // Islands may carry a leading space for glue after reflow trims prose.
@@ -477,6 +502,44 @@ mod tests {
         assert_eq!(
             result,
             "#+TITLE: Test\n\nFirst sentence.\nSecond sentence.\n"
+        );
+    }
+
+    #[test]
+    fn hanging_prefix_quote_repeats_marker_list_uses_spaces() {
+        assert_eq!(hanging_prefix("> "), "> ");
+        assert_eq!(hanging_prefix(">> "), ">> ");
+        assert_eq!(hanging_prefix("  > "), "  > ");
+        assert_eq!(hanging_prefix("- "), "  ");
+        assert_eq!(hanging_prefix("1. "), "   ");
+        assert_eq!(hanging_indent_width("> "), 0);
+        assert_eq!(hanging_indent_width("- "), 2);
+    }
+
+    #[test]
+    fn quote_wrap_lines_repeat_prefix_under_max_width() {
+        let regions = vec![
+            Region::Structure("> ".to_string()),
+            Region::Prose("One two three four five six seven eight.".to_string()),
+            Region::Structure("\n".to_string()),
+        ];
+        let config = ReflowConfig {
+            max_width: 20,
+            ..Default::default()
+        };
+        let result = reflow(&regions, &UnicodeSentenceSplitter::new(), &config);
+        let lines: Vec<&str> = result.lines().filter(|l| !l.is_empty()).collect();
+        assert!(lines.len() > 1, "must wrap: {result:?}");
+        for line in &lines {
+            assert!(line.starts_with("> "), "quote wrap keeps `>`: {result:?}");
+            assert!(
+                line.chars().count() <= 20,
+                "prefix counts toward width: {line:?}"
+            );
+        }
+        assert!(
+            !result.contains("\n  "),
+            "quotes do not space-hang: {result:?}"
         );
     }
 

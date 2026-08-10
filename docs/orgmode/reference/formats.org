@@ -103,6 +103,8 @@ These tokens within prose are not split across lines:
 - Setext headings (title line plus ====== or ------ underline)
 - List item markers (=-=, =*=, =+=, =1.=); continuation sentences hang at the marker width
 - Blockquote markers (=>= / nested => > =); continuation sentences repeat the quote prefix
+- Hard line breaks (two trailing spaces, or a trailing backslash)
+- HTML comments (=<!-- ... -->=, including multiline); =<!-- snapper:off -->= / =<!-- snapper:on -->= remain pragmas
 - Pipe tables
 
 *** Code regions (fenced =```= / =~~~=)
@@ -119,7 +121,17 @@ These tokens within prose are not split across lines:
 :END:
 - Paragraph text
 - List item text (after the marker); continuation sentences hang at the marker width
-- Blockquote text (after the prefix); continuation sentences repeat the quote prefix
+- Blockquote inner text (after the =>= marker); continuation sentences repeat the quote prefix
+
+*** Inline tokens (kept atomic)
+:PROPERTIES:
+:CUSTOM_ID: markdown-inline
+:END:
+- Emphasis: =*em*=, =**strong**= (CommonMark flanking; a period inside the span does not split)
+- Strikethrough: =~~strike~~= (GFM)
+- Inline code: a run of =n= backticks closes on the next run of the same length
+- Links and images: =[text](url)=, =![alt](url)=
+- Inline math: =$...$= / =$$...$$=
 
 ** reStructuredText (=--format rst=)
 :PROPERTIES:

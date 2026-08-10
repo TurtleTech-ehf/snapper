@@ -5,6 +5,8 @@ All notable changes to this project will be documented in this file. See [conven
 ## Unreleased (main)
 
 #### Features
+- (**cli** / **check**) `--check --output-format json|sarif` emits 1-indexed `fused` / `wrap` / `long` diagnostics with excerpts; `long` is advisory unless `--strict-long`; stdin `--check` honors the same JSON/SARIF and exit codes; SARIF URIs are repo-relative (or `file:` plus `invocations[0].workingDirectory`)
+- (**mcp**) `check_formatting` returns `would_reformat` identical to CLI `--check`, plus the same line diagnostics
 - (**safety**) native parsers record source byte ranges and splice reflowed prose into the original document; Structure/Code/Blank are input slices
 - (**safety**) `format_text` runs to a byte fixpoint (cap 4, including A/B cycles) or returns the original; a format-local oracle (region-kind + slice tree; Markdown HTML plus a code-byte check) mismatch also returns the original
 - (**safety**) `format_bytes` refuses invalid UTF-8 with `InvalidUtf8Error`; `--use-pandoc` refuses (`PandocCannotSplice`) because the AST has no source offsets
@@ -12,11 +14,15 @@ All notable changes to this project will be documented in this file. See [conven
 - (**code-block**) comment reflow copies non-comment lines as original slices; only comment spans are rewritten
 #### Bug Fixes
 - (**latex**) tokenize `\\verb` / `\\lstinline` (optional `[...]`) before split so inner `%` is not a comment and inner `.!?` do not split; unmatched `\\verb` runs to EOL; unlisted `\\begin` / `\\end` are region bounds (optional `[...]` stays on the begin token); mid-line `\\begin{equation}` leaves leading words as prose; nested same-name envs (including verbatim/lstlisting) close on matching depth, so `\\end{python}` inside lstlisting does not steal the closer; listing body scans raw `\\begin`/`\\end` (no `%` stop, no `\\verb` skip) so `print(1) % \\end{lstlisting}` and `print(\"%\")` still close
+- (**check**) fused and long run on the parser prose payload, so `1. Hello world.` and `See Fig. 1. % TODO cite` are not false fused
+- (**reflow**) splice keeps the trailing space before a mid-line TeX `%` comment so that line stays one source line
 - (**reflow**) list continuation sentences hang at the marker width so Org rejoins the item on reparse; Markdown quotes repeat the `>` prefix (`> One.` / `> Two.`, nested `> >`)
 - (**latex**) a trailing `%` eats the newline (TeX nospace join), so `foo%\\nbar` is no longer emitted as `foo% bar` (which comments out `bar`); mid-line `%` comments leave prose
 - (**sentence**) `w.r.t.` is a multi-word abbreviation; `\\(...\\)` and `$$...$$` stay atomic like `$...$`
 - (**cli**) unknown source extensions (`.rs`, `.py`, no extension) are refused unless `--format` is explicit; `.txt` remains plaintext
 - (**org** / **sentence**) verbatim and inline-code spans pair to the first closer that satisfies Org's border and post rules, so an `=` or `~` inside the span no longer orphans the real closer onto the next line
+- (**sentence**) CommonMark `*`/`**` and GFM `~~` pair by flanking rules, so `**the end. Still bold**` stays one sentence while `**complex**. Equity` may split after the closer
+- (**markdown**) `>` is kept on each reflowed content line (including `max_width` wraps; prefix counts toward width); two-space and backslash hard breaks are not joined with a space; a quote hard break does not leave a stray `>` on the next non-quote line; multiline `<!-- ... -->` is structure (`<!-- snapper:off -->` still works)
 #### Documentation
 - README distinguishes snapper from admk/sembr and sembr/skills; crate keywords include `sembr` and `markdown`
 - (**markdown** / **sentence**) inline code delimited by two or more backticks can contain a shorter backtick run

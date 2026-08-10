@@ -33,6 +33,7 @@
 //! ```
 
 pub mod abbreviations;
+pub mod check;
 #[cfg(feature = "cli")]
 pub mod cli;
 pub mod code_block;
