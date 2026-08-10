@@ -572,6 +572,35 @@ mod tests {
         assert!(!would_reformat("Hello world.\nThis is a test.\n", &config).unwrap());
     }
 
+    #[test]
+    fn would_reformat_uses_unlimited_clause_breaks_when_on() {
+        let on = FormatConfig {
+            format: Format::Plaintext,
+            clause_breaks: true,
+            ..Default::default()
+        };
+        let off = FormatConfig {
+            format: Format::Plaintext,
+            clause_breaks: false,
+            ..Default::default()
+        };
+        let fused = "Hello, world.\n";
+        let broken = "Hello,\nworld.\n";
+        assert!(
+            would_reformat(fused, &on).unwrap(),
+            "--check with clause_breaks must see a fused clause as dirty"
+        );
+        assert!(
+            !would_reformat(broken, &on).unwrap(),
+            "--check identity must use the same unlimited clause-break mode"
+        );
+        assert!(
+            !would_reformat(fused, &off).unwrap(),
+            "default --check must not require clause breaks"
+        );
+        assert_eq!(format_text(fused, &on).unwrap(), broken);
+    }
+
     fn no_fused(input: &str, format: Format) -> Vec<LineDiagnostic> {
         let splitter = UnicodeSentenceSplitter::new();
         collect_diagnostics(input, format, &splitter, DEFAULT_LONG_THRESHOLD)

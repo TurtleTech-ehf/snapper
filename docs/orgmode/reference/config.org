@@ -32,6 +32,11 @@ format = "org"
 # Maximum line width (0 = unlimited, overridden by --max-width flag)
 max_width = 0
 
+# Prefer breaks after independent-clause punctuation (, ; : em dash).
+# With max_width = 0 this still inserts a newline after each such mark
+# that is already followed by whitespace.
+# clause_breaks = false
+
 # Per-format overrides
 [org]
 extra_abbreviations = ["PROPERTIES", "DEADLINE"]
@@ -106,6 +111,24 @@ Integer.
 Sentences exceeding this width get wrapped at word boundaries.
 Set to =0= for unlimited (the default).
 Also respects =max_line_length= from =.editorconfig= if present.
+
+** clause_breaks
+:PROPERTIES:
+:CUSTOM_ID: field-clause-breaks
+:END:
+
+Boolean.
+Default: =false=.
+Also selectable via =--clause-breaks=.
+
+When true, snapper inserts a soft break after independent-clause punctuation (comma, semicolon, colon, em dash, or ASCII =--=) that is already followed by whitespace.
+
+- =max_width = 0= (the default): every such mark starts a new line.
+  A sentence that is already one independent clause stays one line.
+- =max_width > 0=: overflowing sentences prefer those marks; a sentence that already fits stays on one line.
+
+Tokens such as =1,000=, =10:30=, URLs, =--flags=, and unspaced dashes never split.
+=--check= uses the same mode when this flag or config is on.
 
 ** long_threshold
 :PROPERTIES:

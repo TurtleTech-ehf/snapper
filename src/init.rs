@@ -62,6 +62,11 @@ format = "{default_format}"
 # Maximum line width (0 = unlimited)
 max_width = 0
 
+# Prefer breaks after independent-clause punctuation (, ; : em dash).
+# With max_width = 0 this still inserts a newline after each such mark
+# that is already followed by whitespace.
+# clause_breaks = false
+
 # Advisory long-line threshold when max_width is 0 (default 120)
 # long_threshold = 120
 
@@ -221,6 +226,7 @@ mod tests {
         let config = generate_config(&["org"]);
         assert!(config.contains("format = \"org\""));
         assert!(config.contains("max_width = 0"));
+        assert!(config.contains("# clause_breaks = false"));
     }
 
     #[test]

@@ -73,6 +73,22 @@ Sentences exceeding this width are wrapped at atomic word boundaries (links, inl
 Default: =0= (unlimited).
 Also respects =max_line_length= from =.editorconfig= if present.
 
+*** =--clause-breaks=
+:PROPERTIES:
+:CUSTOM_ID: opt-clause-breaks
+:END:
+
+Prefer soft breaks after independent-clause punctuation (comma, semicolon, colon, em dash, ASCII =--=).
+Off by default.
+
+With =--max-width 0= (the default), insert a newline after every such mark that is already followed by whitespace.
+A sentence that is already one independent clause stays one line.
+
+With =--max-width= set, overflowing sentences prefer those marks; a sentence that already fits stays on one line.
+
+Tokens such as =1,000=, =10:30=, URLs, =--flags=, and unspaced dashes never split.
+=--check= uses the same mode when the flag or =clause_breaks= config is on.
+
 *** =--format-code=
 :PROPERTIES:
 :CUSTOM_ID: opt-format-code

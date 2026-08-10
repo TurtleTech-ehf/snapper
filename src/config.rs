@@ -74,7 +74,9 @@ pub struct ProjectConfig {
     /// Character threshold for advisory `long` diagnostics when `max_width` is
     /// unset. Defaults to 120 when omitted.
     pub long_threshold: Option<usize>,
-    /// Prefer soft breaks after independent-clause punctuation when wrapping.
+    /// Prefer soft breaks after independent-clause punctuation. With
+    /// `max_width = 0` this still inserts a newline after each mark that
+    /// is already followed by whitespace.
     pub clause_breaks: Option<bool>,
     /// Default language for abbreviation sets.
     pub lang: Option<String>,

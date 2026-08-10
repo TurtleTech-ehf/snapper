@@ -43,6 +43,9 @@ Semantic line break formatter
 * `-w`, `--max-width <MAX_WIDTH>` — Maximum line width (0 = unlimited)
 
   Default value: `0`
+* `--clause-breaks` — Prefer soft breaks after independent-clause punctuation (comma, semicolon, colon, em dash). With `--max-width 0` (the default), insert a newline after every such mark that is already followed by whitespace. With `--max-width` set, prefer those marks when wrapping an overflowing sentence
+
+  Default value: `false`
 * `--neural` — Use neural sentence detection (nnsplit LSTM model)
 * `--lang <LANG>` — Language for neural sentence detection (default: en). Available: en, de, fr, no, sv, zh, tr, ru, uk
 * `--model-path <MODEL_PATH>` — Path to custom ONNX model file for neural detection
