@@ -88,8 +88,13 @@ Check text for semantic line break violations.
 Parameters:
 - =text= (string, required): Text to check
 - =format= (string): Document format (default: "plaintext")
+- =max_width= (integer): Maximum line width; also the =long= threshold when set (default: 0)
 
-Returns line numbers with violations and a pass/fail status.
+Returns:
+- =would_reformat= (boolean): identical to CLI =--check= (formatted output differs from input)
+- =passed= (boolean): =not would_reformat=
+- =diagnostics= (array): 1-indexed =line= / =kind= (=fused= / =wrap= / =long=) / =excerpt=
+- =violations= (array): 1-indexed fused line numbers (compat)
 
 ** split_sentences
 :PROPERTIES:
