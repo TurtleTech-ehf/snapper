@@ -182,9 +182,10 @@ Adding =algorithm= or =comment= stops reflow of those environments.
 :CUSTOM_ID: field-verbatim-commands
 :END:
 
-String array of command names tokenized like =\verb= before sentence split (the next character is the delimiter).
-Built-in: =verb=, =lstinline= (=lstinline= still accepts optional =[...]= and ={...}=).
-Adding =Verb= (fancyvrb) keeps =\Verb|a.b! c|= atomic and treats an inner =%= as content, not a comment.
+String array of extra command names tokenized like the built-in verb command before sentence split.
+The next character after the name is the delimiter.
+Built-in names are =verb= and =lstinline=; =lstinline= still accepts optional =[...]= and ={...}=.
+Adding =Verb= (fancyvrb) keeps that command's delimited body atomic and treats an inner =%= as content, not a comment.
 
 * Code-block sections (=[code.<lang>]=)
 :PROPERTIES:
