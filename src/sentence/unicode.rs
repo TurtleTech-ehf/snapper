@@ -235,12 +235,17 @@ fn find_md_code_span(text: &str, open_at: usize) -> Option<usize> {
 }
 
 /// Restore placeholders produced by [`protect_inline_tokens`] into each segment.
+///
+/// Later placeholders can wrap earlier ones (the regex pass runs after the
+/// paired-span walk and may match a markdown link that already contains
+/// `\x00PHn\x00`). Restore from the last index first so an outer wrapper
+/// expands before its inner tokens.
 pub fn restore_inline_tokens(segments: Vec<String>, placeholders: &[String]) -> Vec<String> {
     segments
         .into_iter()
         .map(|s| {
             let mut restored = s.trim().to_string();
-            for (i, original) in placeholders.iter().enumerate() {
+            for (i, original) in placeholders.iter().enumerate().rev() {
                 let ph = format!("\x00PH{i}\x00");
                 restored = restored.replace(&ph, original);
             }
@@ -692,6 +697,19 @@ mod tests {
             split("See Fig. 3 for details. The results are clear."),
             vec!["See Fig. 3 for details.", "The results are clear."]
         );
+    }
+
+    #[test]
+    fn placeholder_restore_survives_regex_wrapping_backticks() {
+        // Pathological backtick salad from proptest: the regex pass can wrap
+        // a paired-span placeholder in a `[...](...)` match. Restore must
+        // expand the outer token first or `\x00PHn\x00` leaks into output.
+        let input = "`0`[`0``a`` `{``A`](`a` `)";
+        let out = split(input);
+        let joined = out.join("\n");
+        assert!(!joined.contains('\u{0}'), "placeholder leaked: {joined:?}");
+        let again = split(&joined);
+        assert_eq!(again, out);
     }
 
     #[test]

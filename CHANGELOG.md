@@ -9,6 +9,7 @@ All notable changes to this project will be documented in this file. See [conven
 - (**markdown** / **sentence**) inline code delimited by two or more backticks can contain a shorter backtick run
 - (**code-block**) a block-comment closer inside a string no longer ends the comment; quote-sequence closers (`"""`) still match naively so Python docstrings reflow
 - (**sentence**) abbreviation merge does not invent a space before LaTeX `~` (so `Eq.~\ref{}` stays attached once org `~code~` pairing no longer swallows that tilde)
+- (**sentence**) restore wrapped placeholders from the outside in, so a markdown-link regex match that contains a paired-span token cannot leak `\x00PHn\x00` into output
 
 - - -
 
