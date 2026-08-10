@@ -5,7 +5,12 @@ All notable changes to this project will be documented in this file. See [conven
 ## Unreleased (main)
 
 #### Bug Fixes
+- (**latex**) a trailing `%` eats the newline (TeX nospace join), so `foo%\\nbar` is no longer emitted as `foo% bar` (which comments out `bar`); mid-line `%` comments leave prose
+- (**sentence**) `w.r.t.` is a multi-word abbreviation; `\\(...\\)` and `$$...$$` stay atomic like `$...$`
+- (**cli**) unknown source extensions (`.rs`, `.py`, no extension) are refused unless `--format` is explicit; `.txt` remains plaintext
 - (**org** / **sentence**) verbatim and inline-code spans pair to the first closer that satisfies Org's border and post rules, so an `=` or `~` inside the span no longer orphans the real closer onto the next line
+#### Documentation
+- README distinguishes snapper from admk/sembr and sembr/skills; crate keywords include `sembr` and `markdown`
 - (**markdown** / **sentence**) inline code delimited by two or more backticks can contain a shorter backtick run
 - (**code-block**) a block-comment closer inside a string no longer ends the comment; quote-sequence closers (`"""`) still match naively so Python docstrings reflow
 - (**sentence**) abbreviation merge does not invent a space before LaTeX `~` (so `Eq.~\ref{}` stays attached once org `~code~` pairing no longer swallows that tilde)

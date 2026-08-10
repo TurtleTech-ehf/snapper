@@ -63,7 +63,7 @@ pub static PL_ABBREVIATIONS: &[&str] = &[
 ];
 
 /// Multi-word abbreviations where the period is after the second part.
-pub static EN_MULTI_ABBREVS: &[&str] = &["e.g", "i.e", "a.m", "p.m", "v.s"];
+pub static EN_MULTI_ABBREVS: &[&str] = &["e.g", "i.e", "a.m", "p.m", "v.s", "w.r.t"];
 pub static DE_MULTI_ABBREVS: &[&str] = &["z.B", "d.h", "u.a", "o.g", "s.o", "u.U"];
 pub static FR_MULTI_ABBREVS: &[&str] = &["c.-a-d", "p.ex"];
 pub static IS_MULTI_ABBREVS: &[&str] = &["m.a", "o.fl"];

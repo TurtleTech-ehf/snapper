@@ -69,7 +69,13 @@ pub fn sentence_diff(
     let new_text = std::fs::read_to_string(new_path)
         .with_context(|| format!("failed to read {}", new_path.display()))?;
 
-    let fmt = format.unwrap_or_else(|| Format::from_path(old_path));
+    let fmt = match format.or_else(|| Format::recognized_from_path(old_path)) {
+        Some(f) => f,
+        None => anyhow::bail!(
+            "{}: not a prose format; pass --format or use .org/.tex/.md/.rst/.txt",
+            old_path.display()
+        ),
+    };
 
     let old_sentences = extract_sentences(&old_text, fmt);
     let new_sentences = extract_sentences(&new_text, fmt);

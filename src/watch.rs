@@ -114,18 +114,10 @@ fn format_file_in_place(
     let input = std::fs::read_to_string(path)
         .with_context(|| format!("failed to read {}", path.display()))?;
 
-    let format = format_override.unwrap_or_else(|| {
-        let detected = Format::from_path(path);
-        if detected != Format::Plaintext {
-            detected
-        } else {
-            project_config
-                .default_format
-                .as_deref()
-                .map(Format::from_extension)
-                .unwrap_or(Format::Plaintext)
-        }
-    });
+    let format = match format_override.or_else(|| Format::recognized_from_path(path)) {
+        Some(f) => f,
+        None => return Ok(false),
+    };
     let format_key = format.config_key();
 
     let config = FormatConfig {

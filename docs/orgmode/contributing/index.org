@@ -127,7 +127,7 @@ sphinx-build docs/source docs/build -b html
 1. Create =src/parser/yourformat.rs= implementing the =FormatParser= trait
 2. Add the variant to =Format= enum in =src/format.rs=
 3. Wire it into =format_text()= in =src/lib.rs=
-4. Add extension mapping in =Format::from_path()=
+4. Add extension mapping in =Format::recognized_from_extension()=
 5. Add fixture pair in =tests/fixtures/= (=sample.fmt= + =expected.fmt=)
 6. Add integration tests in =tests/integration.rs=
 7. Document in =docs/orgmode/reference/formats.org=

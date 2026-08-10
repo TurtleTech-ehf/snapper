@@ -70,6 +70,23 @@ impl LatexParser {
         line.trim_start().starts_with('%')
     }
 
+    /// Byte offset of the first `%` that is not escaped as `\%`.
+    fn unescaped_percent(line: &str) -> Option<usize> {
+        let bytes = line.as_bytes();
+        let mut i = 0;
+        while i < bytes.len() {
+            if bytes[i] == b'\\' && i + 1 < bytes.len() {
+                i += 2;
+                continue;
+            }
+            if bytes[i] == b'%' {
+                return Some(i);
+            }
+            i += 1;
+        }
+        None
+    }
+
     fn is_non_prose_env(name: &str) -> bool {
         NON_PROSE_ENVS.contains(&name)
     }
@@ -88,6 +105,9 @@ impl FormatParser for LatexParser {
         let mut code_body = String::new();
         let mut in_display_math = false;
         let mut pragma_off = false;
+        // A `%` comment eats the newline, so the next physical line joins
+        // this prose with no inserted space (`foo%\nbar` is TeX `foobar`).
+        let mut nospace_join = false;
 
         for line in input.lines() {
             // Check for snapper:off/on pragmas; inside a code environment
@@ -164,6 +184,7 @@ impl FormatParser for LatexParser {
             // Blank line
             if line.trim().is_empty() {
                 flush_prose(&mut current_prose, &mut regions);
+                nospace_join = false;
                 regions.push(Region::BlankLines(format!("{line}\n")));
                 continue;
             }
@@ -171,7 +192,27 @@ impl FormatParser for LatexParser {
             // Comment
             if Self::is_comment(line) {
                 flush_prose(&mut current_prose, &mut regions);
+                nospace_join = false;
                 regions.push(Region::Structure(format!("{line}\n")));
+                continue;
+            }
+
+            // Mid-line `%`: prefix is prose; `%` eats the newline (nospace
+            // join). A comment with text is Structure after the prefix.
+            if let Some(idx) = Self::unescaped_percent(line) {
+                let code = &line[..idx];
+                let comment = &line[idx..];
+                if !code.trim().is_empty() {
+                    if !current_prose.is_empty() && !nospace_join {
+                        current_prose.push(' ');
+                    }
+                    current_prose.push_str(code.trim_start());
+                }
+                nospace_join = true;
+                if comment.trim() != "%" {
+                    flush_prose(&mut current_prose, &mut regions);
+                    regions.push(Region::Structure(format!("{comment}\n")));
+                }
                 continue;
             }
 
@@ -254,10 +295,11 @@ impl FormatParser for LatexParser {
             }
 
             // Regular prose line
-            if !current_prose.is_empty() {
+            if !current_prose.is_empty() && !nospace_join {
                 current_prose.push(' ');
             }
             current_prose.push_str(line.trim());
+            nospace_join = false;
         }
 
         flush_prose(&mut current_prose, &mut regions);
@@ -376,5 +418,76 @@ Some text.
             }
         });
         assert!(comment_region.is_some());
+    }
+
+    #[test]
+    fn trailing_percent_is_nospace_join() {
+        use crate::format::Format;
+        use crate::{FormatConfig, format_text};
+
+        let input = "\\begin{document}\nfoo%\nbar. Next sentence.\n\\end{document}\n";
+        let cfg = FormatConfig {
+            format: Format::Latex,
+            ..Default::default()
+        };
+        let out = format_text(input, &cfg).unwrap();
+        assert!(
+            !out.contains("foo% bar"),
+            "trailing % must not become a space comment: {out}"
+        );
+        assert!(
+            out.contains("foobar.") || out.contains("foo%\nbar."),
+            "foo%\\nbar must stay one TeX word, got:\n{out}"
+        );
+        assert!(out.contains("Next sentence."));
+        assert_eq!(format_text(&out, &cfg).unwrap(), out);
+    }
+
+    #[test]
+    fn escaped_percent_is_not_a_comment() {
+        use crate::format::Format;
+        use crate::{FormatConfig, format_text};
+
+        let input = "\\begin{document}\n50\\% of cases. More text.\n\\end{document}\n";
+        let cfg = FormatConfig {
+            format: Format::Latex,
+            ..Default::default()
+        };
+        let out = format_text(input, &cfg).unwrap();
+        assert!(
+            out.contains("50\\% of cases."),
+            "escaped percent must stay in prose: {out}"
+        );
+        assert!(out.contains("More text."));
+    }
+
+    #[test]
+    fn mid_line_percent_comment_is_structure() {
+        use crate::format::Format;
+        use crate::{FormatConfig, format_text};
+
+        let input = "\\begin{document}\nSee Fig. 1. % TODO cite\nNext sentence.\n\\end{document}\n";
+        let cfg = FormatConfig {
+            format: Format::Latex,
+            ..Default::default()
+        };
+        let out = format_text(input, &cfg).unwrap();
+        assert!(
+            out.contains("% TODO cite"),
+            "trailing comment must be kept: {out}"
+        );
+        let regions = LatexParser.parse(input);
+        assert!(
+            regions
+                .iter()
+                .any(|r| matches!(r, Region::Structure(s) if s.contains("% TODO cite"))),
+            "mid-line % comment must be Structure, got: {regions:?}"
+        );
+        assert!(
+            !regions
+                .iter()
+                .any(|r| matches!(r, Region::Prose(p) if p.contains("TODO"))),
+            "comment text must not stay in prose: {regions:?}"
+        );
     }
 }
