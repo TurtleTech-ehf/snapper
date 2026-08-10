@@ -109,19 +109,39 @@ fn reflow_one(
             output.push_str(footer);
         }
         Region::Prose(text) => {
+            let hanging = match idx.checked_sub(1).and_then(|i| regions.get(i)) {
+                Some(Region::Structure(s)) => hanging_indent_width(s),
+                _ => 0,
+            };
+            let hang = " ".repeat(hanging);
+            let wrap_width = if config.max_width > 0 && hanging > 0 {
+                config.max_width.saturating_sub(hanging).max(1)
+            } else {
+                config.max_width
+            };
             let sentences = splitter.split(text);
+            let nsent = sentences.len();
             for (i, sentence) in sentences.iter().enumerate() {
-                if config.max_width > 0 {
-                    let wrapped = if config.clause_breaks {
-                        wrap_with_clause_breaks(sentence, config.max_width)
+                let wrapped = if wrap_width > 0 {
+                    if config.clause_breaks {
+                        wrap_with_clause_breaks(sentence, wrap_width)
                     } else {
-                        textwrap::fill(sentence, config.max_width)
-                    };
-                    output.push_str(&wrapped);
+                        textwrap::fill(sentence, wrap_width)
+                    }
                 } else {
-                    output.push_str(sentence);
+                    sentence.clone()
+                };
+                let lines: Vec<&str> = wrapped.lines().collect();
+                for (j, line) in lines.iter().enumerate() {
+                    if hanging > 0 && (i > 0 || j > 0) {
+                        output.push_str(&hang);
+                    }
+                    output.push_str(line);
+                    if j + 1 < lines.len() {
+                        output.push('\n');
+                    }
                 }
-                if i < sentences.len() - 1 {
+                if i + 1 < nsent {
                     output.push('\n');
                 }
             }
@@ -210,6 +230,30 @@ fn wrap_words_preferring_clause(text: &str, max_width: usize) -> Vec<String> {
         start = break_at;
     }
     lines
+}
+
+/// Column width of a list or quote marker that continuation lines must hang
+/// at. Zero when `s` is not a marker (headings, fences, inline islands).
+fn hanging_indent_width(s: &str) -> usize {
+    if s.is_empty() || s.contains('\n') || !s.ends_with(' ') {
+        return 0;
+    }
+    let trimmed = s.trim_start();
+    if trimmed.len() < 2 {
+        return 0;
+    }
+    // Parser markers are `core` plus one trailing space; leading indent is
+    // part of the hang so nested `   - ` continues at column 5.
+    let core = &trimmed[..trimmed.len() - 1];
+    let is_bullet = matches!(core, "-" | "*" | "+" | ">");
+    let is_ordered = (core.ends_with('.') || core.ends_with(')'))
+        && core.len() > 1
+        && core[..core.len() - 1].bytes().all(|b| b.is_ascii_digit());
+    if is_bullet || is_ordered {
+        s.chars().count()
+    } else {
+        0
+    }
 }
 
 /// When the next region is an inline structure island (pandoc `Math`/`Code` as
@@ -433,5 +477,143 @@ without additional human intervention.";
             );
         }
         assert!(wrapped.contains('\n'));
+    }
+
+    fn reflow_regions(regions: Vec<Region>) -> String {
+        reflow(
+            &regions,
+            &UnicodeSentenceSplitter::new(),
+            &ReflowConfig::default(),
+        )
+    }
+
+    #[test]
+    fn hanging_indent_width_markers_only() {
+        assert_eq!(hanging_indent_width("- "), 2);
+        assert_eq!(hanging_indent_width("* "), 2);
+        assert_eq!(hanging_indent_width("+ "), 2);
+        assert_eq!(hanging_indent_width("1. "), 3);
+        assert_eq!(hanging_indent_width("10. "), 4);
+        assert_eq!(hanging_indent_width("1) "), 3);
+        assert_eq!(hanging_indent_width("   - "), 5);
+        assert_eq!(hanging_indent_width("> "), 2);
+        assert_eq!(hanging_indent_width("\n"), 0);
+        assert_eq!(hanging_indent_width("#+TITLE: Test\n"), 0);
+        assert_eq!(hanging_indent_width("$x$"), 0);
+        assert_eq!(hanging_indent_width("`code`"), 0);
+        assert_eq!(hanging_indent_width("## heading\n"), 0);
+    }
+
+    #[test]
+    fn list_hanging_indent_second_sentence() {
+        let result = reflow_regions(vec![
+            Region::Structure("- ".to_string()),
+            Region::Prose("One. Two.".to_string()),
+            Region::Structure("\n".to_string()),
+        ]);
+        assert_eq!(result, "- One.\n  Two.\n");
+    }
+
+    #[test]
+    fn numbered_list_hanging_indent() {
+        let result = reflow_regions(vec![
+            Region::Structure("1. ".to_string()),
+            Region::Prose("One. Two.".to_string()),
+            Region::Structure("\n".to_string()),
+        ]);
+        assert_eq!(result, "1. One.\n   Two.\n");
+    }
+
+    #[test]
+    fn quote_hanging_indent() {
+        let result = reflow_regions(vec![
+            Region::Structure("> ".to_string()),
+            Region::Prose("One. Two.".to_string()),
+            Region::Structure("\n".to_string()),
+        ]);
+        assert_eq!(result, "> One.\n  Two.\n");
+    }
+
+    #[test]
+    fn nested_list_items_do_not_flatten() {
+        let result = reflow_regions(vec![
+            Region::Structure("1. ".to_string()),
+            Region::Prose("Parent one. Parent two.".to_string()),
+            Region::Structure("\n".to_string()),
+            Region::Structure("   - ".to_string()),
+            Region::Prose("Child one. Child two.".to_string()),
+            Region::Structure("\n".to_string()),
+        ]);
+        assert_eq!(
+            result,
+            "1. Parent one.\n   Parent two.\n   - Child one.\n     Child two.\n"
+        );
+        assert!(
+            result.contains("\n   - Child one."),
+            "nested marker must stay its own item: {result:?}"
+        );
+    }
+
+    #[test]
+    fn adjacent_list_items_are_not_merged() {
+        let result = reflow_regions(vec![
+            Region::Structure("- ".to_string()),
+            Region::Prose("First item. More first.".to_string()),
+            Region::Structure("\n".to_string()),
+            Region::Structure("- ".to_string()),
+            Region::Prose("Second item. More second.".to_string()),
+            Region::Structure("\n".to_string()),
+        ]);
+        assert_eq!(
+            result,
+            "- First item.\n  More first.\n- Second item.\n  More second.\n"
+        );
+    }
+
+    #[test]
+    fn single_sentence_list_item_has_no_extra_indent() {
+        let result = reflow_regions(vec![
+            Region::Structure("- ".to_string()),
+            Region::Prose("Only one sentence.".to_string()),
+            Region::Structure("\n".to_string()),
+        ]);
+        assert_eq!(result, "- Only one sentence.\n");
+    }
+
+    #[test]
+    fn wrap_lines_under_list_also_hang() {
+        let regions = vec![
+            Region::Structure("- ".to_string()),
+            Region::Prose(
+                "This is a deliberately long first sentence that must wrap. Short.".to_string(),
+            ),
+            Region::Structure("\n".to_string()),
+        ];
+        let config = ReflowConfig {
+            max_width: 32,
+            ..Default::default()
+        };
+        let result = reflow(&regions, &UnicodeSentenceSplitter::new(), &config);
+        let lines: Vec<&str> = result.lines().collect();
+        assert!(
+            lines[0].starts_with("- "),
+            "first line keeps marker: {result:?}"
+        );
+        for line in &lines[1..] {
+            assert!(
+                line.starts_with("  "),
+                "wrap/continuation must hang at marker width: {result:?}"
+            );
+            assert!(
+                !line.starts_with("- "),
+                "must not invent a new list item: {result:?}"
+            );
+        }
+        for line in &lines {
+            assert!(
+                line.chars().count() <= 32,
+                "line exceeds max_width: {line:?}"
+            );
+        }
     }
 }

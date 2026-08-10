@@ -13,7 +13,7 @@ static FENCED_LANG_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"^(?:`{3,}|~{3,})\s*([A-Za-z0-9_+.\-]+)").unwrap());
 
 static LIST_ITEM_RE: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"^(\s*(?:[-*+]|\d+[.)]) )(.*)$").unwrap());
+    LazyLock::new(|| Regex::new(r"^(\s*(?:[-*+]|\d+[.)]|>) )(.*)$").unwrap());
 
 /// Match a markdown table row: line whose trimmed form starts and ends with `|`.
 /// Also matches separator rows like `|---|---|`.
@@ -220,8 +220,8 @@ impl FormatParser for MarkdownParser {
                 continue;
             }
 
-            // List item: emit marker as Structure, start accumulating text as prose.
-            // Continuation lines are appended until a block boundary.
+            // List item or blockquote: emit marker as Structure, start accumulating
+            // text as prose. Continuation lines are appended until a block boundary.
             if let Some(caps) = LIST_ITEM_RE.captures(line) {
                 close_list_item(&mut in_list_item, &mut current_prose, &mut regions);
                 flush_prose(&mut current_prose, &mut regions);
@@ -532,5 +532,69 @@ mod tests {
                 .iter()
                 .any(|r| matches!(r, Region::Structure(s) if s == "Heading Here\n"))
         );
+    }
+
+    #[test]
+    fn blockquote_marker_is_structure() {
+        let input = "> One. Two.";
+        let regions = MarkdownParser.parse(input);
+        assert_eq!(regions[0], Region::Structure("> ".to_string()));
+        assert_eq!(regions[1], Region::Prose("One. Two.".to_string()));
+        assert_eq!(regions[2], Region::Structure("\n".to_string()));
+        assert_eq!(regions.len(), 3);
+    }
+
+    #[test]
+    fn list_and_quote_multi_sentence_hangs() {
+        use crate::format::Format;
+        use crate::{FormatConfig, format_text};
+
+        let cfg = FormatConfig {
+            format: Format::Markdown,
+            ..Default::default()
+        };
+        let dash = format_text("- One. Two.\n", &cfg).unwrap();
+        assert_eq!(dash, "- One.\n  Two.\n");
+        assert_eq!(format_text(&dash, &cfg).unwrap(), dash);
+
+        let numbered = format_text("1. One. Two.\n", &cfg).unwrap();
+        assert_eq!(numbered, "1. One.\n   Two.\n");
+        assert_eq!(format_text(&numbered, &cfg).unwrap(), numbered);
+
+        let quote = format_text("> One. Two.\n", &cfg).unwrap();
+        assert_eq!(quote, "> One.\n  Two.\n");
+        assert_eq!(format_text(&quote, &cfg).unwrap(), quote);
+    }
+
+    #[test]
+    fn nested_list_stays_two_items_after_reflow() {
+        use crate::format::Format;
+        use crate::{FormatConfig, format_text};
+
+        let input = "1. Parent one. Parent two.\n   - Child one. Child two.\n";
+        let cfg = FormatConfig {
+            format: Format::Markdown,
+            ..Default::default()
+        };
+        let out = format_text(input, &cfg).unwrap();
+        assert_eq!(
+            out,
+            "1. Parent one.\n   Parent two.\n   - Child one.\n     Child two.\n"
+        );
+        assert_eq!(format_text(&out, &cfg).unwrap(), out);
+
+        let regions = MarkdownParser.parse(&out);
+        assert_eq!(regions[0], Region::Structure("1. ".to_string()));
+        assert_eq!(
+            regions[1],
+            Region::Prose("Parent one. Parent two.".to_string())
+        );
+        assert_eq!(regions[2], Region::Structure("\n".to_string()));
+        assert_eq!(regions[3], Region::Structure("   - ".to_string()));
+        assert_eq!(
+            regions[4],
+            Region::Prose("Child one. Child two.".to_string())
+        );
+        assert_eq!(regions[5], Region::Structure("\n".to_string()));
     }
 }

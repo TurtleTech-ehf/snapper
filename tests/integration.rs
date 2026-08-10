@@ -103,6 +103,52 @@ fn idempotent_org() {
 }
 
 #[test]
+fn mixed_list_org_hangs_and_is_idempotent() {
+    let first = run_format("org", &fixture_path("mixed_list.org"));
+    assert!(
+        first.contains("- One.\n  Two.\n"),
+        "org dash continuation must hang: {first}"
+    );
+    assert!(
+        first.contains(
+            "1. Numbered one.\n   Numbered two.\n   - Nested dash.\n     Nested second.\n"
+        ),
+        "org nested list must hang and stay two items: {first}"
+    );
+    assert!(
+        first.contains("  1. Nested numbered.\n     Nested numbered two.\n"),
+        "org nested ordered continuation must hang: {first}"
+    );
+    let tmp = tempfile::NamedTempFile::new().unwrap();
+    fs::write(tmp.path(), &first).unwrap();
+    let second = run_format("org", &tmp.path().to_string_lossy());
+    pretty_assertions::assert_eq!(first, second, "mixed_list.org must be idempotent");
+}
+
+#[test]
+fn mixed_list_markdown_hangs_and_is_idempotent() {
+    let first = run_format("markdown", &fixture_path("mixed_list.md"));
+    assert!(
+        first.contains("- One.\n  Two.\n"),
+        "markdown dash continuation must hang: {first}"
+    );
+    assert!(
+        first.contains(
+            "1. Numbered one.\n   Numbered two.\n   - Nested dash.\n     Nested second.\n"
+        ),
+        "markdown nested list must hang and stay two items: {first}"
+    );
+    assert!(
+        first.contains("> Quoted one.\n  Quoted two.\n"),
+        "markdown quote continuation must hang: {first}"
+    );
+    let tmp = tempfile::NamedTempFile::new().unwrap();
+    fs::write(tmp.path(), &first).unwrap();
+    let second = run_format("markdown", &tmp.path().to_string_lossy());
+    pretty_assertions::assert_eq!(first, second, "mixed_list.md must be idempotent");
+}
+
+#[test]
 fn idempotent_plaintext() {
     let first = run_format("plaintext", &fixture_path("sample.txt"));
     let tmp = tempfile::NamedTempFile::new().unwrap();
