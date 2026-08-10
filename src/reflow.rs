@@ -1254,7 +1254,8 @@ They are endowed with reason and conscience and should act towards one another i
     #[test]
     fn clause_breaks_unlimited_no_render_change_latex_ref() {
         // Preamble is structure; wrap the sentence in a document body.
-        let input = "\\begin{document}\nSee Eq.~\\ref{eq:diff}, then the next clause.\n\\end{document}\n";
+        let input =
+            "\\begin{document}\nSee Eq.~\\ref{eq:diff}, then the next clause.\n\\end{document}\n";
         let config = crate::FormatConfig {
             format: crate::format::Format::Latex,
             clause_breaks: true,
