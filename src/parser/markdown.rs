@@ -86,14 +86,18 @@ fn hard_break_rel(text: &str) -> Option<(usize, usize)> {
     None
 }
 
+struct ProseAcc<'a> {
+    text: &'a mut String,
+    span: &'a mut Option<ByteSpan>,
+    term: &'a mut Option<ByteSpan>,
+}
+
 /// Append `line.text[piece_from..]` to the running prose buffer.
 ///
 /// A hard break flushes prose and emits the break (spaces or `\`, plus the
 /// line terminator) as Structure so splice copies those source bytes.
 fn append_piece(
-    prose: &mut String,
-    prose_span: &mut Option<ByteSpan>,
-    list_term: &mut Option<ByteSpan>,
+    acc: &mut ProseAcc<'_>,
     line: &Line<'_>,
     piece_from: usize,
     join_space: bool,
@@ -107,28 +111,28 @@ fn append_piece(
         let trimmed = raw.trim_start();
         let left = raw.len() - trimmed.len();
         if !trimmed.is_empty() {
-            if !prose.is_empty() && join_space {
-                prose.push(' ');
+            if !acc.text.is_empty() && join_space {
+                acc.text.push(' ');
             }
-            prose.push_str(trimmed);
+            acc.text.push_str(trimmed);
             let start = line.start + piece_from + left;
             let end = line.start + piece_from + content_end;
-            match prose_span {
-                None => *prose_span = Some(ByteSpan::new(start, end)),
+            match acc.span {
+                None => *acc.span = Some(ByteSpan::new(start, end)),
                 Some(s) => s.end = end,
             }
         }
-        flush_prose_spanned(prose, prose_span, regions);
+        flush_prose_spanned(acc.text, acc.span, regions);
         let hard = ByteSpan::new(line.start + piece_from + hard_at, line.end);
         if !hard.is_empty() {
             regions.push(SpannedRegion::structure(input, hard));
         }
-        *list_term = None;
+        *acc.term = None;
         return;
     }
     if piece_from == 0 {
-        push_prose_line(prose, prose_span, line, join_space, include_term_if_soft);
-        *list_term = if include_term_if_soft {
+        push_prose_line(acc.text, acc.span, line, join_space, include_term_if_soft);
+        *acc.term = if include_term_if_soft {
             None
         } else {
             Some(line.terminator_span())
@@ -136,18 +140,18 @@ fn append_piece(
         return;
     }
     if !piece.is_empty() {
-        if !prose.is_empty() && join_space {
-            prose.push(' ');
+        if !acc.text.is_empty() && join_space {
+            acc.text.push(' ');
         }
-        prose.push_str(piece);
+        acc.text.push_str(piece);
         let start = line.start + piece_from;
         let end = line.start + line.text.len();
-        match prose_span {
-            None => *prose_span = Some(ByteSpan::new(start, end)),
+        match acc.span {
+            None => *acc.span = Some(ByteSpan::new(start, end)),
             Some(s) => s.end = end,
         }
     }
-    *list_term = Some(line.terminator_span());
+    *acc.term = Some(line.terminator_span());
 }
 
 /// True when `line` is a CommonMark setext underline (`===` or `---`).
@@ -461,9 +465,11 @@ impl FormatParser for MarkdownParser {
                 regions.push(SpannedRegion::structure(input, marker_span));
                 in_list_item = true;
                 append_piece(
-                    &mut current_prose,
-                    &mut prose_span,
-                    &mut list_term,
+                    &mut ProseAcc {
+                        text: &mut current_prose,
+                        span: &mut prose_span,
+                        term: &mut list_term,
+                    },
                     line,
                     marker.len(),
                     false,
@@ -492,9 +498,11 @@ impl FormatParser for MarkdownParser {
                 regions.push(SpannedRegion::structure(input, marker_span));
                 in_list_item = true;
                 append_piece(
-                    &mut current_prose,
-                    &mut prose_span,
-                    &mut list_term,
+                    &mut ProseAcc {
+                        text: &mut current_prose,
+                        span: &mut prose_span,
+                        term: &mut list_term,
+                    },
                     line,
                     marker.len(),
                     false,
@@ -509,9 +517,11 @@ impl FormatParser for MarkdownParser {
             // Regular prose (also serves as list-item continuation when in_list_item)
             if in_list_item {
                 append_piece(
-                    &mut current_prose,
-                    &mut prose_span,
-                    &mut list_term,
+                    &mut ProseAcc {
+                        text: &mut current_prose,
+                        span: &mut prose_span,
+                        term: &mut list_term,
+                    },
                     line,
                     0,
                     true,
@@ -521,9 +531,11 @@ impl FormatParser for MarkdownParser {
                 );
             } else {
                 append_piece(
-                    &mut current_prose,
-                    &mut prose_span,
-                    &mut list_term,
+                    &mut ProseAcc {
+                        text: &mut current_prose,
+                        span: &mut prose_span,
+                        term: &mut list_term,
+                    },
                     line,
                     0,
                     true,
