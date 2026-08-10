@@ -186,6 +186,8 @@ fn delimiters_balanced(text: &str) -> bool {
 
 proptest! {
     #![proptest_config(ProptestConfig::with_cases(256))]
+    // CI seed: nested backticks inside a `[...](...)` match leaked
+    // `\x00PHn\x00` when restore ran inner-first.
 
     /// Random printable ASCII must stay idempotent. When delimiters are
     /// balanced, output must also never break mid-span (unbalanced input is
