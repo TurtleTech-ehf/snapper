@@ -51,12 +51,7 @@ pub fn run_git_diff(
         // Filter to prose file extensions
         changed
             .into_iter()
-            .filter(|p| {
-                matches!(
-                    Format::from_path(p),
-                    Format::Org | Format::Latex | Format::Markdown
-                )
-            })
+            .filter(|p| Format::recognized_from_path(p).is_some())
             .collect::<Vec<_>>()
     } else {
         files.to_vec()
@@ -83,7 +78,7 @@ pub fn run_git_diff(
         let tmp = tempfile::NamedTempFile::new().context("failed to create temp file")?;
         std::fs::write(tmp.path(), &old_content)?;
 
-        let fmt = format.or_else(|| Some(Format::from_path(path)));
+        let fmt = format.or_else(|| Format::recognized_from_path(path));
         let diff_output = sentence_diff(tmp.path(), path, fmt, color)?;
 
         if !diff_output.is_empty() {
