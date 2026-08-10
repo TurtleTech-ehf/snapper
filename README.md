@@ -44,8 +44,9 @@ A single word change can trigger a diff that spans an entire paragraph.
 By breaking at sentence boundaries instead, each edit affects only the sentence that changed.
 
 This convention, often called [semantic line breaks](https://sembr.org/), enjoys longstanding support from technical writers.
-Existing tools fall short: latexindent.pl only handles LaTeX, SemBr requires Python and neural networks, and most lack multi-format awareness.
-`snapper` solves this as a standalone Rust binary with no runtime dependencies, handling Org-mode, LaTeX, Markdown, and plaintext.
+`snapper` is a deterministic formatter (UAX #29 plus abbreviation tables and optional nnsplit).
+It is not [admk/sembr](https://github.com/admk/sembr) (learned clause breaks) and not [sembr/skills](https://github.com/sembr/skills) (agent rewrite instructions).
+latexindent.pl covers LaTeX only; snapper is a standalone Rust binary for Org-mode, LaTeX, Markdown, RST, and plaintext.
 
 
 <a id="design"></a>

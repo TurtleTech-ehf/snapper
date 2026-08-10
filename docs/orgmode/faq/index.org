@@ -128,7 +128,8 @@ Useful for poetry, aligned text, or ASCII art.
 :END:
 
 Org-mode, LaTeX, Markdown, reStructuredText, and plaintext.
-Format auto-detects from the file extension.
+Format auto-detects from the file extension (=.org=, =.tex=, =.md=, =.rst=, =.txt=).
+Unknown extensions (=.rs=, =.py=, no extension) are refused so source files are not treated as prose.
 Override with =--format rst= (or =org=, =latex=, =markdown=, =plaintext=).
 
 * How do I compare versions at the sentence level?
