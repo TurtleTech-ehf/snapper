@@ -433,6 +433,36 @@ fn main() {
 }
 
 #[test]
+fn rust_block_comment_close_inside_string_does_not_end_comment() {
+    // A `*/` sitting inside a string must not close the comment. The rest of
+    // the comment is still prose and must reflow as such.
+    let input = "\
+```rust
+/*
+let s = \"*/\";
+This is still the comment. Second sentence.
+*/
+fn x() {}
+```
+";
+    let cfg = config(
+        Format::Markdown,
+        code_map(&[("rust", Some("//"), Some(["/*", "*/"]))]),
+    );
+    let out = round_trip(input, &cfg);
+    let expected = "\
+```rust
+/*
+ let s = \"*/\"; This is still the comment.
+ Second sentence.
+*/
+fn x() {}
+```
+";
+    assert_eq!(out, expected);
+}
+
+#[test]
 fn rust_marker_inside_string_literal_is_not_a_comment() {
     let input = "\
 ```rust
