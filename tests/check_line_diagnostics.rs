@@ -185,6 +185,67 @@ fn check_sarif_includes_start_line_and_kind() {
     );
 }
 
+fn check_json_fmt(path: &str, format: &str) -> (bool, serde_json::Value) {
+    let output = snapper_binary()
+        .args([
+            "--check",
+            "--output-format",
+            "json",
+            "--format",
+            format,
+            path,
+        ])
+        .output()
+        .expect("failed to run snapper");
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
+    let parsed: serde_json::Value = serde_json::from_str(&stdout).unwrap_or_else(|e| {
+        panic!("expected JSON on stdout, got {stdout:?} stderr={stderr:?}: {e}")
+    });
+    (output.status.success(), parsed)
+}
+
+#[test]
+fn numbered_list_markdown_is_not_fused_and_identity() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = write_txt(dir.path(), "list.md", "1. Hello world.\n");
+    let (ok, parsed) = check_json_fmt(&path, "markdown");
+    assert!(ok, "1. Hello world. must pass --check: {parsed}");
+    assert!(
+        diagnostics(&parsed).iter().all(|d| d["kind"] != "fused"),
+        "numbered list must not fused: {parsed}"
+    );
+    if let Some(arr) = parsed.as_array() {
+        for file in arr {
+            assert_ne!(file["would_reformat"], true, "{parsed}");
+        }
+    }
+}
+
+#[test]
+fn numbered_list_org_is_not_fused_and_identity() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = write_txt(dir.path(), "list.org", "1. Hello world.\n");
+    let (ok, parsed) = check_json_fmt(&path, "org");
+    assert!(ok, "1. Hello world. must pass --check: {parsed}");
+    assert!(
+        diagnostics(&parsed).iter().all(|d| d["kind"] != "fused"),
+        "org numbered list must not fused: {parsed}"
+    );
+}
+
+#[test]
+fn latex_mid_line_comment_is_not_fused_and_identity() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = write_txt(dir.path(), "cite.tex", "See Fig. 1. % TODO cite\n");
+    let (ok, parsed) = check_json_fmt(&path, "latex");
+    assert!(ok, "See Fig. 1. % TODO cite must pass --check: {parsed}");
+    assert!(
+        diagnostics(&parsed).iter().all(|d| d["kind"] != "fused"),
+        "latex comment must not fused: {parsed}"
+    );
+}
+
 #[test]
 fn would_reformat_matches_cli_check_identity() {
     let dir = tempfile::tempdir().unwrap();

@@ -13,6 +13,7 @@ All notable changes to this project will be documented in this file. See [conven
 - (**safety**) property tests and a `cargo fuzz` target (fixture corpus) drive `format_text` per format with the backstops off
 - (**code-block**) comment reflow copies non-comment lines as original slices; only comment spans are rewritten
 #### Bug Fixes
+- (**check**) fused and long run on the parser prose payload, so `1. Hello world.` and `See Fig. 1. % TODO cite` are not false fused
 - (**reflow**) list continuation sentences hang at the marker width so Org rejoins the item on reparse; Markdown quotes repeat the `>` prefix (`> One.` / `> Two.`, nested `> >`)
 - (**latex**) a trailing `%` eats the newline (TeX nospace join), so `foo%\\nbar` is no longer emitted as `foo% bar` (which comments out `bar`); mid-line `%` comments leave prose
 - (**sentence**) `w.r.t.` is a multi-word abbreviation; `\\(...\\)` and `$$...$$` stay atomic like `$...$`
