@@ -1043,8 +1043,7 @@ mod tests {
 
     #[test]
     fn html_comment_multiline_is_structure() {
-        let input =
-            "Before sentence. After.\n<!--\nHidden. With a period.\nStill comment.\n-->\nMore. Text.";
+        let input = "Before sentence. After.\n<!--\nHidden. With a period.\nStill comment.\n-->\nMore. Text.";
         let regions = MarkdownParser.parse(input);
         let comment = regions.iter().find_map(|r| match r {
             Region::Structure(s) if s.contains("<!--") => Some(s.as_str()),
