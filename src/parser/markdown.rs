@@ -1,7 +1,9 @@
 use regex::Regex;
 use std::sync::LazyLock;
 
-use crate::parser::{FormatParser, Region, flush_prose};
+use crate::parser::{
+    ByteSpan, FormatParser, Line, SpannedRegion, flush_prose_spanned, iter_lines, push_prose_line,
+};
 
 static HEADING_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^(#{1,6}\s+)(.*)$").unwrap());
 
@@ -31,10 +33,21 @@ static SETEXT_UNDERLINE_RE: LazyLock<Regex> =
 pub struct MarkdownParser;
 
 /// Close an open list item: flush accumulated prose and emit the trailing newline.
-fn close_list_item(in_list_item: &mut bool, current_prose: &mut String, regions: &mut Vec<Region>) {
+fn close_list_item(
+    in_list_item: &mut bool,
+    current_prose: &mut String,
+    prose_span: &mut Option<ByteSpan>,
+    list_term: &mut Option<ByteSpan>,
+    input: &str,
+    regions: &mut Vec<SpannedRegion>,
+) {
     if *in_list_item {
-        flush_prose(current_prose, regions);
-        regions.push(Region::Structure("\n".to_string()));
+        flush_prose_spanned(current_prose, prose_span, regions);
+        if let Some(span) = list_term.take() {
+            if !span.is_empty() {
+                regions.push(SpannedRegion::structure(input, span));
+            }
+        }
         *in_list_item = false;
     }
 }
@@ -71,26 +84,28 @@ fn is_setext_title_line(line: &str) -> bool {
 }
 
 impl FormatParser for MarkdownParser {
-    fn parse(&self, input: &str) -> Vec<Region> {
-        let mut regions: Vec<Region> = Vec::new();
+    fn parse_full(&self, input: &str) -> Vec<SpannedRegion> {
+        let mut regions: Vec<SpannedRegion> = Vec::new();
         let mut current_prose = String::new();
+        let mut prose_span: Option<ByteSpan> = None;
         let mut in_fenced_code = false;
         let mut fence_marker = String::new();
-        // Buffer for the running code block: header line, body lines, lang
-        let mut code_header = String::new();
-        let mut code_body = String::new();
+        let mut code_header = ByteSpan::default();
+        let mut code_body_start = 0usize;
         let mut code_lang: Option<String> = None;
         let mut in_frontmatter = false;
         let mut frontmatter_fence = String::new();
         let mut in_list_item = false;
+        let mut list_term: Option<ByteSpan> = None;
         let mut pragma_off = false;
 
-        let lines: Vec<&str> = input.lines().collect();
+        let lines = iter_lines(input);
         let total = lines.len();
         let mut i = 0;
 
         while i < total {
-            let line = lines[i];
+            let line: &Line<'_> = &lines[i];
+            let line_text = line.text;
             let line_number = i + 1;
 
             // Check for snapper:off/on pragmas. Inside a fenced code block,
@@ -99,48 +114,69 @@ impl FormatParser for MarkdownParser {
             // `#`, `//`, `--`, `;` are all valid pragma prefixes inside
             // their respective languages).
             if !in_fenced_code {
-                if let Some(on) = super::check_pragma(line) {
-                    close_list_item(&mut in_list_item, &mut current_prose, &mut regions);
-                    flush_prose(&mut current_prose, &mut regions);
+                if let Some(on) = super::check_pragma(line_text) {
+                    close_list_item(
+                        &mut in_list_item,
+                        &mut current_prose,
+                        &mut prose_span,
+                        &mut list_term,
+                        input,
+                        &mut regions,
+                    );
+                    flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
                     pragma_off = !on;
-                    regions.push(Region::Structure(format!("{line}\n")));
+                    regions.push(SpannedRegion::structure(input, line.span()));
                     i += 1;
                     continue;
                 }
 
                 if pragma_off {
-                    close_list_item(&mut in_list_item, &mut current_prose, &mut regions);
-                    flush_prose(&mut current_prose, &mut regions);
-                    regions.push(Region::Structure(format!("{line}\n")));
+                    close_list_item(
+                        &mut in_list_item,
+                        &mut current_prose,
+                        &mut prose_span,
+                        &mut list_term,
+                        input,
+                        &mut regions,
+                    );
+                    flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
+                    regions.push(SpannedRegion::structure(input, line.span()));
                     i += 1;
                     continue;
                 }
             }
 
             // Front matter detection (only at start of file)
-            if line_number == 1 && (line.trim() == "---" || line.trim() == "+++") {
+            if line_number == 1 && (line_text.trim() == "---" || line_text.trim() == "+++") {
                 in_frontmatter = true;
-                frontmatter_fence = line.trim().to_string();
-                regions.push(Region::Structure(format!("{line}\n")));
+                frontmatter_fence = line_text.trim().to_string();
+                regions.push(SpannedRegion::structure(input, line.span()));
                 i += 1;
                 continue;
             }
 
             if in_frontmatter {
-                if line.trim() == frontmatter_fence {
+                if line_text.trim() == frontmatter_fence {
                     in_frontmatter = false;
                 }
-                regions.push(Region::Structure(format!("{line}\n")));
+                regions.push(SpannedRegion::structure(input, line.span()));
                 i += 1;
                 continue;
             }
 
             // Inside fenced code block
             if in_fenced_code {
-                close_list_item(&mut in_list_item, &mut current_prose, &mut regions);
-                flush_prose(&mut current_prose, &mut regions);
+                close_list_item(
+                    &mut in_list_item,
+                    &mut current_prose,
+                    &mut prose_span,
+                    &mut list_term,
+                    input,
+                    &mut regions,
+                );
+                flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
                 let mut closed = false;
-                if let Some(caps) = FENCED_CODE_RE.captures(line.trim_start()) {
+                if let Some(caps) = FENCED_CODE_RE.captures(line_text.trim_start()) {
                     let marker = caps.get(1).unwrap().as_str();
                     if marker.chars().next() == fence_marker.chars().next()
                         && marker.len() >= fence_marker.len()
@@ -150,40 +186,52 @@ impl FormatParser for MarkdownParser {
                 }
                 if closed {
                     in_fenced_code = false;
-                    regions.push(Region::Code {
-                        lang: code_lang.take(),
-                        header: std::mem::take(&mut code_header),
-                        body: std::mem::take(&mut code_body),
-                        footer: format!("{line}\n"),
-                    });
-                } else {
-                    code_body.push_str(line);
-                    code_body.push('\n');
+                    regions.push(SpannedRegion::code(
+                        input,
+                        code_lang.take(),
+                        code_header,
+                        ByteSpan::new(code_body_start, line.start),
+                        line.span(),
+                    ));
                 }
                 i += 1;
                 continue;
             }
 
             // Fenced code block start
-            if let Some(caps) = FENCED_CODE_RE.captures(line.trim_start()) {
-                close_list_item(&mut in_list_item, &mut current_prose, &mut regions);
-                flush_prose(&mut current_prose, &mut regions);
+            if let Some(caps) = FENCED_CODE_RE.captures(line_text.trim_start()) {
+                close_list_item(
+                    &mut in_list_item,
+                    &mut current_prose,
+                    &mut prose_span,
+                    &mut list_term,
+                    input,
+                    &mut regions,
+                );
+                flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
                 fence_marker = caps.get(1).unwrap().as_str().to_string();
                 in_fenced_code = true;
                 code_lang = FENCED_LANG_RE
-                    .captures(line.trim_start())
+                    .captures(line_text.trim_start())
                     .map(|c| c.get(1).unwrap().as_str().to_string());
-                code_header = format!("{line}\n");
-                code_body.clear();
+                code_header = line.span();
+                code_body_start = line.end;
                 i += 1;
                 continue;
             }
 
             // Blank line
-            if line.trim().is_empty() {
-                close_list_item(&mut in_list_item, &mut current_prose, &mut regions);
-                flush_prose(&mut current_prose, &mut regions);
-                regions.push(Region::BlankLines(format!("{line}\n")));
+            if line_text.trim().is_empty() {
+                close_list_item(
+                    &mut in_list_item,
+                    &mut current_prose,
+                    &mut prose_span,
+                    &mut list_term,
+                    input,
+                    &mut regions,
+                );
+                flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
+                regions.push(SpannedRegion::blank(input, line.span()));
                 i += 1;
                 continue;
             }
@@ -195,10 +243,17 @@ impl FormatParser for MarkdownParser {
             //   ### 1.
             //   `cargo binstall` (preferred binary install)
             // CommonMark ATX headings are single-line; do not reflow them.
-            if HEADING_RE.is_match(line) {
-                close_list_item(&mut in_list_item, &mut current_prose, &mut regions);
-                flush_prose(&mut current_prose, &mut regions);
-                regions.push(Region::Structure(format!("{line}\n")));
+            if HEADING_RE.is_match(line_text) {
+                close_list_item(
+                    &mut in_list_item,
+                    &mut current_prose,
+                    &mut prose_span,
+                    &mut list_term,
+                    input,
+                    &mut regions,
+                );
+                flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
+                regions.push(SpannedRegion::structure(input, line.span()));
                 i += 1;
                 continue;
             }
@@ -206,35 +261,65 @@ impl FormatParser for MarkdownParser {
             // Setext heading: title line + underline of `=` or `-`.
             // Without this, title text is Prose and the underline is glued on
             // (or mid-title periods reflow), collapsing the heading.
-            if i + 1 < total && is_setext_title_line(line) && is_setext_underline(lines[i + 1]) {
-                close_list_item(&mut in_list_item, &mut current_prose, &mut regions);
-                flush_prose(&mut current_prose, &mut regions);
-                regions.push(Region::Structure(format!("{line}\n")));
-                regions.push(Region::Structure(format!("{}\n", lines[i + 1])));
+            if i + 1 < total
+                && is_setext_title_line(line_text)
+                && is_setext_underline(lines[i + 1].text)
+            {
+                close_list_item(
+                    &mut in_list_item,
+                    &mut current_prose,
+                    &mut prose_span,
+                    &mut list_term,
+                    input,
+                    &mut regions,
+                );
+                flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
+                regions.push(SpannedRegion::structure(input, line.span()));
+                regions.push(SpannedRegion::structure(input, lines[i + 1].span()));
                 i += 2;
                 continue;
             }
 
             // Table row (pipe-delimited)
-            if TABLE_ROW_RE.is_match(line) {
-                close_list_item(&mut in_list_item, &mut current_prose, &mut regions);
-                flush_prose(&mut current_prose, &mut regions);
-                regions.push(Region::Structure(format!("{line}\n")));
+            if TABLE_ROW_RE.is_match(line_text) {
+                close_list_item(
+                    &mut in_list_item,
+                    &mut current_prose,
+                    &mut prose_span,
+                    &mut list_term,
+                    input,
+                    &mut regions,
+                );
+                flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
+                regions.push(SpannedRegion::structure(input, line.span()));
                 i += 1;
                 continue;
             }
 
             // Blockquote: emit the full `> ` / `> > ` prefix as Structure.
             // Checked before list items so nested `> >` is not flattened.
-            if let Some(caps) = QUOTE_RE.captures(line) {
-                close_list_item(&mut in_list_item, &mut current_prose, &mut regions);
-                flush_prose(&mut current_prose, &mut regions);
+            if let Some(caps) = QUOTE_RE.captures(line_text) {
+                close_list_item(
+                    &mut in_list_item,
+                    &mut current_prose,
+                    &mut prose_span,
+                    &mut list_term,
+                    input,
+                    &mut regions,
+                );
+                flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
                 let marker = caps.get(1).unwrap().as_str();
                 let text = caps.get(2).unwrap().as_str();
-                regions.push(Region::Structure(marker.to_string()));
+                let marker_span = ByteSpan::new(line.start, line.start + marker.len());
+                regions.push(SpannedRegion::structure(input, marker_span));
                 in_list_item = true;
+                list_term = Some(line.terminator_span());
                 if !text.is_empty() {
                     current_prose.push_str(text);
+                    prose_span = Some(ByteSpan::new(
+                        line.start + marker.len(),
+                        line.start + line_text.len(),
+                    ));
                 }
                 i += 1;
                 continue;
@@ -242,38 +327,62 @@ impl FormatParser for MarkdownParser {
 
             // List item: emit marker as Structure, start accumulating text as prose.
             // Continuation lines are appended until a block boundary.
-            if let Some(caps) = LIST_ITEM_RE.captures(line) {
-                close_list_item(&mut in_list_item, &mut current_prose, &mut regions);
-                flush_prose(&mut current_prose, &mut regions);
+            if let Some(caps) = LIST_ITEM_RE.captures(line_text) {
+                close_list_item(
+                    &mut in_list_item,
+                    &mut current_prose,
+                    &mut prose_span,
+                    &mut list_term,
+                    input,
+                    &mut regions,
+                );
+                flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
                 let marker = caps.get(1).unwrap().as_str();
                 let text = caps.get(2).unwrap().as_str();
-                regions.push(Region::Structure(marker.to_string()));
+                let marker_span = ByteSpan::new(line.start, line.start + marker.len());
+                regions.push(SpannedRegion::structure(input, marker_span));
                 in_list_item = true;
+                list_term = Some(line.terminator_span());
                 if !text.is_empty() {
                     current_prose.push_str(text);
+                    prose_span = Some(ByteSpan::new(
+                        line.start + marker.len(),
+                        line.start + line_text.len(),
+                    ));
                 }
                 i += 1;
                 continue;
             }
 
             // Regular prose (also serves as list-item continuation when in_list_item)
-            if !current_prose.is_empty() {
-                current_prose.push(' ');
+            if in_list_item {
+                push_prose_line(&mut current_prose, &mut prose_span, line, true, false);
+                list_term = Some(line.terminator_span());
+            } else {
+                push_prose_line(&mut current_prose, &mut prose_span, line, true, true);
             }
-            current_prose.push_str(line.trim());
             i += 1;
         }
 
-        close_list_item(&mut in_list_item, &mut current_prose, &mut regions);
-        flush_prose(&mut current_prose, &mut regions);
+        close_list_item(
+            &mut in_list_item,
+            &mut current_prose,
+            &mut prose_span,
+            &mut list_term,
+            input,
+            &mut regions,
+        );
+        flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
         // Unclosed fence at EOF: emit a code region with empty footer.
         if in_fenced_code {
-            regions.push(Region::Code {
-                lang: code_lang.take(),
-                header: std::mem::take(&mut code_header),
-                body: std::mem::take(&mut code_body),
-                footer: String::new(),
-            });
+            let eof = ByteSpan::new(input.len(), input.len());
+            regions.push(SpannedRegion::code(
+                input,
+                code_lang.take(),
+                code_header,
+                ByteSpan::new(code_body_start, input.len()),
+                eof,
+            ));
         }
         regions
     }
@@ -282,6 +391,7 @@ impl FormatParser for MarkdownParser {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::parser::Region;
 
     #[test]
     fn simple_prose() {
@@ -368,7 +478,10 @@ mod tests {
         for r in &regions {
             if let Region::Structure(s) = r {
                 assert!(s.starts_with('|'));
-                assert!(s.ends_with("|\n"));
+                assert!(
+                    s.ends_with('|') || s.ends_with("|\n"),
+                    "table row must be the input slice: {s:?}"
+                );
             }
         }
     }
@@ -385,8 +498,8 @@ mod tests {
                 "First line of item continuation text here. Another sentence.".to_string()
             )
         );
-        assert_eq!(regions[2], Region::Structure("\n".to_string()));
-        assert_eq!(regions.len(), 3);
+        // No trailing newline in the source, so no terminator Structure.
+        assert_eq!(regions.len(), 2);
     }
 
     #[test]
@@ -417,7 +530,7 @@ mod tests {
         // Second item
         assert_eq!(regions[3], Region::Structure("- ".to_string()));
         assert_eq!(regions[4], Region::Prose("Second item".to_string()));
-        assert_eq!(regions[5], Region::Structure("\n".to_string()));
+        assert_eq!(regions.len(), 5);
     }
 
     #[test]
@@ -432,7 +545,7 @@ mod tests {
                 "**Quality gates:** `Thresholds(warning=0.1)` lets you express failure rates. Replaces binary assert.".to_string()
             )
         );
-        assert_eq!(regions[2], Region::Structure("\n".to_string()));
+        assert_eq!(regions.len(), 2);
     }
 
     #[test]
@@ -440,7 +553,7 @@ mod tests {
         let input = "## My Heading";
         let regions = MarkdownParser.parse(input);
         assert_eq!(regions.len(), 1);
-        assert_eq!(regions[0], Region::Structure("## My Heading\n".to_string()));
+        assert_eq!(regions[0], Region::Structure("## My Heading".to_string()));
     }
 
     #[test]
@@ -472,7 +585,7 @@ mod tests {
             let regions = MarkdownParser.parse(&line);
             assert_eq!(
                 regions,
-                vec![Region::Structure(format!("{line}\n"))],
+                vec![Region::Structure(line.clone())],
                 "level {hashes}"
             );
         }
@@ -560,8 +673,8 @@ mod tests {
         let regions = MarkdownParser.parse(input);
         assert_eq!(regions[0], Region::Structure("> ".to_string()));
         assert_eq!(regions[1], Region::Prose("One. Two.".to_string()));
-        assert_eq!(regions[2], Region::Structure("\n".to_string()));
-        assert_eq!(regions.len(), 3);
+        // No trailing newline in the source, so no terminator Structure.
+        assert_eq!(regions.len(), 2);
     }
 
     #[test]
@@ -595,8 +708,7 @@ mod tests {
             regions[1],
             Region::Prose("Nested one. Nested two.".to_string())
         );
-        assert_eq!(regions[2], Region::Structure("\n".to_string()));
-        assert_eq!(regions.len(), 3);
+        assert_eq!(regions.len(), 2);
     }
 
     #[test]

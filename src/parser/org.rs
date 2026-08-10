@@ -1,7 +1,10 @@
 use regex::Regex;
 use std::sync::LazyLock;
 
-use crate::parser::{FormatParser, Region, flush_prose};
+use crate::parser::{
+    ByteSpan, FormatParser, Region, RegionOrigin, SpannedRegion, flush_prose_spanned, iter_lines,
+    push_prose_line,
+};
 
 static HEADLINE_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"^(\*+\s+(?:TODO\s+|DONE\s+|NEXT\s+|WAIT\s+)?)(.*)$").unwrap());
@@ -120,15 +123,16 @@ impl OrgParser {
 }
 
 impl FormatParser for OrgParser {
-    fn parse(&self, input: &str) -> Vec<Region> {
-        let mut regions: Vec<Region> = Vec::new();
+    fn parse_full(&self, input: &str) -> Vec<SpannedRegion> {
+        let mut regions: Vec<SpannedRegion> = Vec::new();
         let mut current_prose = String::new();
+        let mut prose_span: Option<ByteSpan> = None;
         let mut in_block = false;
         // Source block bookkeeping; `in_src_block` implies `in_block`.
         let mut in_src_block = false;
         let mut src_lang: Option<String> = None;
-        let mut src_header = String::new();
-        let mut src_body = String::new();
+        let mut src_header = ByteSpan::default();
+        let mut src_body_start = 0usize;
         let mut in_drawer = false;
         let mut in_latex_env: Option<String> = None;
         let mut in_display_math = false;
@@ -137,70 +141,69 @@ impl FormatParser for OrgParser {
         // Continuation lines indented at or beyond this level belong to the item.
         let mut list_item_indent: Option<usize> = None;
 
-        for line in input.lines() {
+        for line in iter_lines(input) {
+            let line_text = line.text;
             // Check for snapper:off/on pragmas. Inside a source block we
             // defer pragma handling to the code-block reflow so the
             // language's own comment marker controls the freeze.
             if !in_src_block {
-                if let Some(on) = super::check_pragma(line) {
-                    flush_prose(&mut current_prose, &mut regions);
+                if let Some(on) = super::check_pragma(line_text) {
+                    flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
                     pragma_off = !on;
-                    regions.push(Region::Structure(format!("{line}\n")));
+                    regions.push(SpannedRegion::structure(input, line.span()));
                     continue;
                 }
 
                 // Inside pragma-off region: pass through unchanged
                 if pragma_off {
-                    flush_prose(&mut current_prose, &mut regions);
-                    regions.push(Region::Structure(format!("{line}\n")));
+                    flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
+                    regions.push(SpannedRegion::structure(input, line.span()));
                     continue;
                 }
             }
 
             // Inside a source block -- buffer body until #+END_SRC
             if in_src_block {
-                flush_prose(&mut current_prose, &mut regions);
-                if Self::is_src_end(line) {
+                flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
+                if Self::is_src_end(line_text) {
                     in_src_block = false;
                     in_block = false;
-                    regions.push(Region::Code {
-                        lang: src_lang.take(),
-                        header: std::mem::take(&mut src_header),
-                        body: std::mem::take(&mut src_body),
-                        footer: format!("{line}\n"),
-                    });
-                } else {
-                    src_body.push_str(line);
-                    src_body.push('\n');
+                    regions.push(SpannedRegion::code(
+                        input,
+                        src_lang.take(),
+                        src_header,
+                        ByteSpan::new(src_body_start, line.start),
+                        line.span(),
+                    ));
                 }
                 continue;
             }
 
             // Inside a non-src block -- everything is structure
             if in_block {
-                flush_prose(&mut current_prose, &mut regions);
-                if Self::is_block_end(line) {
+                flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
+                if Self::is_block_end(line_text) {
                     in_block = false;
                 }
-                regions.push(Region::Structure(format!("{line}\n")));
+                regions.push(SpannedRegion::structure(input, line.span()));
                 continue;
             }
 
             // Inside a drawer -- everything is structure
             if in_drawer {
-                flush_prose(&mut current_prose, &mut regions);
-                if Self::is_drawer_end(line) {
+                flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
+                if Self::is_drawer_end(line_text) {
                     in_drawer = false;
                 }
-                regions.push(Region::Structure(format!("{line}\n")));
+                regions.push(SpannedRegion::structure(input, line.span()));
                 continue;
             }
 
             // Inside a LaTeX environment -- everything is structure
             if let Some(ref env) = in_latex_env {
-                flush_prose(&mut current_prose, &mut regions);
-                let done = Self::is_latex_end(line, env);
-                regions.push(Region::Structure(format!("{line}\n")));
+                flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
+                let done = Self::is_latex_end(line_text, env);
+                regions.push(SpannedRegion::structure(input, line.span()));
                 if done {
                     in_latex_env = None;
                 }
@@ -209,100 +212,100 @@ impl FormatParser for OrgParser {
 
             // Inside display math \[...\] -- everything is structure
             if in_display_math {
-                flush_prose(&mut current_prose, &mut regions);
-                if Self::is_display_math_close(line) {
+                flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
+                if Self::is_display_math_close(line_text) {
                     in_display_math = false;
                 }
-                regions.push(Region::Structure(format!("{line}\n")));
+                regions.push(SpannedRegion::structure(input, line.span()));
                 continue;
             }
 
             // Source block begin (#+BEGIN_SRC LANG ...)
-            if let Some(lang) = Self::is_src_begin(line) {
-                flush_prose(&mut current_prose, &mut regions);
+            if let Some(lang) = Self::is_src_begin(line_text) {
+                flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
                 in_block = true;
                 in_src_block = true;
                 src_lang = lang;
-                src_header = format!("{line}\n");
-                src_body.clear();
+                src_header = line.span();
+                src_body_start = line.end;
                 continue;
             }
 
             // Other #+BEGIN_ block: opaque structure
-            if Self::is_block_begin(line) {
-                flush_prose(&mut current_prose, &mut regions);
+            if Self::is_block_begin(line_text) {
+                flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
                 in_block = true;
-                regions.push(Region::Structure(format!("{line}\n")));
+                regions.push(SpannedRegion::structure(input, line.span()));
                 continue;
             }
 
             // Drawer begin
-            if Self::is_drawer_begin(line) {
-                flush_prose(&mut current_prose, &mut regions);
+            if Self::is_drawer_begin(line_text) {
+                flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
                 in_drawer = true;
-                regions.push(Region::Structure(format!("{line}\n")));
+                regions.push(SpannedRegion::structure(input, line.span()));
                 continue;
             }
 
             // LaTeX environment begin (\begin{equation} etc.)
-            if let Some(env) = Self::is_latex_begin(line) {
-                flush_prose(&mut current_prose, &mut regions);
+            if let Some(env) = Self::is_latex_begin(line_text) {
+                flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
                 in_latex_env = Some(env);
-                regions.push(Region::Structure(format!("{line}\n")));
+                regions.push(SpannedRegion::structure(input, line.span()));
                 continue;
             }
 
             // Display math open (\[)
-            if Self::is_display_math_open(line) {
-                flush_prose(&mut current_prose, &mut regions);
+            if Self::is_display_math_open(line_text) {
+                flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
                 in_display_math = true;
-                regions.push(Region::Structure(format!("{line}\n")));
+                regions.push(SpannedRegion::structure(input, line.span()));
                 continue;
             }
 
             // Export snippet line (@@latex:...@@)
-            if Self::is_export_snippet_line(line) {
-                flush_prose(&mut current_prose, &mut regions);
-                regions.push(Region::Structure(format!("{line}\n")));
+            if Self::is_export_snippet_line(line_text) {
+                flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
+                regions.push(SpannedRegion::structure(input, line.span()));
                 continue;
             }
 
             // Blank line
-            if line.trim().is_empty() {
-                flush_prose(&mut current_prose, &mut regions);
+            if line_text.trim().is_empty() {
+                flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
                 list_item_indent = None;
-                regions.push(Region::BlankLines(format!("{line}\n")));
+                regions.push(SpannedRegion::blank(input, line.span()));
                 continue;
             }
 
             // Keyword/directive
-            if Self::is_keyword(line) {
-                flush_prose(&mut current_prose, &mut regions);
-                regions.push(Region::Structure(format!("{line}\n")));
+            if Self::is_keyword(line_text) {
+                flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
+                regions.push(SpannedRegion::structure(input, line.span()));
                 continue;
             }
 
             // Comment
-            if Self::is_comment(line) {
-                flush_prose(&mut current_prose, &mut regions);
-                regions.push(Region::Structure(format!("{line}\n")));
+            if Self::is_comment(line_text) {
+                flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
+                regions.push(SpannedRegion::structure(input, line.span()));
                 continue;
             }
 
             // Table row
-            if Self::is_table_row(line) {
-                flush_prose(&mut current_prose, &mut regions);
-                regions.push(Region::Structure(format!("{line}\n")));
+            if Self::is_table_row(line_text) {
+                flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
+                regions.push(SpannedRegion::structure(input, line.span()));
                 continue;
             }
 
             // Bare file/http links on their own line -- treat as structure
-            if line.trim_start().starts_with("file:")
-                || line.trim_start().starts_with("http://")
-                || line.trim_start().starts_with("https://")
+            if line_text.trim_start().starts_with("file:")
+                || line_text.trim_start().starts_with("http://")
+                || line_text.trim_start().starts_with("https://")
             {
-                flush_prose(&mut current_prose, &mut regions);
-                regions.push(Region::Structure(format!("{line}\n")));
+                flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
+                regions.push(SpannedRegion::structure(input, line.span()));
                 continue;
             }
 
@@ -310,44 +313,64 @@ impl FormatParser for OrgParser {
             // Splitting Structure(stars)+Prose(title) reflowed multi-sentence
             // titles and left continuation lines without stars (orphan body).
             // Org headlines are single-line; do not reflow them.
-            if HEADLINE_RE.is_match(line) {
-                flush_prose(&mut current_prose, &mut regions);
-                regions.push(Region::Structure(format!("{line}\n")));
+            if HEADLINE_RE.is_match(line_text) {
+                flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
+                regions.push(SpannedRegion::structure(input, line.span()));
                 continue;
             }
 
             // List item: marker is structure, rest is prose
-            if let Some(caps) = LIST_ITEM_RE.captures(line) {
-                flush_prose(&mut current_prose, &mut regions);
+            if let Some(caps) = LIST_ITEM_RE.captures(line_text) {
+                flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
                 let marker = caps.get(1).unwrap().as_str();
                 let text = caps.get(2).unwrap().as_str();
                 // Track indent for continuation detection: text starts at marker length
                 list_item_indent = Some(marker.len());
-                regions.push(Region::Structure(marker.to_string()));
+                let marker_span = ByteSpan::new(line.start, line.start + marker.len());
+                regions.push(SpannedRegion::structure(input, marker_span));
                 if !text.is_empty() {
-                    regions.push(Region::Prose(text.to_string()));
+                    regions.push(SpannedRegion::prose(
+                        text.to_string(),
+                        ByteSpan::new(line.start + marker.len(), line.start + line_text.len()),
+                    ));
                 }
-                regions.push(Region::Structure("\n".to_string()));
+                let term = line.terminator_span();
+                if !term.is_empty() {
+                    regions.push(SpannedRegion::structure(input, term));
+                }
                 continue;
             }
 
             // List item continuation: indented line following a list item
             if let Some(indent) = list_item_indent {
-                let leading = line.len() - line.trim_start().len();
-                if leading >= indent && !line.trim().is_empty() {
+                let leading = line_text.len() - line_text.trim_start().len();
+                if leading >= indent && !line_text.trim().is_empty() {
                     // Append to the previous Prose region of the list item.
                     // The last three regions are Structure(marker), Prose(text), Structure(\n)
                     // We want to extend the Prose region.
-                    if let Some(Region::Structure(s)) = regions.last() {
-                        if s == "\n" {
-                            regions.pop(); // remove the \n
-                            if let Some(Region::Prose(prose)) = regions.last_mut() {
+                    let is_term = matches!(
+                        regions.last(),
+                        Some(SpannedRegion {
+                            region: Region::Structure(s),
+                            ..
+                        }) if s == "\n"
+                    );
+                    if is_term {
+                        regions.pop();
+                        if let Some(prev) = regions.last_mut() {
+                            if let Region::Prose(prose) = &mut prev.region {
                                 prose.push(' ');
-                                prose.push_str(line.trim());
+                                prose.push_str(line_text.trim());
                             }
-                            regions.push(Region::Structure("\n".to_string()));
-                            continue;
+                            if let Some(RegionOrigin::Whole(span)) = &mut prev.origin {
+                                span.end = line.start + line_text.len();
+                            }
                         }
+                        let term = line.terminator_span();
+                        if !term.is_empty() {
+                            regions.push(SpannedRegion::structure(input, term));
+                        }
+                        continue;
                     }
                 }
                 // Not a continuation: leave list context
@@ -355,22 +378,21 @@ impl FormatParser for OrgParser {
             }
 
             // Regular prose line -- accumulate
-            if !current_prose.is_empty() {
-                current_prose.push(' ');
-            }
-            current_prose.push_str(line.trim());
+            push_prose_line(&mut current_prose, &mut prose_span, &line, true, true);
         }
 
         // Flush remaining
-        flush_prose(&mut current_prose, &mut regions);
+        flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
         // Unclosed source block at EOF: still emit as Code with empty footer.
         if in_src_block {
-            regions.push(Region::Code {
-                lang: src_lang.take(),
-                header: std::mem::take(&mut src_header),
-                body: std::mem::take(&mut src_body),
-                footer: String::new(),
-            });
+            let eof = ByteSpan::new(input.len(), input.len());
+            regions.push(SpannedRegion::code(
+                input,
+                src_lang.take(),
+                src_header,
+                ByteSpan::new(src_body_start, input.len()),
+                eof,
+            ));
         }
 
         regions
@@ -431,7 +453,7 @@ mod tests {
         assert_eq!(regions.len(), 1);
         assert_eq!(
             regions[0],
-            Region::Structure("* TODO This is a headline\n".to_string())
+            Region::Structure("* TODO This is a headline".to_string())
         );
     }
 
@@ -550,7 +572,8 @@ mod tests {
         let input = "- First item text\n- Second item text";
         let regions = OrgParser.parse(input);
         // Each list item: Structure(marker) + Prose(text) + Structure(\n)
-        assert_eq!(regions.len(), 6);
+        // The last item has no trailing newline, so no final Structure(\n).
+        assert_eq!(regions.len(), 5);
         assert_eq!(regions[0], Region::Structure("- ".to_string()));
         assert_eq!(regions[1], Region::Prose("First item text".to_string()));
     }
