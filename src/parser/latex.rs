@@ -2,7 +2,7 @@ use regex::Regex;
 use std::sync::LazyLock;
 
 use crate::parser::{ByteSpan, FormatParser, Line, SpannedRegion, flush_prose_spanned, iter_lines};
-use crate::sentence::unicode::latex_verb_span_end;
+use crate::sentence::unicode::latex_verb_span_end_with;
 
 // Environments whose content is NOT prose (math, code, figures, tables)
 static NON_PROSE_ENVS: &[&str] = &[
@@ -41,8 +41,8 @@ static LSTLISTING_LANG_RE: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"\\begin\{lstlisting\}\s*\[[^\]]*language\s*=\s*([A-Za-z0-9_+.\-]+)").unwrap()
 });
 
-/// Source-code environments whose body should be emitted as `Region::Code`.
-fn is_code_env(name: &str) -> bool {
+/// Built-in source-code environments whose body is `Region::Code`.
+fn is_builtin_code_env(name: &str) -> bool {
     matches!(name, "minted" | "lstlisting" | "verbatim")
 }
 
@@ -59,40 +59,66 @@ static SECTION_CMD_RE: LazyLock<Regex> = LazyLock::new(|| {
     .unwrap()
 });
 
-pub struct LatexParser;
+#[derive(Debug, Default, Clone)]
+pub struct LatexParser {
+    extra_verbatim_envs: Vec<String>,
+    extra_structure_envs: Vec<String>,
+    extra_verbatim_commands: Vec<String>,
+}
 
 impl LatexParser {
+    pub(crate) fn from_config(config: Option<&crate::FormatConfig>) -> Self {
+        match config {
+            Some(c) => Self {
+                extra_verbatim_envs: c.latex_verbatim_envs.clone(),
+                extra_structure_envs: c.latex_structure_envs.clone(),
+                extra_verbatim_commands: c.latex_verbatim_commands.clone(),
+            },
+            None => Self::default(),
+        }
+    }
+
     fn is_comment(line: &str) -> bool {
         line.trim_start().starts_with('%')
     }
 
     /// Byte offset of the first `%` that is not escaped as `\%` and is not
-    /// inside `\verb` / `\lstinline`.
-    fn unescaped_percent(line: &str) -> Option<usize> {
-        let bytes = line.as_bytes();
-        let mut i = 0;
-        while i < bytes.len() {
-            if bytes[i] == b'\\' {
-                if let Some(end) = latex_verb_span_end(line, i) {
-                    i = end;
-                    continue;
-                }
-                if i + 1 < bytes.len() {
-                    i += 2;
-                    continue;
-                }
-            }
-            if bytes[i] == b'%' {
-                return Some(i);
-            }
-            i += 1;
-        }
-        None
+    /// inside `\verb` / `\lstinline` / configured verbatim commands.
+    fn unescaped_percent(&self, line: &str) -> Option<usize> {
+        unescaped_percent_with(line, &self.extra_verbatim_commands)
     }
 
-    fn is_non_prose_env(name: &str) -> bool {
-        NON_PROSE_ENVS.contains(&name)
+    fn is_code_env(&self, name: &str) -> bool {
+        is_builtin_code_env(name) || self.extra_verbatim_envs.iter().any(|e| e == name)
     }
+
+    fn is_non_prose_env(&self, name: &str) -> bool {
+        NON_PROSE_ENVS.contains(&name)
+            || self.extra_structure_envs.iter().any(|e| e == name)
+            || self.is_code_env(name)
+    }
+}
+
+fn unescaped_percent_with(line: &str, extra_cmds: &[String]) -> Option<usize> {
+    let bytes = line.as_bytes();
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'\\' {
+            if let Some(end) = latex_verb_span_end_with(line, i, extra_cmds) {
+                i = end;
+                continue;
+            }
+            if i + 1 < bytes.len() {
+                i += 2;
+                continue;
+            }
+        }
+        if bytes[i] == b'%' {
+            return Some(i);
+        }
+        i += 1;
+    }
+    None
 }
 
 /// `\begin{name}` or `\end{name}` on a line.
@@ -126,13 +152,13 @@ fn thru_eol_if_blank_rest(line: Line<'_>, rel: usize) -> usize {
     }
 }
 
-fn find_env_at(line: &str, from: usize) -> Option<EnvHit> {
+fn find_env_at(line: &str, from: usize, extra_cmds: &[String]) -> Option<EnvHit> {
     let bytes = line.as_bytes();
     let mut i = from;
-    let stop = LatexParser::unescaped_percent(line).unwrap_or(line.len());
+    let stop = unescaped_percent_with(line, extra_cmds).unwrap_or(line.len());
     while i < stop {
         if bytes[i] == b'\\' {
-            if let Some(end) = latex_verb_span_end(line, i) {
+            if let Some(end) = latex_verb_span_end_with(line, i, extra_cmds) {
                 i = end;
                 continue;
             }
@@ -200,9 +226,15 @@ fn skip_optional_brackets(line: &str, open_at: usize, stop: usize) -> Option<usi
     None
 }
 
-fn find_matching_end(line: &str, from: usize, name: &str, mut depth: usize) -> Option<usize> {
+fn find_matching_end(
+    line: &str,
+    from: usize,
+    name: &str,
+    mut depth: usize,
+    extra_cmds: &[String],
+) -> Option<usize> {
     let mut i = from;
-    while let Some(hit) = find_env_at(line, i) {
+    while let Some(hit) = find_env_at(line, i, extra_cmds) {
         if hit.name != name {
             i = hit.end;
             continue;
@@ -278,6 +310,7 @@ fn find_matching_raw_end(line: &str, from: usize, name: &str, mut depth: usize) 
 
 struct ParseState<'a> {
     input: &'a str,
+    parser: &'a LatexParser,
     regions: Vec<SpannedRegion>,
     current_prose: String,
     prose_span: Option<ByteSpan>,
@@ -389,7 +422,7 @@ impl<'a> ParseState<'a> {
             return;
         }
 
-        let pct = LatexParser::unescaped_percent(line.text);
+        let pct = self.parser.unescaped_percent(line.text);
         let code = match pct {
             Some(idx) => &line.text[..idx],
             None => line.text,
@@ -427,7 +460,7 @@ impl<'a> ParseState<'a> {
             .expect("consume_non_prose_line only when inside")
             .to_string();
         let mut i = 0;
-        while let Some(hit) = find_env_at(line.text, i) {
+        while let Some(hit) = find_env_at(line.text, i, &self.parser.extra_verbatim_commands) {
             if hit.name != name {
                 i = hit.end;
                 continue;
@@ -498,9 +531,9 @@ impl<'a> ParseState<'a> {
     fn consume_code_span(&mut self, code: &str, line: Line<'_>) -> bool {
         let mut i = 0;
         while i < code.len() {
-            if let Some(hit) = find_env_at(code, i) {
+            if let Some(hit) = find_env_at(code, i, &self.parser.extra_verbatim_commands) {
                 self.append_prose_slice(line.start + i, &code[i..hit.start]);
-                if hit.is_begin && is_code_env(&hit.name) {
+                if hit.is_begin && self.parser.is_code_env(&hit.name) {
                     self.flush();
                     if let Some(end_at) = find_matching_raw_end(line.text, hit.end, &hit.name, 1) {
                         let header = ByteSpan::new(line.start + hit.start, line.start + end_at);
@@ -515,9 +548,15 @@ impl<'a> ParseState<'a> {
                     self.enter_code(&hit.name, line, hit.start);
                     return true;
                 }
-                if hit.is_begin && LatexParser::is_non_prose_env(&hit.name) {
+                if hit.is_begin && self.parser.is_non_prose_env(&hit.name) {
                     self.flush();
-                    if let Some(end_at) = find_matching_end(code, hit.end, &hit.name, 1) {
+                    if let Some(end_at) = find_matching_end(
+                        code,
+                        hit.end,
+                        &hit.name,
+                        1,
+                        &self.parser.extra_verbatim_commands,
+                    ) {
                         let end = if code[end_at..].trim().is_empty() {
                             thru_eol_if_blank_rest(line, end_at)
                         } else {
@@ -571,6 +610,7 @@ impl FormatParser for LatexParser {
     fn parse_full(&self, input: &str) -> Vec<SpannedRegion> {
         let mut state = ParseState {
             input,
+            parser: self,
             regions: Vec::new(),
             current_prose: String::new(),
             prose_span: None,
@@ -652,7 +692,7 @@ mod tests {
     #[test]
     fn section_command_title_is_structure_not_prose() {
         let input = "\\begin{document}\n\\section{A long title. With two sentences.}\nBody.\n\\end{document}\n";
-        let regions = LatexParser.parse(input);
+        let regions = LatexParser::default().parse(input);
         assert!(
             regions.iter().any(|r| matches!(
                 r,
@@ -706,7 +746,7 @@ mod tests {
 \begin{document}
 Hello world.
 \end{document}";
-        let regions = LatexParser.parse(input);
+        let regions = LatexParser::default().parse(input);
         // First 3 lines are preamble structure (including \begin{document})
         assert!(matches!(&regions[0], Region::Structure(_)));
         assert!(matches!(&regions[1], Region::Structure(_)));
@@ -725,7 +765,7 @@ E = mc^2
 \end{equation}
 More text.
 \end{document}";
-        let regions = LatexParser.parse(input);
+        let regions = LatexParser::default().parse(input);
         let structure_count = regions
             .iter()
             .filter(|r| matches!(r, Region::Structure(_)))
@@ -740,7 +780,7 @@ More text.
 % This is a comment
 Some text.
 \end{document}";
-        let regions = LatexParser.parse(input);
+        let regions = LatexParser::default().parse(input);
         let comment_region = regions.iter().find(|r| {
             if let Region::Structure(s) = r {
                 s.contains("% This is a comment")
@@ -810,7 +850,7 @@ Some text.
             out.contains("% TODO cite"),
             "trailing comment must be kept: {out}"
         );
-        let regions = LatexParser.parse(input);
+        let regions = LatexParser::default().parse(input);
         assert!(
             regions
                 .iter()
@@ -873,7 +913,7 @@ Some text.
             out.contains("Next sentence."),
             "following sentence must remain, got:\n{out}"
         );
-        let regions = LatexParser.parse(input);
+        let regions = LatexParser::default().parse(input);
         assert!(
             !regions.iter().any(
                 |r| matches!(r, Region::Structure(s) if s.contains("%!") || s.trim() == "%!\n")
@@ -905,7 +945,7 @@ Some text.
         use crate::format_text;
 
         let input = "\\begin{document}\nBefore the claim. More before.\n\\begin{theorem}\nA statement. Another claim.\n\\end{theorem}\nAfter the claim. More after.\n\\end{document}\n";
-        let regions = LatexParser.parse(input);
+        let regions = LatexParser::default().parse(input);
         assert!(
             regions
                 .iter()
@@ -960,7 +1000,7 @@ Some text.
     #[test]
     fn mid_line_begin_equation_leaves_leading_words_as_prose() {
         let input = "\\begin{document}\ninducing \\begin{equation}\nE = mc^2\n\\end{equation}\nAfter.\n\\end{document}\n";
-        let regions = LatexParser.parse(input);
+        let regions = LatexParser::default().parse(input);
         assert!(
             regions
                 .iter()
@@ -987,7 +1027,7 @@ Some text.
     #[test]
     fn nested_same_name_envs_close_on_matching_depth() {
         let input = "\\begin{document}\n\\begin{equation}\n\\begin{equation}\nx = 1\n\\end{equation}\ny = 2\n\\end{equation}\nAfter the nest. Next.\n\\end{document}\n";
-        let regions = LatexParser.parse(input);
+        let regions = LatexParser::default().parse(input);
         assert!(
             !regions
                 .iter()
@@ -1014,7 +1054,7 @@ Some text.
         use crate::format_text;
 
         let input = "\\begin{document}\nSee \\verb|a%b. Next sentence.\n\\end{document}\n";
-        let regions = LatexParser.parse(input);
+        let regions = LatexParser::default().parse(input);
         assert!(
             !regions.iter().any(|r| {
                 matches!(r, Region::Structure(s) if s.contains("%b") || s.contains("%b."))
@@ -1044,7 +1084,7 @@ Some text.
         use crate::format_text;
 
         let input = "\\begin{document}\nBefore.\n\\begin{lstlisting}\nprint(1)\n\\end{python} \\end{lstlisting}\nAfter the listing. Next.\n\\end{document}\n";
-        let regions = LatexParser.parse(input);
+        let regions = LatexParser::default().parse(input);
         let code = regions.iter().find_map(|r| match r {
             Region::Code { body, footer, .. } => Some((body.as_str(), footer.as_str())),
             _ => None,
@@ -1083,7 +1123,7 @@ Some text.
     #[test]
     fn nested_same_name_verbatim_closes_on_matching_depth() {
         let input = "\\begin{document}\n\\begin{verbatim}\n\\begin{verbatim}\ninner\n\\end{verbatim}\nstill body\n\\end{verbatim}\nAfter the nest.\n\\end{document}\n";
-        let regions = LatexParser.parse(input);
+        let regions = LatexParser::default().parse(input);
         let code = regions.iter().find_map(|r| match r {
             Region::Code { body, footer, .. } => Some((body.as_str(), footer.as_str())),
             _ => None,
@@ -1120,7 +1160,7 @@ Some text.
         use crate::format_text;
 
         let input = "\\begin{document}\n\\begin{lstlisting}\nprint(1) % \\end{lstlisting}\nAfter the listing. Next.\n\\end{document}\n";
-        let regions = LatexParser.parse(input);
+        let regions = LatexParser::default().parse(input);
         let code = regions.iter().find_map(|r| match r {
             Region::Code { body, footer, .. } => Some((body.as_str(), footer.as_str())),
             _ => None,
@@ -1161,7 +1201,7 @@ Some text.
         use crate::format_text;
 
         let input = "\\begin{document}\n\\begin{lstlisting} print(\"%\") \\end{lstlisting}\nAfter.\n\\end{document}\n";
-        let regions = LatexParser.parse(input);
+        let regions = LatexParser::default().parse(input);
         assert!(
             regions.iter().any(|r| matches!(r, Region::Code { .. })),
             "same-line lstlisting must be Code, got: {regions:?}"
@@ -1193,7 +1233,7 @@ Some text.
     #[test]
     fn theorem_optional_args_stay_on_the_begin_token() {
         let input = "\\begin{document}\nBefore.\n\\begin{theorem}[A. B. C.]\nA statement. Another.\n\\end{theorem}\nAfter.\n\\end{document}\n";
-        let regions = LatexParser.parse(input);
+        let regions = LatexParser::default().parse(input);
         assert!(
             regions.iter().any(|r| {
                 matches!(r, Region::Structure(s) if s.contains(r"\begin{theorem}[A. B. C.]"))
@@ -1212,5 +1252,209 @@ Some text.
                 .any(|r| matches!(r, Region::Prose(p) if p.contains("A statement"))),
             "theorem body must stay prose, got: {regions:?}"
         );
+    }
+
+    #[test]
+    fn missing_env_keys_keep_builtin_algorithm_as_prose() {
+        use crate::format_text;
+
+        // algorithm is not in NON_PROSE_ENVS; missing config keeps that list.
+        let input = "\\begin{document}\nBefore the algo. More before.\n\\begin{algorithm}\nFirst step. Second step.\n\\end{algorithm}\nAfter the algo. More after.\n\\end{document}\n";
+        let out = format_text(input, &latex_cfg()).unwrap();
+        assert!(
+            out.contains("First step.\nSecond step."),
+            "unlisted algorithm body must still reflow, got:\n{out}"
+        );
+        assert_eq!(format_text(&out, &latex_cfg()).unwrap(), out);
+    }
+
+    #[test]
+    fn configured_structure_envs_stop_algorithm_and_comment_reflow() {
+        use crate::format_text;
+
+        let input = "\\begin{document}\nBefore.\n\\begin{algorithm}\nFirst step. Second step.\n\\end{algorithm}\n\\begin{comment}\nHidden one. Hidden two.\n\\end{comment}\nAfter the block. Next.\n\\end{document}\n";
+        let cfg = crate::FormatConfig {
+            format: crate::format::Format::Latex,
+            latex_structure_envs: vec!["algorithm".into(), "comment".into()],
+            ..Default::default()
+        }
+        .without_safety_backstops();
+        let out = format_text(input, &cfg).unwrap();
+        assert!(
+            out.contains("First step. Second step."),
+            "algorithm body must not reflow, got:\n{out}"
+        );
+        assert!(
+            !out.contains("First step.\nSecond step."),
+            "algorithm must stay one source line, got:\n{out}"
+        );
+        assert!(
+            out.contains("Hidden one. Hidden two."),
+            "comment body must not reflow, got:\n{out}"
+        );
+        assert!(
+            !out.contains("Hidden one.\nHidden two."),
+            "comment env must stay one source line, got:\n{out}"
+        );
+        assert!(
+            out.contains("After the block.\nNext."),
+            "prose after configured envs must still reflow, got:\n{out}"
+        );
+        assert_eq!(format_text(&out, &cfg).unwrap(), out);
+    }
+
+    #[test]
+    fn configured_verbatim_env_stops_fancyvrb_reflow() {
+        use crate::format_text;
+
+        let input = "\\begin{document}\nBefore.\n\\begin{Verbatim}\nFirst line. Second line.\n\\end{Verbatim}\nAfter the listing. Next.\n\\end{document}\n";
+        let default_out = format_text(input, &latex_cfg()).unwrap();
+        assert!(
+            default_out.contains("First line.\nSecond line."),
+            "unlisted Verbatim body is prose and reflows, got:\n{default_out}"
+        );
+
+        let cfg = crate::FormatConfig {
+            format: crate::format::Format::Latex,
+            latex_verbatim_envs: vec!["Verbatim".into()],
+            ..Default::default()
+        }
+        .without_safety_backstops();
+        let out = format_text(input, &cfg).unwrap();
+        assert!(
+            out.contains("First line. Second line."),
+            "configured Verbatim body must not reflow, got:\n{out}"
+        );
+        assert!(
+            !out.contains("First line.\nSecond line."),
+            "Verbatim must stay verbatim, got:\n{out}"
+        );
+        let regions = LatexParser::from_config(Some(&cfg)).parse(input);
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Code { body, .. } if body.contains("First line. Second line.")
+            )),
+            "configured Verbatim must be Code, got: {regions:?}"
+        );
+        assert!(
+            out.contains("After the listing.\nNext."),
+            "prose after Verbatim must still reflow, got:\n{out}"
+        );
+        assert_eq!(format_text(&out, &cfg).unwrap(), out);
+    }
+
+    #[test]
+    fn configured_verbatim_command_is_tokenized_like_verb() {
+        use crate::format_text;
+
+        let input = "\\begin{document}\nUse \\Verb|a.b! c| here. Next sentence.\n\\end{document}\n";
+        let default_out = format_text(input, &latex_cfg()).unwrap();
+        assert!(
+            !default_out.contains("Use \\Verb|a.b! c| here.\nNext sentence."),
+            "unlisted Verb must not stay atomic like verb, got:\n{default_out}"
+        );
+
+        let cfg = crate::FormatConfig {
+            format: crate::format::Format::Latex,
+            latex_verbatim_commands: vec!["Verb".into()],
+            ..Default::default()
+        }
+        .without_safety_backstops();
+        let out = format_text(input, &cfg).unwrap();
+        assert!(
+            out.contains(r"\Verb|a.b! c|"),
+            "configured Verb must stay intact, got:\n{out}"
+        );
+        assert!(
+            !out.contains("\\Verb|a.\n") && !out.contains("\\Verb|a.b!\n"),
+            "inner .!? must not split configured Verb, got:\n{out}"
+        );
+        assert!(
+            out.contains("Use \\Verb|a.b! c| here.\nNext sentence."),
+            "configured Verb must tokenize like verb before split, got:\n{out}"
+        );
+        assert_eq!(format_text(&out, &cfg).unwrap(), out);
+    }
+
+    #[test]
+    fn configured_lists_keep_builtin_minted_and_equation() {
+        use crate::format_text;
+
+        let input = "\\begin{document}\nIntro. More intro.\n\\begin{equation}\nE = mc^2\n\\end{equation}\n\\begin{minted}{python}\nprint(1)\nprint(2)\n\\end{minted}\nAfter. Next.\n\\end{document}\n";
+        let cfg = crate::FormatConfig {
+            format: crate::format::Format::Latex,
+            latex_verbatim_envs: vec!["Verbatim".into()],
+            latex_structure_envs: vec!["algorithm".into()],
+            latex_verbatim_commands: vec!["Verb".into()],
+            ..Default::default()
+        }
+        .without_safety_backstops();
+        let out = format_text(input, &cfg).unwrap();
+        assert!(
+            out.contains("\\begin{equation}\nE = mc^2\n\\end{equation}"),
+            "built-in equation must stay structure, got:\n{out}"
+        );
+        assert!(
+            out.contains("\\begin{minted}{python}\nprint(1)\nprint(2)\n\\end{minted}"),
+            "built-in minted must stay a code env, got:\n{out}"
+        );
+        assert!(
+            out.contains("Intro.\nMore intro."),
+            "surrounding prose must still reflow, got:\n{out}"
+        );
+        assert_eq!(format_text(&out, &cfg).unwrap(), out);
+    }
+
+    #[test]
+    fn configured_lists_keep_eq_ref_nbsp() {
+        use crate::format_text;
+
+        let input = "\\begin{document}\nSee Eq.~\\ref{eq:diff}. Next.\n\\end{document}\n";
+        let cfg = crate::FormatConfig {
+            format: crate::format::Format::Latex,
+            latex_verbatim_envs: vec!["Verbatim".into()],
+            latex_structure_envs: vec!["algorithm".into()],
+            latex_verbatim_commands: vec!["Verb".into()],
+            ..Default::default()
+        }
+        .without_safety_backstops();
+        let out = format_text(input, &cfg).unwrap();
+        assert!(
+            out.contains("Eq.~\\ref{eq:diff}."),
+            "must not invent a space before ~, got:\n{out}"
+        );
+        assert!(
+            !out.contains("Eq. ~"),
+            "abbreviation merge must not insert a space before ~, got:\n{out}"
+        );
+        assert_eq!(format_text(&out, &cfg).unwrap(), out);
+    }
+
+    #[test]
+    fn configured_verb_inner_percent_is_not_a_comment() {
+        use crate::format_text;
+
+        let input = "\\begin{document}\nCode \\Verb!%! here. Next sentence.\n\\end{document}\n";
+        let cfg = crate::FormatConfig {
+            format: crate::format::Format::Latex,
+            latex_verbatim_commands: vec!["Verb".into()],
+            ..Default::default()
+        }
+        .without_safety_backstops();
+        let out = format_text(input, &cfg).unwrap();
+        assert!(
+            out.contains(r"\Verb!%!"),
+            "configured Verb with inner % must stay intact, got:\n{out}"
+        );
+        assert!(
+            out.contains("here."),
+            "text after configured Verb must not be commented out, got:\n{out}"
+        );
+        assert!(
+            out.contains("Next sentence."),
+            "following sentence must remain, got:\n{out}"
+        );
+        assert_eq!(format_text(&out, &cfg).unwrap(), out);
     }
 }

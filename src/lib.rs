@@ -111,6 +111,15 @@ pub struct FormatConfig {
     /// original document. Production default `true`; tests set `false`
     /// and assert the oracle themselves.
     pub render_backstop: bool,
+    /// Extra LaTeX environments treated as code (no reflow), added to
+    /// minted/lstlisting/verbatim. Empty keeps the built-in list.
+    pub latex_verbatim_envs: Vec<String>,
+    /// Extra LaTeX environments treated as structure (no reflow), added
+    /// to `NON_PROSE_ENVS`. Empty keeps the built-in list.
+    pub latex_structure_envs: Vec<String>,
+    /// Extra LaTeX command names tokenized like `\verb` before split.
+    /// Empty keeps verb/lstinline.
+    pub latex_verbatim_commands: Vec<String>,
 }
 
 impl Default for FormatConfig {
@@ -131,6 +140,9 @@ impl Default for FormatConfig {
             clause_breaks: false,
             fixpoint_backstop: true,
             render_backstop: true,
+            latex_verbatim_envs: vec![],
+            latex_structure_envs: vec![],
+            latex_verbatim_commands: vec![],
         }
     }
 }
@@ -206,7 +218,11 @@ pub fn build_splitter(config: &FormatConfig) -> Result<Box<dyn SentenceSplitter>
                     &config.extra_abbreviations,
                 )
             };
-            Ok(Box::new(neural.map_err(|e| anyhow::anyhow!("{e}"))?))
+            Ok(Box::new(
+                neural
+                    .map_err(|e| anyhow::anyhow!("{e}"))?
+                    .with_verbatim_commands(config.latex_verbatim_commands.clone()),
+            ))
         }
         #[cfg(not(feature = "neural"))]
         {
@@ -215,10 +231,10 @@ pub fn build_splitter(config: &FormatConfig) -> Result<Box<dyn SentenceSplitter>
             ))
         }
     } else {
-        Ok(Box::new(UnicodeSentenceSplitter::for_lang(
-            &config.neural_lang,
-            &config.extra_abbreviations,
-        )))
+        Ok(Box::new(
+            UnicodeSentenceSplitter::for_lang(&config.neural_lang, &config.extra_abbreviations)
+                .with_verbatim_commands(config.latex_verbatim_commands.clone()),
+        ))
     }
 }
 
@@ -345,7 +361,7 @@ fn format_once(
     }
 
     let spanned: Vec<SpannedRegion> =
-        parser::parser_for_format(config.format).parse_full(work_input);
+        parser::parser_for_format_config(config.format, Some(config)).parse_full(work_input);
     match reflow_spanned(work_input, &spanned, splitter, &reflow_config) {
         Ok(out) => Ok(out),
         Err(_) => Ok(work_input.to_string()),

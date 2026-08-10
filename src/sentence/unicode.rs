@@ -56,6 +56,8 @@ pub struct UnicodeSentenceSplitter {
     lang_abbrev_pattern: Regex,
     /// Compiled multi-abbreviation pattern for the selected language.
     lang_multi_pattern: Regex,
+    /// Extra LaTeX command names tokenized like `\verb` before split.
+    extra_verbatim_commands: Vec<String>,
 }
 
 impl UnicodeSentenceSplitter {
@@ -95,7 +97,18 @@ impl UnicodeSentenceSplitter {
             extra_pattern,
             lang_abbrev_pattern,
             lang_multi_pattern,
+            extra_verbatim_commands: Vec::new(),
         }
+    }
+
+    /// Extra LaTeX command names tokenized like `\verb` before split.
+    pub fn with_verbatim_commands(mut self, cmds: Vec<String>) -> Self {
+        self.extra_verbatim_commands = cmds;
+        self
+    }
+
+    pub(crate) fn verbatim_commands(&self) -> &[String] {
+        &self.extra_verbatim_commands
     }
 }
 
@@ -108,8 +121,17 @@ impl Default for UnicodeSentenceSplitter {
 /// Protect links, emphasis, math, and other inline tokens so a base segmenter
 /// (UAX or neural) cannot cut inside them. Shared by rules and neural paths.
 pub fn protect_inline_tokens(text: &str) -> (String, Vec<String>) {
+    protect_inline_tokens_with(text, &[])
+}
+
+/// Like [`protect_inline_tokens`], with extra LaTeX command names treated
+/// like `\verb` (delimiter is the next character).
+pub fn protect_inline_tokens_with(
+    text: &str,
+    extra_verbatim_commands: &[String],
+) -> (String, Vec<String>) {
     let mut placeholders: Vec<String> = Vec::new();
-    let after_verb = protect_latex_verbatim(text, &mut placeholders);
+    let after_verb = protect_latex_verbatim(text, &mut placeholders, extra_verbatim_commands);
     let after_spans = protect_paired_spans(&after_verb, &mut placeholders);
     let protected = INLINE_TOKEN_RE.replace_all(&after_spans, |caps: &regex::Captures| {
         let idx = placeholders.len();
@@ -120,13 +142,17 @@ pub fn protect_inline_tokens(text: &str) -> (String, Vec<String>) {
 }
 
 /// `\verb|...|` / `\lstinline[...]!...!` so inner `.!?%` cannot split or comment.
-fn protect_latex_verbatim(text: &str, placeholders: &mut Vec<String>) -> String {
+fn protect_latex_verbatim(
+    text: &str,
+    placeholders: &mut Vec<String>,
+    extra_verbatim_commands: &[String],
+) -> String {
     let mut out = String::with_capacity(text.len());
     let bytes = text.as_bytes();
     let mut i = 0;
     while i < text.len() {
         if bytes[i] == b'\\' {
-            if let Some(end) = latex_verb_span_end(text, i) {
+            if let Some(end) = latex_verb_span_end_with(text, i, extra_verbatim_commands) {
                 push_placeholder(&mut out, placeholders, &text[i..end]);
                 i = end;
                 continue;
@@ -139,13 +165,18 @@ fn protect_latex_verbatim(text: &str, placeholders: &mut Vec<String>) -> String 
     out
 }
 
-/// Byte end of a `\verb` / `\lstinline` span starting at `at`, or `None`.
+/// Byte end of a `\verb` / `\lstinline` / extra-name span starting at `at`.
 ///
 /// `\verb` / `\verb*`: next character is the delimiter; content runs to the
 /// same character. `\lstinline` / `\lstinline*` may take optional `[...]`
-/// before a delimiter or a `{...}` brace body. With no closer, the span
-/// runs to end of line so an inner `%` is not a comment.
-pub(crate) fn latex_verb_span_end(text: &str, at: usize) -> Option<usize> {
+/// before a delimiter or a `{...}` brace body. Extra names are tokenized
+/// like `\verb`. With no closer, the span runs to end of line so an inner
+/// `%` is not a comment.
+pub(crate) fn latex_verb_span_end_with(
+    text: &str,
+    at: usize,
+    extra_verbatim_commands: &[String],
+) -> Option<usize> {
     let rest = text.get(at..)?;
     if !rest.starts_with('\\') {
         return None;
@@ -157,12 +188,14 @@ pub(crate) fn latex_verb_span_end(text: &str, at: usize) -> Option<usize> {
             return None;
         }
         (after_bs + "lstinline".len(), true)
-    } else {
-        let stripped = tail.strip_prefix("verb")?;
+    } else if let Some(stripped) = tail.strip_prefix("verb") {
         if stripped.starts_with(|c: char| c.is_ascii_alphabetic()) {
             return None;
         }
         (after_bs + "verb".len(), false)
+    } else {
+        let name = match_extra_verb_command(tail, extra_verbatim_commands)?;
+        (after_bs + name.len(), false)
     };
 
     if text.get(i..)?.starts_with('*') {
@@ -207,6 +240,27 @@ fn line_end(text: &str, from: usize) -> usize {
         .find('\n')
         .map(|rel| from + rel)
         .unwrap_or(text.len())
+}
+
+/// Longest extra command name that is a prefix of `tail` and is not
+/// followed by an ASCII letter (`\Verb` must not steal `\Verbatim`).
+fn match_extra_verb_command<'a>(tail: &'a str, extras: &'a [String]) -> Option<&'a str> {
+    let mut best: Option<&str> = None;
+    for name in extras {
+        if name.is_empty() || name == "verb" || name == "lstinline" {
+            continue;
+        }
+        let Some(stripped) = tail.strip_prefix(name.as_str()) else {
+            continue;
+        };
+        if stripped.starts_with(|c: char| c.is_ascii_alphabetic()) {
+            continue;
+        }
+        if best.is_none_or(|b| name.len() > b.len()) {
+            best = Some(name.as_str());
+        }
+    }
+    best
 }
 
 fn skip_ascii_ws(text: &str, mut i: usize) -> usize {
@@ -601,7 +655,8 @@ impl SentenceSplitter for UnicodeSentenceSplitter {
             return vec![];
         }
 
-        let (protected, placeholders) = protect_inline_tokens(text);
+        let (protected, placeholders) =
+            protect_inline_tokens_with(text, &self.extra_verbatim_commands);
 
         // UAX #29 sentence bounds. `unicode_sentences()` filters
         // whitespace-only segments but also drops trailing closing
@@ -1081,6 +1136,24 @@ mod tests {
         assert_eq!(
             split(text),
             vec![r"Use \verb|a.b! c| here.".to_string(), "Next.".to_string()]
+        );
+    }
+
+    #[test]
+    fn extra_verbatim_command_is_tokenized_like_verb() {
+        let text = r"Use \Verb|a.b! c| here. Next.";
+        let extras = ["Verb".to_string()];
+        let (_, placeholders) = protect_inline_tokens_with(text, &extras);
+        assert!(
+            placeholders.iter().any(|p| p == r"\Verb|a.b! c|"),
+            "extra Verb span must be protected, got {placeholders:?}"
+        );
+        assert!(
+            !protect_inline_tokens(text)
+                .1
+                .iter()
+                .any(|p| p == r"\Verb|a.b! c|"),
+            "unlisted Verb must not be protected"
         );
     }
 

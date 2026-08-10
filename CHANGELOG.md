@@ -5,6 +5,7 @@ All notable changes to this project will be documented in this file. See [conven
 ## Unreleased (main)
 
 #### Features
+- (**latex**) `[latex].verbatim_envs` / `structure_envs` / `verbatim_commands` in `.snapperrc.toml` add names to the built-in lists (minted/lstlisting/verbatim, `NON_PROSE_ENVS`, `\\verb`/`\\lstinline`); missing keys keep today's defaults. Extra command names are tokenized like `\\verb` before split. No regex `other:` key
 - (**reflow**) `--clause-breaks` / `clause_breaks` with `max_width = 0` inserts a newline after every independent-clause mark (`,`, `;`, `:`, em dash, `--`) that is already followed by whitespace; a one-clause sentence stays one line; `max_width > 0` keeps wrap-prefer-clause. Tokens such as `1,000`, URLs, `--flags`, and unspaced dashes never split. `--check` uses the same mode
 - (**cli** / **check**) `--check --output-format json|sarif` emits 1-indexed `fused` / `wrap` / `long` diagnostics with excerpts; `long` is advisory unless `--strict-long`; stdin `--check` honors the same JSON/SARIF and exit codes; SARIF URIs are repo-relative (or `file:` plus `invocations[0].workingDirectory`)
 - (**mcp**) `check_formatting` returns `would_reformat` identical to CLI `--check`, plus the same line diagnostics

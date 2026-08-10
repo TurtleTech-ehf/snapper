@@ -86,12 +86,20 @@ fn line_prose_payload(input: &str, line: Line<'_>, spanned: &[SpannedRegion]) ->
     }
 }
 
-/// Create the appropriate parser for a given format.
+/// Create the appropriate parser for a given format (built-in lists only).
 pub fn parser_for_format(format: crate::format::Format) -> Box<dyn FormatParser> {
+    parser_for_format_config(format, None)
+}
+
+/// Create a parser, applying `[latex]` extras from `config` when present.
+pub fn parser_for_format_config(
+    format: crate::format::Format,
+    config: Option<&crate::FormatConfig>,
+) -> Box<dyn FormatParser> {
     use crate::format::Format;
     match format {
         Format::Org => Box::new(org::OrgParser),
-        Format::Latex => Box::new(latex::LatexParser),
+        Format::Latex => Box::new(latex::LatexParser::from_config(config)),
         Format::Markdown => Box::new(markdown::MarkdownParser),
         Format::Rst => Box::new(rst::RstParser),
         Format::Plaintext => Box::new(plaintext::PlaintextParser),

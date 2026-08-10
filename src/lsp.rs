@@ -51,6 +51,9 @@ impl SnapperLsp {
             format,
             max_width: project.max_width_for_format(format_str).unwrap_or(0),
             extra_abbreviations: project.abbreviations_for_format(format_str),
+            latex_verbatim_envs: project.latex_verbatim_envs(),
+            latex_structure_envs: project.latex_structure_envs(),
+            latex_verbatim_commands: project.latex_verbatim_commands(),
             clause_breaks: project.clause_breaks.unwrap_or(false),
             ..Default::default()
         }
