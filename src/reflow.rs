@@ -1230,10 +1230,44 @@ without additional human intervention.";
     fn max_width_keeps_autolink_atomic() {
         let token = "<https://example.com/a/long-path>";
         let sentence = "Visit <https://example.com/a/long-path> today.";
+        // Format::Markdown: wrap-created `<https://...>` must stay an
+        // autolink, not a substring of `\<https://...` (HTML-opener escape).
         for clause in [false, true] {
-            let wrapped = wrap_sentence(sentence, 24, clause);
-            assert_atomic_token(&wrapped, token);
+            let regions = vec![Region::Prose(sentence.to_string())];
+            let config = ReflowConfig {
+                max_width: 24,
+                clause_breaks: clause,
+                format: Format::Markdown,
+                ..Default::default()
+            };
+            let wrapped = reflow(&regions, &UnicodeSentenceSplitter::new(), &config);
+            assert!(
+                wrapped.lines().any(|l| l.trim() == token),
+                "autolink must appear unchanged, not escaped:\n{wrapped}"
+            );
+            assert!(
+                !wrapped.contains("\\<"),
+                "must not inject \\ into the autolink:\n{wrapped}"
+            );
+            assert!(!wrapped.contains('\u{00a0}'));
         }
+        let email = "<user@example.com>";
+        let email_sentence = "Write <user@example.com> today please.";
+        let regions = vec![Region::Prose(email_sentence.to_string())];
+        let config = ReflowConfig {
+            max_width: 20,
+            format: Format::Markdown,
+            ..Default::default()
+        };
+        let wrapped = reflow(&regions, &UnicodeSentenceSplitter::new(), &config);
+        assert!(
+            wrapped.lines().any(|l| l.trim() == email),
+            "email autolink must appear unchanged:\n{wrapped}"
+        );
+        assert!(
+            !wrapped.contains("\\<"),
+            "email autolink escaped:\n{wrapped}"
+        );
     }
 
     #[test]
