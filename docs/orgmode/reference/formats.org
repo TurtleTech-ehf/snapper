@@ -55,8 +55,8 @@ These tokens within prose are not split across lines:
 - Links: =[[url][description]]=
 - Emphasis: =*bold*=, =/italic/=, =_underline_=, =+strike+=
 - Inline code: =~code~=, ===verbatim===
-- A =~code~= or ===verbatim=== span may contain the marker character; pairing uses Org's border and post rules, so =x = 1= stays one span
-- Markdown inline code: a run of =n= backticks closes on the next run of the same length, so a double span can hold a single backtick
+- A =~code~= or ===verbatim=== span may contain the marker character; pairing matches pandoc's org reader, so =x = 1= stays one span
+- Markdown inline code: a run of =n= backticks closes on the next run of the same length (CommonMark / pandoc), so a double span can hold a single backtick
 - Inline export snippets: =@@backend:value@@=
 - URLs: =https://...= (trailing sentence punctuation not swallowed)
 
