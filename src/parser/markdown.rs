@@ -676,6 +676,24 @@ mod tests {
         assert_eq!(regions[1], Region::Prose("One. Two.".to_string()));
         // No trailing newline in the source, so no terminator Structure.
         assert_eq!(regions.len(), 2);
+        assert!(
+            !regions
+                .iter()
+                .any(|r| matches!(r, Region::Prose(p) if p.contains('>'))),
+            "quote marker must not leak into Prose: {regions:?}"
+        );
+    }
+
+    #[test]
+    fn blockquote_multiline_keeps_each_marker() {
+        // Each source quote line is its own item so splice ranges stay
+        // contiguous. Reflow of already-split quotes is identity.
+        let regions = MarkdownParser.parse("> One.\n> Two.");
+        assert_eq!(regions[0], Region::Structure("> ".to_string()));
+        assert_eq!(regions[1], Region::Prose("One.".to_string()));
+        assert_eq!(regions[2], Region::Structure("\n".to_string()));
+        assert_eq!(regions[3], Region::Structure("> ".to_string()));
+        assert_eq!(regions[4], Region::Prose("Two.".to_string()));
     }
 
     #[test]
@@ -698,6 +716,27 @@ mod tests {
         let quote = format_text("> One. Two.\n", &cfg).unwrap();
         assert_eq!(quote, "> One.\n> Two.\n");
         assert_eq!(format_text(&quote, &cfg).unwrap(), quote);
+    }
+
+    #[test]
+    fn blockquote_keeps_marker_on_each_content_line() {
+        use crate::format::Format;
+        use crate::{FormatConfig, format_text};
+
+        let cfg = FormatConfig {
+            format: Format::Markdown,
+            ..Default::default()
+        };
+        for input in ["> One. Two.\n", "> One.\n> Two.\n"] {
+            let out = format_text(input, &cfg).unwrap();
+            let quote_lines: Vec<_> = out.lines().filter(|l| !l.is_empty()).collect();
+            assert_eq!(
+                quote_lines,
+                vec!["> One.", "> Two."],
+                "each content line needs `>`, input {input:?}, got:\n{out}"
+            );
+            assert_eq!(format_text(&out, &cfg).unwrap(), out);
+        }
     }
 
     #[test]
@@ -760,5 +799,134 @@ mod tests {
             Region::Prose("Child one. Child two.".to_string())
         );
         assert_eq!(regions[5], Region::Structure("\n".to_string()));
+    }
+
+    #[test]
+    fn hard_break_two_spaces_not_joined_with_space() {
+        use crate::format::Format;
+        use crate::{FormatConfig, format_text};
+
+        let input = "line  \ncontinued. Next sentence.\n";
+        let regions = MarkdownParser.parse(input);
+        let joined: String = regions
+            .iter()
+            .map(|r| match r {
+                Region::Prose(p) | Region::Structure(p) | Region::BlankLines(p) => p.as_str(),
+                Region::Code { .. } => "",
+            })
+            .collect();
+        assert!(
+            !joined.contains("line continued"),
+            "two trailing spaces are a hard break, not a space join: {regions:?}"
+        );
+        assert!(
+            regions.iter().any(|r| match r {
+                Region::Structure(s) => s.contains("  \n") || s.ends_with("  \n"),
+                _ => false,
+            }) || joined.contains("line  \n"),
+            "hard-break spaces must survive classification: {regions:?}"
+        );
+
+        let cfg = FormatConfig {
+            format: Format::Markdown,
+            ..Default::default()
+        };
+        let out = format_text(input, &cfg).unwrap();
+        assert!(
+            !out.contains("line continued"),
+            "must not collapse hard break to a space, got:\n{out}"
+        );
+        assert!(
+            out.contains("line  \n") || out.contains("line  \r"),
+            "two trailing spaces must remain, got:\n{out:?}"
+        );
+        assert!(out.contains("Next sentence."));
+        assert_eq!(format_text(&out, &cfg).unwrap(), out);
+    }
+
+    #[test]
+    fn hard_break_backslash_not_joined_with_space() {
+        use crate::format::Format;
+        use crate::{FormatConfig, format_text};
+
+        let input = "line\\\ncontinued. Next sentence.\n";
+        let cfg = FormatConfig {
+            format: Format::Markdown,
+            ..Default::default()
+        };
+        let out = format_text(input, &cfg).unwrap();
+        assert!(
+            !out.contains("line continued") && !out.contains("line\\ continued"),
+            "backslash hard break must not become a space, got:\n{out}"
+        );
+        assert!(
+            out.contains("line\\\ncontinued"),
+            "backslash hard break must remain, got:\n{out:?}"
+        );
+        assert!(out.contains("Next sentence."));
+        assert_eq!(format_text(&out, &cfg).unwrap(), out);
+    }
+
+    #[test]
+    fn html_comment_multiline_is_structure() {
+        let input =
+            "Before sentence. After.\n<!--\nHidden. With a period.\nStill comment.\n-->\nMore. Text.";
+        let regions = MarkdownParser.parse(input);
+        let comment = regions.iter().find_map(|r| match r {
+            Region::Structure(s) if s.contains("<!--") => Some(s.as_str()),
+            _ => None,
+        });
+        let comment = comment.expect(&format!("comment must be Structure, got {regions:?}"));
+        assert!(comment.contains("<!--"), "{comment}");
+        assert!(comment.contains("Hidden. With a period."), "{comment}");
+        assert!(comment.contains("Still comment."), "{comment}");
+        assert!(comment.contains("-->"), "{comment}");
+        assert!(
+            !regions
+                .iter()
+                .any(|r| matches!(r, Region::Prose(p) if p.contains("Hidden") || p.contains("Still comment"))),
+            "comment body must not be Prose: {regions:?}"
+        );
+    }
+
+    #[test]
+    fn html_comment_multiline_passes_through_format() {
+        use crate::format::Format;
+        use crate::{FormatConfig, format_text};
+
+        let input = "Before sentence. After.\n<!--\nHidden. With a period.\nStill comment.\n-->\nMore. Text.\n";
+        let cfg = FormatConfig {
+            format: Format::Markdown,
+            ..Default::default()
+        };
+        let out = format_text(input, &cfg).unwrap();
+        assert!(
+            out.contains("<!--\nHidden. With a period.\nStill comment.\n-->\n"),
+            "multiline comment must pass through, got:\n{out}"
+        );
+        assert!(out.contains("Before sentence.\nAfter."));
+        assert!(out.contains("More.\nText."));
+        assert_eq!(format_text(&out, &cfg).unwrap(), out);
+    }
+
+    #[test]
+    fn html_comment_pragma_still_disables_reflow() {
+        use crate::format::Format;
+        use crate::{FormatConfig, format_text};
+
+        let input = "Hello world. Goodbye world.\n<!-- snapper:off -->\nKeep this. Exactly here.\n<!-- snapper:on -->\nFinal thing. Last sentence.\n";
+        let cfg = FormatConfig {
+            format: Format::Markdown,
+            ..Default::default()
+        };
+        let out = format_text(input, &cfg).unwrap();
+        assert!(out.contains("Hello world.\nGoodbye world.\n"));
+        assert!(
+            out.contains("Keep this. Exactly here.\n"),
+            "pragma-off body must stay untouched, got:\n{out}"
+        );
+        assert!(out.contains("Final thing.\nLast sentence."));
+        assert!(out.contains("<!-- snapper:off -->"));
+        assert!(out.contains("<!-- snapper:on -->"));
     }
 }

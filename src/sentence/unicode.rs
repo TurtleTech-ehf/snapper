@@ -1158,4 +1158,89 @@ mod tests {
             vec![r#"End of quote: "done.""#, "Start again."]
         );
     }
+
+    #[test]
+    fn markdown_strong_with_internal_period_not_split() {
+        // CommonMark `**`: a period next to the closer is still inside the span.
+        let text = "This is **the end. Still bold** after.";
+        let (_, placeholders) = protect_inline_tokens(text);
+        assert!(
+            placeholders.iter().any(|p| p == "**the end. Still bold**"),
+            "strong span must be one token, got {placeholders:?}"
+        );
+        assert_eq!(split(text), vec![text.to_string()]);
+    }
+
+    #[test]
+    fn markdown_strong_may_split_after_closer() {
+        assert_eq!(
+            split("It is **complex**. Equity is hard."),
+            vec!["It is **complex**.".to_string(), "Equity is hard.".to_string()]
+        );
+    }
+
+    #[test]
+    fn markdown_em_with_internal_period_not_split() {
+        let text = "This is *the end. Still em* after.";
+        let (_, placeholders) = protect_inline_tokens(text);
+        assert!(
+            placeholders.iter().any(|p| p == "*the end. Still em*"),
+            "em span must be one token, got {placeholders:?}"
+        );
+        assert_eq!(split(text), vec![text.to_string()]);
+    }
+
+    #[test]
+    fn markdown_strike_with_internal_period_not_split() {
+        let text = "This is ~~the end. Still strike~~ after.";
+        let (_, placeholders) = protect_inline_tokens(text);
+        assert!(
+            placeholders.iter().any(|p| p == "~~the end. Still strike~~"),
+            "strike span must be one token, got {placeholders:?}"
+        );
+        assert_eq!(split(text), vec![text.to_string()]);
+    }
+
+    #[test]
+    fn markdown_strong_inner_star_does_not_close_early() {
+        // Org `*bold*` closes on the first inner `*`. CommonMark flanking
+        // keeps `**a * b. C**` as one strong span, so the period stays inside.
+        let text = "Wrap **a * b. C** after. Next.";
+        let (_, placeholders) = protect_inline_tokens(text);
+        assert!(
+            placeholders.iter().any(|p| p == "**a * b. C**"),
+            "must not close strong on the inner star, got {placeholders:?}"
+        );
+        assert_eq!(
+            split(text),
+            vec!["Wrap **a * b. C** after.".to_string(), "Next.".to_string()]
+        );
+    }
+
+    #[test]
+    fn markdown_emphasis_format_text_does_not_break_inside_span() {
+        use crate::format::Format;
+        use crate::{FormatConfig, format_text};
+
+        let cfg = FormatConfig {
+            format: Format::Markdown,
+            ..Default::default()
+        };
+        let out = format_text("This is **the end. Still bold** after.\n", &cfg).unwrap();
+        assert!(
+            !out.contains("end.\nStill"),
+            "must not split inside **...**, got:\n{out}"
+        );
+        assert_eq!(format_text(&out, &cfg).unwrap(), out);
+
+        let out = format_text("It is **complex**. Equity is hard.\n", &cfg).unwrap();
+        assert!(
+            out.contains("**complex**.") && out.contains("Equity is hard."),
+            "may split after the closer, got:\n{out}"
+        );
+        assert!(
+            !out.contains("**complex.\n"),
+            "must not split before the closer, got:\n{out}"
+        );
+    }
 }
