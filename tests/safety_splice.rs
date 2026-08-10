@@ -87,6 +87,56 @@ fn org_headline_without_newline_is_exact_slice() {
     }
 }
 
+/// Planner property: format_text must not invent a terminator on a
+/// no-newline headline. Backstops off so a masked no-op is a failure.
+#[test]
+fn format_text_preserves_no_nl_headlines() {
+    for (format, input) in [
+        (Format::Markdown, "## Title"),
+        (Format::Org, "* TODO a headline"),
+        (Format::Latex, "\\begin{document}\n\\section{A title}"),
+    ] {
+        let out = format_text(input, &cfg(format)).unwrap();
+        assert_eq!(out, input, "{format:?} invented bytes:\n{out:?}");
+        assert!(
+            oracle::matches(format, input, &out),
+            "{format:?} oracle rejected a no-op headline"
+        );
+    }
+}
+
+/// The oracle must see an invented newline on a structure line as a
+/// mutation, not as equivalent whitespace.
+#[test]
+fn oracle_rejects_invented_newline_on_headlines() {
+    assert!(
+        !oracle::matches(Format::Markdown, "## Title", "## Title\n"),
+        "MD oracle must catch invented newline on ATX title"
+    );
+    assert!(
+        !oracle::matches(Format::Org, "* TODO a headline", "* TODO a headline\n"),
+        "Org oracle must catch invented newline on headline"
+    );
+    let tex_in = "\\begin{document}\n\\section{A title}";
+    let tex_nl = "\\begin{document}\n\\section{A title}\n";
+    assert!(
+        !oracle::matches(Format::Latex, tex_in, tex_nl),
+        "LaTeX oracle must catch invented newline on section"
+    );
+}
+
+#[test]
+fn oracle_rejects_structure_kind_change() {
+    assert!(
+        !oracle::matches(Format::Markdown, "## Title\n\nHi.", "Title\n\nHi."),
+        "dropping ATX marks is a structure mutation"
+    );
+    assert!(
+        !oracle::matches(Format::Org, "* TODO a\n\nHi.", "TODO a\n\nHi."),
+        "dropping stars is a structure mutation"
+    );
+}
+
 fn assert_non_prose_hash_stable(name: &str, format: Format) {
     let input = fixture(name);
     let parser = parser_for_format(format);
@@ -234,17 +284,26 @@ fn render_backstop_keeps_mid_token_period_capital() {
     assert_eq!(out, input);
 }
 
+/// The fixpoint helper returns the original document when the step
+/// function cycles A/B within the cap.
 #[test]
-fn production_fixpoint_returns_original_on_cap() {
-    // Empty and already-formatted inputs converge in one extra pass.
-    let input = "Hello world.\nThis is a test.\n";
-    let out = format_text(
-        input,
-        &FormatConfig {
-            format: Format::Plaintext,
-            ..Default::default()
-        },
-    )
+fn fixpoint_ab_cycle_returns_original() {
+    use std::cell::Cell;
+    let tick = Cell::new(0u8);
+    let out = snapper_fmt::run_fixpoint("A", true, |_| {
+        let n = tick.get();
+        tick.set(n + 1);
+        Ok(if n % 2 == 0 {
+            "B".to_string()
+        } else {
+            "A".to_string()
+        })
+    })
     .unwrap();
-    assert_eq!(out, "Hello world.\nThis is a test.\n");
+    assert_eq!(out, "A");
+    assert!(
+        tick.get() >= 2,
+        "must observe the cycle, ticks={}",
+        tick.get()
+    );
 }

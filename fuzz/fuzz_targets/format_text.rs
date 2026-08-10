@@ -31,28 +31,27 @@ fn format_of(b: u8) -> Format {
 }
 
 fuzz_target!(|data: &[u8]| {
-    if data.is_empty() {
-        return;
-    }
-    let format = format_of(data[0]);
-    let src = &data[1..];
-    let c = cfg(format);
-    match format_bytes(src, &c) {
-        Err(e) => {
-            assert!(
-                e.downcast_ref::<InvalidUtf8Error>().is_some(),
-                "only InvalidUtf8Error is allowed, got {e}"
-            );
-        }
-        Ok(out) => {
-            let twice = format_bytes(&out, &c).expect("second pass on valid UTF-8");
-            assert_eq!(out, twice, "not idempotent");
-            let s = std::str::from_utf8(src).unwrap();
-            let o = std::str::from_utf8(&out).unwrap();
-            assert!(
-                oracle::matches(format, s, o),
-                "oracle mismatch\n in={s:?}\n out={o:?}"
-            );
+    // Fixture corpus files are raw document bytes. Drive every Format.
+    for tag in 0u8..5 {
+        let format = format_of(tag);
+        let c = cfg(format);
+        match format_bytes(data, &c) {
+            Err(e) => {
+                assert!(
+                    e.downcast_ref::<InvalidUtf8Error>().is_some(),
+                    "only InvalidUtf8Error is allowed, got {e}"
+                );
+            }
+            Ok(out) => {
+                let twice = format_bytes(&out, &c).expect("second pass on valid UTF-8");
+                assert_eq!(out, twice, "not idempotent");
+                if let (Ok(s), Ok(o)) = (std::str::from_utf8(data), std::str::from_utf8(&out)) {
+                    assert!(
+                        oracle::matches(format, s, o),
+                        "oracle mismatch format={format:?}\n in={s:?}\n out={o:?}"
+                    );
+                }
+            }
         }
     }
 });

@@ -376,7 +376,8 @@ mod tests {
         let cfg = FormatConfig {
             format: Format::Latex,
             ..Default::default()
-        };
+        }
+        .without_safety_backstops();
         let out = format_text(input, &cfg).unwrap();
         assert!(
             out.contains("\\section{A long title. With two sentences.}"),
@@ -450,7 +451,8 @@ Some text.
         let cfg = FormatConfig {
             format: Format::Latex,
             ..Default::default()
-        };
+        }
+        .without_safety_backstops();
         let out = format_text(input, &cfg).unwrap();
         assert!(
             !out.contains("foo% bar"),
@@ -473,7 +475,8 @@ Some text.
         let cfg = FormatConfig {
             format: Format::Latex,
             ..Default::default()
-        };
+        }
+        .without_safety_backstops();
         let out = format_text(input, &cfg).unwrap();
         assert!(
             out.contains("50\\% of cases."),
@@ -491,7 +494,8 @@ Some text.
         let cfg = FormatConfig {
             format: Format::Latex,
             ..Default::default()
-        };
+        }
+        .without_safety_backstops();
         let out = format_text(input, &cfg).unwrap();
         assert!(
             out.contains("% TODO cite"),

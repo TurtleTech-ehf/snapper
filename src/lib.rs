@@ -69,7 +69,7 @@ use anyhow::Result;
 
 use crate::config::CodeLang;
 use crate::format::Format;
-use crate::reflow::{ReflowConfig, reflow};
+use crate::reflow::ReflowConfig;
 use crate::sentence::SentenceSplitter;
 use crate::sentence::unicode::UnicodeSentenceSplitter;
 
@@ -136,9 +136,54 @@ impl Default for FormatConfig {
 #[error("input is not valid UTF-8")]
 pub struct InvalidUtf8Error;
 
+/// Pandoc's AST has no source offsets, so it cannot splice into original
+/// bytes. `format_text` refuses rather than reconstruct.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+#[error("pandoc backend cannot splice original source bytes")]
+pub struct PandocCannotSplice;
+
 /// Maximum pipeline passes including the first. Cap hit (or an A/B cycle)
 /// returns the original document unchanged.
 const MAX_FORMAT_PASSES: usize = 4;
+
+impl FormatConfig {
+    /// Tests that assert planner properties (idempotence, oracle, splice)
+    /// must disable both backstops so a planner that needs them fails.
+    pub fn without_safety_backstops(mut self) -> Self {
+        self.fixpoint_backstop = false;
+        self.render_backstop = false;
+        self
+    }
+}
+
+/// Run `step` until the output is a byte fixpoint or the cap is hit.
+///
+/// A cycle (including A/B) or a cap miss returns `original`. `enabled`
+/// false runs `step` once. Public so tests can inject a cycling step.
+pub fn run_fixpoint<F>(original: &str, enabled: bool, mut step: F) -> Result<String>
+where
+    F: FnMut(&str) -> Result<String>,
+{
+    let once = step(original)?;
+    if !enabled {
+        return Ok(once);
+    }
+    let mut cur = once;
+    let mut seen = std::collections::HashSet::new();
+    seen.insert(original.to_string());
+    seen.insert(cur.clone());
+    for _ in 1..MAX_FORMAT_PASSES {
+        let next = step(&cur)?;
+        if next == cur {
+            return Ok(cur);
+        }
+        if !seen.insert(next.clone()) {
+            return Ok(original.to_string());
+        }
+        cur = next;
+    }
+    Ok(original.to_string())
+}
 
 /// Build the appropriate sentence splitter from config.
 pub fn build_splitter(config: &FormatConfig) -> Result<Box<dyn SentenceSplitter>> {
@@ -204,37 +249,20 @@ pub fn format_text_with_splitter(
     };
 
     let once = format_once(work_input, config, splitter, config.format_code)?;
-    let candidate = if config.fixpoint_backstop && !config.use_pandoc {
-        let mut cur = once;
-        let mut converged = false;
-        // Later passes prove prose stability. External code formatters
-        // already ran on the first pass; re-invoking them multiplies
-        // timeout budgets and is not part of the planner fixpoint.
-        for _ in 1..MAX_FORMAT_PASSES {
-            let next = format_once(&cur, config, splitter, false)?;
-            if next == cur {
-                converged = true;
-                break;
-            }
-            cur = next;
-        }
-        if converged {
-            cur
+    // Later passes prove prose stability. External code formatters
+    // already ran on the first pass; re-invoking them multiplies
+    // timeout budgets and is not part of the planner fixpoint.
+    let candidate = run_fixpoint(work_input, config.fixpoint_backstop, |cur| {
+        if cur == work_input {
+            Ok(once.clone())
         } else {
-            work_input.to_string()
+            format_once(cur, config, splitter, false)
         }
-    } else {
-        once
-    };
+    })?;
 
-    // The render backstop is for the splice path: output is original
-    // bytes plus reflowed prose. Pandoc reconstructs from an AST, so
-    // goldmark/pulldown HTML of that reconstruction is not comparable
-    // to the source and must not veto a successful reflow.
     let candidate = if config.render_backstop
-        && !config.use_pandoc
         && candidate != work_input
-        && !oracle::matches(config.format, work_input, &candidate)
+        && !oracle::matches_ex(config.format, work_input, &candidate, config.format_code)
     {
         work_input.to_string()
     } else {
@@ -296,11 +324,12 @@ fn format_once(
                 });
             let parser =
                 parser::pandoc::PandocParser::with_backend(pandoc_fmt, config.pandoc_backend);
-            // Pandoc path: fail closed (no silent all-prose, no native re-parse).
-            let regions = parser
+            // Surface parse errors (no silent all-prose). Splice still
+            // requires source offsets the AST does not carry.
+            parser
                 .try_parse(work_input)
                 .map_err(|e| anyhow::anyhow!("{e}"))?;
-            return Ok(reflow(&regions, splitter, &reflow_config));
+            return Err(anyhow::Error::new(PandocCannotSplice));
         }
         #[cfg(not(feature = "pandoc"))]
         {
@@ -312,12 +341,10 @@ fn format_once(
 
     let spanned: Vec<SpannedRegion> =
         parser::parser_for_format(config.format).parse_full(work_input);
-    Ok(reflow_spanned(
-        work_input,
-        &spanned,
-        splitter,
-        &reflow_config,
-    ))
+    match reflow_spanned(work_input, &spanned, splitter, &reflow_config) {
+        Ok(out) => Ok(out),
+        Err(_) => Ok(work_input.to_string()),
+    }
 }
 
 /// Format only lines within a range (1-indexed, inclusive).

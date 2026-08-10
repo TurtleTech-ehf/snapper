@@ -466,7 +466,8 @@ mod tests {
         let cfg = FormatConfig {
             format: Format::Org,
             ..Default::default()
-        };
+        }
+        .without_safety_backstops();
         let out = format_text(input, &cfg).unwrap();
         assert!(
             out.lines()
@@ -489,7 +490,8 @@ mod tests {
         let cfg = FormatConfig {
             format: Format::Org,
             ..Default::default()
-        };
+        }
+        .without_safety_backstops();
         let out = format_text(input, &cfg).unwrap();
         assert!(
             out.contains("Vec[T]"),
@@ -510,7 +512,8 @@ mod tests {
         let cfg = FormatConfig {
             format: Format::Org,
             ..Default::default()
-        };
+        }
+        .without_safety_backstops();
         let out = format_text(input, &cfg).unwrap();
         assert_eq!(
             out, input,
@@ -532,7 +535,8 @@ mod tests {
         let cfg = FormatConfig {
             format: Format::Org,
             ..Default::default()
-        };
+        }
+        .without_safety_backstops();
         let out = format_text(input, &cfg).unwrap();
         // Emphasis with an internal period must stay on one line; splitting
         // would leave a line starting with `*Bold` and a dangling closer.

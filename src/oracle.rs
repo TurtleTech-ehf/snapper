@@ -3,24 +3,133 @@
 //! After a fixpoint, `format_text` compares input and output under a
 //! format-specific check. A mismatch returns the original document.
 //! Tests disable the backstop and assert the oracle themselves.
+//!
+//! The oracle is a native region-kind + slice tree for every format:
+//! Structure/Blank must be byte-identical, Code headers/footers must be
+//! identical, Code bodies may change only in comment lines, and Prose may
+//! only move inter-word whitespace. Markdown also compares pulldown-cmark
+//! HTML (including `<pre>` contents unless the only delta is a comment
+//! reflow already allowed by the code-byte check).
 
 use crate::format::Format;
-use crate::parser::Region;
+use crate::parser::{Region, parser_for_format};
 
 /// True when `output` is a render-safe reflow of `original`.
 pub fn matches(format: Format, original: &str, output: &str) -> bool {
+    matches_ex(format, original, output, false)
+}
+
+/// `allow_code_body_rewrite` is set when an opt-in external formatter may
+/// replace a code body. Comment-only reflow does not need it.
+pub fn matches_ex(
+    format: Format,
+    original: &str,
+    output: &str,
+    allow_code_body_rewrite: bool,
+) -> bool {
     if original == output {
         return true;
     }
-    match format {
-        Format::Markdown => md_html_normalized(original) == md_html_normalized(output),
-        Format::Org | Format::Latex | Format::Rst | Format::Plaintext => {
-            prose_words(format, original) == prose_words(format, output)
-        }
+    if !structure_tree_ok(format, original, output, allow_code_body_rewrite) {
+        return false;
     }
+    if format == Format::Markdown {
+        return md_html_ok(original, output);
+    }
+    true
 }
 
-fn md_html_normalized(src: &str) -> String {
+fn structure_tree_ok(
+    format: Format,
+    original: &str,
+    output: &str,
+    allow_code_body_rewrite: bool,
+) -> bool {
+    let a = parser_for_format(format).parse(original);
+    let b = parser_for_format(format).parse(output);
+    if a.len() != b.len() {
+        return false;
+    }
+    for (ra, rb) in a.iter().zip(&b) {
+        match (ra, rb) {
+            (Region::Prose(x), Region::Prose(y)) => {
+                if words(x) != words(y) {
+                    return false;
+                }
+            }
+            (Region::Structure(x), Region::Structure(y))
+            | (Region::BlankLines(x), Region::BlankLines(y)) => {
+                if x != y {
+                    return false;
+                }
+            }
+            (
+                Region::Code {
+                    lang: la,
+                    header: ha,
+                    body: ba,
+                    footer: fa,
+                },
+                Region::Code {
+                    lang: lb,
+                    header: hb,
+                    body: bb,
+                    footer: fb,
+                },
+            ) => {
+                if la != lb || ha != hb || fa != fb {
+                    return false;
+                }
+                if !allow_code_body_rewrite && !code_body_ok(ba, bb) {
+                    return false;
+                }
+            }
+            _ => return false,
+        }
+    }
+    true
+}
+
+fn words(s: &str) -> Vec<&str> {
+    s.split_whitespace().collect()
+}
+
+/// Code bodies stay slices except rewritten comment lines.
+fn code_body_ok(original: &str, output: &str) -> bool {
+    if original == output {
+        return true;
+    }
+    non_comment_lines(original) == non_comment_lines(output)
+}
+
+fn non_comment_lines(body: &str) -> Vec<&str> {
+    body.lines().filter(|l| !looks_like_comment(l)).collect()
+}
+
+fn looks_like_comment(line: &str) -> bool {
+    let t = line.trim_start();
+    t.starts_with("//")
+        || t.starts_with('#')
+        || t.starts_with("--")
+        || t.starts_with(';')
+        || t.starts_with("/*")
+        || t.starts_with('*')
+        || t.starts_with("*/")
+}
+
+fn md_html_ok(original: &str, output: &str) -> bool {
+    let ha = md_html(original);
+    let hb = md_html(output);
+    if normalize_ws(&ha) == normalize_ws(&hb) {
+        return true;
+    }
+    // Full HTML (including `<pre>`) differed. Allow only when the
+    // non-pre document matches and the code-byte check already passed
+    // via the structure tree.
+    normalize_ws(&html_without_pre_inner(&ha)) == normalize_ws(&html_without_pre_inner(&hb))
+}
+
+fn md_html(src: &str) -> String {
     use pulldown_cmark::{Options, Parser, html};
     let mut opts = Options::empty();
     opts.insert(Options::ENABLE_TABLES);
@@ -30,27 +139,29 @@ fn md_html_normalized(src: &str) -> String {
     let parser = Parser::new_ext(src, opts);
     let mut html_output = String::new();
     html::push_html(&mut html_output, parser);
-    // Fenced/indented code may have comment reflow (`// a. b.` → two
-    // `//` lines). That is an intentional rewrite; the oracle still
-    // guards prose render around the blocks.
-    let without_pre = strip_pre(&html_output);
-    normalize_ws(&without_pre)
+    html_output
 }
 
-fn strip_pre(html: &str) -> String {
+/// Keep `<pre></pre>` tags so a missing/extra fence still fails, but drop
+/// inner text that the code-byte check already judged.
+fn html_without_pre_inner(html: &str) -> String {
     let mut out = String::with_capacity(html.len());
     let mut rest = html;
     while let Some(start) = rest.find("<pre") {
         out.push_str(&rest[..start]);
         let after = &rest[start..];
-        if let Some(end) = after.find("</pre>") {
-            out.push_str("<pre></pre>");
-            rest = &after[end + 6..];
-        } else {
-            out.push_str(after);
-            rest = "";
-            break;
+        if let Some(gt) = after.find('>') {
+            out.push_str(&after[..=gt]);
+            let inner = &after[gt + 1..];
+            if let Some(end) = inner.find("</pre>") {
+                out.push_str("</pre>");
+                rest = &inner[end + 6..];
+                continue;
+            }
         }
+        out.push_str(after);
+        rest = "";
+        break;
     }
     out.push_str(rest);
     out
@@ -73,9 +184,9 @@ fn normalize_ws(s: &str) -> String {
     out.trim().to_string()
 }
 
-/// Word sequence of prose regions only (structure/code/blank ignored).
+/// Word sequence of prose regions only.
 pub fn prose_words(format: Format, text: &str) -> Vec<String> {
-    let regions = crate::parser::parser_for_format(format).parse(text);
+    let regions = parser_for_format(format).parse(text);
     let mut words = Vec::new();
     for r in regions {
         if let Region::Prose(p) = r {
@@ -93,7 +204,7 @@ mod tests {
     fn md_html_ignores_soft_breaks() {
         let a = "Hello world. Next sentence.";
         let b = "Hello world.\nNext sentence.";
-        assert_eq!(md_html_normalized(a), md_html_normalized(b));
+        assert!(matches(Format::Markdown, a, b));
     }
 
     #[test]
@@ -104,5 +215,11 @@ mod tests {
             prose_words(Format::Plaintext, a),
             prose_words(Format::Plaintext, b)
         );
+    }
+
+    #[test]
+    fn structure_tree_sees_invented_newline() {
+        assert!(!matches(Format::Markdown, "## Title", "## Title\n"));
+        assert!(!matches(Format::Org, "* TODO a", "* TODO a\n"));
     }
 }

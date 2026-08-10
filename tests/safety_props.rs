@@ -36,7 +36,7 @@ proptest! {
 
     #[test]
     fn format_text_idempotent_and_oracle(
-        s in "[A-Za-z][A-Za-z0-9 ,;:'\"]{0,120}\\. [A-Za-z][A-Za-z0-9 ,;:'\"]{0,80}\\.",
+        s in "[A-Za-z#*][A-Za-z0-9#* ,;:'\"]{0,80}\\. [A-Za-z][A-Za-z0-9 ,;:'\"]{0,40}\\.",
         fmt_tag in 0u8..5,
     ) {
         let format = format_of(fmt_tag);
@@ -50,6 +50,26 @@ proptest! {
             format,
             s,
             out
+        );
+    }
+
+    #[test]
+    #[test]
+    fn format_text_paragraph_break_oracle(
+        a in "[A-Za-z][A-Za-z0-9 ,;:'\"]{0,40}\\.",
+        b in "[A-Za-z][A-Za-z0-9 ,;:'\"]{0,40}\\.",
+        fmt_tag in 0u8..5,
+    ) {
+        let s = format!("{a}\n\n{b}");
+        let format = format_of(fmt_tag);
+        let c = cfg(format);
+        let out = format_text(&s, &c).expect("format_text");
+        let twice = format_text(&out, &c).expect("second pass");
+        prop_assert_eq!(&out, &twice);
+        prop_assert!(
+            oracle::matches(format, &s, &out),
+            "oracle mismatch format={:?}\n in={:?}\n out={:?}",
+            format, s, out
         );
     }
 

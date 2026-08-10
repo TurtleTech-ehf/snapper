@@ -987,7 +987,8 @@ mod tests {
         let cfg = FormatConfig {
             format: Format::Plaintext,
             ..Default::default()
-        };
+        }
+        .without_safety_backstops();
         let out = format_text(input, &cfg).unwrap();
         assert!(
             !out.contains("world.\nHow"),
@@ -1085,7 +1086,8 @@ mod tests {
         let cfg = FormatConfig {
             format: Format::Plaintext,
             ..Default::default()
-        };
+        }
+        .without_safety_backstops();
         for input in samples {
             let out = format_text(input, &cfg).unwrap();
             assert!(

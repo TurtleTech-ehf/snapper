@@ -41,22 +41,26 @@ pub fn reflow(
     reflow_sequential(regions, splitter, config)
 }
 
+/// Why splice could not proceed. Callers fail closed (original document
+/// or an error) instead of skipping the bad range.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[error("{0}")]
+pub struct SpliceError(pub String);
+
 /// Reflow using parser-recorded byte ranges: non-prose is copied from
-/// `source`, and only prose (plus a configured code-comment body) is
-/// rewritten. Falls back to concatenating region strings when any region
-/// lacks an origin (pandoc AST path).
+/// `source`, and only prose (plus rewritten comment spans inside code)
+/// is rewritten. Missing origins or invalid spans are errors.
 pub fn reflow_spanned(
     source: &str,
     spanned: &[SpannedRegion],
     splitter: &dyn SentenceSplitter,
     config: &ReflowConfig,
-) -> String {
+) -> Result<String, SpliceError> {
     if spanned.is_empty() {
-        return String::new();
+        return Ok(String::new());
     }
-    if !spanned.iter().all(|s| s.origin.is_some()) {
-        let regions: Vec<Region> = spanned.iter().map(|s| s.region.clone()).collect();
-        return reflow(&regions, splitter, config);
+    if let Some((i, _)) = spanned.iter().enumerate().find(|(_, s)| s.origin.is_none()) {
+        return Err(SpliceError(format!("region {i} has no source origin")));
     }
     splice(source, spanned, splitter, config)
 }
@@ -66,11 +70,14 @@ fn splice(
     spanned: &[SpannedRegion],
     splitter: &dyn SentenceSplitter,
     config: &ReflowConfig,
-) -> String {
+) -> Result<String, SpliceError> {
     let regions: Vec<Region> = spanned.iter().map(|s| s.region.clone()).collect();
     let mut rewrites: Vec<(usize, usize, String)> = Vec::new();
     for (idx, sr) in spanned.iter().enumerate() {
-        let origin = sr.origin.as_ref().expect("splice requires origins");
+        let origin = sr
+            .origin
+            .as_ref()
+            .ok_or_else(|| SpliceError(format!("region {idx} has no source origin")))?;
         match (&sr.region, origin) {
             (Region::Prose(text), RegionOrigin::Whole(span)) => {
                 let replacement = reflow_prose(text, idx, &regions, splitter, config);
@@ -105,15 +112,18 @@ fn splice(
     let mut out = String::with_capacity(source.len());
     let mut cursor = 0usize;
     for (start, end, repl) in rewrites {
-        if start < cursor || end > source.len() || start > end {
-            continue;
+        if start < cursor || end > source.len() || start > end || source.get(start..end).is_none() {
+            return Err(SpliceError(format!(
+                "invalid splice span {start}..{end} (cursor={cursor}, len={})",
+                source.len()
+            )));
         }
         out.push_str(&source[cursor..start]);
         out.push_str(&repl);
         cursor = end;
     }
     out.push_str(&source[cursor..]);
-    out
+    Ok(out)
 }
 
 fn reflow_sequential(
@@ -402,6 +412,38 @@ mod tests {
         let regions = vec![Region::Prose(input.to_string())];
         let config = ReflowConfig::default();
         reflow(&regions, &UnicodeSentenceSplitter::new(), &config)
+    }
+
+    #[test]
+    fn missing_origin_is_error() {
+        let spanned = vec![crate::parser::SpannedRegion::unspanned(Region::Prose(
+            "Hi.".into(),
+        ))];
+        let err = reflow_spanned(
+            "Hi.",
+            &spanned,
+            &UnicodeSentenceSplitter::new(),
+            &ReflowConfig::default(),
+        )
+        .unwrap_err();
+        assert!(err.0.contains("origin"), "{err}");
+    }
+
+    #[test]
+    fn invalid_span_is_error() {
+        use crate::parser::{ByteSpan, RegionOrigin, SpannedRegion};
+        let spanned = vec![SpannedRegion {
+            region: Region::Prose("Hi.".into()),
+            origin: Some(RegionOrigin::Whole(ByteSpan::new(0, 99))),
+        }];
+        let err = reflow_spanned(
+            "Hi.",
+            &spanned,
+            &UnicodeSentenceSplitter::new(),
+            &ReflowConfig::default(),
+        )
+        .unwrap_err();
+        assert!(err.0.contains("invalid splice span"), "{err}");
     }
 
     #[test]

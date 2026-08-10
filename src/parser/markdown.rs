@@ -633,7 +633,8 @@ mod tests {
         let cfg = FormatConfig {
             format: Format::Markdown,
             ..Default::default()
-        };
+        }
+        .without_safety_backstops();
         let out = format_text(input, &cfg).unwrap();
         assert!(
             out.starts_with(
