@@ -39,7 +39,9 @@ BasedOnStyles = snapper
 Level: warning.
 - =LongProseLine= :: Flags prose lines exceeding 120 characters.
 Level: suggestion.
-- =SnapperCheck= :: External action. Runs =snapper --check --output-format json= and reports =fused= / =wrap= on the matching lines when =snapper= is on =PATH=. Advisory =long= stays on =LongProseLine=.
+- =SnapperCheck= :: External action.
+  Runs =snapper --check --output-format json= and reports =fused= / =wrap= on the matching lines when =snapper= is on =PATH=.
+  Advisory =long= stays on =LongProseLine=.
 
 * Precise CI enforcement
 :PROPERTIES:
