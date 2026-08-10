@@ -107,6 +107,16 @@ Sentences exceeding this width get wrapped at word boundaries.
 Set to =0= for unlimited (the default).
 Also respects =max_line_length= from =.editorconfig= if present.
 
+** long_threshold
+:PROPERTIES:
+:CUSTOM_ID: field-long-threshold
+:END:
+
+Integer.
+Character threshold for advisory =long= diagnostics when =max_width= is unset.
+Default: 120.
+A =long= finding is never the sole cause of =--check= exit 1 unless =--strict-long= is set.
+
 * Per-format sections
 :PROPERTIES:
 :CUSTOM_ID: per-format-sections
