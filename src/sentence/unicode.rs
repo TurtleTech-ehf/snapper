@@ -377,12 +377,20 @@ fn merge_abbreviation_splits(
 
 /// Append `piece` to `dest`, inserting a single space if neural/UAX segments
 /// were trimmed and would otherwise glue `world.` + `How` into `world.How`.
+///
+/// Do not invent a space before a mark that was attached to the period in
+/// the source. LaTeX `Eq.~\ref{}` uses `~` as a non-breaking space. Org
+/// `~code~` pairing does not close before `\`, so abbreviation merge sees
+/// `Eq.` + `~\ref` as two segments.
 fn push_segment_preserving_space(dest: &mut String, piece: &str) {
     if piece.is_empty() {
         return;
     }
+    let next = piece.chars().next();
     let need_space = dest.chars().last().is_some_and(|c| !c.is_whitespace())
-        && !piece.chars().next().is_some_and(|c| c.is_whitespace());
+        && next.is_some_and(|c| {
+            !c.is_whitespace() && (c.is_alphanumeric() || matches!(c, '"' | '\'' | '`' | '('))
+        });
     if need_space {
         dest.push(' ');
     }
@@ -683,6 +691,21 @@ mod tests {
         assert_eq!(
             split("See Fig. 3 for details. The results are clear."),
             vec!["See Fig. 3 for details.", "The results are clear."]
+        );
+    }
+
+    #[test]
+    fn latex_nbsp_after_abbrev_stays_attached() {
+        // `Eq.~\ref{}` is one token in LaTeX. Org `~code~` pairing does
+        // not take a closer before `\`, so abbreviation merge must not
+        // insert a space between `Eq.` and `~`.
+        let text = r"See Fig. ~1, Eq.~\ref{eq:diff}, and Dr. Smith. Next.";
+        assert_eq!(
+            split(text),
+            vec![
+                r"See Fig. ~1, Eq.~\ref{eq:diff}, and Dr. Smith.".to_string(),
+                "Next.".to_string(),
+            ]
         );
     }
 
