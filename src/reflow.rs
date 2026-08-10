@@ -329,6 +329,11 @@ fn wrap_words_preferring_clause(text: &str, max_width: usize) -> Vec<String> {
     lines
 }
 
+/// True when `s` is a list or quote marker that continuation lines hang from.
+pub(crate) fn is_hanging_marker(s: &str) -> bool {
+    !hanging_prefix(s).is_empty()
+}
+
 /// Prefix emitted on continuation lines after a list or quote marker.
 /// Lists hang with spaces of marker width; Markdown quotes repeat the
 /// quote prefix (`> `, `> > `, including leading indent). Empty when `s`

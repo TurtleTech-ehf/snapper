@@ -45,8 +45,11 @@ fn structure_tree_ok(
     output: &str,
     allow_code_body_rewrite: bool,
 ) -> bool {
-    let a = parser_for_format(format).parse(original);
-    let b = parser_for_format(format).parse(output);
+    // Hang list/quote continuations (`> One.` / `> Two.`) reparse as more
+    // regions than the source. Coalesce adjacent same-marker items so the
+    // tree compares as one item with the same prose words.
+    let a = coalesce_hang_items(&parser_for_format(format).parse(original));
+    let b = coalesce_hang_items(&parser_for_format(format).parse(output));
     if a.len() != b.len() {
         return false;
     }
@@ -92,6 +95,67 @@ fn structure_tree_ok(
 
 fn words(s: &str) -> Vec<&str> {
     s.split_whitespace().collect()
+}
+
+/// Join adjacent list/quote items that share a marker.
+///
+/// `> One.\n> Two.` parses as two Structure+Prose pairs; hanging indent
+/// emitted that from one source item. Folding them keeps the oracle from
+/// vetoing a render-preserving hang.
+fn coalesce_hang_items(regions: &[Region]) -> Vec<Region> {
+    let mut out = Vec::new();
+    let mut i = 0;
+    while i < regions.len() {
+        let Region::Structure(marker) = &regions[i] else {
+            out.push(regions[i].clone());
+            i += 1;
+            continue;
+        };
+        if !crate::reflow::is_hanging_marker(marker) {
+            out.push(regions[i].clone());
+            i += 1;
+            continue;
+        }
+        let marker = marker.clone();
+        let mut prose = String::new();
+        i += 1;
+        loop {
+            match regions.get(i) {
+                Some(Region::Prose(p)) => {
+                    if !prose.is_empty() {
+                        prose.push(' ');
+                    }
+                    prose.push_str(p);
+                    i += 1;
+                }
+                Some(Region::Structure(nl)) if nl == "\n" => {
+                    let same_marker = matches!(
+                        regions.get(i + 1),
+                        Some(Region::Structure(m2)) if *m2 == marker
+                    );
+                    if same_marker {
+                        i += 2;
+                        continue;
+                    }
+                    out.push(Region::Structure(marker));
+                    if !prose.is_empty() {
+                        out.push(Region::Prose(prose));
+                    }
+                    out.push(Region::Structure(nl.clone()));
+                    i += 1;
+                    break;
+                }
+                _ => {
+                    out.push(Region::Structure(marker));
+                    if !prose.is_empty() {
+                        out.push(Region::Prose(prose));
+                    }
+                    break;
+                }
+            }
+        }
+    }
+    out
 }
 
 /// Code bodies stay slices except rewritten comment lines.
@@ -221,5 +285,29 @@ mod tests {
     fn structure_tree_sees_invented_newline() {
         assert!(!matches(Format::Markdown, "## Title", "## Title\n"));
         assert!(!matches(Format::Org, "* TODO a", "* TODO a\n"));
+    }
+
+    #[test]
+    fn hung_quote_matches_source_item() {
+        assert!(matches(
+            Format::Markdown,
+            "> One. Two.\n",
+            "> One.\n> Two.\n"
+        ));
+        assert!(matches(
+            Format::Markdown,
+            "> Quoted one. Quoted two.\n> > Nested one. Nested two.\n",
+            "> Quoted one.\n> Quoted two.\n> > Nested one.\n> > Nested two.\n"
+        ));
+    }
+
+    #[test]
+    fn hung_list_matches_source_item() {
+        assert!(matches(
+            Format::Markdown,
+            "- One. Two.\n",
+            "- One.\n  Two.\n"
+        ));
+        assert!(matches(Format::Org, "- One. Two.\n", "- One.\n  Two.\n"));
     }
 }
