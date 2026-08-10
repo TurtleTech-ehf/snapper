@@ -18,7 +18,9 @@ static INLINE_TOKEN_RE: LazyLock<Regex> = LazyLock::new(|| {
             r"\[\[[^\]]*\]\[[^\]]*\]\]", // Org links with desc
             r"\[[^\]]+\]\([^)]+\)",      // Markdown links: [text](url)
             r"!\[[^\]]*\]\([^)]+\)",     // Markdown images: ![alt](url)
-            r"\$[^$]+\$",                // Inline math: $...$
+            r"\$\$[^$\n]+\$\$",          // Display math: $$...$$
+            r"\$[^$\n]+\$",              // Inline math: $...$
+            r"\\\([^\\\n]+\\\)",         // LaTeX inline math: \(...\)
             r"\\([a-zA-Z]+)\{[^}]*\}",   // LaTeX commands: \cmd{arg}
             // Org emphasis must be protected before sentence splits so a line
             // cannot begin with `*rest` (false headline) or leave markers open.
@@ -710,6 +712,25 @@ mod tests {
         assert!(!joined.contains('\u{0}'), "placeholder leaked: {joined:?}");
         let again = split(&joined);
         assert_eq!(again, out);
+    }
+
+    #[test]
+    fn wrt_abbreviation_does_not_split() {
+        assert_eq!(
+            split("Computed w.r.t. $x$. Next."),
+            vec!["Computed w.r.t. $x$.".to_string(), "Next.".to_string()]
+        );
+    }
+
+    #[test]
+    fn latex_inline_math_parens_stay_atomic() {
+        assert_eq!(
+            split(r"According to X, \(E=mc^2\). Next."),
+            vec![
+                r"According to X, \(E=mc^2\).".to_string(),
+                "Next.".to_string(),
+            ]
+        );
     }
 
     #[test]
