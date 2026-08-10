@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use crate::config::CodeLang;
-use crate::parser::Region;
+use crate::parser::{Region, RegionOrigin, SpannedRegion};
 use crate::sentence::SentenceSplitter;
 
 /// Configuration for the reflow engine.
@@ -39,6 +39,91 @@ pub fn reflow(
         }
     }
     reflow_sequential(regions, splitter, config)
+}
+
+/// Why splice could not proceed. Callers fail closed (original document
+/// or an error) instead of skipping the bad range.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[error("{0}")]
+pub struct SpliceError(pub String);
+
+/// Reflow using parser-recorded byte ranges: non-prose is copied from
+/// `source`, and only prose (plus rewritten comment spans inside code)
+/// is rewritten. Missing origins or invalid spans are errors.
+pub fn reflow_spanned(
+    source: &str,
+    spanned: &[SpannedRegion],
+    splitter: &dyn SentenceSplitter,
+    config: &ReflowConfig,
+) -> Result<String, SpliceError> {
+    if spanned.is_empty() {
+        return Ok(String::new());
+    }
+    if let Some((i, _)) = spanned.iter().enumerate().find(|(_, s)| s.origin.is_none()) {
+        return Err(SpliceError(format!("region {i} has no source origin")));
+    }
+    splice(source, spanned, splitter, config)
+}
+
+fn splice(
+    source: &str,
+    spanned: &[SpannedRegion],
+    splitter: &dyn SentenceSplitter,
+    config: &ReflowConfig,
+) -> Result<String, SpliceError> {
+    let regions: Vec<Region> = spanned.iter().map(|s| s.region.clone()).collect();
+    let mut rewrites: Vec<(usize, usize, String)> = Vec::new();
+    for (idx, sr) in spanned.iter().enumerate() {
+        let origin = sr
+            .origin
+            .as_ref()
+            .ok_or_else(|| SpliceError(format!("region {idx} has no source origin")))?;
+        match (&sr.region, origin) {
+            (Region::Prose(text), RegionOrigin::Whole(span)) => {
+                let replacement = reflow_prose(text, idx, &regions, splitter, config);
+                rewrites.push((span.start, span.end, replacement));
+            }
+            (
+                Region::Code { lang, body, .. },
+                RegionOrigin::Code {
+                    body: body_span, ..
+                },
+            ) => {
+                let code_cfg = lang
+                    .as_deref()
+                    .and_then(|l| config.code.and_then(|m| m.get(l)));
+                if let Some(cfg) = code_cfg {
+                    let reflowed = crate::code_block::reflow_code_body(
+                        lang.as_deref().unwrap_or(""),
+                        body,
+                        cfg,
+                        splitter,
+                        config.format_code,
+                    );
+                    if reflowed != *body {
+                        rewrites.push((body_span.start, body_span.end, reflowed));
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    rewrites.sort_by_key(|(start, _, _)| *start);
+    let mut out = String::with_capacity(source.len());
+    let mut cursor = 0usize;
+    for (start, end, repl) in rewrites {
+        if start < cursor || end > source.len() || start > end || source.get(start..end).is_none() {
+            return Err(SpliceError(format!(
+                "invalid splice span {start}..{end} (cursor={cursor}, len={})",
+                source.len()
+            )));
+        }
+        out.push_str(&source[cursor..start]);
+        out.push_str(&repl);
+        cursor = end;
+    }
+    out.push_str(&source[cursor..]);
+    Ok(out)
 }
 
 fn reflow_sequential(
@@ -109,53 +194,65 @@ fn reflow_one(
             output.push_str(footer);
         }
         Region::Prose(text) => {
-            let hang = match idx.checked_sub(1).and_then(|i| regions.get(i)) {
-                Some(Region::Structure(s)) => hanging_prefix(s),
-                _ => String::new(),
-            };
-            let hanging = hang.chars().count();
-            let wrap_width = if config.max_width > 0 && hanging > 0 {
-                config.max_width.saturating_sub(hanging).max(1)
+            output.push_str(&reflow_prose(text, idx, regions, splitter, config));
+        }
+    }
+    output
+}
+
+fn reflow_prose(
+    text: &str,
+    idx: usize,
+    regions: &[Region],
+    splitter: &dyn SentenceSplitter,
+    config: &ReflowConfig,
+) -> String {
+    let mut output = String::new();
+    let hang = match idx.checked_sub(1).and_then(|i| regions.get(i)) {
+        Some(Region::Structure(s)) => hanging_prefix(s),
+        _ => String::new(),
+    };
+    let hanging = hang.chars().count();
+    let wrap_width = if config.max_width > 0 && hanging > 0 {
+        config.max_width.saturating_sub(hanging).max(1)
+    } else {
+        config.max_width
+    };
+    let sentences = splitter.split(text);
+    let nsent = sentences.len();
+    for (i, sentence) in sentences.iter().enumerate() {
+        let wrapped = if wrap_width > 0 {
+            if config.clause_breaks {
+                wrap_with_clause_breaks(sentence, wrap_width)
             } else {
-                config.max_width
-            };
-            let sentences = splitter.split(text);
-            let nsent = sentences.len();
-            for (i, sentence) in sentences.iter().enumerate() {
-                let wrapped = if wrap_width > 0 {
-                    if config.clause_breaks {
-                        wrap_with_clause_breaks(sentence, wrap_width)
-                    } else {
-                        textwrap::fill(sentence, wrap_width)
-                    }
-                } else {
-                    sentence.clone()
-                };
-                let lines: Vec<&str> = wrapped.lines().collect();
-                for (j, line) in lines.iter().enumerate() {
-                    if hanging > 0 && (i > 0 || j > 0) {
-                        output.push_str(&hang);
-                    }
-                    output.push_str(line);
-                    if j + 1 < lines.len() {
-                        output.push('\n');
-                    }
-                }
-                if i + 1 < nsent {
-                    output.push('\n');
-                }
+                textwrap::fill(sentence, wrap_width)
             }
-            if !sentences.is_empty() {
-                // No forced paragraph break before inline islands (math/code) or
-                // tight punctuation structures — those continue the same line.
-                let suppress = matches!(
-                    regions.get(idx + 1),
-                    Some(Region::Structure(s)) if suppress_prose_trailing_newline(s)
-                );
-                if !suppress {
-                    output.push('\n');
-                }
+        } else {
+            sentence.clone()
+        };
+        let lines: Vec<&str> = wrapped.lines().collect();
+        for (j, line) in lines.iter().enumerate() {
+            if hanging > 0 && (i > 0 || j > 0) {
+                output.push_str(&hang);
             }
+            output.push_str(line);
+            if j + 1 < lines.len() {
+                output.push('\n');
+            }
+        }
+        if i + 1 < nsent {
+            output.push('\n');
+        }
+    }
+    if !sentences.is_empty() {
+        // No forced paragraph break before inline islands (math/code) or
+        // tight punctuation structures — those continue the same line.
+        let suppress = matches!(
+            regions.get(idx + 1),
+            Some(Region::Structure(s)) if suppress_prose_trailing_newline(s)
+        );
+        if !suppress {
+            output.push('\n');
         }
     }
     output
@@ -230,6 +327,11 @@ fn wrap_words_preferring_clause(text: &str, max_width: usize) -> Vec<String> {
         start = break_at;
     }
     lines
+}
+
+/// True when `s` is a list or quote marker that continuation lines hang from.
+pub(crate) fn is_hanging_marker(s: &str) -> bool {
+    !hanging_prefix(s).is_empty()
 }
 
 /// Prefix emitted on continuation lines after a list or quote marker.
@@ -315,6 +417,38 @@ mod tests {
         let regions = vec![Region::Prose(input.to_string())];
         let config = ReflowConfig::default();
         reflow(&regions, &UnicodeSentenceSplitter::new(), &config)
+    }
+
+    #[test]
+    fn missing_origin_is_error() {
+        let spanned = vec![crate::parser::SpannedRegion::unspanned(Region::Prose(
+            "Hi.".into(),
+        ))];
+        let err = reflow_spanned(
+            "Hi.",
+            &spanned,
+            &UnicodeSentenceSplitter::new(),
+            &ReflowConfig::default(),
+        )
+        .unwrap_err();
+        assert!(err.0.contains("origin"), "{err}");
+    }
+
+    #[test]
+    fn invalid_span_is_error() {
+        use crate::parser::{ByteSpan, RegionOrigin, SpannedRegion};
+        let spanned = vec![SpannedRegion {
+            region: Region::Prose("Hi.".into()),
+            origin: Some(RegionOrigin::Whole(ByteSpan::new(0, 99))),
+        }];
+        let err = reflow_spanned(
+            "Hi.",
+            &spanned,
+            &UnicodeSentenceSplitter::new(),
+            &ReflowConfig::default(),
+        )
+        .unwrap_err();
+        assert!(err.0.contains("invalid splice span"), "{err}");
     }
 
     #[test]

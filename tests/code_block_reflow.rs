@@ -40,6 +40,7 @@ fn config(format: Format, code: HashMap<String, CodeLang>) -> FormatConfig {
         code,
         ..Default::default()
     }
+    .without_safety_backstops()
 }
 
 /// Round-trip helper. Returns the once-formatted output and asserts the

@@ -175,8 +175,14 @@ impl FormatParser for PandocParser {
     /// Prefer [`PandocParser::try_parse`] / `format_text` (they surface errors).
     /// On failure this returns **empty** regions — never all-prose fallback.
     /// (`format_text` does not use this trait method for the pandoc path.)
-    fn parse(&self, input: &str) -> Vec<Region> {
-        self.try_parse(input).unwrap_or_default()
+    /// Pandoc rebuilds regions from an AST, so origins are unset and reflow
+    /// falls back to concatenating region strings.
+    fn parse_full(&self, input: &str) -> Vec<crate::parser::SpannedRegion> {
+        self.try_parse(input)
+            .unwrap_or_default()
+            .into_iter()
+            .map(crate::parser::SpannedRegion::unspanned)
+            .collect()
     }
 }
 

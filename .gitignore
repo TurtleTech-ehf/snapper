@@ -35,6 +35,11 @@ editors/word/dist/
 editors/word/node_modules/
 packages/snapper-wasm/node_modules/
 
+# cargo-fuzz
+fuzz/target/
+fuzz/artifacts/
+fuzz/coverage/
+
 # Haskell foreign-library build outputs
 native/snapper-pandoc/dist-newstyle/
 native/snapper-pandoc/lib/

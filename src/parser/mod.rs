@@ -5,6 +5,12 @@ pub mod org;
 pub mod pandoc;
 pub mod plaintext;
 pub mod rst;
+pub mod span;
+
+pub use span::{
+    ByteSpan, CodeSpans, Line, RegionOrigin, SpannedRegion, flush_prose_spanned, iter_lines,
+    push_prose_line,
+};
 
 /// A region of text classified by a format parser.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -30,7 +36,16 @@ pub enum Region {
 
 /// Trait for format-specific parsers that classify text into regions.
 pub trait FormatParser {
-    fn parse(&self, input: &str) -> Vec<Region>;
+    /// Classify `input` and record source byte ranges where possible.
+    fn parse_full(&self, input: &str) -> Vec<SpannedRegion>;
+
+    /// Classify `input` into regions, dropping recorded spans.
+    fn parse(&self, input: &str) -> Vec<Region> {
+        self.parse_full(input)
+            .into_iter()
+            .map(|s| s.region)
+            .collect()
+    }
 }
 
 /// Create the appropriate parser for a given format.
@@ -46,6 +61,9 @@ pub fn parser_for_format(format: crate::format::Format) -> Box<dyn FormatParser>
 }
 
 /// Flush accumulated prose into the region list, clearing the buffer.
+///
+/// Prefer [`flush_prose_spanned`] in native parsers so the rewrite range
+/// is recorded. This helper remains for tests and the pandoc AST path.
 pub fn flush_prose(prose: &mut String, regions: &mut Vec<Region>) {
     if !prose.is_empty() {
         regions.push(Region::Prose(prose.clone()));

@@ -17,6 +17,7 @@ fn plaintext_cfg() -> FormatConfig {
         format: Format::Plaintext,
         ..Default::default()
     }
+    .without_safety_backstops()
 }
 
 fn format_plain(input: &str) -> String {
@@ -122,7 +123,8 @@ fn multi_format_prose_respects_delimiter_spans() {
         let cfg = FormatConfig {
             format,
             ..Default::default()
-        };
+        }
+        .without_safety_backstops();
         let out = format_text(input, &cfg).unwrap();
         assert!(
             newlines_respect_delimiter_spans(&out),
@@ -163,7 +165,8 @@ fn code_block_comment_respects_quotes() {
             m
         },
         ..Default::default()
-    };
+    }
+    .without_safety_backstops();
     let out = format_text(input, &cfg).unwrap();
     assert!(
         !out.contains("Hello.\n// World") && !out.contains("Hello.\nWorld"),

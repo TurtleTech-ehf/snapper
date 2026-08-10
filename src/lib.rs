@@ -49,6 +49,7 @@ pub mod init;
 pub mod lsp;
 #[cfg(feature = "mcp")]
 pub mod mcp;
+pub mod oracle;
 pub mod output;
 pub mod parser;
 pub mod reflow;
@@ -68,7 +69,7 @@ use anyhow::Result;
 
 use crate::config::CodeLang;
 use crate::format::Format;
-use crate::reflow::{ReflowConfig, reflow};
+use crate::reflow::ReflowConfig;
 use crate::sentence::SentenceSplitter;
 use crate::sentence::unicode::UnicodeSentenceSplitter;
 
@@ -99,6 +100,13 @@ pub struct FormatConfig {
     /// under `max_width` (sembr rule 5). Default `false` keeps plain
     /// `textwrap::fill` behaviour.
     pub clause_breaks: bool,
+    /// Run `format_text` to a byte fixpoint (cap 4). Production default
+    /// `true`; tests set `false` so a planner that needs the backstop fails.
+    pub fixpoint_backstop: bool,
+    /// After the fixpoint, a format-local oracle mismatch returns the
+    /// original document. Production default `true`; tests set `false`
+    /// and assert the oracle themselves.
+    pub render_backstop: bool,
 }
 
 impl Default for FormatConfig {
@@ -117,8 +125,64 @@ impl Default for FormatConfig {
             code: HashMap::new(),
             format_code: false,
             clause_breaks: false,
+            fixpoint_backstop: true,
+            render_backstop: true,
         }
     }
+}
+
+/// Typed error for invalid UTF-8 input. Branch with `error.downcast_ref`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+#[error("input is not valid UTF-8")]
+pub struct InvalidUtf8Error;
+
+/// Pandoc's AST has no source offsets, so it cannot splice into original
+/// bytes. `format_text` refuses rather than reconstruct.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+#[error("pandoc backend cannot splice original source bytes")]
+pub struct PandocCannotSplice;
+
+/// Maximum pipeline passes including the first. Cap hit (or an A/B cycle)
+/// returns the original document unchanged.
+const MAX_FORMAT_PASSES: usize = 4;
+
+impl FormatConfig {
+    /// Tests that assert planner properties (idempotence, oracle, splice)
+    /// must disable both backstops so a planner that needs them fails.
+    pub fn without_safety_backstops(mut self) -> Self {
+        self.fixpoint_backstop = false;
+        self.render_backstop = false;
+        self
+    }
+}
+
+/// Run `step` until the output is a byte fixpoint or the cap is hit.
+///
+/// A cycle (including A/B) or a cap miss returns `original`. `enabled`
+/// false runs `step` once. Public so tests can inject a cycling step.
+pub fn run_fixpoint<F>(original: &str, enabled: bool, mut step: F) -> Result<String>
+where
+    F: FnMut(&str) -> Result<String>,
+{
+    let once = step(original)?;
+    if !enabled {
+        return Ok(once);
+    }
+    let mut cur = once;
+    let mut seen = std::collections::HashSet::new();
+    seen.insert(original.to_string());
+    seen.insert(cur.clone());
+    for _ in 1..MAX_FORMAT_PASSES {
+        let next = step(&cur)?;
+        if next == cur {
+            return Ok(cur);
+        }
+        if !seen.insert(next.clone()) {
+            return Ok(original.to_string());
+        }
+        cur = next;
+    }
+    Ok(original.to_string())
 }
 
 /// Build the appropriate sentence splitter from config.
@@ -160,6 +224,12 @@ pub fn format_text(input: &str, config: &FormatConfig) -> Result<String> {
     format_text_with_splitter(input, config, splitter.as_ref())
 }
 
+/// Format raw bytes. Invalid UTF-8 is a hard error ([`InvalidUtf8Error`]).
+pub fn format_bytes(input: &[u8], config: &FormatConfig) -> Result<Vec<u8>> {
+    let s = std::str::from_utf8(input).map_err(|_| anyhow::Error::new(InvalidUtf8Error))?;
+    format_text(s, config).map(|s| s.into_bytes())
+}
+
 /// Format text using a pre-constructed splitter (avoids reloading models per file).
 pub fn format_text_with_splitter(
     input: &str,
@@ -178,47 +248,28 @@ pub fn format_text_with_splitter(
         input
     };
 
-    // Two pipelines:
-    // - use_pandoc: pandoc parses source → AST → regions by node kind → reflow prose only.
-    // - else: native line parsers (markdown/org/…) then reflow. Never mixed after success.
-    let regions = if config.use_pandoc {
-        #[cfg(feature = "pandoc")]
-        {
-            let pandoc_fmt = config
-                .pandoc_format
-                .as_deref()
-                .unwrap_or(match config.format {
-                    Format::Org => "org",
-                    Format::Latex => "latex",
-                    Format::Markdown => "markdown",
-                    Format::Rst => "rst",
-                    Format::Plaintext => "markdown",
-                });
-            let parser =
-                parser::pandoc::PandocParser::with_backend(pandoc_fmt, config.pandoc_backend);
-            // Pandoc path: fail closed (no silent all-prose, no native re-parse).
-            parser
-                .try_parse(work_input)
-                .map_err(|e| anyhow::anyhow!("{e}"))?
+    let once = format_once(work_input, config, splitter, config.format_code)?;
+    // Later passes prove prose stability. External code formatters
+    // already ran on the first pass; re-invoking them multiplies
+    // timeout budgets and is not part of the planner fixpoint.
+    let candidate = run_fixpoint(work_input, config.fixpoint_backstop, |cur| {
+        if cur == work_input {
+            Ok(once.clone())
+        } else {
+            format_once(cur, config, splitter, false)
         }
-        #[cfg(not(feature = "pandoc"))]
-        {
-            return Err(anyhow::anyhow!(
-                "pandoc backend requires the 'pandoc' feature"
-            ));
-        }
+    })?;
+
+    let candidate = if config.render_backstop
+        && candidate != work_input
+        && !oracle::matches_ex(config.format, work_input, &candidate, config.format_code)
+    {
+        work_input.to_string()
     } else {
-        parser::parser_for_format(config.format).parse(work_input)
+        candidate
     };
 
-    let reflow_config = ReflowConfig {
-        max_width: config.max_width,
-        code: Some(&config.code),
-        format_code: config.format_code,
-        clause_breaks: config.clause_breaks,
-    };
-
-    let mut output = reflow(&regions, splitter, &reflow_config);
+    let mut output = candidate;
 
     // Preserve the original file's trailing newline convention.
     if had_trailing_newline && !output.ends_with('\n') {
@@ -235,6 +286,65 @@ pub fn format_text_with_splitter(
     }
 
     Ok(output)
+}
+
+/// One parse+reflow pass. Native parsers splice into original bytes;
+/// pandoc concatenates reconstructed regions.
+fn format_once(
+    work_input: &str,
+    config: &FormatConfig,
+    splitter: &dyn SentenceSplitter,
+    format_code: bool,
+) -> Result<String> {
+    use crate::parser::SpannedRegion;
+    use crate::reflow::reflow_spanned;
+
+    let reflow_config = ReflowConfig {
+        max_width: config.max_width,
+        code: Some(&config.code),
+        format_code,
+        clause_breaks: config.clause_breaks,
+    };
+
+    // Two pipelines:
+    // - use_pandoc: pandoc parses source → AST → regions by node kind → reflow prose only.
+    // - else: native line parsers (markdown/org/…) then splice. Never mixed after success.
+    if config.use_pandoc {
+        #[cfg(feature = "pandoc")]
+        {
+            let pandoc_fmt = config
+                .pandoc_format
+                .as_deref()
+                .unwrap_or(match config.format {
+                    Format::Org => "org",
+                    Format::Latex => "latex",
+                    Format::Markdown => "markdown",
+                    Format::Rst => "rst",
+                    Format::Plaintext => "markdown",
+                });
+            let parser =
+                parser::pandoc::PandocParser::with_backend(pandoc_fmt, config.pandoc_backend);
+            // Surface parse errors (no silent all-prose). Splice still
+            // requires source offsets the AST does not carry.
+            parser
+                .try_parse(work_input)
+                .map_err(|e| anyhow::anyhow!("{e}"))?;
+            return Err(anyhow::Error::new(PandocCannotSplice));
+        }
+        #[cfg(not(feature = "pandoc"))]
+        {
+            return Err(anyhow::anyhow!(
+                "pandoc backend requires the 'pandoc' feature"
+            ));
+        }
+    }
+
+    let spanned: Vec<SpannedRegion> =
+        parser::parser_for_format(config.format).parse_full(work_input);
+    match reflow_spanned(work_input, &spanned, splitter, &reflow_config) {
+        Ok(out) => Ok(out),
+        Err(_) => Ok(work_input.to_string()),
+    }
 }
 
 /// Format only lines within a range (1-indexed, inclusive).

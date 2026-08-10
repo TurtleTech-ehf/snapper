@@ -1,41 +1,41 @@
-use crate::parser::{FormatParser, Region, flush_prose};
+use crate::parser::{
+    ByteSpan, FormatParser, SpannedRegion, flush_prose_spanned, iter_lines, push_prose_line,
+};
 
 /// Trivial parser: everything is prose, blank lines are preserved.
 pub struct PlaintextParser;
 
 impl FormatParser for PlaintextParser {
-    fn parse(&self, input: &str) -> Vec<Region> {
+    fn parse_full(&self, input: &str) -> Vec<SpannedRegion> {
         let mut regions = Vec::new();
         let mut current_prose = String::new();
+        let mut prose_span: Option<ByteSpan> = None;
         let mut pragma_off = false;
 
-        for line in input.lines() {
+        for line in iter_lines(input) {
             // Check for snapper:off/on pragmas
-            if let Some(on) = super::check_pragma(line) {
-                flush_prose(&mut current_prose, &mut regions);
+            if let Some(on) = super::check_pragma(line.text) {
+                flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
                 pragma_off = !on;
-                regions.push(Region::Structure(format!("{line}\n")));
+                regions.push(SpannedRegion::structure(input, line.span()));
                 continue;
             }
 
             if pragma_off {
-                flush_prose(&mut current_prose, &mut regions);
-                regions.push(Region::Structure(format!("{line}\n")));
+                flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
+                regions.push(SpannedRegion::structure(input, line.span()));
                 continue;
             }
 
-            if line.trim().is_empty() {
-                flush_prose(&mut current_prose, &mut regions);
-                regions.push(Region::BlankLines(format!("{line}\n")));
+            if line.text.trim().is_empty() {
+                flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
+                regions.push(SpannedRegion::blank(input, line.span()));
             } else {
-                if !current_prose.is_empty() {
-                    current_prose.push(' ');
-                }
-                current_prose.push_str(line.trim());
+                push_prose_line(&mut current_prose, &mut prose_span, &line, true, true);
             }
         }
 
-        flush_prose(&mut current_prose, &mut regions);
+        flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
         regions
     }
 }
@@ -43,6 +43,7 @@ impl FormatParser for PlaintextParser {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::parser::Region;
 
     #[test]
     fn simple_paragraph() {
