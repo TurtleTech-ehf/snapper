@@ -68,8 +68,15 @@ gh workflow run crates.yml --ref main -f dry_run=true
    cargo test --no-default-features --lib
    ```
 
-4. Open the release PR, wait for **all** checks (CI, Pre-checks, WASM,
-   Python wheels, Build and Deploy) to pass, then merge.
+4. Open the release PR. `main` is branch-protected with `enforce_admins`:
+   `gh pr merge` is refused until the required checks are green (not pending).
+   Required on every PR: `check (ubuntu-latest)`, `check (macos-latest)`,
+   `Public availability contract`, `Link check`, `build-deploy`.
+   Those include the dogfood `--check` on docs and examples.
+   Path-filtered jobs (WASM, wheels, crates) are not required because they
+   do not run on every PR; still wait for them when they do run.
+   Use `gh pr merge --auto` to queue; do not merge while anything required
+   is pending.
 
 ## The tag
 
