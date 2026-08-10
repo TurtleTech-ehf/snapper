@@ -1,7 +1,8 @@
 use regex::Regex;
 use std::sync::LazyLock;
 
-use crate::parser::{ByteSpan, FormatParser, SpannedRegion, flush_prose_spanned, iter_lines};
+use crate::parser::{ByteSpan, FormatParser, Line, SpannedRegion, flush_prose_spanned, iter_lines};
+use crate::sentence::unicode::latex_verb_span_end;
 
 // Environments whose content is NOT prose (math, code, figures, tables)
 static NON_PROSE_ENVS: &[&str] = &[
@@ -30,11 +31,6 @@ static NON_PROSE_ENVS: &[&str] = &[
     "pmatrix",
     "bmatrix",
 ];
-
-static BEGIN_ENV_RE: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"\\begin\{(\w+\*?)\}").unwrap());
-
-static END_ENV_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\\end\{(\w+\*?)\}").unwrap());
 
 /// `\begin{minted}{LANG}` -- the language is the brace argument after the env.
 static MINTED_LANG_RE: LazyLock<Regex> =
@@ -70,14 +66,21 @@ impl LatexParser {
         line.trim_start().starts_with('%')
     }
 
-    /// Byte offset of the first `%` that is not escaped as `\%`.
+    /// Byte offset of the first `%` that is not escaped as `\%` and is not
+    /// inside `\verb` / `\lstinline`.
     fn unescaped_percent(line: &str) -> Option<usize> {
         let bytes = line.as_bytes();
         let mut i = 0;
         while i < bytes.len() {
-            if bytes[i] == b'\\' && i + 1 < bytes.len() {
-                i += 2;
-                continue;
+            if bytes[i] == b'\\' {
+                if let Some(end) = latex_verb_span_end(line, i) {
+                    i = end;
+                    continue;
+                }
+                if i + 1 < bytes.len() {
+                    i += 2;
+                    continue;
+                }
             }
             if bytes[i] == b'%' {
                 return Some(i);
@@ -92,246 +95,552 @@ impl LatexParser {
     }
 }
 
+/// `\begin{name}` or `\end{name}` on a line.
+#[derive(Debug, Clone)]
+struct EnvHit {
+    start: usize,
+    end: usize,
+    is_begin: bool,
+    name: String,
+}
+
+fn is_env_name(name: &str) -> bool {
+    let core = name.strip_suffix('*').unwrap_or(name);
+    !core.is_empty() && core.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
+}
+
+fn rest_line(line: Line<'_>, rel: usize) -> Line<'_> {
+    Line {
+        start: line.start + rel,
+        end: line.end,
+        text: &line.text[rel..],
+    }
+}
+
+/// Through EOL when `rel..` is only whitespace; otherwise just `rel`.
+fn thru_eol_if_blank_rest(line: Line<'_>, rel: usize) -> usize {
+    if line.text[rel..].trim().is_empty() {
+        line.end
+    } else {
+        line.start + rel
+    }
+}
+
+fn find_env_at(line: &str, from: usize) -> Option<EnvHit> {
+    let bytes = line.as_bytes();
+    let mut i = from;
+    let stop = LatexParser::unescaped_percent(line).unwrap_or(line.len());
+    while i < stop {
+        if bytes[i] == b'\\' {
+            if let Some(end) = latex_verb_span_end(line, i) {
+                i = end;
+                continue;
+            }
+            let rest = &line[i..];
+            let (is_begin, prefix_len) = if rest.starts_with("\\begin{") {
+                (true, "\\begin{".len())
+            } else if rest.starts_with("\\end{") {
+                (false, "\\end{".len())
+            } else if i + 1 < bytes.len() {
+                i += 2;
+                continue;
+            } else {
+                break;
+            };
+            let name_start = i + prefix_len;
+            if let Some(rel) = line[name_start..stop].find('}') {
+                let name = &line[name_start..name_start + rel];
+                if is_env_name(name) {
+                    let mut end = name_start + rel + 1;
+                    if is_begin {
+                        let mut j = end;
+                        while j < stop && matches!(line.as_bytes()[j], b' ' | b'\t') {
+                            j += 1;
+                        }
+                        if let Some(br) = skip_optional_brackets(line, j, stop) {
+                            end = br;
+                        }
+                    }
+                    return Some(EnvHit {
+                        start: i,
+                        end,
+                        is_begin,
+                        name: name.to_string(),
+                    });
+                }
+            }
+            i += 1;
+            continue;
+        }
+        i += 1;
+    }
+    None
+}
+
+fn skip_optional_brackets(line: &str, open_at: usize, stop: usize) -> Option<usize> {
+    let bytes = line.as_bytes();
+    if bytes.get(open_at) != Some(&b'[') {
+        return None;
+    }
+    let mut depth = 0;
+    let mut i = open_at;
+    while i < stop {
+        match bytes[i] {
+            b'[' => depth += 1,
+            b']' => {
+                depth -= 1;
+                if depth == 0 {
+                    return Some(i + 1);
+                }
+            }
+            _ => {}
+        }
+        i += 1;
+    }
+    None
+}
+
+fn find_matching_end(line: &str, from: usize, name: &str, mut depth: usize) -> Option<usize> {
+    let mut i = from;
+    while let Some(hit) = find_env_at(line, i) {
+        if hit.name != name {
+            i = hit.end;
+            continue;
+        }
+        if hit.is_begin {
+            depth += 1;
+            i = hit.end;
+        } else {
+            depth -= 1;
+            if depth == 0 {
+                return Some(hit.end);
+            }
+            i = hit.end;
+        }
+    }
+    None
+}
+
+/// `\begin{name}` / `\end{name}` as raw source (lstlisting/verbatim/minted).
+/// `%` and `\verb` are content, not a TeX comment or a skipped span.
+fn find_raw_env_at(line: &str, from: usize) -> Option<EnvHit> {
+    let bytes = line.as_bytes();
+    let mut i = from;
+    while i < bytes.len() {
+        if bytes[i] == b'\\' {
+            let rest = &line[i..];
+            let (is_begin, prefix_len) = if rest.starts_with("\\begin{") {
+                (true, "\\begin{".len())
+            } else if rest.starts_with("\\end{") {
+                (false, "\\end{".len())
+            } else {
+                i += 1;
+                continue;
+            };
+            let name_start = i + prefix_len;
+            if let Some(rel) = line[name_start..].find('}') {
+                let name = &line[name_start..name_start + rel];
+                if is_env_name(name) {
+                    return Some(EnvHit {
+                        start: i,
+                        end: name_start + rel + 1,
+                        is_begin,
+                        name: name.to_string(),
+                    });
+                }
+            }
+        }
+        i += 1;
+    }
+    None
+}
+
+fn find_matching_raw_end(line: &str, from: usize, name: &str, mut depth: usize) -> Option<usize> {
+    let mut i = from;
+    while let Some(hit) = find_raw_env_at(line, i) {
+        if hit.name != name {
+            i = hit.end;
+            continue;
+        }
+        if hit.is_begin {
+            depth += 1;
+            i = hit.end;
+        } else {
+            depth -= 1;
+            if depth == 0 {
+                return Some(hit.end);
+            }
+            i = hit.end;
+        }
+    }
+    None
+}
+
+struct ParseState<'a> {
+    input: &'a str,
+    regions: Vec<SpannedRegion>,
+    current_prose: String,
+    prose_span: Option<ByteSpan>,
+    in_non_prose_env: Option<String>,
+    non_prose_depth: usize,
+    in_code_env: Option<String>,
+    code_depth: usize,
+    code_lang: Option<String>,
+    code_header: ByteSpan,
+    code_body_start: usize,
+    in_display_math: bool,
+    nospace_join: bool,
+}
+
+impl<'a> ParseState<'a> {
+    fn flush(&mut self) {
+        flush_prose_spanned(
+            &mut self.current_prose,
+            &mut self.prose_span,
+            &mut self.regions,
+        );
+    }
+
+    fn push_structure(&mut self, span: ByteSpan) {
+        self.flush();
+        if span.is_empty() {
+            return;
+        }
+        self.regions
+            .push(SpannedRegion::structure(self.input, span));
+    }
+
+    fn extend_prose_to(&mut self, end: usize) {
+        if let Some(s) = &mut self.prose_span {
+            if end > s.end {
+                s.end = end;
+            }
+        }
+    }
+
+    fn append_prose_slice(&mut self, abs_start: usize, piece: &str) {
+        let trimmed = piece.trim();
+        if trimmed.is_empty() {
+            return;
+        }
+        let lead = piece.len() - piece.trim_start().len();
+        let content_start = abs_start + lead;
+        let content_end = content_start + trimmed.len();
+        if !self.current_prose.is_empty() && !self.nospace_join {
+            self.current_prose.push(' ');
+        }
+        self.current_prose.push_str(trimmed);
+        match &mut self.prose_span {
+            None => self.prose_span = Some(ByteSpan::new(content_start, content_end)),
+            Some(s) => s.end = content_end,
+        }
+        self.nospace_join = false;
+    }
+
+    fn enter_code(&mut self, env_name: &str, line: Line<'_>, hit_start: usize) {
+        self.flush();
+        let header_src = &line.text[hit_start..];
+        self.code_lang = if env_name == "minted" {
+            MINTED_LANG_RE
+                .captures(header_src)
+                .map(|c| c.get(1).unwrap().as_str().to_string())
+        } else if env_name == "lstlisting" {
+            LSTLISTING_LANG_RE
+                .captures(header_src)
+                .map(|c| c.get(1).unwrap().as_str().to_string())
+        } else {
+            None
+        };
+        self.code_header = ByteSpan::new(line.start + hit_start, line.end);
+        self.code_body_start = line.end;
+        self.in_code_env = Some(env_name.to_string());
+        self.code_depth = 1;
+    }
+
+    fn consume_body_line(&mut self, line: Line<'_>) {
+        if self.in_non_prose_env.is_some() {
+            self.consume_non_prose_line(line);
+            return;
+        }
+
+        if self.in_display_math {
+            self.flush();
+            if DISPLAY_MATH_CLOSE.is_match(line.text) {
+                self.in_display_math = false;
+            }
+            self.regions
+                .push(SpannedRegion::structure(self.input, line.span()));
+            return;
+        }
+
+        if line.text.trim().is_empty() {
+            self.flush();
+            self.nospace_join = false;
+            self.regions
+                .push(SpannedRegion::blank(self.input, line.span()));
+            return;
+        }
+
+        if LatexParser::is_comment(line.text) {
+            self.flush();
+            self.nospace_join = false;
+            self.regions
+                .push(SpannedRegion::structure(self.input, line.span()));
+            return;
+        }
+
+        let pct = LatexParser::unescaped_percent(line.text);
+        let code = match pct {
+            Some(idx) => &line.text[..idx],
+            None => line.text,
+        };
+
+        if !code.trim().is_empty() {
+            let line_done = self.consume_code_span(code, line);
+            if line_done || self.in_code_env.is_some() || self.in_non_prose_env.is_some() {
+                return;
+            }
+        }
+
+        if let Some(idx) = pct {
+            self.nospace_join = true;
+            let comment = &line.text[idx..];
+            if comment.trim() != "%" {
+                self.flush();
+                self.regions.push(SpannedRegion::structure(
+                    self.input,
+                    ByteSpan::new(line.start + idx, line.end),
+                ));
+            } else {
+                self.extend_prose_to(line.end);
+            }
+        } else if self.in_code_env.is_none() && self.in_non_prose_env.is_none() {
+            self.extend_prose_to(line.end);
+            self.nospace_join = false;
+        }
+    }
+
+    fn consume_non_prose_line(&mut self, line: Line<'_>) {
+        let name = self
+            .in_non_prose_env
+            .as_deref()
+            .expect("consume_non_prose_line only when inside")
+            .to_string();
+        let mut i = 0;
+        while let Some(hit) = find_env_at(line.text, i) {
+            if hit.name != name {
+                i = hit.end;
+                continue;
+            }
+            if hit.is_begin {
+                self.non_prose_depth += 1;
+                i = hit.end;
+            } else {
+                self.non_prose_depth -= 1;
+                if self.non_prose_depth == 0 {
+                    let end = thru_eol_if_blank_rest(line, hit.end);
+                    self.regions.push(SpannedRegion::structure(
+                        self.input,
+                        ByteSpan::new(line.start, end),
+                    ));
+                    self.in_non_prose_env = None;
+                    if !line.text[hit.end..].trim().is_empty() {
+                        self.consume_body_line(rest_line(line, hit.end));
+                    }
+                    return;
+                }
+                i = hit.end;
+            }
+        }
+        self.regions
+            .push(SpannedRegion::structure(self.input, line.span()));
+    }
+
+    fn consume_code_env_line(&mut self, line: Line<'_>) {
+        let name = self
+            .in_code_env
+            .as_deref()
+            .expect("consume_code_env_line only when inside")
+            .to_string();
+        let mut i = 0;
+        while let Some(hit) = find_raw_env_at(line.text, i) {
+            if hit.name != name {
+                i = hit.end;
+                continue;
+            }
+            if hit.is_begin {
+                self.code_depth += 1;
+                i = hit.end;
+            } else {
+                self.code_depth -= 1;
+                if self.code_depth == 0 {
+                    let footer_end = thru_eol_if_blank_rest(line, hit.end);
+                    let footer = ByteSpan::new(line.start + hit.start, footer_end);
+                    self.in_code_env = None;
+                    self.regions.push(SpannedRegion::code(
+                        self.input,
+                        self.code_lang.take(),
+                        self.code_header,
+                        ByteSpan::new(self.code_body_start, line.start + hit.start),
+                        footer,
+                    ));
+                    if !line.text[hit.end..].trim().is_empty() {
+                        self.consume_body_line(rest_line(line, hit.end));
+                    }
+                    return;
+                }
+                i = hit.end;
+            }
+        }
+    }
+
+    /// Returns true when the physical `line` is fully consumed.
+    fn consume_code_span(&mut self, code: &str, line: Line<'_>) -> bool {
+        let mut i = 0;
+        while i < code.len() {
+            if let Some(hit) = find_env_at(code, i) {
+                self.append_prose_slice(line.start + i, &code[i..hit.start]);
+                if hit.is_begin && is_code_env(&hit.name) {
+                    self.flush();
+                    if let Some(end_at) = find_matching_raw_end(line.text, hit.end, &hit.name, 1) {
+                        let header = ByteSpan::new(line.start + hit.start, line.start + end_at);
+                        let empty = ByteSpan::new(line.start + end_at, line.start + end_at);
+                        self.regions
+                            .push(SpannedRegion::code(self.input, None, header, empty, empty));
+                        if !line.text[end_at..].trim().is_empty() {
+                            self.consume_body_line(rest_line(line, end_at));
+                        }
+                        return true;
+                    }
+                    self.enter_code(&hit.name, line, hit.start);
+                    return true;
+                }
+                if hit.is_begin && LatexParser::is_non_prose_env(&hit.name) {
+                    self.flush();
+                    if let Some(end_at) = find_matching_end(code, hit.end, &hit.name, 1) {
+                        let end = if code[end_at..].trim().is_empty() {
+                            thru_eol_if_blank_rest(line, end_at)
+                        } else {
+                            line.start + end_at
+                        };
+                        self.regions.push(SpannedRegion::structure(
+                            self.input,
+                            ByteSpan::new(line.start + hit.start, end),
+                        ));
+                        i = end_at;
+                        continue;
+                    }
+                    self.in_non_prose_env = Some(hit.name);
+                    self.non_prose_depth = 1;
+                    self.regions.push(SpannedRegion::structure(
+                        self.input,
+                        ByteSpan::new(line.start + hit.start, line.end),
+                    ));
+                    return true;
+                }
+                let cmd_end = thru_eol_if_blank_rest(line, hit.end);
+                self.push_structure(ByteSpan::new(line.start + hit.start, cmd_end));
+                i = hit.end;
+                continue;
+            }
+
+            let rest = &code[i..];
+            if SECTION_CMD_RE.is_match(rest) {
+                self.push_structure(ByteSpan::new(line.start + i, line.end));
+                return false;
+            }
+            if DISPLAY_MATH_OPEN.is_match(rest) {
+                self.flush();
+                if !DISPLAY_MATH_CLOSE.is_match(rest) {
+                    self.in_display_math = true;
+                }
+                self.regions.push(SpannedRegion::structure(
+                    self.input,
+                    ByteSpan::new(line.start + i, line.end),
+                ));
+                return false;
+            }
+            self.append_prose_slice(line.start + i, rest);
+            return false;
+        }
+        false
+    }
+}
+
 impl FormatParser for LatexParser {
     fn parse_full(&self, input: &str) -> Vec<SpannedRegion> {
-        let mut regions: Vec<SpannedRegion> = Vec::new();
-        let mut current_prose = String::new();
-        let mut prose_span: Option<ByteSpan> = None;
+        let mut state = ParseState {
+            input,
+            regions: Vec::new(),
+            current_prose: String::new(),
+            prose_span: None,
+            in_non_prose_env: None,
+            non_prose_depth: 0,
+            in_code_env: None,
+            code_depth: 0,
+            code_lang: None,
+            code_header: ByteSpan::default(),
+            code_body_start: 0,
+            in_display_math: false,
+            nospace_join: false,
+        };
         let mut in_preamble = true;
-        let mut in_non_prose_env: Option<String> = None;
-        // Code environment bookkeeping.
-        let mut in_code_env: Option<String> = None;
-        let mut code_lang: Option<String> = None;
-        let mut code_header = ByteSpan::default();
-        let mut code_body_start = 0usize;
-        let mut in_display_math = false;
         let mut pragma_off = false;
-        // A `%` comment eats the newline, so the next physical line joins
-        // this prose with no inserted space (`foo%\nbar` is TeX `foobar`).
-        let mut nospace_join = false;
 
         for line in iter_lines(input) {
-            let line_text = line.text;
             // Check for snapper:off/on pragmas; inside a code environment
             // the per-language reflow path handles pragmas instead.
-            if in_code_env.is_none() {
-                if let Some(on) = super::check_pragma(line_text) {
-                    flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
+            if state.in_code_env.is_none() {
+                if let Some(on) = super::check_pragma(line.text) {
+                    state.flush();
                     pragma_off = !on;
-                    regions.push(SpannedRegion::structure(input, line.span()));
+                    state
+                        .regions
+                        .push(SpannedRegion::structure(input, line.span()));
                     continue;
                 }
 
                 if pragma_off {
-                    flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
-                    regions.push(SpannedRegion::structure(input, line.span()));
+                    state.flush();
+                    state
+                        .regions
+                        .push(SpannedRegion::structure(input, line.span()));
                     continue;
                 }
             }
 
             // Preamble: everything before \begin{document} is structure
             if in_preamble {
-                if line_text.contains(r"\begin{document}") {
+                if line.text.contains(r"\begin{document}") {
                     in_preamble = false;
                 }
-                flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
-                regions.push(SpannedRegion::structure(input, line.span()));
+                state.flush();
+                state
+                    .regions
+                    .push(SpannedRegion::structure(input, line.span()));
                 continue;
             }
 
-            // Inside code environment -- buffer body
-            if let Some(env_name) = in_code_env.clone() {
-                flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
-                let ends = END_ENV_RE
-                    .captures(line_text)
-                    .map(|c| c.get(1).unwrap().as_str() == env_name)
-                    .unwrap_or(false);
-                if ends {
-                    in_code_env = None;
-                    regions.push(SpannedRegion::code(
-                        input,
-                        code_lang.take(),
-                        code_header,
-                        ByteSpan::new(code_body_start, line.start),
-                        line.span(),
-                    ));
-                }
+            if state.in_code_env.is_some() {
+                state.consume_code_env_line(line);
                 continue;
             }
 
-            // Inside non-prose environment
-            if let Some(ref env_name) = in_non_prose_env {
-                flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
-                if let Some(caps) = END_ENV_RE.captures(line_text) {
-                    if caps.get(1).unwrap().as_str() == env_name {
-                        in_non_prose_env = None;
-                    }
-                }
-                regions.push(SpannedRegion::structure(input, line.span()));
-                continue;
-            }
-
-            // Inside display math \[...\]
-            if in_display_math {
-                flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
-                if DISPLAY_MATH_CLOSE.is_match(line_text) {
-                    in_display_math = false;
-                }
-                regions.push(SpannedRegion::structure(input, line.span()));
-                continue;
-            }
-
-            // Blank line
-            if line_text.trim().is_empty() {
-                flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
-                nospace_join = false;
-                regions.push(SpannedRegion::blank(input, line.span()));
-                continue;
-            }
-
-            // Comment
-            if Self::is_comment(line_text) {
-                flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
-                nospace_join = false;
-                regions.push(SpannedRegion::structure(input, line.span()));
-                continue;
-            }
-
-            // Mid-line `%`: prefix is prose; `%` eats the newline (nospace
-            // join). A comment with text is Structure after the prefix.
-            if let Some(idx) = Self::unescaped_percent(line_text) {
-                let code = &line_text[..idx];
-                let comment = &line_text[idx..];
-                if !code.trim().is_empty() {
-                    if !current_prose.is_empty() && !nospace_join {
-                        current_prose.push(' ');
-                    }
-                    current_prose.push_str(code.trim_start());
-                    let start = line.start + (line_text.len() - line_text.trim_start().len());
-                    let content_end = line.start + idx;
-                    match &mut prose_span {
-                        None => prose_span = Some(ByteSpan::new(start, content_end)),
-                        Some(s) => s.end = content_end,
-                    }
-                }
-                nospace_join = true;
-                if comment.trim() != "%" {
-                    flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
-                    let comment_span = ByteSpan::new(line.start + idx, line.end);
-                    regions.push(SpannedRegion::structure(input, comment_span));
-                } else if let Some(s) = &mut prose_span {
-                    // Lone `%` plus the newline stay inside the prose span so
-                    // the rewrite covers `foo%\nbar` as one TeX word.
-                    s.end = line.end;
-                }
-                continue;
-            }
-
-            // \end{document}
-            if line_text.contains(r"\end{document}") {
-                flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
-                regions.push(SpannedRegion::structure(input, line.span()));
-                continue;
-            }
-
-            // Begin non-prose environment
-            if let Some(caps) = BEGIN_ENV_RE.captures(line_text) {
-                let env_name = caps.get(1).unwrap().as_str().to_string();
-                if Self::is_non_prose_env(&env_name) {
-                    flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
-                    // Single-line \begin{...}...\end{...}: emit as Structure
-                    // (or as an empty-body Code region for code envs) -- the
-                    // common case is multi-line, so keep this path simple.
-                    if let Some(end_caps) = END_ENV_RE.captures(line_text) {
-                        if end_caps.get(1).unwrap().as_str() == env_name {
-                            if is_code_env(&env_name) {
-                                let empty = ByteSpan::new(line.end, line.end);
-                                regions.push(SpannedRegion::code(
-                                    input,
-                                    None,
-                                    line.span(),
-                                    empty,
-                                    empty,
-                                ));
-                            } else {
-                                regions.push(SpannedRegion::structure(input, line.span()));
-                            }
-                            continue;
-                        }
-                    }
-                    if is_code_env(&env_name) {
-                        code_lang = if env_name == "minted" {
-                            MINTED_LANG_RE
-                                .captures(line_text)
-                                .map(|c| c.get(1).unwrap().as_str().to_string())
-                        } else if env_name == "lstlisting" {
-                            LSTLISTING_LANG_RE
-                                .captures(line_text)
-                                .map(|c| c.get(1).unwrap().as_str().to_string())
-                        } else {
-                            None
-                        };
-                        code_header = line.span();
-                        code_body_start = line.end;
-                        in_code_env = Some(env_name);
-                    } else {
-                        in_non_prose_env = Some(env_name);
-                        regions.push(SpannedRegion::structure(input, line.span()));
-                    }
-                    continue;
-                }
-            }
-
-            // Sectioning commands: keep the entire line as Structure.
-            // Splitting Structure(\section{)+Prose(title)+Structure(}) reflowed
-            // multi-sentence titles mid-brace. Single-line sectioning is not
-            // prose; do not reflow titles.
-            if SECTION_CMD_RE.is_match(line_text) {
-                flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
-                regions.push(SpannedRegion::structure(input, line.span()));
-                continue;
-            }
-
-            // Display math \[
-            if DISPLAY_MATH_OPEN.is_match(line_text) && !DISPLAY_MATH_CLOSE.is_match(line_text) {
-                flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
-                in_display_math = true;
-                regions.push(SpannedRegion::structure(input, line.span()));
-                continue;
-            }
-
-            // Single-line display math \[...\]
-            if DISPLAY_MATH_OPEN.is_match(line_text) && DISPLAY_MATH_CLOSE.is_match(line_text) {
-                flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
-                regions.push(SpannedRegion::structure(input, line.span()));
-                continue;
-            }
-
-            // Regular prose line
-            if !current_prose.is_empty() && !nospace_join {
-                current_prose.push(' ');
-            }
-            current_prose.push_str(line_text.trim());
-            let end = line.end;
-            match &mut prose_span {
-                None => prose_span = Some(ByteSpan::new(line.start, end)),
-                Some(s) => s.end = end,
-            }
-            nospace_join = false;
+            state.consume_body_line(line);
         }
 
-        flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
-        if in_code_env.is_some() {
+        state.flush();
+        if state.in_code_env.is_some() {
             let eof = ByteSpan::new(input.len(), input.len());
-            regions.push(SpannedRegion::code(
+            state.regions.push(SpannedRegion::code(
                 input,
-                code_lang.take(),
-                code_header,
-                ByteSpan::new(code_body_start, input.len()),
+                state.code_lang.take(),
+                state.code_header,
+                ByteSpan::new(state.code_body_start, input.len()),
                 eof,
             ));
         }
-        regions
+        state.regions
     }
 }
 
@@ -513,6 +822,395 @@ Some text.
                 .iter()
                 .any(|r| matches!(r, Region::Prose(p) if p.contains("TODO"))),
             "comment text must not stay in prose: {regions:?}"
+        );
+    }
+
+    fn latex_cfg() -> crate::FormatConfig {
+        crate::FormatConfig {
+            format: crate::format::Format::Latex,
+            ..Default::default()
+        }
+        .without_safety_backstops()
+    }
+
+    #[test]
+    fn verb_with_inner_punct_round_trips() {
+        use crate::format_text;
+
+        let input = "\\begin{document}\nUse \\verb|a.b! c| here. Next sentence.\n\\end{document}\n";
+        let out = format_text(input, &latex_cfg()).unwrap();
+        assert!(
+            out.contains(r"\verb|a.b! c|"),
+            "verb must stay intact, got:\n{out}"
+        );
+        assert!(
+            !out.contains("\\verb|a.\n") && !out.contains("\\verb|a.b!\n"),
+            "inner .!? must not split the verb, got:\n{out}"
+        );
+        assert!(
+            out.contains("Next sentence."),
+            "following sentence must remain, got:\n{out}"
+        );
+        assert_eq!(format_text(&out, &latex_cfg()).unwrap(), out);
+    }
+
+    #[test]
+    fn lstinline_inner_percent_is_not_a_comment() {
+        use crate::format_text;
+
+        let input =
+            "\\begin{document}\nCode \\lstinline!%! here. Next sentence.\n\\end{document}\n";
+        let out = format_text(input, &latex_cfg()).unwrap();
+        assert!(
+            out.contains(r"\lstinline!%!"),
+            "lstinline with inner % must stay intact, got:\n{out}"
+        );
+        assert!(
+            out.contains("here."),
+            "text after lstinline must not be commented out, got:\n{out}"
+        );
+        assert!(
+            out.contains("Next sentence."),
+            "following sentence must remain, got:\n{out}"
+        );
+        let regions = LatexParser.parse(input);
+        assert!(
+            !regions.iter().any(
+                |r| matches!(r, Region::Structure(s) if s.contains("%!") || s.trim() == "%!\n")
+            ),
+            "inner % of lstinline must not be a comment, got: {regions:?}"
+        );
+        assert_eq!(format_text(&out, &latex_cfg()).unwrap(), out);
+    }
+
+    #[test]
+    fn lstinline_optional_args_round_trip() {
+        use crate::format_text;
+
+        let input = "\\begin{document}\nSee \\lstinline[language=TeX]!a.b%! please. Next.\n\\end{document}\n";
+        let out = format_text(input, &latex_cfg()).unwrap();
+        assert!(
+            out.contains(r"\lstinline[language=TeX]!a.b%!"),
+            "lstinline optional args and inner % must stay, got:\n{out}"
+        );
+        assert!(
+            out.contains("please."),
+            "prose after lstinline must remain, got:\n{out}"
+        );
+        assert_eq!(format_text(&out, &latex_cfg()).unwrap(), out);
+    }
+
+    #[test]
+    fn unknown_theorem_env_is_region_boundary() {
+        use crate::format_text;
+
+        let input = "\\begin{document}\nBefore the claim. More before.\n\\begin{theorem}\nA statement. Another claim.\n\\end{theorem}\nAfter the claim. More after.\n\\end{document}\n";
+        let regions = LatexParser.parse(input);
+        assert!(
+            regions
+                .iter()
+                .any(|r| matches!(r, Region::Structure(s) if s.contains(r"\begin{theorem}"))),
+            "\\begin{{theorem}} must be Structure, got: {regions:?}"
+        );
+        assert!(
+            regions
+                .iter()
+                .any(|r| matches!(r, Region::Structure(s) if s.contains(r"\end{theorem}"))),
+            "\\end{{theorem}} must be Structure, got: {regions:?}"
+        );
+        let before_mixed = regions.iter().any(|r| {
+            matches!(
+                r,
+                Region::Prose(p) if p.contains("More before") && p.contains("A statement")
+            )
+        });
+        assert!(
+            !before_mixed,
+            "theorem begin must bound regions, not concatenate neighboring prose: {regions:?}"
+        );
+        let after_mixed = regions.iter().any(|r| {
+            matches!(
+                r,
+                Region::Prose(p) if p.contains("Another claim") && p.contains("After the claim")
+            )
+        });
+        assert!(
+            !after_mixed,
+            "theorem end must bound regions, not concatenate neighboring prose: {regions:?}"
+        );
+        assert!(
+            regions
+                .iter()
+                .any(|r| matches!(r, Region::Prose(p) if p.contains("A statement"))),
+            "theorem body must stay prose, got: {regions:?}"
+        );
+
+        let out = format_text(input, &latex_cfg()).unwrap();
+        assert!(
+            out.contains("\\begin{theorem}\n"),
+            "begin theorem must stay a boundary, got:\n{out}"
+        );
+        assert!(
+            out.contains("A statement.\nAnother claim."),
+            "theorem body must still reflow, got:\n{out}"
+        );
+        assert_eq!(format_text(&out, &latex_cfg()).unwrap(), out);
+    }
+
+    #[test]
+    fn mid_line_begin_equation_leaves_leading_words_as_prose() {
+        let input = "\\begin{document}\ninducing \\begin{equation}\nE = mc^2\n\\end{equation}\nAfter.\n\\end{document}\n";
+        let regions = LatexParser.parse(input);
+        assert!(
+            regions
+                .iter()
+                .any(|r| matches!(r, Region::Prose(p) if p.contains("inducing"))),
+            "leading words before mid-line begin must be Prose, got: {regions:?}"
+        );
+        assert!(
+            !regions.iter().any(|r| {
+                matches!(
+                    r,
+                    Region::Structure(s) if s.contains("inducing") && s.contains(r"\begin{equation}")
+                )
+            }),
+            "leading words must not be marked Structure with the env, got: {regions:?}"
+        );
+        assert!(
+            regions
+                .iter()
+                .any(|r| matches!(r, Region::Structure(s) if s.contains(r"\begin{equation}"))),
+            "equation begin must still be Structure, got: {regions:?}"
+        );
+    }
+
+    #[test]
+    fn nested_same_name_envs_close_on_matching_depth() {
+        let input = "\\begin{document}\n\\begin{equation}\n\\begin{equation}\nx = 1\n\\end{equation}\ny = 2\n\\end{equation}\nAfter the nest. Next.\n\\end{document}\n";
+        let regions = LatexParser.parse(input);
+        assert!(
+            !regions
+                .iter()
+                .any(|r| matches!(r, Region::Prose(p) if p.contains("y = 2"))),
+            "inner \\end must not close the outer equation; y = 2 stays Structure, got: {regions:?}"
+        );
+        assert!(
+            regions
+                .iter()
+                .any(|r| matches!(r, Region::Prose(p) if p.contains("After the nest"))),
+            "prose after the outer end must resume, got: {regions:?}"
+        );
+        let y_is_structure = regions
+            .iter()
+            .any(|r| matches!(r, Region::Structure(s) if s.contains("y = 2")));
+        assert!(
+            y_is_structure,
+            "y = 2 must remain inside the outer equation Structure, got: {regions:?}"
+        );
+    }
+
+    #[test]
+    fn unmatched_verb_inner_percent_is_not_a_comment() {
+        use crate::format_text;
+
+        let input = "\\begin{document}\nSee \\verb|a%b. Next sentence.\n\\end{document}\n";
+        let regions = LatexParser.parse(input);
+        assert!(
+            !regions.iter().any(|r| {
+                matches!(r, Region::Structure(s) if s.contains("%b") || s.contains("%b."))
+            }),
+            "unmatched \\verb|a%b must not treat % as a comment, got: {regions:?}"
+        );
+        assert!(
+            regions
+                .iter()
+                .any(|r| matches!(r, Region::Prose(p) if p.contains(r"\verb|a%b"))),
+            "unmatched verb must stay in prose through EOL, got: {regions:?}"
+        );
+        let out = format_text(input, &latex_cfg()).unwrap();
+        assert!(
+            out.contains(r"\verb|a%b"),
+            "unmatched verb must keep inner %, got:\n{out}"
+        );
+        assert!(
+            out.contains("Next sentence.") || out.contains(r"\verb|a%b. Next sentence."),
+            "text after % must not be commented out, got:\n{out}"
+        );
+        assert_eq!(format_text(&out, &latex_cfg()).unwrap(), out);
+    }
+
+    #[test]
+    fn lstlisting_end_python_does_not_steal_the_close() {
+        use crate::format_text;
+
+        let input = "\\begin{document}\nBefore.\n\\begin{lstlisting}\nprint(1)\n\\end{python} \\end{lstlisting}\nAfter the listing. Next.\n\\end{document}\n";
+        let regions = LatexParser.parse(input);
+        let code = regions.iter().find_map(|r| match r {
+            Region::Code { body, footer, .. } => Some((body.as_str(), footer.as_str())),
+            _ => None,
+        });
+        let (body, footer) = code.expect(&format!("lstlisting must be Code, got: {regions:?}"));
+        assert!(
+            body.contains("print(1)"),
+            "listing body must keep source, got body={body:?} regions={regions:?}"
+        );
+        assert!(
+            body.contains(r"\end{python}"),
+            "\\end{{python}} is listing content, got body={body:?}"
+        );
+        assert!(
+            !body.contains(r"\end{lstlisting}"),
+            "real closer must not stay in the body, got body={body:?}"
+        );
+        assert!(
+            footer.contains(r"\end{lstlisting}"),
+            "footer must be \\end{{lstlisting}}, got footer={footer:?}"
+        );
+        assert!(
+            regions
+                .iter()
+                .any(|r| matches!(r, Region::Prose(p) if p.contains("After the listing"))),
+            "prose after the listing must resume, got: {regions:?}"
+        );
+        let out = format_text(input, &latex_cfg()).unwrap();
+        assert!(
+            out.contains("After the listing."),
+            "text after lstlisting must remain, got:\n{out}"
+        );
+        assert_eq!(format_text(&out, &latex_cfg()).unwrap(), out);
+    }
+
+    #[test]
+    fn nested_same_name_verbatim_closes_on_matching_depth() {
+        let input = "\\begin{document}\n\\begin{verbatim}\n\\begin{verbatim}\ninner\n\\end{verbatim}\nstill body\n\\end{verbatim}\nAfter the nest.\n\\end{document}\n";
+        let regions = LatexParser.parse(input);
+        let code = regions.iter().find_map(|r| match r {
+            Region::Code { body, footer, .. } => Some((body.as_str(), footer.as_str())),
+            _ => None,
+        });
+        let (body, footer) = code.expect(&format!("verbatim must be Code, got: {regions:?}"));
+        assert!(
+            body.contains("still body"),
+            "inner \\end must not close the outer verbatim; still body stays in the listing, got body={body:?} regions={regions:?}"
+        );
+        assert!(
+            body.contains("inner"),
+            "inner content must stay in the listing, got body={body:?}"
+        );
+        assert!(
+            footer.contains(r"\end{verbatim}"),
+            "outer closer is the footer, got footer={footer:?}"
+        );
+        assert!(
+            regions
+                .iter()
+                .any(|r| matches!(r, Region::Prose(p) if p.contains("After the nest"))),
+            "prose after the outer end must resume, got: {regions:?}"
+        );
+        assert!(
+            !regions
+                .iter()
+                .any(|r| matches!(r, Region::Prose(p) if p.contains("still body"))),
+            "still body must not leak into prose, got: {regions:?}"
+        );
+    }
+
+    #[test]
+    fn lstlisting_percent_does_not_hide_end() {
+        use crate::format_text;
+
+        let input = "\\begin{document}\n\\begin{lstlisting}\nprint(1) % \\end{lstlisting}\nAfter the listing. Next.\n\\end{document}\n";
+        let regions = LatexParser.parse(input);
+        let code = regions.iter().find_map(|r| match r {
+            Region::Code { body, footer, .. } => Some((body.as_str(), footer.as_str())),
+            _ => None,
+        });
+        let (body, footer) = code.expect(&format!("lstlisting must be Code, got: {regions:?}"));
+        assert!(
+            body.contains("print(1)"),
+            "listing body must keep source before %, got body={body:?} regions={regions:?}"
+        );
+        assert!(
+            !body.contains("After the listing"),
+            "% must not hide \\end{{lstlisting}}; after-text is not listing body, got body={body:?} regions={regions:?}"
+        );
+        assert!(
+            footer.contains(r"\end{lstlisting}"),
+            "footer must be \\end{{lstlisting}} even after %, got footer={footer:?} regions={regions:?}"
+        );
+        assert!(
+            regions
+                .iter()
+                .any(|r| matches!(r, Region::Prose(p) if p.contains("After the listing"))),
+            "prose after the listing must resume, got: {regions:?}"
+        );
+        let out = format_text(input, &latex_cfg()).unwrap();
+        assert!(
+            out.contains("After the listing."),
+            "text after lstlisting must remain, got:\n{out}"
+        );
+        assert!(
+            out.contains("Next."),
+            "following sentence must remain, got:\n{out}"
+        );
+        assert_eq!(format_text(&out, &latex_cfg()).unwrap(), out);
+    }
+
+    #[test]
+    fn lstlisting_same_line_percent_in_string_does_not_hide_end() {
+        use crate::format_text;
+
+        let input = "\\begin{document}\n\\begin{lstlisting} print(\"%\") \\end{lstlisting}\nAfter.\n\\end{document}\n";
+        let regions = LatexParser.parse(input);
+        assert!(
+            regions.iter().any(|r| matches!(r, Region::Code { .. })),
+            "same-line lstlisting must be Code, got: {regions:?}"
+        );
+        assert!(
+            regions
+                .iter()
+                .any(|r| matches!(r, Region::Prose(p) if p.contains("After"))),
+            "prose after same-line listing must resume, got: {regions:?}"
+        );
+        assert!(
+            !regions
+                .iter()
+                .any(|r| matches!(r, Region::Prose(p) if p.contains(r"\end{lstlisting}"))),
+            "\\end{{lstlisting}} after % in a string must still close, got: {regions:?}"
+        );
+        let out = format_text(input, &latex_cfg()).unwrap();
+        assert!(
+            out.contains("After."),
+            "text after same-line lstlisting must remain, got:\n{out}"
+        );
+        assert!(
+            out.contains(r"\end{lstlisting}"),
+            "closer must survive, got:\n{out}"
+        );
+        assert_eq!(format_text(&out, &latex_cfg()).unwrap(), out);
+    }
+
+    #[test]
+    fn theorem_optional_args_stay_on_the_begin_token() {
+        let input = "\\begin{document}\nBefore.\n\\begin{theorem}[A. B. C.]\nA statement. Another.\n\\end{theorem}\nAfter.\n\\end{document}\n";
+        let regions = LatexParser.parse(input);
+        assert!(
+            regions.iter().any(|r| {
+                matches!(r, Region::Structure(s) if s.contains(r"\begin{theorem}[A. B. C.]"))
+            }),
+            "optional [A. B. C.] must stay on the begin token, got: {regions:?}"
+        );
+        assert!(
+            !regions
+                .iter()
+                .any(|r| matches!(r, Region::Prose(p) if p.contains("A. B. C."))),
+            "theorem optional title must not become prose, got: {regions:?}"
+        );
+        assert!(
+            regions
+                .iter()
+                .any(|r| matches!(r, Region::Prose(p) if p.contains("A statement"))),
+            "theorem body must stay prose, got: {regions:?}"
         );
     }
 }

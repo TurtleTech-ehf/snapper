@@ -588,7 +588,11 @@ mod tests {
             "\\begin{document}\nSee Fig. 1. % TODO cite\n\\end{document}\n",
             Format::Latex,
         );
-        assert_eq!(tex[1].as_deref(), Some("See Fig. 1. "));
+        assert_eq!(
+            tex[1].as_deref().map(str::trim),
+            Some("See Fig. 1."),
+            "mid-line % prefix is the prose payload; trailing space is splice gap"
+        );
     }
 
     #[test]
