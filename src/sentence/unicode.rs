@@ -29,12 +29,13 @@ static INLINE_TOKEN_RE: LazyLock<Regex> = LazyLock::new(|| {
             r"/[^/\s\n](?:[^/\n]*[^/\s\n])?/",   // Org italic: /text/
             r"_[^_\s\n](?:[^_\n]*[^_\s\n])?_",   // Org underline: _text_
             r"\+[^\+\s\n](?:[^\+\n]*[^\+\s\n])?\+", // Org strike-through: +text+
-            r"~[^~\n]+~",                        // Org inline code: ~code~
-            r"=[^=\n]+=",                        // Org verbatim: =text=
-            r"`[^`\n]+`",                        // Markdown inline code: `code`
-            r#"https?://\S+[^.\s!?,;:)\]'""]"#,  // URLs (don't swallow trailing punctuation)
-            r"file:\S+",                         // Org file: links
-            r"@@[a-zA-Z]+:[^@]*@@",              // Org inline export snippets: @@backend:value@@
+            // Org `=verbatim=` / `~code~` and Markdown backtick spans are
+            // paired below: a regex that forbids the delimiter inside the
+            // span closes on the first inner copy and leaves the real closer
+            // (and any period before it) unprotected.
+            r#"https?://\S+[^.\s!?,;:)\]'""]"#, // URLs (don't swallow trailing punctuation)
+            r"file:\S+",                        // Org file: links
+            r"@@[a-zA-Z]+:[^@]*@@",             // Org inline export snippets: @@backend:value@@
         ]
         .join("|"),
     )
@@ -104,12 +105,128 @@ impl Default for UnicodeSentenceSplitter {
 /// (UAX or neural) cannot cut inside them. Shared by rules and neural paths.
 pub fn protect_inline_tokens(text: &str) -> (String, Vec<String>) {
     let mut placeholders: Vec<String> = Vec::new();
-    let protected = INLINE_TOKEN_RE.replace_all(text, |caps: &regex::Captures| {
+    let after_spans = protect_paired_spans(text, &mut placeholders);
+    let protected = INLINE_TOKEN_RE.replace_all(&after_spans, |caps: &regex::Captures| {
         let idx = placeholders.len();
         placeholders.push(caps[0].to_string());
         format!("\x00PH{idx}\x00")
     });
     (protected.into_owned(), placeholders)
+}
+
+/// Org `=`/`~` and Markdown backtick spans, paired to the real closer.
+///
+/// Org markers follow the emphasis border/post rules: the opener sits after
+/// a pre character (start of text, whitespace, or `('"{`), the first and last
+/// interior characters are not whitespace, and the closer is the first
+/// matching marker whose next character is a post character (end of text,
+/// whitespace, or `-.,:!?;'")}[`). Inner copies of the marker are content.
+///
+/// Markdown inline code uses CommonMark fence-length matching: a run of `n`
+/// backticks closes on the next run of exactly `n` backticks, so a double
+/// span can hold a single backtick.
+fn protect_paired_spans(text: &str, placeholders: &mut Vec<String>) -> String {
+    let mut out = String::with_capacity(text.len());
+    let bytes = text.as_bytes();
+    let mut i = 0;
+    while i < text.len() {
+        if bytes[i] == b'`' {
+            if let Some(end) = find_md_code_span(text, i) {
+                push_placeholder(&mut out, placeholders, &text[i..end]);
+                i = end;
+                continue;
+            }
+        } else if bytes[i] == b'=' || bytes[i] == b'~' {
+            let marker = bytes[i] as char;
+            if let Some(end) = find_org_paired_span(text, i, marker) {
+                push_placeholder(&mut out, placeholders, &text[i..end]);
+                i = end;
+                continue;
+            }
+        }
+        let ch = text[i..].chars().next().expect("i is in range");
+        out.push(ch);
+        i += ch.len_utf8();
+    }
+    out
+}
+
+fn push_placeholder(out: &mut String, placeholders: &mut Vec<String>, span: &str) {
+    let idx = placeholders.len();
+    placeholders.push(span.to_string());
+    out.push_str(&format!("\x00PH{idx}\x00"));
+}
+
+fn find_org_paired_span(text: &str, open_at: usize, marker: char) -> Option<usize> {
+    // org-emphasis-regexp-components: pre / post. Border is whitespace.
+    const PRE: &str = " \t\n('\"{";
+    const POST: &str = " \t\n-.,:!?;'\")}[";
+
+    if open_at > 0 {
+        let prev = text[..open_at].chars().next_back()?;
+        if !PRE.contains(prev) {
+            return None;
+        }
+    }
+    let after_open = open_at + marker.len_utf8();
+    if after_open >= text.len() {
+        return None;
+    }
+    let first = text[after_open..].chars().next()?;
+    if first.is_whitespace() {
+        return None;
+    }
+
+    let mut j = after_open;
+    while j < text.len() {
+        let ch = text[j..].chars().next()?;
+        if ch == '\n' {
+            return None;
+        }
+        if ch == marker && j > after_open {
+            let prev = text[..j].chars().next_back()?;
+            if !prev.is_whitespace() {
+                let after_close = j + marker.len_utf8();
+                let post_ok =
+                    after_close == text.len() || POST.contains(text[after_close..].chars().next()?);
+                if post_ok {
+                    return Some(after_close);
+                }
+            }
+        }
+        j += ch.len_utf8();
+    }
+    None
+}
+
+fn find_md_code_span(text: &str, open_at: usize) -> Option<usize> {
+    let bytes = text.as_bytes();
+    if bytes.get(open_at) != Some(&b'`') {
+        return None;
+    }
+    let mut n = 0usize;
+    while open_at + n < bytes.len() && bytes[open_at + n] == b'`' {
+        n += 1;
+    }
+    let mut j = open_at + n;
+    while j < bytes.len() {
+        if bytes[j] == b'\n' {
+            return None;
+        }
+        if bytes[j] == b'`' {
+            let mut m = 0usize;
+            while j + m < bytes.len() && bytes[j + m] == b'`' {
+                m += 1;
+            }
+            if m == n && j > open_at + n {
+                return Some(j + m);
+            }
+            j += m;
+        } else {
+            j += 1;
+        }
+    }
+    None
 }
 
 /// Restore placeholders produced by [`protect_inline_tokens`] into each segment.
@@ -654,6 +771,70 @@ mod tests {
             split("End of first. *Bold spans period. Continues* after."),
             vec!["End of first.", "*Bold spans period. Continues* after."]
         );
+    }
+
+    #[test]
+    fn org_verbatim_inner_equals_pairs_to_the_real_closer() {
+        // `=[^=]+ =` reads the inner `=` as a closer and leaves the period
+        // after `note.` unprotected. Both spans must be captured whole.
+        let text = r#"so =x = 1 -- note.= reflows while =s = "x"= does not."#;
+        let (protected, placeholders) = protect_inline_tokens(text);
+        assert_eq!(
+            placeholders,
+            vec![
+                r#"=x = 1 -- note.="#.to_string(),
+                r#"=s = "x"="#.to_string(),
+            ],
+            "pairing must not close on the inner `=`; got {placeholders:?} from {protected:?}"
+        );
+        assert_eq!(split(text), vec![text.to_string()]);
+    }
+
+    #[test]
+    fn org_verbatim_inner_equals_alone_stays_one_sentence() {
+        let text = "so =x = 1 -- note.= reflows here.";
+        let (_, placeholders) = protect_inline_tokens(text);
+        assert_eq!(placeholders, vec!["=x = 1 -- note.=".to_string()]);
+        assert_eq!(split(text), vec![text.to_string()]);
+    }
+
+    #[test]
+    fn org_verbatim_second_span_alone_does_not_need_inner_equals() {
+        let text = r#"so =x -- note.= reflows while =s = "x"= does not."#;
+        let (_, placeholders) = protect_inline_tokens(text);
+        assert_eq!(
+            placeholders,
+            vec!["=x -- note.=".to_string(), r#"=s = "x"="#.to_string(),]
+        );
+        assert_eq!(split(text), vec![text.to_string()]);
+    }
+
+    #[test]
+    fn org_code_inner_tilde_pairs_to_the_real_closer() {
+        let text = r#"so ~x ~ 1 -- note.~ reflows while ~s ~ "x"~ does not."#;
+        let (_, placeholders) = protect_inline_tokens(text);
+        assert_eq!(
+            placeholders,
+            vec![
+                r#"~x ~ 1 -- note.~"#.to_string(),
+                r#"~s ~ "x"~"#.to_string(),
+            ]
+        );
+        assert_eq!(split(text), vec![text.to_string()]);
+    }
+
+    #[test]
+    fn markdown_double_backticks_can_hold_a_backtick() {
+        let text = r#"see ``x ` 1 -- note.`` and ``s ` "x"`` too."#;
+        let (_, placeholders) = protect_inline_tokens(text);
+        assert_eq!(
+            placeholders,
+            vec![
+                r#"``x ` 1 -- note.``"#.to_string(),
+                r#"``s ` "x"``"#.to_string(),
+            ]
+        );
+        assert_eq!(split(text), vec![text.to_string()]);
     }
 
     #[test]
