@@ -208,7 +208,9 @@ The VS Code extension runs the CLI rather than the wasm build, so it has grammar
 The scanner reads [[#field-string-delims][string_delims]] to find trailing comments on its own, so both engines agree on ordinary code.
 A grammar still wins on raw strings, heredocs, triple-quoted strings and nested comments, where quote counting alone gives the wrong answer.
 
-Block comments always go through the marker scanner, so a close marker inside a string ends the comment early regardless of the grammar.
+Block comments stay on the scanner.
+A close marker inside a string does not end the comment, so =let s = "*/";= in a =/* ... */= block stays in the comment.
+When the closer is itself a quote sequence (="""=, ='''=), the first match is the closer, which is how Python docstrings reflow.
 
 * Precedence
 :PROPERTIES:

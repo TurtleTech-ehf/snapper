@@ -85,6 +85,10 @@ pip:
 
     pip install snapper-fmt
 
+conda-forge:
+
+    conda install -c conda-forge snapper-fmt
+
 Compile from source:
 
     cargo install snapper-fmt
@@ -96,7 +100,8 @@ Nix:
 The crate is `snapper-fmt` on all registries.
 Each install ships two CLI names for the same program: `snapper` and `snapper-fmt`.
 
-**Name collision:** [openSUSE snapper](https://github.com/openSUSE/snapper) is a different project (Btrfs/LVM snapshots) that also installs a `snapper` binary. On systems where that tool already owns `/usr/bin/snapper`, call this formatter as `snapper-fmt`, or put the TurtleTech install path ahead of the system path.
+**Name collision:** [openSUSE snapper](https://github.com/openSUSE/snapper) is a different project (Btrfs/LVM snapshots) that also installs a `snapper` binary.
+On systems where that tool already owns `/usr/bin/snapper`, call this formatter as `snapper-fmt`, or put the TurtleTech install path ahead of the system path.
 
 
 <a id="usage"></a>
