@@ -44,6 +44,11 @@ extra_abbreviations = ["PROPERTIES", "DEADLINE"]
 [latex]
 extra_abbreviations = ["Thm", "Lem"]
 max_width = 100
+# Extra names are added to the built-in lists. Missing keys keep those lists.
+# No regex `other:` matching.
+verbatim_envs = ["Verbatim"]
+structure_envs = ["algorithm", "comment"]
+verbatim_commands = ["Verb"]
 
 # Per-language code-block comment reflow and optional formatters.
 # Used when the parser emits a Region::Code with a matching language.
@@ -149,6 +154,38 @@ Add =[org]=, =[latex]=, =[markdown]=, =[rst]=, or =[plaintext]= sections to over
 
 Per-format =extra_abbreviations= merge with the top-level list.
 Per-format =max_width= overrides the top-level value.
+
+The following keys are meaningful under =[latex]= only.
+Missing keys (or empty arrays) keep the built-in lists; present entries are added to those lists.
+There is no regex =other:= key (latexindent's pattern-based extra matching is not supported).
+
+** verbatim_envs (latex)
+:PROPERTIES:
+:CUSTOM_ID: field-verbatim-envs
+:END:
+
+String array of environment names treated like =minted= / =lstlisting= / =verbatim= (=Region::Code=, no reflow).
+Built-in: =minted=, =lstlisting=, =verbatim=.
+Adding =Verbatim= (fancyvrb) stops reflow of that environment.
+
+** structure_envs (latex)
+:PROPERTIES:
+:CUSTOM_ID: field-structure-envs
+:END:
+
+String array of environment names treated like =equation= / =figure= (=Region::Structure=, no reflow).
+Built-in: the =NON_PROSE_ENVS= list (equation, align, figure, table, tabular, tikzpicture, and starred variants, plus the built-in code envs).
+Adding =algorithm= or =comment= stops reflow of those environments.
+
+** verbatim_commands (latex)
+:PROPERTIES:
+:CUSTOM_ID: field-verbatim-commands
+:END:
+
+String array of extra command names tokenized like the built-in verb command before sentence split.
+The next character after the name is the delimiter.
+Built-in names are =verb= and =lstinline=; =lstinline= still accepts optional =[...]= and ={...}=.
+Adding =Verb= (fancyvrb) keeps that command's delimited body atomic and treats an inner =%= as content, not a comment.
 
 * Code-block sections (=[code.<lang>]=)
 :PROPERTIES:

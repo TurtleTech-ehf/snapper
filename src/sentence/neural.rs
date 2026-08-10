@@ -3,7 +3,7 @@ use std::sync::Mutex;
 use nnsplit::NNSplit;
 
 use super::SentenceSplitter;
-use super::unicode::{UnicodeSentenceSplitter, protect_inline_tokens, restore_inline_tokens};
+use super::unicode::{UnicodeSentenceSplitter, protect_inline_tokens_with, restore_inline_tokens};
 
 /// nnsplit downloads models to `~/.cache/nnsplit/` on first use; concurrent
 /// loads race the download and can observe a partially written model
@@ -43,6 +43,12 @@ impl NeuralSentenceSplitter {
         })
     }
 
+    /// Extra LaTeX command names tokenized like `\verb` before split.
+    pub fn with_verbatim_commands(mut self, cmds: Vec<String>) -> Self {
+        self.post = self.post.with_verbatim_commands(cmds);
+        self
+    }
+
     /// Load from a custom ONNX model file path.
     pub fn from_path(path: &std::path::Path) -> Result<Self, Box<dyn std::error::Error>> {
         Self::from_path_with_extras(path, "en", &[])
@@ -73,7 +79,8 @@ impl SentenceSplitter for NeuralSentenceSplitter {
             return vec![];
         }
 
-        let (protected, placeholders) = protect_inline_tokens(text);
+        let (protected, placeholders) =
+            protect_inline_tokens_with(text, self.post.verbatim_commands());
 
         let splits = self.inner.split(&[protected.as_str()]);
         let raw: Vec<String> = if splits.is_empty() {

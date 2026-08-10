@@ -5,6 +5,7 @@ All notable changes to this project will be documented in this file. See [conven
 ## Unreleased (main)
 
 #### Features
+- (**latex**) `[latex].verbatim_envs` / `structure_envs` / `verbatim_commands` in `.snapperrc.toml` add names to the built-in lists (minted/lstlisting/verbatim, `NON_PROSE_ENVS`, `\\verb`/`\\lstinline`); missing keys keep today's defaults. Extra command names are tokenized like `\\verb` before split. No regex `other:` key
 - (**reflow**) `--clause-breaks` / `clause_breaks` with `max_width = 0` inserts a newline after every independent-clause mark (`,`, `;`, `:`, em dash, `--`) that is already followed by whitespace; a one-clause sentence stays one line; `max_width > 0` keeps wrap-prefer-clause. Tokens such as `1,000`, URLs, `--flags`, and unspaced dashes never split. `--check` uses the same mode
 - (**cli** / **check**) `--check --output-format json|sarif` emits 1-indexed `fused` / `wrap` / `long` diagnostics with excerpts; `long` is advisory unless `--strict-long`; stdin `--check` honors the same JSON/SARIF and exit codes; SARIF URIs are repo-relative (or `file:` plus `invocations[0].workingDirectory`)
 - (**mcp**) `check_formatting` returns `would_reformat` identical to CLI `--check`, plus the same line diagnostics
@@ -14,6 +15,7 @@ All notable changes to this project will be documented in this file. See [conven
 - (**safety**) property tests and a `cargo fuzz` target (fixture corpus) drive `format_text` per format with the backstops off
 - (**code-block**) comment reflow copies non-comment lines as original slices; only comment spans are rewritten
 #### Bug Fixes
+- (**latex**) render oracle and `--check` payloads honor `[latex]` extras, so a configured `\\Verb!%!` is not a comment and production backstops no longer revert the file
 - (**latex**) tokenize `\\verb` / `\\lstinline` (optional `[...]`) before split so inner `%` is not a comment and inner `.!?` do not split; unmatched `\\verb` runs to EOL; unlisted `\\begin` / `\\end` are region bounds (optional `[...]` stays on the begin token); mid-line `\\begin{equation}` leaves leading words as prose; nested same-name envs (including verbatim/lstlisting) close on matching depth, so `\\end{python}` inside lstlisting does not steal the closer; listing body scans raw `\\begin`/`\\end` (no `%` stop, no `\\verb` skip) so `print(1) % \\end{lstlisting}` and `print(\"%\")` still close
 - (**check**) fused and long run on the parser prose payload, so `1. Hello world.` and `See Fig. 1. % TODO cite` are not false fused
 - (**reflow**) splice keeps the trailing space before a mid-line TeX `%` comment so that line stays one source line

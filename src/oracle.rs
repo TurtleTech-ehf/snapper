@@ -12,25 +12,29 @@
 //! reflow already allowed by the code-byte check).
 
 use crate::format::Format;
-use crate::parser::{Region, parser_for_format};
+use crate::parser::{Region, parser_for_format, parser_for_format_config};
 
 /// True when `output` is a render-safe reflow of `original`.
 pub fn matches(format: Format, original: &str, output: &str) -> bool {
-    matches_ex(format, original, output, false)
+    matches_ex(format, original, output, false, None)
 }
 
 /// `allow_code_body_rewrite` is set when an opt-in external formatter may
 /// replace a code body. Comment-only reflow does not need it.
+///
+/// `config` supplies `[latex]` extras so the oracle parses with the same
+/// region kinds as `format_once`. `None` keeps the built-in lists.
 pub fn matches_ex(
     format: Format,
     original: &str,
     output: &str,
     allow_code_body_rewrite: bool,
+    config: Option<&crate::FormatConfig>,
 ) -> bool {
     if original == output {
         return true;
     }
-    if !structure_tree_ok(format, original, output, allow_code_body_rewrite) {
+    if !structure_tree_ok(format, original, output, allow_code_body_rewrite, config) {
         return false;
     }
     if format == Format::Markdown {
@@ -44,12 +48,13 @@ fn structure_tree_ok(
     original: &str,
     output: &str,
     allow_code_body_rewrite: bool,
+    config: Option<&crate::FormatConfig>,
 ) -> bool {
     // Hang list/quote continuations (`> One.` / `> Two.`) reparse as more
     // regions than the source. Coalesce adjacent same-marker items so the
     // tree compares as one item with the same prose words.
-    let a = coalesce_hang_items(&parser_for_format(format).parse(original));
-    let b = coalesce_hang_items(&parser_for_format(format).parse(output));
+    let a = coalesce_hang_items(&parser_for_format_config(format, config).parse(original));
+    let b = coalesce_hang_items(&parser_for_format_config(format, config).parse(output));
     if a.len() != b.len() {
         return false;
     }
@@ -336,6 +341,25 @@ mod tests {
             "- One.\n  Two.\n"
         ));
         assert!(matches(Format::Org, "- One. Two.\n", "- One.\n  Two.\n"));
+    }
+
+    #[test]
+    fn configured_verb_percent_tree_matches_across_split() {
+        let original = "\\begin{document}\nCode \\Verb!%! here. Next sentence.\n\\end{document}\n";
+        let output = "\\begin{document}\nCode \\Verb!%! here.\nNext sentence.\n\\end{document}\n";
+        let cfg = crate::FormatConfig {
+            format: Format::Latex,
+            latex_verbatim_commands: vec!["Verb".into()],
+            ..Default::default()
+        };
+        assert!(
+            !matches(Format::Latex, original, output),
+            "built-in lists treat inner % as a comment, so the trees diverge"
+        );
+        assert!(
+            matches_ex(Format::Latex, original, output, false, Some(&cfg)),
+            "extras must parse the same region tree as format_once"
+        );
     }
 
     #[test]

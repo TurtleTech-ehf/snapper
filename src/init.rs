@@ -67,6 +67,12 @@ max_width = 0
 # that is already followed by whitespace.
 # clause_breaks = false
 
+# Extra LaTeX environments / commands (added to the built-in lists).
+# [latex]
+# verbatim_envs = ["Verbatim"]
+# structure_envs = ["algorithm", "comment"]
+# verbatim_commands = ["Verb"]
+
 # Advisory long-line threshold when max_width is 0 (default 120)
 # long_threshold = 120
 

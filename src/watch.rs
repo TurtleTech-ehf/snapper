@@ -128,6 +128,9 @@ fn format_file_in_place(
             .clone()
             .unwrap_or_else(|| "en".to_string()),
         extra_abbreviations: project_config.abbreviations_for_format(format_key),
+        latex_verbatim_envs: project_config.latex_verbatim_envs(),
+        latex_structure_envs: project_config.latex_structure_envs(),
+        latex_verbatim_commands: project_config.latex_verbatim_commands(),
         clause_breaks: project_config.clause_breaks.unwrap_or(false),
         ..Default::default()
     };

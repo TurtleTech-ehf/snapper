@@ -170,7 +170,13 @@ impl SnapperMcpServer {
         let splitter = crate::build_splitter(&config).unwrap();
         let would = would_reformat(&params.text, &config).unwrap_or(true);
         let threshold = resolve_long_threshold(params.max_width, None);
-        let diagnostics = collect_diagnostics(&params.text, format, splitter.as_ref(), threshold);
+        let diagnostics = collect_diagnostics(
+            &params.text,
+            format,
+            splitter.as_ref(),
+            threshold,
+            Some(&config),
+        );
         let violations: Vec<usize> = diagnostics
             .iter()
             .filter(|d| d.kind == DiagnosticKind::Fused)
