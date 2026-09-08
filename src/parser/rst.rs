@@ -224,6 +224,23 @@ fn parse_line_based(input: &str) -> Vec<SpannedRegion> {
             continue;
         }
 
+        // List item: marker is Structure so `1. First` does not split
+        // after `1.`, and each item is its own region so adjacent
+        // bullets are not glued onto one line.
+        if let Some(marker_len) = rst_list_marker_len(line_text) {
+            flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
+            regions.push(SpannedRegion::structure(
+                input,
+                ByteSpan::new(line.start, line.start + marker_len),
+            ));
+            if line_text.len() > marker_len {
+                current_prose.push_str(line_text[marker_len..].trim());
+                prose_span = Some(ByteSpan::new(line.start + marker_len, line.end));
+            }
+            i += 1;
+            continue;
+        }
+
         // Grid/simple table rows
         if trimmed.starts_with('|') || trimmed.starts_with('+') {
             flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
@@ -257,6 +274,41 @@ fn parse_line_based(input: &str) -> Vec<SpannedRegion> {
         ));
     }
     regions
+}
+
+/// Byte length of a compact RST list opener on `line`, including the
+/// trailing space: `* `, `- `, `+ ` (not a `+--+` table rule), `#. `,
+/// or `1.` / `1)`.
+fn rst_list_marker_len(line: &str) -> Option<usize> {
+    let indent = line.len() - line.trim_start().len();
+    let t = &line[indent..];
+    let rest = if t.starts_with("* ") || t.starts_with("- ") {
+        2
+    } else if t.starts_with("#. ") {
+        3
+    } else if let Some(after) = t.strip_prefix("+ ") {
+        if after.starts_with('-') || after.starts_with('+') {
+            return None;
+        }
+        2
+    } else {
+        let bytes = t.as_bytes();
+        let mut i = 0;
+        while i < bytes.len() && bytes[i].is_ascii_digit() {
+            i += 1;
+        }
+        if i == 0 || !matches!(bytes.get(i), Some(b'.') | Some(b')')) {
+            return None;
+        }
+        if matches!(bytes.get(i + 1), Some(b' ')) {
+            i + 2
+        } else if i + 1 == t.len() {
+            i + 1
+        } else {
+            return None;
+        }
+    };
+    Some(indent + rest)
 }
 
 /// Check if a line is a section underline (2+ repeated punctuation chars).
@@ -341,5 +393,45 @@ mod tests {
                 .iter()
                 .any(|r| matches!(r, Region::Structure(s) if s.contains("Author")))
         );
+    }
+
+    #[test]
+    fn adjacent_bullet_items_stay_separate_regions() {
+        let input = "Features:\n\n* First item\n* Second item\n* Third item\n";
+        let regions = RstParser.parse(input);
+        let bullets: Vec<_> = regions
+            .iter()
+            .filter_map(|r| match r {
+                Region::Prose(s) if s.contains("item") => Some(s.as_str()),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(
+            bullets.len(),
+            3,
+            "each bullet must be its own Prose region, got {regions:?}"
+        );
+    }
+
+    #[test]
+    fn adjacent_rst_lists_are_identity_under_format() {
+        use crate::format::Format;
+        use crate::{FormatConfig, format_text};
+
+        let cfg = FormatConfig {
+            format: Format::Rst,
+            max_width: 0,
+            ..Default::default()
+        };
+        for input in [
+            "Features:\n\n* First item\n* Second item\n* Third item\n",
+            "Features:\n\n- First item\n- Second item\n",
+            "Features:\n\n+ First item\n+ Second item\n",
+            "Features:\n\n1. First item\n2. Second item\n",
+            "Features:\n\n#. First item\n#. Second item\n",
+        ] {
+            let out = format_text(input, &cfg).unwrap();
+            assert_eq!(out, input, "list must stay compact, got:\n{out}");
+        }
     }
 }
