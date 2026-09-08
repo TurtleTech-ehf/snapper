@@ -671,7 +671,8 @@ impl SentenceSplitter for UnicodeSentenceSplitter {
         }
 
         let merged = self.refine_segments_from_strs(&raw_segments);
-        restore_inline_tokens(merged, &placeholders)
+        let restored = restore_inline_tokens(merged, &placeholders);
+        split_after_markup_sentence_end(restored)
     }
 }
 
@@ -799,6 +800,49 @@ fn push_segment_preserving_space(dest: &mut String, piece: &str) {
 /// Merge false splits caused by sentence punctuation inside quotes or parens.
 /// E.g., `He said "wow!"` + `and left.` should stay as one sentence when
 /// the next segment starts with a lowercase letter.
+/// Split after `.!?` that sits immediately before Markdown/Org closers.
+///
+/// `**Bold sentence.** Next` is one UAX sentence because the period lives
+/// inside the protected span. Quotes are not paired spans, so they already
+/// split. Mid-span periods (`**the end. Still bold**`) have no closers
+/// after the period and stay one sentence.
+pub(crate) fn split_after_markup_sentence_end(segments: Vec<String>) -> Vec<String> {
+    let mut out = Vec::new();
+    for seg in segments {
+        push_markup_sentence_splits(&mut out, seg.trim());
+    }
+    out.into_iter().filter(|s| !s.is_empty()).collect()
+}
+
+fn push_markup_sentence_splits(out: &mut Vec<String>, seg: &str) {
+    if let Some((head, rest)) = take_markup_terminal_sentence(seg) {
+        out.push(head);
+        push_markup_sentence_splits(out, &rest);
+    } else if !seg.is_empty() {
+        out.push(seg.to_string());
+    }
+}
+
+fn take_markup_terminal_sentence(seg: &str) -> Option<(String, String)> {
+    // Period, then `**` / `*` / `_` / backticks / `~~` / `](url)`, then
+    // whitespace, then a new sentence (uppercase or opening quote). A
+    // lowercase continuation (`[Example Inc.](url) now.`) stays one
+    // sentence.
+    static CAP: LazyLock<Regex> = LazyLock::new(|| {
+        Regex::new(
+            r#"(?s)^(.*?[.!?](?:\*{1,3}|_{1,3}|`+|~{1,2}|\]\([^)]*\))+)\s+(["'A-Z][\s\S]*)$"#,
+        )
+        .expect("valid markup-terminal sentence regex")
+    });
+    let c = CAP.captures(seg)?;
+    let head = c.get(1)?.as_str().trim();
+    let rest = c.get(2)?.as_str().trim();
+    if head.is_empty() || rest.is_empty() {
+        return None;
+    }
+    Some((head.to_string(), rest.to_string()))
+}
+
 fn merge_quoted_punct_splits(segments: Vec<String>) -> Vec<String> {
     let mut result: Vec<String> = Vec::with_capacity(segments.len());
 
@@ -1710,6 +1754,71 @@ mod tests {
                 "Equity is hard.".to_string()
             ]
         );
+    }
+
+    #[test]
+    fn markdown_period_inside_closers_is_a_sentence_end() {
+        assert_eq!(
+            split("**Bold sentence.** Next one."),
+            vec!["**Bold sentence.**".to_string(), "Next one.".to_string()]
+        );
+        assert_eq!(
+            split("*Italic sentence.* Next one."),
+            vec!["*Italic sentence.*".to_string(), "Next one.".to_string()]
+        );
+        assert_eq!(
+            split("`Code sentence.` Next one."),
+            vec!["`Code sentence.`".to_string(), "Next one.".to_string()]
+        );
+        assert_eq!(
+            split("[Link sentence.](http://x.com) Next one."),
+            vec![
+                "[Link sentence.](http://x.com)".to_string(),
+                "Next one.".to_string()
+            ]
+        );
+        assert_eq!(
+            split("Visit [Example Inc.](https://example.com) now. Then read more."),
+            vec![
+                "Visit [Example Inc.](https://example.com) now.".to_string(),
+                "Then read more.".to_string()
+            ]
+        );
+    }
+
+    #[test]
+    fn markdown_period_inside_closers_survives_format_roundtrip() {
+        use crate::format::Format;
+        use crate::{FormatConfig, format_text};
+
+        let cfg = FormatConfig {
+            format: Format::Markdown,
+            ..Default::default()
+        };
+        let out = format_text("**Bold sentence.** Next one.\n", &cfg).unwrap();
+        assert_eq!(out, "**Bold sentence.**\nNext one.\n");
+        assert_eq!(format_text(&out, &cfg).unwrap(), out);
+    }
+
+    #[test]
+    fn org_markdown_style_bold_period_splits_without_headline() {
+        use crate::format::Format;
+        use crate::{FormatConfig, format_text};
+
+        let cfg = FormatConfig {
+            format: Format::Org,
+            ..Default::default()
+        };
+        let out = format_text("**CLI backend.** Pandoc 2.x on =PATH=.\n", &cfg).unwrap();
+        assert_eq!(out, "**CLI backend.**\nPandoc 2.x on =PATH=.\n");
+        assert!(
+            !out.lines().any(|l| {
+                let stars = l.chars().take_while(|c| *c == '*').count();
+                stars > 0 && l[stars..].starts_with(' ')
+            }),
+            "split must not invent an org headline, got:\n{out}"
+        );
+        assert_eq!(format_text(&out, &cfg).unwrap(), out);
     }
 
     #[test]
