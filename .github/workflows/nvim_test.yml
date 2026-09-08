@@ -39,11 +39,10 @@ jobs:
           target/
         key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
 
+    - name: Install Rust
+      uses: dtolnay/rust-toolchain@stable
     - name: Install snapper binary
-      run: |
-        curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
-        source ~/.cargo/env
-        cargo install --path . --force
+      run: cargo install --path . --force
 
     - name: Install plenary.nvim for testing
       run: |
