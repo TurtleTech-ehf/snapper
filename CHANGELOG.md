@@ -3,6 +3,10 @@ All notable changes to this project will be documented in this file. See [conven
 
 - - -
 ## Unreleased (main)
+
+- - -
+
+## v0.11.0 - 2026-09-08
 #### Bug Fixes
 - (**mcp**) `#[tool_handler]` implements `list_tools` / `call_tool`; `initialize` advertises tools and names the server `snapper` instead of the empty `rmcp` default
 - (**vscode**) `vscode-languageclient` is a runtime dependency only, so `vsce package` ships the module the extension `require`s
