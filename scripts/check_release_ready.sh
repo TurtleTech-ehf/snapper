@@ -117,6 +117,9 @@ fi
 if ! grep -Fq 'scripts/install_cargo_dist.sh' "$repo_root/.github/workflows/release.yml"; then
   fail "release.yml does not install cargo-dist via scripts/install_cargo_dist.sh"
 fi
+if ! bash "$repo_root/scripts/test_install_cargo_dist.sh"; then
+  fail "scripts/test_install_cargo_dist.sh failed"
+fi
 
 if [[ "$mode" == "pre" ]]; then
   if [[ -n "$(git -C "$repo_root" tag -l "v$version")" ]]; then
