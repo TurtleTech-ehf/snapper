@@ -624,13 +624,20 @@ impl FormatParser for LatexParser {
             in_display_math: false,
             nospace_join: false,
         };
-        let mut in_preamble = true;
+        let mut in_preamble = super::latex_starts_in_preamble(input);
         let mut pragma_off = false;
 
         for line in iter_lines(input) {
             // Check for snapper:off/on pragmas; inside a code environment
             // the per-language reflow path handles pragmas instead.
             if state.in_code_env.is_none() {
+                if super::is_no_preamble_pragma(line.text) {
+                    state.flush();
+                    state
+                        .regions
+                        .push(SpannedRegion::structure(input, line.span()));
+                    continue;
+                }
                 if let Some(on) = super::check_pragma(line.text) {
                     state.flush();
                     pragma_off = !on;
@@ -737,6 +744,63 @@ mod tests {
             "must not reflow mid-title inside braces:\n{out}"
         );
         assert_eq!(format_text(&out, &cfg).unwrap(), out);
+    }
+
+    #[test]
+    fn fragment_without_begin_document_is_prose() {
+        use crate::format::Format;
+        use crate::{FormatConfig, format_text};
+
+        let input = "This sentence is a test. This sentence is also a test.\n";
+        let cfg = FormatConfig {
+            format: Format::Latex,
+            ..Default::default()
+        }
+        .without_safety_backstops();
+        let out = format_text(input, &cfg).unwrap();
+        assert_eq!(
+            out, "This sentence is a test.\nThis sentence is also a test.\n",
+            "input chapter without \\begin{{document}} must reflow, got:\n{out}"
+        );
+    }
+
+    #[test]
+    fn no_preamble_pragma_formats_body() {
+        use crate::format::Format;
+        use crate::{FormatConfig, format_text};
+
+        let input =
+            "% snapper:no-preamble\nThis sentence is a test. This sentence is also a test.\n";
+        let cfg = FormatConfig {
+            format: Format::Latex,
+            ..Default::default()
+        }
+        .without_safety_backstops();
+        let out = format_text(input, &cfg).unwrap();
+        assert!(
+            out.starts_with("% snapper:no-preamble\n"),
+            "pragma line must stay structure, got:\n{out}"
+        );
+        assert!(
+            out.contains("This sentence is a test.\nThis sentence is also a test."),
+            "pragma must treat the file as body, got:\n{out}"
+        );
+    }
+
+    #[test]
+    fn documentclass_without_begin_stays_preamble() {
+        use crate::format::Format;
+        use crate::{FormatConfig, format_text};
+
+        let input =
+            "\\documentclass{article}\nThis sentence is a test. This sentence is also a test.\n";
+        let cfg = FormatConfig {
+            format: Format::Latex,
+            ..Default::default()
+        }
+        .without_safety_backstops();
+        let out = format_text(input, &cfg).unwrap();
+        assert_eq!(out, input, "class-only file must stay preamble");
     }
 
     #[test]
