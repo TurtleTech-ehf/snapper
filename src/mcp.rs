@@ -5,7 +5,7 @@
 
 use rmcp::handler::server::router::tool::ToolRouter;
 use rmcp::handler::server::wrapper::Parameters;
-use rmcp::{Json, ServerHandler, ServiceExt, tool, tool_router};
+use rmcp::{Json, ServerHandler, ServiceExt, tool, tool_handler, tool_router};
 use serde::{Deserialize, Serialize};
 
 use crate::FormatConfig;
@@ -141,8 +141,7 @@ pub struct SplitSentencesResult {
 // -- Server --
 
 pub struct SnapperMcpServer {
-    /// Held for `#[tool_router]` / `ServerHandler` generated accessors.
-    #[allow(dead_code)]
+    /// Read by `#[tool_handler]` for `list_tools` / `call_tool`.
     tool_router: ToolRouter<Self>,
 }
 
@@ -261,6 +260,10 @@ impl SnapperMcpServer {
     }
 }
 
+#[tool_handler(
+    name = "snapper",
+    instructions = "Semantic line-break formatter. Tools: format_text, detect_format, check_formatting, split_sentences."
+)]
 impl ServerHandler for SnapperMcpServer {}
 
 // -- Helpers --
@@ -363,6 +366,41 @@ mod tests {
                 clause_breaks,
             }))
             .0
+    }
+
+    #[test]
+    fn server_info_advertises_tools_and_snapper_name() {
+        let info = ServerHandler::get_info(&SnapperMcpServer::new());
+        assert!(
+            info.capabilities.tools.is_some(),
+            "initialize must advertise tools, got {:?}",
+            info.capabilities
+        );
+        assert_eq!(
+            info.server_info.name, "snapper",
+            "clients should see snapper, not the rmcp default"
+        );
+    }
+
+    #[test]
+    fn tool_router_lists_the_four_tools() {
+        let names: Vec<String> = SnapperMcpServer::new()
+            .tool_router
+            .list_all()
+            .into_iter()
+            .map(|t| t.name.to_string())
+            .collect();
+        for expected in [
+            "format_text",
+            "detect_format",
+            "check_formatting",
+            "split_sentences",
+        ] {
+            assert!(
+                names.iter().any(|n| n == expected),
+                "missing {expected} in {names:?}"
+            );
+        }
     }
 
     #[test]
