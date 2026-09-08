@@ -97,8 +97,9 @@
     ]
   },
   "scripts": {
-    "compile": "tsc -p ./",
-    "package": "vsce package"
+    "compile": "node esbuild.config.mjs",
+    "watch": "node esbuild.config.mjs --watch",
+    "package": "npm run compile && vsce package --no-dependencies"
   },
   "devDependencies": {
     "@types/vscode": "^1.75.0",
