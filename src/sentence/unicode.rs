@@ -1801,6 +1801,27 @@ mod tests {
     }
 
     #[test]
+    fn org_markdown_style_bold_period_splits_without_headline() {
+        use crate::format::Format;
+        use crate::{FormatConfig, format_text};
+
+        let cfg = FormatConfig {
+            format: Format::Org,
+            ..Default::default()
+        };
+        let out = format_text("**CLI backend.** Pandoc 2.x on =PATH=.\n", &cfg).unwrap();
+        assert_eq!(out, "**CLI backend.**\nPandoc 2.x on =PATH=.\n");
+        assert!(
+            !out.lines().any(|l| {
+                let stars = l.chars().take_while(|c| *c == '*').count();
+                stars > 0 && l[stars..].starts_with(' ')
+            }),
+            "split must not invent an org headline, got:\n{out}"
+        );
+        assert_eq!(format_text(&out, &cfg).unwrap(), out);
+    }
+
+    #[test]
     fn markdown_em_with_internal_period_not_split() {
         let text = "This is *the end. Still em* after.";
         let (_, placeholders) = protect_inline_tokens(text);
