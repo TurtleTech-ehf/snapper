@@ -9,6 +9,7 @@
 Sometimes you need to prevent snapper from reformatting specific regions: hand-formatted poetry, aligned text, carefully laid-out tables in prose, or any text where line breaks carry meaning.
 
 Use =snapper:off= and =snapper:on= pragmas to mark regions that should pass through unchanged.
+LaTeX chapter files included with =\input= can add =% snapper:no-preamble= so snapper treats the file as body instead of waiting for =\begin{document}=.
 
 * Syntax by format
 :PROPERTIES:
@@ -46,6 +47,14 @@ be reformatted.
 % snapper:on
 
 More prose that gets reformatted.
+#+end_src
+
+A =\input= chapter with no =\begin{document}= is body by default.
+Use =% snapper:no-preamble= when the file also has =\documentclass= or you want the flag written down:
+
+#+begin_src latex
+% snapper:no-preamble
+This sentence is a test. This sentence is also a test.
 #+end_src
 
 ** Markdown

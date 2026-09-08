@@ -115,7 +115,7 @@ Yes.
 Use =snapper:off= and =snapper:on= pragmas in comments:
 
 - Org: =# snapper:off= / =# snapper:on=
-- LaTeX: =% snapper:off= / =% snapper:on=
+- LaTeX: =% snapper:off= / =% snapper:on=; =% snapper:no-preamble= on =\input= chapters
 - Markdown: =<!-- snapper:off -->= / =<!-- snapper:on -->=
 - RST/Plaintext: =snapper:off= / =snapper:on= on their own line
 

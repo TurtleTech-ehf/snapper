@@ -122,29 +122,49 @@ pub fn flush_prose(prose: &mut String, regions: &mut Vec<Region>) {
     }
 }
 
-/// Check if a line contains a snapper pragma.
-/// Returns Some(false) for "snapper:off", Some(true) for "snapper:on", None otherwise.
-pub fn check_pragma(line: &str) -> Option<bool> {
+/// Comment payload after a format-specific marker (`# `, `% `, `<!-- -->`).
+fn pragma_payload(line: &str) -> &str {
     let trimmed = line.trim();
-    // Strip format-specific comment markers
-    let content = trimmed
-        .strip_prefix("# ") // Org comment
-        .or_else(|| trimmed.strip_prefix("% ")) // LaTeX comment
+    trimmed
+        .strip_prefix("# ")
+        .or_else(|| trimmed.strip_prefix("% "))
         .or_else(|| {
-            // HTML/Markdown comment
             trimmed
                 .strip_prefix("<!-- ")
                 .and_then(|s| s.strip_suffix(" -->"))
         })
-        .unwrap_or(trimmed); // Plaintext: bare pragma
-    let content = content.trim();
-    if content == "snapper:off" {
-        Some(false)
-    } else if content == "snapper:on" {
-        Some(true)
-    } else {
-        None
+        .unwrap_or(trimmed)
+        .trim()
+}
+
+/// Check if a line contains a snapper pragma.
+/// Returns Some(false) for "snapper:off", Some(true) for "snapper:on", None otherwise.
+pub fn check_pragma(line: &str) -> Option<bool> {
+    match pragma_payload(line) {
+        "snapper:off" => Some(false),
+        "snapper:on" => Some(true),
+        _ => None,
     }
+}
+
+/// `% snapper:no-preamble` (or the same payload after `# ` / `<!-- -->`).
+pub fn is_no_preamble_pragma(line: &str) -> bool {
+    pragma_payload(line) == "snapper:no-preamble"
+}
+
+/// LaTeX files stay in preamble mode until `\begin{document}` unless the
+/// file is a body fragment: an explicit `snapper:no-preamble` line, or no
+/// `\begin{document}` and no class/package header.
+pub fn latex_starts_in_preamble(input: &str) -> bool {
+    if input.lines().any(is_no_preamble_pragma) {
+        return false;
+    }
+    if input.contains(r"\begin{document}") {
+        return true;
+    }
+    input.contains(r"\documentclass")
+        || input.contains(r"\ProvidesPackage")
+        || input.contains(r"\ProvidesClass")
 }
 
 #[cfg(test)]
@@ -180,5 +200,32 @@ mod tests {
         assert_eq!(check_pragma("regular text"), None);
         assert_eq!(check_pragma("# a comment"), None);
         assert_eq!(check_pragma(""), None);
+    }
+
+    #[test]
+    fn no_preamble_pragma_payload() {
+        assert!(is_no_preamble_pragma("% snapper:no-preamble"));
+        assert!(is_no_preamble_pragma("  % snapper:no-preamble  "));
+        assert!(!is_no_preamble_pragma("% snapper:off"));
+        assert!(!is_no_preamble_pragma("snapper:no-preamble extra"));
+    }
+
+    #[test]
+    fn latex_fragment_skips_preamble_mode() {
+        assert!(!latex_starts_in_preamble(
+            "This sentence is a test. This sentence is also a test.\n"
+        ));
+        assert!(!latex_starts_in_preamble(
+            "% snapper:no-preamble\n\\begin{document}\nBody.\n\\end{document}\n"
+        ));
+        assert!(latex_starts_in_preamble(
+            "\\begin{document}\nBody.\n\\end{document}\n"
+        ));
+        assert!(latex_starts_in_preamble(
+            "\\documentclass{article}\nThis sentence is a test. More.\n"
+        ));
+        assert!(latex_starts_in_preamble(
+            "\\ProvidesPackage{foo}\n% comments only\n"
+        ));
     }
 }
