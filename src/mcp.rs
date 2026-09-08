@@ -142,6 +142,8 @@ pub struct SplitSentencesResult {
 
 pub struct SnapperMcpServer {
     /// Read by `#[tool_handler]` for `list_tools` / `call_tool`.
+    /// Clippy does not see the macro use, so this is not dead.
+    #[allow(dead_code)]
     tool_router: ToolRouter<Self>,
 }
 
