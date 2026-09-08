@@ -6,6 +6,7 @@ All notable changes to this project will be documented in this file. See [conven
 #### Bug Fixes
 - (**mcp**) `#[tool_handler]` implements `list_tools` / `call_tool`; `initialize` advertises tools and names the server `snapper` instead of the empty `rmcp` default
 - (**vscode**) `vscode-languageclient` is a runtime dependency only, so `vsce package` ships the module the extension `require`s
+- (**vscode**) `out/extension.js` is an esbuild bundle (`vscode` stays external); the VSIX no longer needs `node_modules` at runtime
 
 - - -
 
