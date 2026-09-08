@@ -26,13 +26,16 @@ This is the successor path for multi-format work (amortizes RTS; avoids process-
 :CUSTOM_ID: requirements
 :END:
 
-**CLI backend.** Pandoc 2.x or 3.x on =PATH=.
+**CLI backend.**
+Pandoc 2.x or 3.x on =PATH=.
 With =--use-pandoc=, a missing or failing pandoc is an explicit error (no silent all-prose).
 
-**FFI backend (dynamic).** Build =native/snapper-pandoc=, set =SNAPPER_PANDOC_LIB= to =libsnapper_pandoc.so= (or put it on the search path).
+**FFI backend (dynamic).**
+Build =native/snapper-pandoc=, set =SNAPPER_PANDOC_LIB= to =libsnapper_pandoc.so= (or put it on the search path).
 A missing library with =--pandoc-backend ffi= errors with =pandoc FFI library unavailable= (fail-closed; never silent all-prose).
 
-**FFI backend (co-linked / one binary).** Feature =pandoc-colink= is a *build* path: produce =libsnapper_pandoc.a= with =native/snapper-pandoc/build-static.sh= (=ghc -staticlib=), then Cargo absorbs that archive into a single =snapper= executable (=--gc-sections=).
+**FFI backend (co-linked / one binary).**
+Feature =pandoc-colink= is a *build* path: produce =libsnapper_pandoc.a= with =native/snapper-pandoc/build-static.sh= (=ghc -staticlib=), then Cargo absorbs that archive into a single =snapper= executable (=--gc-sections=).
 No =SNAPPER_PANDOC_LIB= discovery and no multi-hundred-MB =libHS*= RUNPATH graph.
 
 #+begin_src bash
@@ -60,7 +63,8 @@ snapper --use-pandoc --pandoc-backend ffi paper.md
 Native line parsers remain the default until product flip.
 Use =--use-pandoc= when you need formats without a built-in parser or AST-true structure; prefer FFI for latency once =libsnapper_pandoc= is installed.
 
-**Speed.** Warm in-process FFI is a few times native cost; cold process reloads the GHC RTS (tens of ms).
+**Speed.**
+Warm in-process FFI is a few times native cost; cold process reloads the GHC RTS (tens of ms).
 Snapper also caches pandoc JSON ASTs by content hash (memory + disk under =$XDG_CACHE_HOME/snapper/pandoc-ast=).
 Re-formatting the same source skips pandoc entirely.
 Disable with =SNAPPER_PANDOC_CACHE=0=; override dir with =SNAPPER_PANDOC_CACHE_DIR=.
