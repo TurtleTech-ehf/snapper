@@ -3,6 +3,8 @@ All notable changes to this project will be documented in this file. See [conven
 
 - - -
 ## Unreleased (main)
+#### Bug Fixes
+- (**ci**) `scripts/install_cargo_dist.sh` hashes with `shasum`/`openssl` when `sha256sum` is missing and finds `dist.exe` at the zip root (Windows cargo-dist layout)
 
 - - -
 
