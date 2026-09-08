@@ -5,6 +5,7 @@ All notable changes to this project will be documented in this file. See [conven
 ## Unreleased (main)
 #### Bug Fixes
 - (**mcp**) `#[tool_handler]` implements `list_tools` / `call_tool`; `initialize` advertises tools and names the server `snapper` instead of the empty `rmcp` default
+- (**sentence**) a period immediately before Markdown/Org closers (`**`, `*`, backticks, `](url)`) is a sentence end, so `**Bold sentence.** Next` splits and a hand break survives the next run
 
 - - -
 
