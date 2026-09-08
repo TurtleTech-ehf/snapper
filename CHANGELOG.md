@@ -10,6 +10,7 @@ All notable changes to this project will be documented in this file. See [conven
 - (**ci**) release and nvim workflows install cargo-dist from a sha256-pinned archive and Rust via `dtolnay/rust-toolchain`; they no longer pipe rustup.sh or cargo-dist-installer.sh into `sh`
 - (**sentence**) a period immediately before Markdown/Org closers (`**`, `*`, backticks, `](url)`) is a sentence end, so `**Bold sentence.** Next` splits and a hand break survives the next run
 - (**latex**) `% snapper:no-preamble` and chapter files with no `\\begin{document}` / `\\documentclass` are body; class and package files stay preamble
+- (**rst**) adjacent `*`, `-`, `+`, `1.`, and `#.` list items stay separate regions, so compact lists are not glued onto one line
 
 - - -
 
