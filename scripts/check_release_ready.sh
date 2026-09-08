@@ -105,6 +105,19 @@ expect "## v$version" CHANGELOG.md
 # The public availability contract must hold too.
 bash "$repo_root/scripts/check_public_contract.sh" || fail "check_public_contract.sh failed"
 
+# Release CI must not pipe a downloaded installer into a shell.
+pipe_hits="$(
+  grep -nE 'curl.*\|[[:space:]]*sh' \
+    "$repo_root/.github/workflows/release.yml" \
+    "$repo_root/.github/workflows/nvim_test.yml" || true
+)"
+if [[ -n "$pipe_hits" ]]; then
+  fail "workflow still pipes a curl download into sh:"$'\n'"$pipe_hits"
+fi
+if ! grep -Fq 'scripts/install_cargo_dist.sh' "$repo_root/.github/workflows/release.yml"; then
+  fail "release.yml does not install cargo-dist via scripts/install_cargo_dist.sh"
+fi
+
 if [[ "$mode" == "pre" ]]; then
   if [[ -n "$(git -C "$repo_root" tag -l "v$version")" ]]; then
     fail "local tag v$version already exists; a consumed tag must never move"
