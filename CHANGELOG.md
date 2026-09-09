@@ -4,6 +4,7 @@ All notable changes to this project will be documented in this file. See [conven
 - - -
 ## Unreleased (main)
 #### Bug Fixes
+- (**rst**) comment bodies after a bare `..` stay structure, so indented comment sentences are not outdented to column 0
 - (**rst**) list continuation paragraphs after a blank keep their hanging indent, so a two-space second sentence is not outdented to column 0
 - (**rst**) definition lists (flush term plus indented definition) stay structure, so the term is not glued onto the definition line
 - (**rst**) simple tables (`=====  =====` column borders) stay structure, so header and body rows are not glued onto one line
