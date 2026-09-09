@@ -594,15 +594,18 @@ fn format_text_pandoc_definition_list_stays_structure() {
     assert_has_sentence_break(&out, "First sentence.", "Second sentence");
 }
 
-/// `--use-pandoc` must not delete RST `..` comments and exit 0.
+/// `--use-pandoc` must keep RST `..` comments and exit 0.
 #[test]
-fn format_text_use_pandoc_rst_comment_is_explicit_error() {
+fn format_text_use_pandoc_rst_comment_is_preserved() {
+    if !require_writer() {
+        return;
+    }
     let input = read_fixture("rst_comment.rst");
     assert!(
         dropped_comment_kind(&input, "rst").is_some(),
         "fixture must be a dropped RST comment"
     );
-    let err = format_text(
+    let out = format_text(
         &input,
         &FormatConfig {
             format: Format::Rst,
@@ -612,19 +615,26 @@ fn format_text_use_pandoc_rst_comment_is_explicit_error() {
             ..Default::default()
         },
     )
-    .expect_err("pandoc path must refuse RST comments");
-    let msg = format!("{err:#}");
+    .expect("pandoc path must keep RST comments");
     assert!(
-        msg.contains("drop") || msg.contains("comment") || msg.contains("pragma"),
-        "expected explicit drop error, got: {msg}"
+        out.contains("This comment must not vanish."),
+        "RST comment body must survive:\n{out}"
     );
+    assert!(
+        out.contains(".. This is a recognized comment."),
+        "recognized RST comment must survive:\n{out}"
+    );
+    assert_has_sentence_break(&out, "Hello world.", "Second sentence");
 }
 
-/// `--use-pandoc` must not delete `snapper:off` and exit 0.
+/// `--use-pandoc` must keep `snapper:off` and exit 0.
 #[test]
-fn format_text_use_pandoc_snapper_off_is_explicit_error() {
+fn format_text_use_pandoc_snapper_off_is_preserved() {
+    if !require_writer() {
+        return;
+    }
     let input = read_fixture("snapper_off.md");
-    let err = format_text(
+    let out = format_text(
         &input,
         &FormatConfig {
             format: Format::Markdown,
@@ -634,18 +644,25 @@ fn format_text_use_pandoc_snapper_off_is_explicit_error() {
             ..Default::default()
         },
     )
-    .expect_err("pandoc path must refuse snapper:off");
-    let msg = format!("{err:#}");
+    .expect("pandoc path must keep snapper:off");
     assert!(
-        msg.contains("snapper") || msg.contains("drop") || msg.contains("pragma"),
-        "expected explicit drop error, got: {msg}"
+        out.contains("<!-- snapper:off -->") && out.contains("<!-- snapper:on -->"),
+        "markdown pragmas must survive:\n{out}"
     );
+    assert!(
+        out.contains("Keep this. Exactly here."),
+        "off-region body must not be reflowed away:\n{out}"
+    );
+    assert_has_sentence_break(&out, "Hello world.", "Second sentence");
 }
 
 #[test]
-fn format_text_use_pandoc_rst_snapper_off_is_explicit_error() {
+fn format_text_use_pandoc_rst_snapper_off_is_preserved() {
+    if !require_writer() {
+        return;
+    }
     let input = read_fixture("snapper_off.rst");
-    let err = format_text(
+    let out = format_text(
         &input,
         &FormatConfig {
             format: Format::Rst,
@@ -655,11 +672,14 @@ fn format_text_use_pandoc_rst_snapper_off_is_explicit_error() {
             ..Default::default()
         },
     )
-    .expect_err("pandoc path must refuse RST snapper:off");
-    let msg = format!("{err:#}");
+    .expect("pandoc path must keep RST snapper:off");
     assert!(
-        msg.contains("snapper") || msg.contains("drop") || msg.contains("pragma"),
-        "expected explicit drop error, got: {msg}"
+        out.contains("snapper:off") && out.contains("snapper:on"),
+        "RST pragmas must survive:\n{out}"
+    );
+    assert!(
+        out.contains("Keep this. Exactly here."),
+        "RST off-region body must survive:\n{out}"
     );
 }
 
@@ -716,9 +736,12 @@ fn native_path_keeps_rst_comment_and_snapper_off() {
     );
 }
 
-/// CLI `--use-pandoc` on the RST comment fixture must not exit 0 after a drop.
+/// CLI `--use-pandoc` on the RST comment fixture must exit 0 and keep the text.
 #[test]
-fn snapper_cli_use_pandoc_rst_comment_is_nonzero() {
+fn snapper_cli_use_pandoc_rst_comment_exits_0() {
+    if !require_writer() {
+        return;
+    }
     let bin = env!("CARGO_BIN_EXE_snapper");
     let input = fixture("rst_comment.rst");
     let out = std::process::Command::new(bin)
@@ -727,25 +750,23 @@ fn snapper_cli_use_pandoc_rst_comment_is_nonzero() {
         .output()
         .expect("spawn snapper");
     assert!(
-        !out.status.success(),
-        "CLI must refuse RST comments; stdout={} stderr={}",
+        out.status.success(),
+        "CLI must keep RST comments; stdout={} stderr={}",
         String::from_utf8_lossy(&out.stdout),
         String::from_utf8_lossy(&out.stderr)
     );
-    let err = String::from_utf8_lossy(&out.stderr);
-    assert!(
-        err.contains("drop") || err.contains("comment") || err.contains("pragma"),
-        "expected explicit drop error on stderr, got: {err}"
-    );
     let stdout = String::from_utf8_lossy(&out.stdout);
     assert!(
-        stdout.trim().is_empty() || stdout.contains("This comment must not vanish."),
-        "must not emit comment-stripped success output: {stdout}"
+        stdout.contains("This comment must not vanish."),
+        "CLI output must keep RST comment body: {stdout}"
     );
 }
 
 #[test]
-fn snapper_cli_use_pandoc_snapper_off_is_nonzero() {
+fn snapper_cli_use_pandoc_snapper_off_exits_0() {
+    if !require_writer() {
+        return;
+    }
     let bin = env!("CARGO_BIN_EXE_snapper");
     let input = fixture("snapper_off.md");
     let out = std::process::Command::new(bin)
@@ -754,15 +775,15 @@ fn snapper_cli_use_pandoc_snapper_off_is_nonzero() {
         .output()
         .expect("spawn snapper");
     assert!(
-        !out.status.success(),
-        "CLI must refuse snapper:off; stdout={} stderr={}",
+        out.status.success(),
+        "CLI must keep snapper:off; stdout={} stderr={}",
         String::from_utf8_lossy(&out.stdout),
         String::from_utf8_lossy(&out.stderr)
     );
-    let err = String::from_utf8_lossy(&out.stderr);
+    let stdout = String::from_utf8_lossy(&out.stdout);
     assert!(
-        err.contains("snapper") || err.contains("drop") || err.contains("pragma"),
-        "expected explicit drop error on stderr, got: {err}"
+        stdout.contains("<!-- snapper:off -->") && stdout.contains("Keep this. Exactly here."),
+        "CLI output must keep snapper:off: {stdout}"
     );
 }
 
