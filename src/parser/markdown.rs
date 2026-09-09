@@ -154,6 +154,25 @@ fn append_piece(
     *acc.term = Some(line.terminator_span());
 }
 
+/// Leading whitespace byte length of a fence line.
+fn fence_indent(line: &str) -> usize {
+    line.len() - line.trim_start().len()
+}
+
+/// Closing fence: same marker type, length >= opener, indent at most
+/// `max(3, opener_indent)`. Deeper indent is body (GitHub #48).
+fn is_closing_fence(line: &str, fence_marker: &str, opener_indent: usize) -> bool {
+    let indent = fence_indent(line);
+    if indent > opener_indent.max(3) {
+        return false;
+    }
+    let Some(caps) = FENCED_CODE_RE.captures(line.trim_start()) else {
+        return false;
+    };
+    let marker = caps.get(1).unwrap().as_str();
+    marker.chars().next() == fence_marker.chars().next() && marker.len() >= fence_marker.len()
+}
+
 /// True when `line` is a CommonMark setext underline (`===` or `---`).
 fn is_setext_underline(line: &str) -> bool {
     let trimmed = line.trim_end();
@@ -192,6 +211,7 @@ impl FormatParser for MarkdownParser {
         let mut prose_span: Option<ByteSpan> = None;
         let mut in_fenced_code = false;
         let mut fence_marker = String::new();
+        let mut fence_indent_cols = 0usize;
         let mut code_header = ByteSpan::default();
         let mut code_body_start = 0usize;
         let mut code_lang: Option<String> = None;
@@ -277,15 +297,7 @@ impl FormatParser for MarkdownParser {
                     &mut regions,
                 );
                 flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
-                let mut closed = false;
-                if let Some(caps) = FENCED_CODE_RE.captures(line_text.trim_start()) {
-                    let marker = caps.get(1).unwrap().as_str();
-                    if marker.chars().next() == fence_marker.chars().next()
-                        && marker.len() >= fence_marker.len()
-                    {
-                        closed = true;
-                    }
-                }
+                let closed = is_closing_fence(line_text, &fence_marker, fence_indent_cols);
                 if closed {
                     in_fenced_code = false;
                     regions.push(SpannedRegion::code(
@@ -312,6 +324,7 @@ impl FormatParser for MarkdownParser {
                 );
                 flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
                 fence_marker = caps.get(1).unwrap().as_str().to_string();
+                fence_indent_cols = fence_indent(line_text);
                 in_fenced_code = true;
                 code_lang = FENCED_LANG_RE
                     .captures(line_text.trim_start())
@@ -1190,5 +1203,78 @@ mod tests {
             "must not hang quote wrap with spaces: {out:?}"
         );
         assert_eq!(format_text(&out, &cfg).unwrap(), out);
+    }
+
+    #[test]
+    fn indented_inner_fence_stays_in_code_body() {
+        let input =
+            "```{code-block} markdown\n\n    ```python\n    print(\"hello\")\n    ```\n```\n";
+        let regions = MarkdownParser.parse(input);
+        match &regions[0] {
+            Region::Code {
+                body,
+                header,
+                footer,
+                ..
+            } => {
+                assert!(
+                    header.starts_with("```"),
+                    "outer opener is the header, got {header:?}"
+                );
+                assert!(
+                    body.contains("    ```python"),
+                    "indented inner opener must stay in the code body, got {body:?}"
+                );
+                assert!(
+                    body.contains("    print(\"hello\")"),
+                    "indented print must stay in the code body, got {body:?}"
+                );
+                assert!(
+                    footer.trim_start().starts_with("```"),
+                    "outer closer is the footer, got {footer:?}"
+                );
+            }
+            other => panic!("expected one Code region, got {other:?}"),
+        }
+        assert!(
+            !regions
+                .iter()
+                .any(|r| matches!(r, Region::Prose(s) if s.contains("print"))),
+            "print(\"hello\") must not become Prose, got {regions:?}"
+        );
+    }
+
+    #[test]
+    fn reporter_nested_fence_example_is_identity_under_format() {
+        use crate::format::Format;
+        use crate::{FormatConfig, format_text};
+
+        let cfg = FormatConfig {
+            format: Format::Markdown,
+            max_width: 0,
+            ..Default::default()
+        };
+        let input =
+            "```{code-block} markdown\n\n    ```python\n    print(\"hello\")\n    ```\n```\n";
+        let out = format_text(input, &cfg).unwrap();
+        assert_eq!(
+            out, input,
+            "reporter nested fence example must stay identity under format, got:\n{out}"
+        );
+        assert!(
+            out.contains("    print(\"hello\")"),
+            "print(\"hello\") must keep indent, got:\n{out}"
+        );
+    }
+
+    #[test]
+    fn closing_fence_rejects_deeper_indent_than_opener() {
+        assert!(is_closing_fence("```", "```", 0));
+        assert!(is_closing_fence("   ```", "```", 0));
+        assert!(!is_closing_fence("    ```", "```", 0));
+        assert!(is_closing_fence("    ```", "```", 4));
+        assert!(!is_closing_fence("        ```", "```", 4));
+        assert!(is_closing_fence("~~~~", "~~~", 0));
+        assert!(!is_closing_fence("```", "~~~", 0));
     }
 }
