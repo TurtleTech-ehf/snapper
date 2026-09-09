@@ -27,6 +27,7 @@ pub mod ast;
 pub mod cache;
 pub mod cli;
 pub mod ffi;
+pub mod protect;
 pub mod reflow;
 pub mod write;
 
@@ -174,15 +175,12 @@ pub fn dropped_comment_kind(input: &str, format: &str) -> Option<&'static str> {
     {
         return Some("snapper:off/on");
     }
-    if is_rst_pandoc_format(format) && crate::parser::rst::source_has_dropped_rst_comments(input) {
+    if protect::is_rst_pandoc_format(format)
+        && crate::parser::rst::source_has_dropped_rst_comments(input)
+    {
         return Some("RST comment");
     }
     None
-}
-
-fn is_rst_pandoc_format(format: &str) -> bool {
-    let base = format.split(['+', '-']).next().unwrap_or(format);
-    matches!(base, "rst" | "rest")
 }
 
 /// Writer-side backstop: a detector miss must still not exit 0 after a drop.
@@ -192,7 +190,7 @@ fn refuse_if_comments_missing(input: &str, format: &str, output: &str) -> Result
             return Err(PandocError::DropsComments("snapper:off/on".into()));
         }
     }
-    if is_rst_pandoc_format(format) {
+    if protect::is_rst_pandoc_format(format) {
         for line in input.lines() {
             let trimmed = line.trim_start();
             if !crate::parser::rst::is_rst_dropped_comment_opener(trimmed) {
@@ -212,8 +210,9 @@ fn refuse_if_comments_missing(input: &str, format: &str, output: &str) -> Result
 /// Not a splice of the original bytes. If the FFI library has no writer,
 /// this still needs `pandoc` on PATH and says so (`WRITER_NEEDS_PATH`).
 ///
-/// Refuses when the source has RST `..` comments or `snapper:off` /
-/// `snapper:on` that pandoc's reader would delete (empty AST, exit 0).
+/// RST `..` comments and `snapper:off` / `snapper:on` are lifted out
+/// before the reader (tokens → `RawBlock`), then restored so write-through
+/// exits 0 with that text still present.
 pub fn format_via_pandoc(
     input: &str,
     format: &str,
@@ -221,18 +220,18 @@ pub fn format_via_pandoc(
     splitter: &dyn crate::sentence::SentenceSplitter,
     reflow_config: &crate::reflow::ReflowConfig,
 ) -> Result<String, PandocError> {
-    if let Some(kind) = dropped_comment_kind(input, format) {
-        return Err(PandocError::DropsComments(kind.to_string()));
-    }
-    let json = json_with_backend(input, format, backend)?;
+    let protected = protect::protect_dropped_text(input, format);
+    let json = json_with_backend(&protected.source, format, backend)?;
     let mut doc: pandoc_ast::Pandoc =
         serde_json::from_str(&json).map_err(|e| PandocError::Ast(e.to_string()))?;
+    protect::inject_raw_blocks(&mut doc, &protected.parts, format);
     reflow_pandoc(&mut doc, splitter, reflow_config);
     let out_json =
         serde_json::to_string(&doc).map_err(|e| PandocError::Ast(format!("serialize AST: {e}")))?;
     let written = write_ast(&out_json, format).map_err(PandocError::from)?;
-    refuse_if_comments_missing(input, format, &written)?;
-    Ok(written)
+    let restored = protect::restore_dropped_text(&written, &protected.parts);
+    refuse_if_comments_missing(input, format, &restored)?;
+    Ok(restored)
 }
 
 /// Parser that uses pandoc for universal format support.
@@ -388,19 +387,27 @@ mod tests {
     }
 
     #[test]
-    fn format_via_pandoc_rst_comment_is_explicit_error() {
-        let err = format_via_pandoc(
-            "..\n   First sentence.\n   Second sentence.\n",
+    fn format_via_pandoc_rst_comment_is_kept() {
+        if !pandoc_available() && !ffi_write_available() {
+            return;
+        }
+        let input = "..\n   First sentence.\n   Second sentence.\n";
+        let out = format_via_pandoc(
+            input,
             "rst",
             PandocBackend::Cli,
             &crate::sentence::unicode::UnicodeSentenceSplitter::new(),
             &crate::reflow::ReflowConfig::default(),
         )
-        .unwrap_err();
-        match err {
-            PandocError::DropsComments(kind) => assert!(kind.contains("RST")),
-            other => panic!("expected DropsComments, got {other}"),
-        }
+        .expect("pandoc path must keep RST comments");
+        assert!(
+            out.contains("First sentence.") && out.contains("Second sentence."),
+            "RST comment body must survive:\n{out}"
+        );
+        assert!(
+            out.contains(".."),
+            "RST comment opener must survive:\n{out}"
+        );
     }
 
     #[test]
@@ -505,18 +512,26 @@ mod tests {
     }
 
     #[test]
-    fn format_via_pandoc_pragma_is_explicit_error() {
-        let err = format_via_pandoc(
-            "Hello world. Second.\n<!-- snapper:off -->\nKeep this.\n<!-- snapper:on -->\n",
+    fn format_via_pandoc_pragma_is_kept() {
+        if !pandoc_available() && !ffi_write_available() {
+            return;
+        }
+        let input = "Hello world. Second.\n<!-- snapper:off -->\nKeep this.\n<!-- snapper:on -->\n";
+        let out = format_via_pandoc(
+            input,
             "markdown",
             PandocBackend::Cli,
             &crate::sentence::unicode::UnicodeSentenceSplitter::new(),
             &crate::reflow::ReflowConfig::default(),
         )
-        .unwrap_err();
-        match err {
-            PandocError::DropsComments(kind) => assert!(kind.contains("snapper")),
-            other => panic!("expected DropsComments, got {other}"),
-        }
+        .expect("pandoc path must keep snapper:off");
+        assert!(
+            out.contains("snapper:off") && out.contains("snapper:on"),
+            "pragma markers must survive:\n{out}"
+        );
+        assert!(
+            out.contains("Keep this."),
+            "off-region body must survive:\n{out}"
+        );
     }
 }
