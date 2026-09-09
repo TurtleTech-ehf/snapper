@@ -97,8 +97,8 @@ The two paths are different pipelines, not two ways to fake the same source line
 :END:
 
 - Pandoc's reader deletes comments (RST =..= comments, HTML comments) and therefore =snapper:off= / =snapper:on=.
-- =--use-pandoc= refuses with an explicit error instead of writing the stripped document and exiting 0.
-- Use the native parser (omit =--use-pandoc=) to keep that text.
+- =--use-pandoc= shields RST =..= comments and =snapper:off= / =snapper:on= so the written output still contains that text and exits 0.
+- Other HTML / Org / LaTeX comments that are not snapper pragmas may still be dropped.
 - Round-trip is through the AST (not a perfect source-preserving rewrite of every markup character)
 - FFI library is optional; wasm/editor bundles do not embed GHC/pandoc
 - CLI pandoc versus editor native is the contract: the CLI may take =--use-pandoc=; VS Code, Obsidian, and Word stay on native parsers.

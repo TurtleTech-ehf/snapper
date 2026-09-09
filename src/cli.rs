@@ -94,8 +94,8 @@ pub struct Cli {
     pub model_path: Option<PathBuf>,
 
     /// Use pandoc as parser backend (universal format support).
-    /// Refuses when the source has comments or `snapper:off` / `snapper:on`
-    /// that pandoc's reader would delete.
+    /// RST `..` comments and `snapper:off` / `snapper:on` are written
+    /// through so the output still contains that text.
     /// Parse may use in-process FFI; the writer still needs `pandoc` on PATH
     /// (`libsnapper_pandoc` is reader-only) unless that library exports a
     /// writer. Without FFI, both parse and write use the `pandoc` CLI
