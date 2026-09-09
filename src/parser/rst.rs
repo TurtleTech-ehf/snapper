@@ -19,7 +19,8 @@ impl FormatParser for RstParser {
 }
 
 /// Line-based RST parser. Handles directives, literal blocks, sections,
-/// field lists, comments, tables, and definition lists as structure regions.
+/// field lists, comments, tables, definition lists, and hanging list
+/// continuation paragraphs as structure regions.
 fn parse_line_based(input: &str) -> Vec<SpannedRegion> {
     let mut regions = Vec::new();
     let mut current_prose = String::new();
@@ -30,6 +31,9 @@ fn parse_line_based(input: &str) -> Vec<SpannedRegion> {
     let mut directive_indent: usize = 0;
     let mut in_definition = false;
     let mut definition_indent: usize = 0;
+    // Hang column of the last list item (`- ` → 2). Indented lines at or
+    // past this, including after a blank, stay with the item.
+    let mut list_hang: Option<usize> = None;
     let mut pragma_off = false;
 
     // Code-block directive bookkeeping. Mutually exclusive with `in_directive`.
@@ -247,6 +251,7 @@ fn parse_line_based(input: &str) -> Vec<SpannedRegion> {
                 input,
                 ByteSpan::new(line.start, line.start + marker_len),
             ));
+            list_hang = Some(marker_len);
             if line_text.len() > marker_len {
                 current_prose.push_str(line_text[marker_len..].trim());
                 prose_span = Some(ByteSpan::new(line.start + marker_len, line.end));
@@ -287,6 +292,22 @@ fn parse_line_based(input: &str) -> Vec<SpannedRegion> {
             in_definition = true;
             i += 1;
             continue;
+        }
+
+        // List continuation paragraph: indented to hang under the item,
+        // including after a blank. `rst_list_marker_len` only covers the
+        // marker line; without this the hang is regular prose and splice
+        // drops it to column 0.
+        if let Some(hang) = list_hang {
+            let leading = line_text.len() - line_text.trim_start().len();
+            if leading >= hang && current_prose.is_empty() {
+                regions.push(SpannedRegion::structure(input, line.span()));
+                i += 1;
+                continue;
+            }
+            if leading < hang {
+                list_hang = None;
+            }
         }
 
         // Regular prose
@@ -604,6 +625,43 @@ mod tests {
         assert!(
             out.contains("\n   Definition sentence."),
             "definition must keep indent, got:\n{out}"
+        );
+    }
+
+    #[test]
+    fn list_continuation_paragraph_is_structure() {
+        let input = "- First sentence.\n\n  Second sentence.\n";
+        let regions = RstParser.parse(input);
+        assert!(
+            regions
+                .iter()
+                .any(|r| matches!(r, Region::Structure(s) if s.contains("Second sentence."))),
+            "continuation must be Structure, got {regions:?}"
+        );
+        assert!(
+            !regions
+                .iter()
+                .any(|r| matches!(r, Region::Prose(s) if s.contains("Second sentence."))),
+            "continuation must not be Prose, got {regions:?}"
+        );
+    }
+
+    #[test]
+    fn reporter_list_continuation_is_identity_under_format() {
+        use crate::format::Format;
+        use crate::{FormatConfig, format_text};
+
+        let cfg = FormatConfig {
+            format: Format::Rst,
+            max_width: 0,
+            ..Default::default()
+        };
+        let input = "- First sentence.\n\n  Second sentence.\n";
+        let out = format_text(input, &cfg).unwrap();
+        assert_eq!(out, input, "list continuation must keep hang, got:\n{out}");
+        assert!(
+            out.contains("\n  Second sentence."),
+            "continuation must keep two-space hang, got:\n{out}"
         );
     }
 
