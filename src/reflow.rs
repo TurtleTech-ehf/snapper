@@ -321,6 +321,22 @@ pub fn wrap_with_clause_breaks(sentence: &str, max_width: usize) -> String {
     )
 }
 
+/// Wrap one sentence with no hanging indent (pandoc AST reflow).
+pub(crate) fn wrap_sentence_plain(
+    sentence: &str,
+    max_width: usize,
+    clause_breaks: bool,
+    format: Format,
+) -> String {
+    wrap_prose(
+        sentence,
+        max_width,
+        clause_breaks,
+        format,
+        WrapLayout::default(),
+    )
+}
+
 #[derive(Default)]
 struct WrapLayout<'a> {
     /// Columns already occupied on the first emitted line (list marker).

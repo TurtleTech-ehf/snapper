@@ -12,13 +12,22 @@ use snapper_fmt::parser::Region;
 use snapper_fmt::parser::pandoc::{
     PandocBackend, PandocParser, ffi_available, regions_from_pandoc_json,
 };
-use snapper_fmt::{FormatConfig, PandocCannotSplice, format_text};
+use snapper_fmt::{FormatConfig, format_text};
 
-fn assert_pandoc_refuses(input: &str, cfg: &FormatConfig) {
-    let err = format_text(input, cfg).expect_err("pandoc must refuse splice");
+/// Writer is CLI-only (`libsnapper_pandoc` has no writers).
+fn require_writer() -> bool {
+    if snapper_fmt::parser::pandoc::pandoc_available() {
+        true
+    } else {
+        eprintln!("skipping: pandoc CLI not on PATH (writer)");
+        false
+    }
+}
+
+fn assert_has_sentence_break(out: &str, first: &str, second_substr: &str) {
     assert!(
-        err.downcast_ref::<PandocCannotSplice>().is_some(),
-        "expected PandocCannotSplice, got {err:?}"
+        out.contains(&format!("{first}\n")) && out.contains(second_substr),
+        "expected sentence break after {first:?} before {second_substr:?}:\n{out}"
     );
 }
 
@@ -127,8 +136,7 @@ fn snapper_cli_ffi_bad_lib_is_explicit_error() {
 
 #[test]
 fn format_text_cli_backend_stable_across_two_runs_when_pandoc_present() {
-    if !snapper_fmt::parser::pandoc::pandoc_available() {
-        eprintln!("skipping: pandoc CLI not on PATH");
+    if !require_writer() {
         return;
     }
     let input = read_fixture("mixed.md");
@@ -139,7 +147,17 @@ fn format_text_cli_backend_stable_across_two_runs_when_pandoc_present() {
         pandoc_format: Some("markdown".into()),
         ..Default::default()
     };
-    assert_pandoc_refuses(&input, &cfg);
+    let a = format_text(&input, &cfg).expect("pandoc write");
+    let b = format_text(&input, &cfg).expect("pandoc write 2");
+    assert_eq!(a, b, "writer must be deterministic");
+    assert_has_sentence_break(&a, "Hello world.", "Second sentence");
+    assert!(a.contains("```") && a.contains("print(1)"), "code:\n{a}");
+    assert!(
+        a.contains('a') && a.contains('b') && a.contains("---"),
+        "table cells stay structure:\n{a}"
+    );
+    assert!(a.contains("Title"), "header:\n{a}");
+    assert_ne!(a, input, "write-through is not a byte splice");
 }
 
 #[test]
@@ -173,6 +191,9 @@ fn format_text_ffi_live_stable_when_lib_present() {
         eprintln!("skipping live FFI: libsnapper_pandoc not loadable");
         return;
     }
+    if !require_writer() {
+        return;
+    }
     let input = read_fixture("mixed.md");
     let cfg = FormatConfig {
         format: Format::Markdown,
@@ -181,7 +202,10 @@ fn format_text_ffi_live_stable_when_lib_present() {
         pandoc_format: Some("markdown".into()),
         ..Default::default()
     };
-    assert_pandoc_refuses(&input, &cfg);
+    let a = format_text(&input, &cfg).expect("ffi parse + cli write");
+    let b = format_text(&input, &cfg).expect("ffi parse + cli write 2");
+    assert_eq!(a, b);
+    assert_has_sentence_break(&a, "Hello world.", "Second sentence");
 }
 
 /// Pandoc parse first: Header node → Structure; title never Prose (no reflow).
@@ -220,18 +244,17 @@ fn numbered_heading_after_pandoc_parse_not_prose() {
     );
 }
 
-/// Pandoc has no source offsets, so format_text refuses rather than
-/// reconstruct (and rather than drop `###` from ATX lines).
+/// Pandoc writes the reflowed AST; the heading stays one Header (not prose).
 #[test]
-fn format_text_pandoc_refuses_numbered_heading() {
+fn format_text_pandoc_writes_numbered_heading() {
+    if !require_writer() {
+        return;
+    }
     let input = read_fixture("numbered_heading.md");
     let backend = if ffi_available() {
         PandocBackend::Ffi
-    } else if snapper_fmt::parser::pandoc::pandoc_available() {
-        PandocBackend::Cli
     } else {
-        eprintln!("skipping: neither FFI lib nor pandoc CLI available");
-        return;
+        PandocBackend::Cli
     };
     let cfg = FormatConfig {
         format: Format::Markdown,
@@ -240,7 +263,17 @@ fn format_text_pandoc_refuses_numbered_heading() {
         pandoc_format: Some("markdown".into()),
         ..Default::default()
     };
-    assert_pandoc_refuses(&input, &cfg);
+    let out = format_text(&input, &cfg).expect("pandoc write");
+    assert_has_sentence_break(&out, "Hello world.", "Second sentence");
+    assert!(
+        out.contains("cargo binstall"),
+        "header title survives:\n{out}"
+    );
+    assert!(
+        !out.lines()
+            .any(|l| l.trim() == "1." || l.trim() == "### 1."),
+        "header must not be sentence-split:\n{out}"
+    );
     let native = format_text(
         &input,
         &FormatConfig {
@@ -262,14 +295,14 @@ fn format_text_pandoc_refuses_numbered_heading() {
 /// Math + code: display/inline math and CodeBlock not sentence-reflowed.
 #[test]
 fn format_text_pandoc_math_and_code_protected() {
+    if !require_writer() {
+        return;
+    }
     let input = read_fixture("math_code.md");
     let backend = if ffi_available() {
         PandocBackend::Ffi
-    } else if snapper_fmt::parser::pandoc::pandoc_available() {
-        PandocBackend::Cli
     } else {
-        eprintln!("skipping: no pandoc backend");
-        return;
+        PandocBackend::Cli
     };
     let cfg = FormatConfig {
         format: Format::Markdown,
@@ -278,7 +311,18 @@ fn format_text_pandoc_math_and_code_protected() {
         pandoc_format: Some("markdown".into()),
         ..Default::default()
     };
-    assert_pandoc_refuses(&input, &cfg);
+    let pandoc_out = format_text(&input, &cfg).expect("pandoc write");
+    assert_has_sentence_break(&pandoc_out, "First sentence.", "Second sentence");
+    assert!(
+        pandoc_out.contains("```") && pandoc_out.contains("print(1.0)"),
+        "CodeBlock stays a fenced unit:\n{pandoc_out}"
+    );
+    assert!(
+        !pandoc_out
+            .lines()
+            .any(|l| l.trim() == "0)" || l.trim() == "0"),
+        "code not sentence-fragmented:\n{pandoc_out}"
+    );
     let run1 = format_text(
         &input,
         &FormatConfig {
@@ -324,16 +368,10 @@ fn format_text_pandoc_math_and_code_protected() {
 
 #[test]
 fn format_text_pandoc_latex_math_code_envs() {
-    if !snapper_fmt::parser::pandoc::pandoc_available() && !ffi_available() {
-        eprintln!("skipping: no pandoc backend");
+    if !require_writer() {
         return;
     }
-    // LaTeX readers are CLI-complete; FFI may not include latex the same way.
-    let backend = if snapper_fmt::parser::pandoc::pandoc_available() {
-        PandocBackend::Cli
-    } else {
-        PandocBackend::Ffi
-    };
+    let backend = PandocBackend::Cli;
     let input = read_fixture("math_code.tex");
     let cfg = FormatConfig {
         format: Format::Latex,
@@ -342,7 +380,18 @@ fn format_text_pandoc_latex_math_code_envs() {
         pandoc_format: Some("latex".into()),
         ..Default::default()
     };
-    assert_pandoc_refuses(&input, &cfg);
+    let pandoc_out = format_text(&input, &cfg).expect("pandoc latex write");
+    assert!(
+        pandoc_out.contains("Hello world.") && pandoc_out.contains("Second sentence"),
+        "latex prose present:\n{pandoc_out}"
+    );
+    assert_has_sentence_break(&pandoc_out, "Hello world.", "Second sentence");
+    assert!(
+        !pandoc_out
+            .lines()
+            .any(|l| l.trim() == "2." && !l.contains("mc")),
+        "math period must not orphan a bare '2.' prose line:\n{pandoc_out}"
+    );
     let out = format_text(
         &input,
         &FormatConfig {
@@ -369,15 +418,11 @@ fn format_text_pandoc_latex_math_code_envs() {
 
 #[test]
 fn format_text_pandoc_table_list_quote() {
-    let input = read_fixture("structure_blocks.md");
-    let backend = if snapper_fmt::parser::pandoc::pandoc_available() {
-        PandocBackend::Cli
-    } else if ffi_available() {
-        PandocBackend::Ffi
-    } else {
-        eprintln!("skipping: no pandoc backend");
+    if !require_writer() {
         return;
-    };
+    }
+    let input = read_fixture("structure_blocks.md");
+    let backend = PandocBackend::Cli;
     let cfg = FormatConfig {
         format: Format::Markdown,
         use_pandoc: true,
@@ -385,7 +430,19 @@ fn format_text_pandoc_table_list_quote() {
         pandoc_format: Some("markdown".into()),
         ..Default::default()
     };
-    assert_pandoc_refuses(&input, &cfg);
+    let pandoc_out = format_text(&input, &cfg).expect("pandoc write");
+    assert!(
+        pandoc_out.contains('a')
+            && pandoc_out.contains('b')
+            && (pandoc_out.contains("---") || pandoc_out.contains('|')),
+        "table stays structure:\n{pandoc_out}"
+    );
+    assert!(
+        pandoc_out.contains("- ") || pandoc_out.lines().any(|l| l.starts_with('-')),
+        "bullet list stays structure:\n{pandoc_out}"
+    );
+    assert!(pandoc_out.contains('>'), "blockquote:\n{pandoc_out}");
+    assert_has_sentence_break(&pandoc_out, "Intro sentence.", "Second");
     let run1 = format_text(
         &input,
         &FormatConfig {
@@ -443,8 +500,7 @@ fn default_path_numbered_atx_source_line_not_split() {
 /// cannot land on its own line. Native pairing is meant to match this.
 #[test]
 fn pandoc_org_verbatim_inner_equals_stays_one_span() {
-    if !snapper_fmt::parser::pandoc::pandoc_available() {
-        eprintln!("skipping: pandoc CLI not on PATH");
+    if !require_writer() {
         return;
     }
     let input = "so =x = 1 -- note.= reflows while =s = \"x\"= does not.\n";
@@ -455,7 +511,13 @@ fn pandoc_org_verbatim_inner_equals_stays_one_span() {
         pandoc_format: Some("org".into()),
         ..Default::default()
     };
-    assert_pandoc_refuses(input, &cfg);
+    let pandoc_out = format_text(input, &cfg).expect("pandoc org write");
+    assert!(
+        !pandoc_out
+            .lines()
+            .any(|l| l.trim() == "=" || l.starts_with("= ")),
+        "pandoc path must not orphan a verbatim closer, got:\n{pandoc_out}"
+    );
     let out = format_text(
         input,
         &FormatConfig {
@@ -474,4 +536,59 @@ fn pandoc_org_verbatim_inner_equals_stays_one_span() {
         out.contains("x = 1") && out.contains("s ="),
         "both verbatim bodies must survive, got:\n{out}"
     );
+}
+
+/// `snapper --use-pandoc FILE` must exit 0 and emit sentence breaks.
+#[test]
+fn snapper_cli_use_pandoc_exits_0() {
+    if !require_writer() {
+        return;
+    }
+    let bin = env!("CARGO_BIN_EXE_snapper");
+    let input = fixture("mixed.md");
+    let out = std::process::Command::new(bin)
+        .args(["--use-pandoc", "--format", "markdown"])
+        .arg(&input)
+        .output()
+        .expect("spawn snapper");
+    assert!(
+        out.status.success(),
+        "snapper --use-pandoc must exit 0; stderr={} stdout={}",
+        String::from_utf8_lossy(&out.stderr),
+        String::from_utf8_lossy(&out.stdout)
+    );
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(
+        stdout.contains("Hello world.\n") && stdout.contains("Second sentence"),
+        "CLI write must break sentences:\n{stdout}"
+    );
+    assert!(
+        stdout.contains("```") || stdout.contains("print(1)"),
+        "CLI write keeps CodeBlock:\n{stdout}"
+    );
+}
+
+#[test]
+fn format_text_pandoc_definition_list_stays_structure() {
+    if !require_writer() {
+        return;
+    }
+    let input = "Term one\n\n:   First sentence. Second sentence.\n";
+    let cfg = FormatConfig {
+        format: Format::Markdown,
+        use_pandoc: true,
+        pandoc_backend: PandocBackend::Cli,
+        pandoc_format: Some("markdown".into()),
+        ..Default::default()
+    };
+    let out = format_text(input, &cfg).expect("pandoc write");
+    assert!(
+        out.to_lowercase().contains("term one"),
+        "definition term survives:\n{out}"
+    );
+    assert!(
+        out.contains("First sentence") && out.contains("Second sentence"),
+        "definition body prose present:\n{out}"
+    );
+    assert_has_sentence_break(&out, "First sentence.", "Second sentence");
 }

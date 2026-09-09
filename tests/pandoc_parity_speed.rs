@@ -97,17 +97,24 @@ fn parity_md_prose_reflow_and_structure() {
     };
     let input = read("pandoc_ast/math_code.md");
     let native = format_text(&input, &native_cfg(Format::Markdown)).expect("native");
-    let err = format_text(&input, &pandoc_cfg(Format::Markdown, backend, "markdown"))
-        .expect_err("pandoc must refuse splice");
-    assert!(
-        err.downcast_ref::<snapper_fmt::PandocCannotSplice>()
-            .is_some(),
-        "{err:?}"
-    );
+    if !snapper_fmt::parser::pandoc::pandoc_available() {
+        eprintln!("skip pandoc write: CLI writer missing");
+        return;
+    }
+    let pandoc = format_text(&input, &pandoc_cfg(Format::Markdown, backend, "markdown"))
+        .expect("pandoc write");
 
     assert!(
         has_sentence_reflow(&native, "First sentence.", "Second sentence"),
         "native reflow:\n{native}"
+    );
+    assert!(
+        has_sentence_reflow(&pandoc, "First sentence.", "Second sentence"),
+        "pandoc reflow:\n{pandoc}"
+    );
+    assert!(
+        pandoc.contains("```") && pandoc.contains("print(1.0)"),
+        "pandoc code unit:\n{pandoc}"
     );
     assert!(
         native.contains("```python") && native.contains("print(1.0)"),
@@ -123,13 +130,12 @@ fn parity_org_multi_sentence() {
     };
     let input = read("sample.org");
     let native = format_text(&input, &native_cfg(Format::Org)).expect("native");
-    let err = format_text(&input, &pandoc_cfg(Format::Org, backend, "org"))
-        .expect_err("org pandoc must refuse splice");
-    assert!(
-        err.downcast_ref::<snapper_fmt::PandocCannotSplice>()
-            .is_some()
-    );
-    let pandoc = native.clone();
+    if !snapper_fmt::parser::pandoc::pandoc_available() {
+        eprintln!("skip org pandoc write: CLI writer missing");
+        return;
+    }
+    let pandoc =
+        format_text(&input, &pandoc_cfg(Format::Org, backend, "org")).expect("org pandoc write");
 
     // Multi-sentence prose reflow (fixture: "This is the first paragraph... It has multiple...")
     assert!(
@@ -230,50 +236,44 @@ fn speed_library_native_vs_pandoc_report() {
     let mut lines = vec![format!("md_native_format_text_med_ms={n_md:.3}")];
 
     if snapper_fmt::parser::pandoc::pandoc_available() {
-        let err = format_text(
+        let t = time_format(
             &md,
             &pandoc_cfg(Format::Markdown, PandocBackend::Cli, "markdown"),
-        )
-        .expect_err("cli refuse");
-        assert!(
-            err.downcast_ref::<snapper_fmt::PandocCannotSplice>()
-                .is_some()
+            20,
+            3,
         );
-        lines.push("md_pandoc_cli=refused_no_splice".into());
+        lines.push(format!("md_pandoc_cli_format_text_med_ms={t:.3}"));
     }
-    if ffi_available() {
-        let err = format_text(
+    if ffi_available() && snapper_fmt::parser::pandoc::pandoc_available() {
+        let t = time_format(
             &md,
             &pandoc_cfg(Format::Markdown, PandocBackend::Ffi, "markdown"),
-        )
-        .expect_err("ffi refuse");
-        assert!(
-            err.downcast_ref::<snapper_fmt::PandocCannotSplice>()
-                .is_some()
+            20,
+            3,
         );
-        lines.push("md_pandoc_ffi=refused_no_splice".into());
+        lines.push(format!("md_pandoc_ffi_format_text_med_ms={t:.3}"));
     }
 
     let org = read("sample.org");
     let n_org = time_format(&org, &native_cfg(Format::Org), 40, 5);
     lines.push(format!("org_native_format_text_med_ms={n_org:.3}"));
     if snapper_fmt::parser::pandoc::pandoc_available() {
-        let err = format_text(&org, &pandoc_cfg(Format::Org, PandocBackend::Cli, "org"))
-            .expect_err("org cli refuse");
-        assert!(
-            err.downcast_ref::<snapper_fmt::PandocCannotSplice>()
-                .is_some()
+        let t = time_format(
+            &org,
+            &pandoc_cfg(Format::Org, PandocBackend::Cli, "org"),
+            20,
+            3,
         );
-        lines.push("org_pandoc_cli=refused_no_splice".into());
+        lines.push(format!("org_pandoc_cli_format_text_med_ms={t:.3}"));
     }
-    if ffi_available() {
-        let err = format_text(&org, &pandoc_cfg(Format::Org, PandocBackend::Ffi, "org"))
-            .expect_err("org ffi refuse");
-        assert!(
-            err.downcast_ref::<snapper_fmt::PandocCannotSplice>()
-                .is_some()
+    if ffi_available() && snapper_fmt::parser::pandoc::pandoc_available() {
+        let t = time_format(
+            &org,
+            &pandoc_cfg(Format::Org, PandocBackend::Ffi, "org"),
+            20,
+            3,
         );
-        lines.push("org_pandoc_ffi=refused_no_splice".into());
+        lines.push(format!("org_pandoc_ffi_format_text_med_ms={t:.3}"));
     }
 
     eprintln!("{}", lines.join("\n"));
@@ -284,14 +284,14 @@ fn speed_library_native_vs_pandoc_report() {
 
     if snapper_fmt::parser::pandoc::pandoc_available() {
         let tex = read("pandoc_ast/math_code.tex");
-        let err = format_text(
+        let out = format_text(
             &tex,
             &pandoc_cfg(Format::Latex, PandocBackend::Cli, "latex"),
         )
-        .expect_err("latex refuse");
+        .expect("latex write");
         assert!(
-            err.downcast_ref::<snapper_fmt::PandocCannotSplice>()
-                .is_some()
+            out.contains("Hello world.") && out.contains("Second sentence"),
+            "latex write:\n{out}"
         );
     }
 

@@ -315,7 +315,7 @@ fn cell_text(cell: &Cell) -> String {
 
 /// True when the para is only math (and ignorable space/breaks) — display or
 /// bare math blocks that must not go through the sentence reflower.
-fn is_math_only_para(inlines: &[Inline]) -> bool {
+pub(super) fn is_math_only_para(inlines: &[Inline]) -> bool {
     let mut saw_math = false;
     for inline in inlines {
         match inline {
@@ -327,7 +327,7 @@ fn is_math_only_para(inlines: &[Inline]) -> bool {
     saw_math
 }
 
-fn format_math(ty: &MathType, body: &str) -> String {
+pub(super) fn format_math(ty: &MathType, body: &str) -> String {
     match ty {
         MathType::DisplayMath => {
             // Keep payload as structure; delimiters are not source-faithful, only non-prose.
