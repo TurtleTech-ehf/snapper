@@ -117,3 +117,7 @@ If the file ends without a =snapper:on=, the rest of the file passes through unc
 Pragmas take priority over all other parsing.
 Inside an off region, no sentence splitting, no format-aware parsing, and no abbreviation handling occurs.
 The pragma comment lines themselves always pass through as structure.
+
+=--use-pandoc= does not honor pragmas: pandoc's reader drops them (zero blocks).
+The write path refuses those files with an explicit error instead of deleting the markers.
+Use the native parser (omit =--use-pandoc=) when a file contains =snapper:off= / =snapper:on=.
