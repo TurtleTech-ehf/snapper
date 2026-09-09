@@ -593,7 +593,10 @@ mod tests {
         };
         let input = "Term\n   Definition sentence.\n";
         let out = format_text(input, &cfg).unwrap();
-        assert_eq!(out, input, "definition list must stay identity, got:\n{out}");
+        assert_eq!(
+            out, input,
+            "definition list must stay identity, got:\n{out}"
+        );
         assert!(
             out.starts_with("Term\n"),
             "term must stay at column 0, got:\n{out}"
