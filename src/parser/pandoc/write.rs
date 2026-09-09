@@ -1,14 +1,35 @@
-//! Write a pandoc JSON AST through the installed pandoc writer.
+//! Write a pandoc JSON AST through an in-process writer when the loaded
+//! `libsnapper_pandoc` exports one, otherwise through the installed pandoc CLI.
 //!
-//! The FFI library is reader-only. Reconstruction of source bytes is
+//! Today's library is reader-only. Reconstruction of source bytes is
 //! impossible (no offsets) and is not attempted: `pandoc -f json -t <format>
-//! --wrap=preserve` owns emission. SoftBreaks inserted by AST reflow become
-//! sentence line breaks.
+//! --wrap=preserve` owns emission unless an FFI writer is present. SoftBreaks
+//! inserted by AST reflow become sentence line breaks.
+//!
+//! A missing CLI writer is an explicit PATH error — never a silent spawn.
 
 use std::io::Write;
 use std::process::{Command, Stdio};
 
 use super::cli::CliError;
+
+/// Help/error contract: write still needs `pandoc` on PATH when the FFI
+/// library has no writer. Parse may already have used in-process FFI.
+pub const WRITER_NEEDS_PATH: &str =
+    "writer still needs pandoc on PATH (libsnapper_pandoc is reader-only)";
+
+/// Render `json` (a pandoc AST) as `format`.
+///
+/// Prefers [`super::ffi::write_via_ffi`] when the loaded library exports
+/// `snapper_pandoc_write`. Otherwise requires the `pandoc` CLI and names
+/// that requirement on failure.
+pub fn write_ast(json: &str, format: &str) -> Result<String, CliError> {
+    if super::ffi::ffi_write_available() {
+        return super::ffi::write_via_ffi(json, format)
+            .map_err(|e| CliError::Spawn(format!("{WRITER_NEEDS_PATH}: {e}")));
+    }
+    write_via_cli(json, format)
+}
 
 /// Render `json` (a pandoc AST) as `format` via the CLI writer.
 pub fn write_via_cli(json: &str, format: &str) -> Result<String, CliError> {
@@ -18,7 +39,7 @@ pub fn write_via_cli(json: &str, format: &str) -> Result<String, CliError> {
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
-        .map_err(|e| CliError::Spawn(e.to_string()))?;
+        .map_err(|e| CliError::Spawn(format!("{WRITER_NEEDS_PATH}: {e}")))?;
 
     if let Some(ref mut stdin) = child.stdin {
         stdin
@@ -56,5 +77,25 @@ mod tests {
         match err {
             CliError::Exit(_) | CliError::Spawn(_) | CliError::InvalidAst(_) => {}
         }
+    }
+
+    #[test]
+    fn writer_needs_path_contract_is_explicit() {
+        assert!(WRITER_NEEDS_PATH.contains("PATH"));
+        assert!(WRITER_NEEDS_PATH.contains("writer"));
+        assert!(WRITER_NEEDS_PATH.contains("reader-only"));
+    }
+
+    #[test]
+    fn writer_missing_pandoc_is_explicit_path_error() {
+        if pandoc_cli_available() {
+            return;
+        }
+        let err = write_via_cli("{}", "markdown").unwrap_err();
+        let msg = err.to_string();
+        assert!(
+            msg.contains("PATH") && msg.contains("reader-only"),
+            "expected explicit writer PATH error, got: {msg}"
+        );
     }
 }

@@ -40,6 +40,12 @@ type ParseFn = unsafe extern "C" fn(
 type FreeFn = unsafe extern "C" fn(*mut c_char);
 #[cfg(not(feature = "pandoc-colink"))]
 type ReadyFn = unsafe extern "C" fn();
+#[cfg(not(feature = "pandoc-colink"))]
+type WriteFn = unsafe extern "C" fn(
+    format: *const c_char,
+    json: *const c_char,
+    err_out: *mut *mut c_char,
+) -> *mut c_char;
 type HsInitFn = unsafe extern "C" fn(*mut c_int, *mut *mut *mut c_char);
 
 /// Non-threaded GHC RTS is not re-entrant from multiple OS threads.
@@ -132,6 +138,18 @@ mod linked {
     pub fn available() -> bool {
         ensure_init().is_ok()
     }
+
+    /// Colink archives today export readers only. Do not require
+    /// `snapper_pandoc_write` at link time (old archives would fail).
+    pub fn write_available() -> bool {
+        false
+    }
+
+    pub fn write(_format: &str, _json: &str) -> Result<String, FfiError> {
+        Err(FfiError::LibraryUnavailable(
+            "libsnapper_pandoc is reader-only; writer still needs pandoc on PATH".into(),
+        ))
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -148,6 +166,8 @@ mod dynamic {
         _lib: Library,
         parse: ParseFn,
         free: FreeFn,
+        /// Present only when the loaded library exports a writer.
+        write: Option<WriteFn>,
     }
 
     static API: OnceLock<Result<FfiApi, String>> = OnceLock::new();
@@ -256,6 +276,9 @@ mod dynamic {
             .map_err(|e| format!("{}: missing snapper_pandoc_parse: {e}", path.display()))?;
         let free: Symbol<FreeFn> = unsafe { lib.get(b"snapper_pandoc_free\0") }
             .map_err(|e| format!("{}: missing snapper_pandoc_free: {e}", path.display()))?;
+        let write: Option<WriteFn> = unsafe { lib.get(b"snapper_pandoc_write\0") }
+            .ok()
+            .map(|s: Symbol<WriteFn>| *s);
         let ready: Option<Symbol<ReadyFn>> = unsafe { lib.get(b"snapper_pandoc_hs_ready\0") }.ok();
         let hs_init: Option<Symbol<HsInitFn>> = unsafe { lib.get(b"hs_init\0") }.ok();
 
@@ -275,6 +298,7 @@ mod dynamic {
         Ok(FfiApi {
             parse: *parse,
             free: *free,
+            write,
             _lib: lib,
         })
     }
@@ -334,6 +358,50 @@ mod dynamic {
         drop(_rts);
         Ok(json)
     }
+
+    pub fn write_available() -> bool {
+        load_api().is_ok_and(|api| api.write.is_some())
+    }
+
+    pub fn write(format: &str, json: &str) -> Result<String, FfiError> {
+        let api = load_api()?;
+        let write = api.write.ok_or_else(|| {
+            FfiError::LibraryUnavailable(
+                "libsnapper_pandoc is reader-only; writer still needs pandoc on PATH".into(),
+            )
+        })?;
+        let fmt = CString::new(format)
+            .map_err(|e| FfiError::ParseFailed(format!("format contained NUL: {e}")))?;
+        let inp = CString::new(json)
+            .map_err(|e| FfiError::ParseFailed(format!("json contained NUL: {e}")))?;
+        let _rts = RTS_GATE
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let mut err_ptr: *mut c_char = std::ptr::null_mut();
+        let out_ptr = unsafe { write(fmt.as_ptr(), inp.as_ptr(), &mut err_ptr) };
+        if out_ptr.is_null() {
+            let msg = if !err_ptr.is_null() {
+                let s = unsafe { CStr::from_ptr(err_ptr) }
+                    .to_string_lossy()
+                    .into_owned();
+                unsafe { (api.free)(err_ptr) };
+                s
+            } else {
+                "unknown pandoc FFI writer error (null result, no message)".to_string()
+            };
+            return Err(FfiError::ParseFailed(msg));
+        }
+        let text = unsafe {
+            let c = CStr::from_ptr(out_ptr);
+            match std::str::from_utf8(c.to_bytes()) {
+                Ok(s) => s.to_owned(),
+                Err(_) => c.to_string_lossy().into_owned(),
+            }
+        };
+        unsafe { (api.free)(out_ptr) };
+        drop(_rts);
+        Ok(text)
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -349,6 +417,33 @@ pub fn ffi_available() -> bool {
     #[cfg(not(feature = "pandoc-colink"))]
     {
         dynamic::available()
+    }
+}
+
+/// Whether the loaded library exports an in-process writer.
+///
+/// Shipped `libsnapper_pandoc` is reader-only, so this is false unless a
+/// newer library provides `snapper_pandoc_write`.
+pub fn ffi_write_available() -> bool {
+    #[cfg(feature = "pandoc-colink")]
+    {
+        linked::write_available()
+    }
+    #[cfg(not(feature = "pandoc-colink"))]
+    {
+        dynamic::write_available()
+    }
+}
+
+/// Write a pandoc JSON AST with the in-process library (when exported).
+pub fn write_via_ffi(json: &str, format: &str) -> Result<String, FfiError> {
+    #[cfg(feature = "pandoc-colink")]
+    {
+        linked::write(format, json)
+    }
+    #[cfg(not(feature = "pandoc-colink"))]
+    {
+        dynamic::write(format, json)
     }
 }
 
@@ -445,6 +540,46 @@ mod tests {
         assert!(
             pack_txt.contains("upx") && pack_txt.contains("-9"),
             "pack-upx.sh must invoke upx with compression flags"
+        );
+    }
+
+    #[test]
+    fn default_cargo_features_stay_ghc_free() {
+        let manifest = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        let toml = std::fs::read_to_string(manifest.join("Cargo.toml")).expect("Cargo.toml");
+        let default = toml
+            .lines()
+            .find(|l| l.starts_with("default ="))
+            .expect("default features line");
+        assert!(
+            !default.contains("pandoc-colink"),
+            "cargo-dist default must stay GHC-free: {default}"
+        );
+        assert!(
+            default.contains("pandoc"),
+            "default still enables the optional pandoc (dlopen) feature: {default}"
+        );
+    }
+
+    #[test]
+    fn ffi_write_without_symbol_is_explicit_not_silent() {
+        if ffi_write_available() {
+            return;
+        }
+        if !ffi_available() {
+            let err = write_via_ffi("{}", "markdown").unwrap_err();
+            let msg = err.to_string();
+            assert!(
+                msg.contains("unavailable") || msg.contains("PATH") || msg.contains("reader-only"),
+                "expected explicit writer/library error, got: {msg}"
+            );
+            return;
+        }
+        let err = write_via_ffi("{}", "markdown").unwrap_err();
+        let msg = err.to_string();
+        assert!(
+            msg.contains("PATH") || msg.contains("reader-only") || msg.contains("unavailable"),
+            "reader-only lib must not hide the writer requirement: {msg}"
         );
     }
 }

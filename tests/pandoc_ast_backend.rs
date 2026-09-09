@@ -10,11 +10,12 @@ use std::path::PathBuf;
 use snapper_fmt::format::Format;
 use snapper_fmt::parser::Region;
 use snapper_fmt::parser::pandoc::{
-    PandocBackend, PandocParser, dropped_comment_kind, ffi_available, regions_from_pandoc_json,
+    PandocBackend, PandocParser, WRITER_NEEDS_PATH, dropped_comment_kind, ffi_available,
+    ffi_write_available, regions_from_pandoc_json,
 };
 use snapper_fmt::{FormatConfig, format_text};
 
-/// Writer is CLI-only (`libsnapper_pandoc` has no writers).
+/// CLI writer is required unless the loaded FFI library exports a writer.
 fn require_writer() -> bool {
     if snapper_fmt::parser::pandoc::pandoc_available() {
         true
@@ -202,8 +203,8 @@ fn format_text_ffi_live_stable_when_lib_present() {
         pandoc_format: Some("markdown".into()),
         ..Default::default()
     };
-    let a = format_text(&input, &cfg).expect("ffi parse + cli write");
-    let b = format_text(&input, &cfg).expect("ffi parse + cli write 2");
+    let a = format_text(&input, &cfg).expect("ffi parse + write");
+    let b = format_text(&input, &cfg).expect("ffi parse + write 2");
     assert_eq!(a, b);
     assert_has_sentence_break(&a, "Hello world.", "Second sentence");
 }
@@ -784,4 +785,109 @@ fn format_text_use_pandoc_rst_prose_still_writes() {
     )
     .expect("pandoc rst prose");
     assert_has_sentence_break(&out, "Hello world.", "Second sentence");
+}
+
+/// `--help` must name the CLI writer requirement (no silent spawn).
+#[test]
+fn snapper_help_says_writer_needs_pandoc_on_path() {
+    let bin = env!("CARGO_BIN_EXE_snapper");
+    let out = std::process::Command::new(bin)
+        .arg("--help")
+        .output()
+        .expect("snapper --help");
+    assert!(out.status.success(), "help must exit 0");
+    let text = String::from_utf8_lossy(&out.stdout);
+    assert!(
+        text.contains("writer still needs") && text.contains("PATH"),
+        "help must say the writer still needs pandoc on PATH:\n{text}"
+    );
+    assert!(
+        text.contains("reader-only") || text.contains("libsnapper_pandoc"),
+        "help must mention the reader-only FFI library:\n{text}"
+    );
+}
+
+/// Without FFI, `--use-pandoc --pandoc-backend cli` with no `pandoc` on PATH
+/// is an explicit CLI error (not silent all-prose).
+#[test]
+fn snapper_cli_backend_without_pandoc_on_path_is_explicit() {
+    let bin = env!("CARGO_BIN_EXE_snapper");
+    let input = fixture("mixed.md");
+    let out = std::process::Command::new(bin)
+        .args([
+            "--use-pandoc",
+            "--pandoc-backend",
+            "cli",
+            "--format",
+            "markdown",
+        ])
+        .arg(&input)
+        .env("PATH", "/nonexistent-snapper-ypwj")
+        .env("SNAPPER_PANDOC_CACHE", "0")
+        .env_remove("SNAPPER_PANDOC_LIB")
+        .env_remove("SNAPPER_PANDOC_LIB_DIR")
+        .output()
+        .expect("spawn snapper");
+    assert!(
+        !out.status.success(),
+        "CLI backend without pandoc must fail; stdout={}",
+        String::from_utf8_lossy(&out.stdout)
+    );
+    let err = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        err.contains("PATH") || err.contains("CLI") || err.contains("unavailable"),
+        "expected explicit CLI/PATH error, got: {err}"
+    );
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(
+        stdout.trim().is_empty() || !stdout.contains("Hello world."),
+        "must not emit all-prose success without pandoc: {stdout}"
+    );
+}
+
+/// With FFI parse and no in-process writer, missing `pandoc` on PATH is the
+/// explicit writer error. If the library exports a writer, format stays
+/// in-process (no PATH pandoc).
+#[test]
+fn snapper_ffi_without_pandoc_on_path_is_inprocess_or_explicit() {
+    if !ffi_available() {
+        eprintln!("skipping: libsnapper_pandoc not loadable");
+        return;
+    }
+    let bin = env!("CARGO_BIN_EXE_snapper");
+    let input = fixture("mixed.md");
+    let out = std::process::Command::new(bin)
+        .args([
+            "--use-pandoc",
+            "--pandoc-backend",
+            "ffi",
+            "--format",
+            "markdown",
+        ])
+        .arg(&input)
+        .env("PATH", "/nonexistent-snapper-ypwj")
+        .env("SNAPPER_PANDOC_CACHE", "0")
+        .output()
+        .expect("spawn snapper");
+    let err = String::from_utf8_lossy(&out.stderr);
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    if ffi_write_available() {
+        assert!(
+            out.status.success(),
+            "FFI writer must not need pandoc on PATH; stderr={err} stdout={stdout}"
+        );
+        assert!(
+            stdout.contains("Hello world."),
+            "in-process write should emit prose:\n{stdout}"
+        );
+        return;
+    }
+    assert!(
+        !out.status.success(),
+        "reader-only FFI must not silently spawn; stdout={stdout}"
+    );
+    assert!(
+        err.contains("PATH") || err.contains(WRITER_NEEDS_PATH) || err.contains("writer"),
+        "expected explicit writer PATH error, got: {err}"
+    );
 }

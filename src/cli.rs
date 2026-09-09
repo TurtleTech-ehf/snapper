@@ -96,6 +96,10 @@ pub struct Cli {
     /// Use pandoc as parser backend (universal format support).
     /// Refuses when the source has comments or `snapper:off` / `snapper:on`
     /// that pandoc's reader would delete.
+    /// Parse may use in-process FFI; the writer still needs `pandoc` on PATH
+    /// (`libsnapper_pandoc` is reader-only) unless that library exports a
+    /// writer. Without FFI, both parse and write use the `pandoc` CLI
+    /// (explicit error if missing).
     #[arg(long)]
     pub use_pandoc: bool,
 
@@ -103,6 +107,7 @@ pub struct Cli {
     /// `auto` (prefer in-process FFI, else CLI), `ffi` (`libsnapper_pandoc`),
     /// or `cli` (`pandoc` subprocess). Default: `auto`.
     /// `ffi` fails explicitly if the library is missing.
+    /// The writer still needs `pandoc` on PATH (no silent spawn surprise).
     #[arg(long, default_value = "auto", value_name = "BACKEND")]
     pub pandoc_backend: String,
 

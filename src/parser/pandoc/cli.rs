@@ -49,7 +49,11 @@ pub fn parse_via_cli_with_json(
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
-        .map_err(|e| CliError::Spawn(e.to_string()))?;
+        .map_err(|e| {
+            CliError::Spawn(format!(
+                "need pandoc on PATH (CLI backend is explicit): {e}"
+            ))
+        })?;
 
     if let Some(ref mut stdin) = child.stdin {
         stdin
