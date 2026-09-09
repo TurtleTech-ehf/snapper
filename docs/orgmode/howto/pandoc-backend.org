@@ -11,6 +11,7 @@ The pandoc path is **parse with pandoc, then apply snapper** — not “guess ma
 1. Pandoc reads the file (any format it supports) into its document AST.
 2. Snapper walks that AST and reflows only prose-bearing nodes (=Para= / =Plain=).
 3. Nodes pandoc already classified as structure (=Header=, =CodeBlock=, =Table=, …) are left alone.
+4. The mutated AST is written through pandoc's writer (=pandoc -f json --wrap=preserve=). This is not a splice of the original bytes.
 
 That is how snapper can format everything pandoc can read (typst, asciidoc, docx, html, …) without inventing per-format line heuristics.
 

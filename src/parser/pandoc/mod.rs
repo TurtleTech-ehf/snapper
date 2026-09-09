@@ -1,4 +1,4 @@
-//! Pandoc parses first; snapper reflows second.
+//! Pandoc parses first; snapper reflows second; pandoc writes third.
 //!
 //! For any format pandoc can read:
 //! 1. **Parse** the source with pandoc → document AST (JSON via CLI, or
@@ -6,19 +6,25 @@
 //! 2. **Apply** snapper only to prose-bearing nodes (`Para` / `Plain`); leave
 //!    `Header`, `CodeBlock`, `Table`, etc. alone because the AST says they are
 //!    not prose.
+//! 3. **Write** the mutated AST through pandoc's writer (`pandoc -f json
+//!    --wrap=preserve`). Do not splice original source bytes.
 //!
 //! That is the opposite of the native path (guess structure from source lines,
-//! then reflow). Here pandoc owns structure; snapper owns sentence line breaks
+//! then splice). Here pandoc owns structure; snapper owns sentence line breaks
 //! on the prose leaves.
 //!
 //! Backends that produce the same AST for [`ast::regions_from_pandoc`]:
 //! - **CLI** ([`PandocBackend::Cli`]): `pandoc -t json` (full installed readers).
 //! - **FFI** ([`PandocBackend::Ffi`]): `libsnapper_pandoc` (linked library readers).
+//!
+//! The writer is always the CLI (`libsnapper_pandoc` is reader-only).
 
 pub mod ast;
 pub mod cache;
 pub mod cli;
 pub mod ffi;
+pub mod reflow;
+pub mod write;
 
 use std::path::Path;
 use std::str::FromStr;
@@ -30,6 +36,8 @@ use crate::parser::{FormatParser, Region};
 pub use ast::{regions_from_pandoc, regions_from_pandoc_json};
 pub use cli::pandoc_cli_available as pandoc_available;
 pub use ffi::ffi_available;
+pub use reflow::reflow_pandoc;
+pub use write::write_via_cli;
 
 /// How to obtain the pandoc AST.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -121,6 +129,50 @@ pub fn parse_with_backend(
         cache::put_json(format, input, &json);
     }
     Ok(regions)
+}
+
+/// Obtain pandoc JSON for `(format, input)` (cache, then FFI or CLI).
+pub fn json_with_backend(
+    input: &str,
+    format: &str,
+    backend: PandocBackend,
+) -> Result<String, PandocError> {
+    if let Some(json) = cache::get_json(format, input) {
+        return Ok(json.as_ref().to_string());
+    }
+    let json = match backend.resolve() {
+        PandocBackend::Auto => unreachable!("resolve collapses Auto"),
+        PandocBackend::Ffi => {
+            let (_regs, json) = ffi::parse_via_ffi_with_json(input, format)?;
+            json
+        }
+        PandocBackend::Cli => {
+            let (_regs, json) = cli::parse_via_cli_with_json(input, format)?;
+            json
+        }
+    };
+    cache::put_json(format, input, &json);
+    Ok(json)
+}
+
+/// Parse → reflow Para/Plain → write through pandoc's writer.
+///
+/// Not a splice of the original bytes. The writer needs a `pandoc` binary
+/// even when parse used FFI (`libsnapper_pandoc` has no writers).
+pub fn format_via_pandoc(
+    input: &str,
+    format: &str,
+    backend: PandocBackend,
+    splitter: &dyn crate::sentence::SentenceSplitter,
+    reflow_config: &crate::reflow::ReflowConfig,
+) -> Result<String, PandocError> {
+    let json = json_with_backend(input, format, backend)?;
+    let mut doc: pandoc_ast::Pandoc =
+        serde_json::from_str(&json).map_err(|e| PandocError::Ast(e.to_string()))?;
+    reflow_pandoc(&mut doc, splitter, reflow_config);
+    let out_json =
+        serde_json::to_string(&doc).map_err(|e| PandocError::Ast(format!("serialize AST: {e}")))?;
+    write_via_cli(&out_json, format).map_err(PandocError::from)
 }
 
 /// Parser that uses pandoc for universal format support.
