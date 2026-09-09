@@ -8,134 +8,269 @@ msgid ""
 msgstr ""
 "Project-Id-Version: snapper \n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-03-28 02:26+0100\n"
+"POT-Creation-Date: 2026-09-09 10:12-0500\n"
 "PO-Revision-Date: 2026-03-27 23:00+0100\n"
 "Last-Translator: Rohit Goswami <rgoswami@ieee.org>\n"
-"Language: is\n"
 "Language-Team: is <LL@li.org>\n"
-"Plural-Forms: nplurals=2; plural=(n%10==1 && n%100!=11 ? 0 : 1);\n"
+"Language: is\n"
 "MIME-Version: 1.0\n"
-"Content-Type: text/plain; charset=utf-8\n"
+"Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=2; plural=(n%10==1 && n%100!=11 ? 0 : 1);\n"
 "Generated-By: Babel 2.18.0\n"
 
 #: ../../source/howto/editor-integration.rst:3
 msgid "Editor Integration"
 msgstr "Samþætting við ritla"
 
-#: ../../source/howto/editor-integration.rst:8
+#: ../../source/howto/editor-integration.rst:10
 msgid "Emacs (Apheleia)"
 msgstr "Emacs (Apheleia)"
 
-#: ../../source/howto/editor-integration.rst:10
+#: ../../source/howto/editor-integration.rst:12
 msgid ""
 "`Apheleia <https://github.com/radian-software/apheleia>`_ runs external "
 "formatters on buffer save, preserving cursor position."
 msgstr ""
 "`Apheleia <https://github.com/radian-software/apheleia>`_ keyrir ytri "
-"sníðmótunartól við vistun minnissvæðis og varðveitir staðsetningu "
-"bendils."
+"sníðmótunartól við vistun minnissvæðis og varðveitir staðsetningu bendils."
 
-#: ../../source/howto/editor-integration.rst:21
+#: ../../source/howto/editor-integration.rst:23
 msgid ""
-"The ``--format`` flag auto-detects from the file extension, so you can "
-"omit it if your files have standard extensions."
+"The ``--format`` flag auto-detects from the file extension, so you can omit "
+"it if your files have standard extensions."
 msgstr ""
-"``--format`` flaggið sjálfgreinir út frá skráarendingu, svo þú getur "
-"sleppt því ef skrárnar þínar hafa staðlaðar endingar."
+"``--format`` flaggið sjálfgreinir út frá skráarendingu, svo þú getur sleppt "
+"því ef skrárnar þínar hafa staðlaðar endingar."
 
-#: ../../source/howto/editor-integration.rst:24
+#: ../../source/howto/editor-integration.rst:28
 msgid "Vim / Neovim"
 msgstr "Vim / Neovim"
 
-#: ../../source/howto/editor-integration.rst:26
+#: ../../source/howto/editor-integration.rst:30
 msgid "Use ``formatprg`` to pipe through snapper:"
 msgstr "Notaðu ``formatprg`` til að síga í gegnum snapper:"
 
-#: ../../source/howto/editor-integration.rst:34
+#: ../../source/howto/editor-integration.rst:38
 msgid ""
-"Then ``gq`` to reformat selected text, or ``gggqG`` to reformat the "
-"entire buffer."
+"Then ``gq`` to reformat selected text, or ``gggqG`` to reformat the entire "
+"buffer."
 msgstr ""
-"Síðan ``gq`` til að endursníða valinn texta, eða ``gggqG`` til að "
-"endursníða allt minnissvæðið."
+"Síðan ``gq`` til að endursníða valinn texta, eða ``gggqG`` til að endursníða "
+"allt minnissvæðið."
 
-#: ../../source/howto/editor-integration.rst:36
+#: ../../source/howto/editor-integration.rst:40
 msgid "For Neovim with ``conform.nvim``:"
 msgstr "Fyrir Neovim með ``conform.nvim``:"
 
-#: ../../source/howto/editor-integration.rst:56
+#: ../../source/howto/editor-integration.rst:62
 msgid "VS Code extension (recommended)"
 msgstr ""
 
-#: ../../source/howto/editor-integration.rst:58
+#: ../../source/howto/editor-integration.rst:64
 msgid ""
-"Install the snapper extension from the VS Code Marketplace (or from the "
-"repo at ``editors/vscode/``). It uses the LSP server for format-on-save, "
-"range formatting, and diagnostics."
+"Install `TurtleTech.snapper <https://marketplace.visualstudio.com/items?"
+"itemName=TurtleTech.snapper>`_ from the VS Code Marketplace."
 msgstr ""
 
-#: ../../source/howto/editor-integration.rst:61
-msgid "Configure the path to the snapper binary in settings:"
+#: ../../source/howto/editor-integration.rst:66
+msgid "The extension provides:"
 msgstr ""
 
-#: ../../source/howto/editor-integration.rst:71
-msgid "Manual VS Code setup (without extension)"
+#: ../../source/howto/editor-integration.rst:68
+msgid "Format-on-save via the built-in LSP server"
 msgstr ""
 
-#: ../../source/howto/editor-integration.rst:73
-msgid "Use the \"Run on Save\" extension with a custom command:"
-msgstr "Notaðu \"Run on Save\" viðbótina með sérsniðinni skipun:"
+#: ../../source/howto/editor-integration.rst:70
+msgid "Range formatting (format just the selected text)"
+msgstr ""
 
-#: ../../source/howto/editor-integration.rst:89
-msgid "LSP (any editor with LSP support)"
+#: ../../source/howto/editor-integration.rst:72
+msgid "Diagnostics (flags lines with multiple sentences)"
+msgstr ""
+
+#: ../../source/howto/editor-integration.rst:74
+msgid "Code actions (quick fixes to split multi-sentence lines)"
+msgstr ""
+
+#: ../../source/howto/editor-integration.rst:76
+msgid "Status bar indicator showing LSP connection state"
+msgstr ""
+
+#: ../../source/howto/editor-integration.rst:78
+msgid "Project configuration via ``.snapperrc.toml``"
+msgstr ""
+
+#: ../../source/howto/editor-integration.rst:80
+msgid "To format on save, add to your ``settings.json``:"
 msgstr ""
 
 #: ../../source/howto/editor-integration.rst:91
+msgid "To use a custom binary path:"
+msgstr ""
+
+#: ../../source/howto/editor-integration.rst:99
+msgid ""
+"The extension also works with VSCodium and code-oss (Arch Linux). Download "
+"the ``.vsix`` from `GitHub Releases <https://github.com/TurtleTech-ehf/"
+"snapper/releases>`_ and install manually if the Marketplace is unavailable."
+msgstr ""
+
+#: ../../source/howto/editor-integration.rst:105
+msgid "Manual VS Code setup (without extension)"
+msgstr ""
+
+#: ../../source/howto/editor-integration.rst:107
+msgid "Use the \"Run on Save\" extension with a custom command:"
+msgstr "Notaðu \"Run on Save\" viðbótina með sérsniðinni skipun:"
+
+#: ../../source/howto/editor-integration.rst:125
+msgid "LSP (any editor with LSP support)"
+msgstr ""
+
+#: ../../source/howto/editor-integration.rst:127
 msgid "Snapper ships a Language Server Protocol implementation. Start it with:"
 msgstr ""
 
-#: ../../source/howto/editor-integration.rst:98
+#: ../../source/howto/editor-integration.rst:134
 msgid ""
-"This provides document formatting, range formatting, and diagnostics "
-"(flags lines with multiple sentences) over the standard LSP protocol on "
-"stdin/stdout."
+"This provides document formatting, range formatting, and diagnostics (flags "
+"lines with multiple sentences) over the standard LSP protocol on stdin/"
+"stdout."
 msgstr ""
 
-#: ../../source/howto/editor-integration.rst:101
-msgid "Neovim (native LSP)"
+#: ../../source/howto/editor-integration.rst:139
+msgid "Neovim (snapper.nvim plugin)"
 msgstr ""
 
-#: ../../source/howto/editor-integration.rst:116
+#: ../../source/howto/editor-integration.rst:141
+msgid ""
+"The ``snapper.nvim`` plugin (in ``editors/nvim/``) handles LSP lifecycle, "
+"format-on-save, keymaps, and conform.nvim integration. See the `plugin "
+"README <https://github.com/TurtleTech-ehf/snapper/tree/main/editors/nvim>`_ "
+"for installation and configuration."
+msgstr ""
+
+#: ../../source/howto/editor-integration.rst:144
+msgid "For manual LSP setup without the plugin:"
+msgstr ""
+
+#: ../../source/howto/editor-integration.rst:161
 #, fuzzy
 msgid "Emacs (eglot)"
 msgstr "Emacs (Apheleia)"
 
-#: ../../source/howto/editor-integration.rst:124
+#: ../../source/howto/editor-integration.rst:171
 msgid "VS Code"
 msgstr "VS Code"
 
-#: ../../source/howto/editor-integration.rst:126
+#: ../../source/howto/editor-integration.rst:173
 msgid "Add to ``settings.json`` (requires a generic LSP client extension):"
 msgstr ""
 
-#: ../../source/howto/editor-integration.rst:141
+#: ../../source/howto/editor-integration.rst:190
 msgid "Helix"
 msgstr ""
 
-#: ../../source/howto/editor-integration.rst:143
+#: ../../source/howto/editor-integration.rst:192
 msgid "Add to ``~/.config/helix/languages.toml``:"
 msgstr ""
 
-#: ../../source/howto/editor-integration.rst:156
+#: ../../source/howto/editor-integration.rst:207
+msgid "Obsidian"
+msgstr ""
+
+#: ../../source/howto/editor-integration.rst:209
+msgid "Development preview; not listed in Community Plugins."
+msgstr ""
+
+#: ../../source/howto/editor-integration.rst:211
+msgid ""
+"The plugin uses a WebAssembly build of snapper -- no binary installation "
+"needed."
+msgstr ""
+
+#: ../../source/howto/editor-integration.rst:213
+msgid "Commands:"
+msgstr ""
+
+#: ../../source/howto/editor-integration.rst:215
+msgid "\"Format entire note\" -- formats the active note"
+msgstr ""
+
+#: ../../source/howto/editor-integration.rst:217
+msgid "\"Format selection\" -- formats the selected text"
+msgstr ""
+
+#: ../../source/howto/editor-integration.rst:219
+msgid ""
+"Settings: format-on-save, max line width, language, extra abbreviations. "
+"Format auto-detects from the note's file extension."
+msgstr ""
+
+#: ../../source/howto/editor-integration.rst:222
+msgid ""
+"The repository does not publish an installable Obsidian artifact. "
+"Development builds use the source in ``editors/obsidian`` and the build "
+"sequence in ``.github/workflows/wasm.yml``."
+msgstr ""
+
+#: ../../source/howto/editor-integration.rst:228
+msgid "Microsoft Word"
+msgstr ""
+
+#: ../../source/howto/editor-integration.rst:230
+msgid ""
+"The snapper Word add-in provides a task pane for formatting documents with "
+"semantic line breaks. It uses a WebAssembly build -- no binary installation "
+"needed."
+msgstr ""
+
+#: ../../source/howto/editor-integration.rst:236
+msgid "Availability"
+msgstr ""
+
+#: ../../source/howto/editor-integration.rst:238
+msgid "Development preview; not published in AppSource."
+msgstr ""
+
+#: ../../source/howto/editor-integration.rst:243
+msgid "Sideloading (development)"
+msgstr ""
+
+#: ../../source/howto/editor-integration.rst:245
+msgid ""
+"Build the WASM wrapper and Word add-in using the source under ``packages/"
+"snapper-wasm`` and ``editors/word``. The ``.github/workflows/wasm.yml`` "
+"build sequence is the executable reference. Sideload ``editors/word/"
+"manifest.xml`` after starting the local development server described in "
+"``editors/word/README.md``."
+msgstr ""
+
+#: ../../source/howto/editor-integration.rst:249
+msgid "The task pane provides:"
+msgstr ""
+
+#: ../../source/howto/editor-integration.rst:251
+msgid "\"Format Document\" -- formats all paragraphs"
+msgstr ""
+
+#: ../../source/howto/editor-integration.rst:253
+msgid "\"Format Selection\" -- formats the selected text"
+msgstr ""
+
+#: ../../source/howto/editor-integration.rst:255
+msgid "Settings for max width, language, and extra abbreviations"
+msgstr ""
+
+#: ../../source/howto/editor-integration.rst:260
 msgid "Generic (any editor)"
 msgstr "Almennt (hvaða ritill sem er)"
 
-#: ../../source/howto/editor-integration.rst:158
+#: ../../source/howto/editor-integration.rst:262
 msgid ""
-"Snapper reads stdin and writes stdout by default. Any editor that "
-"supports piping through an external program works:"
+"Snapper reads stdin and writes stdout by default. Any editor that supports "
+"piping through an external program works:"
 msgstr ""
 "Snapper les af stdin og skrifar á stdout sjálfgefið. Sérhver ritill sem "
 "styður að síga í gegnum ytra forrit virkar:"
-

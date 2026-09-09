@@ -8,83 +8,82 @@ msgid ""
 msgstr ""
 "Project-Id-Version: snapper \n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-03-28 02:26+0100\n"
+"POT-Creation-Date: 2026-09-09 10:12-0500\n"
 "PO-Revision-Date: 2026-03-27 23:00+0100\n"
 "Last-Translator: Rohit Goswami <rgoswami@ieee.org>\n"
-"Language: is\n"
 "Language-Team: is <LL@li.org>\n"
-"Plural-Forms: nplurals=2; plural=(n%10==1 && n%100!=11 ? 0 : 1);\n"
+"Language: is\n"
 "MIME-Version: 1.0\n"
-"Content-Type: text/plain; charset=utf-8\n"
+"Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=2; plural=(n%10==1 && n%100!=11 ? 0 : 1);\n"
 "Generated-By: Babel 2.18.0\n"
 
 #: ../../source/howto/ci-enforcement.rst:3
 msgid "CI Enforcement"
 msgstr "CI-framfylgd"
 
-#: ../../source/howto/ci-enforcement.rst:8
+#: ../../source/howto/ci-enforcement.rst:10
 #, fuzzy
 msgid "GitHub Action (recommended)"
 msgstr "GitHub Actions"
 
-#: ../../source/howto/ci-enforcement.rst:10
+#: ../../source/howto/ci-enforcement.rst:12
 msgid ""
-"The easiest way to enforce semantic line breaks in CI. Add to your "
-"workflow:"
-msgstr ""
-
-#: ../../source/howto/ci-enforcement.rst:19
-msgid "This installs snapper and runs ``--check`` on the specified files."
+"The easiest way to enforce semantic line breaks in CI. Add to your workflow:"
 msgstr ""
 
 #: ../../source/howto/ci-enforcement.rst:21
+msgid "This installs snapper and runs ``--check`` on the specified files."
+msgstr ""
+
+#: ../../source/howto/ci-enforcement.rst:23
 msgid "For GitHub Code Scanning integration (SARIF annotations on PRs):"
 msgstr ""
 
-#: ../../source/howto/ci-enforcement.rst:31
+#: ../../source/howto/ci-enforcement.rst:35
 msgid "Pre-commit hook"
 msgstr "Pre-commit hook"
 
-#: ../../source/howto/ci-enforcement.rst:33
+#: ../../source/howto/ci-enforcement.rst:37
 #, fuzzy
 msgid "Add to ``.pre-commit-config.yaml``:"
 msgstr "Einfaldasta CI samþættingin. Bættu við í ``.pre-commit-config.yaml``:"
 
-#: ../../source/howto/ci-enforcement.rst:42
+#: ../../source/howto/ci-enforcement.rst:46
 msgid ""
-"This runs ``snapper --in-place`` on changed files matching ``.org``, "
-"``.tex``, ``.md``, and ``.txt``."
+"This runs ``snapper --in-place`` on changed files matching ``.org``, ``.tex=/"
+"``.latex=, ``.md=/``.markdown=, ``.rst``, and ``.txt`` (extension match; pre-"
+"commit identify has no ``org`` type). Requires a Rust toolchain to build the "
+"hook from this repo."
 msgstr ""
-"Þetta keyrir ``snapper --in-place`` á breyttum skrám sem passa við "
-"``.org``, ``.tex``, ``.md`` og ``.txt``."
 
-#: ../../source/howto/ci-enforcement.rst:45
+#: ../../source/howto/ci-enforcement.rst:52
 #, fuzzy
 msgid "Manual GitHub Actions"
 msgstr "GitHub Actions"
 
-#: ../../source/howto/ci-enforcement.rst:47
+#: ../../source/howto/ci-enforcement.rst:54
 msgid "If you prefer manual setup over the composite action:"
 msgstr ""
 
-#: ../../source/howto/ci-enforcement.rst:57
+#: ../../source/howto/ci-enforcement.rst:64
 msgid "For structured output:"
 msgstr ""
 
-#: ../../source/howto/ci-enforcement.rst:69
+#: ../../source/howto/ci-enforcement.rst:78
 msgid "Preview changes in CI"
 msgstr "Forskoða breytingar í CI"
 
-#: ../../source/howto/ci-enforcement.rst:71
+#: ../../source/howto/ci-enforcement.rst:80
 msgid "Use ``--diff`` to show what would change:"
 msgstr "Notaðu ``--diff`` til að sýna hvað myndi breytast:"
 
-#: ../../source/howto/ci-enforcement.rst:79
+#: ../../source/howto/ci-enforcement.rst:90
 msgid "GitLab CI"
 msgstr "GitLab CI"
 
-#: ../../source/howto/ci-enforcement.rst:91
+#: ../../source/howto/ci-enforcement.rst:104
 msgid "Makefile integration"
 msgstr "Makefile samþætting"
 
@@ -92,17 +91,20 @@ msgstr "Makefile samþætting"
 #~ msgstr "Bættu sníðmótunarprófunarskrefinu við CI vinnuflæðið:"
 
 #~ msgid ""
-#~ "The ``--check`` flag exits with code "
-#~ "1 if any file needs reformatting, "
+#~ "The ``--check`` flag exits with code 1 if any file needs reformatting, "
 #~ "without modifying anything."
 #~ msgstr ""
-#~ "``--check`` flaggið hættir með kóða 1"
-#~ " ef einhver skrá þarfnast endursníðmótunar,"
-#~ " án þess að breyta neinu."
+#~ "``--check`` flaggið hættir með kóða 1 ef einhver skrá þarfnast "
+#~ "endursníðmótunar, án þess að breyta neinu."
 
 #~ msgid "This prints a unified diff to stdout, useful for PR review comments."
 #~ msgstr ""
-#~ "Þetta prentar sameinaðan diff á stdout,"
-#~ " gagnlegt fyrir athugasemdir við PR "
-#~ "rýni."
+#~ "Þetta prentar sameinaðan diff á stdout, gagnlegt fyrir athugasemdir við "
+#~ "PR rýni."
 
+#~ msgid ""
+#~ "This runs ``snapper --in-place`` on changed files matching ``.org``, "
+#~ "``.tex``, ``.md``, and ``.txt``."
+#~ msgstr ""
+#~ "Þetta keyrir ``snapper --in-place`` á breyttum skrám sem passa við "
+#~ "``.org``, ``.tex``, ``.md`` og ``.txt``."

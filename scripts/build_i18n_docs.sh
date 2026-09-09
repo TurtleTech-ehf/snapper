@@ -16,6 +16,19 @@ for lang in is pl; do
     sphinx-intl update -p docs/locale/pot -l "$lang" -d docs/locale
 done
 
+# sphinx-intl skips a rewrite when msgids are unchanged, leaving stale
+# POT-Creation-Date headers. msgmerge copies the date from the current POT.
+if command -v msgmerge >/dev/null 2>&1; then
+    while IFS= read -r -d '' po; do
+        rel="${po#docs/locale/}"
+        rest="${rel#*/LC_MESSAGES/}"
+        pot="docs/locale/pot/${rest%.po}.pot"
+        if [[ -f "$pot" ]]; then
+            msgmerge --update --backup=none "$po" "$pot"
+        fi
+    done < <(find docs/locale -name '*.po' -print0)
+fi
+
 # 4. Build English (default)
 sphinx-build -b html docs/source docs/build
 

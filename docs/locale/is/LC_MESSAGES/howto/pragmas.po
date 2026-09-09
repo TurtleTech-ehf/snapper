@@ -8,121 +8,133 @@ msgid ""
 msgstr ""
 "Project-Id-Version: snapper \n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-03-27 23:21+0100\n"
+"POT-Creation-Date: 2026-09-09 10:12-0500\n"
 "PO-Revision-Date: 2026-03-27 23:00+0100\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
-"Language: is\n"
 "Language-Team: is <LL@li.org>\n"
-"Plural-Forms: nplurals=2; plural=(n%10==1 && n%100!=11 ? 0 : 1);\n"
+"Language: is\n"
 "MIME-Version: 1.0\n"
-"Content-Type: text/plain; charset=utf-8\n"
+"Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=2; plural=(n%10==1 && n%100!=11 ? 0 : 1);\n"
 "Generated-By: Babel 2.18.0\n"
 
 #: ../../source/howto/pragmas.rst:3
 msgid "Skip Regions with Pragmas"
 msgstr "Sleppa svæðum með forskriftum"
 
-#: ../../source/howto/pragmas.rst:8
+#: ../../source/howto/pragmas.rst:10
 msgid "Overview"
 msgstr "Yfirlit"
 
-#: ../../source/howto/pragmas.rst:10
-msgid ""
-"Sometimes you need to prevent snapper from reformatting specific regions:"
-" hand-formatted poetry, aligned text, carefully laid-out tables in prose,"
-" or any text where line breaks carry meaning."
-msgstr ""
-"Stundum þarftu að koma í veg fyrir að snapper endursníði tiltekin svæði: "
-"handsnið ljóð, jafnaðan texta, vandlega uppsettar töflur í texta "
-"eða hvaða texta sem er þar sem linuskipti bera merkingu."
-
 #: ../../source/howto/pragmas.rst:12
 msgid ""
-"Use ``snapper:off`` and ``snapper:on`` pragmas to mark regions that "
-"should pass through unchanged."
+"Sometimes you need to prevent snapper from reformatting specific regions: "
+"hand-formatted poetry, aligned text, carefully laid-out tables in prose, or "
+"any text where line breaks carry meaning."
 msgstr ""
-"Notaðu ``snapper:off`` og ``snapper:on`` forskriftir til að merkja svæði "
-"sem eiga að fara í gegn óbreytt."
+"Stundum þarftu að koma í veg fyrir að snapper endursníði tiltekin svæði: "
+"handsnið ljóð, jafnaðan texta, vandlega uppsettar töflur í texta eða hvaða "
+"texta sem er þar sem linuskipti bera merkingu."
 
-#: ../../source/howto/pragmas.rst:15
+#: ../../source/howto/pragmas.rst:14
+msgid ""
+"Use ``snapper:off`` and ``snapper:on`` pragmas to mark regions that should "
+"pass through unchanged. LaTeX chapter files included with ``\\input`` can "
+"add ``% snapper:no-preamble`` so snapper treats the file as body instead of "
+"waiting for ``\\begin{document}``."
+msgstr ""
+
+#: ../../source/howto/pragmas.rst:20
 msgid "Syntax by format"
 msgstr "Málskipan eftir sniði"
 
-#: ../../source/howto/pragmas.rst:18
+#: ../../source/howto/pragmas.rst:25
 msgid "Org-mode"
 msgstr "Org-mode"
 
-#: ../../source/howto/pragmas.rst:33
+#: ../../source/howto/pragmas.rst:42
 msgid "LaTeX"
 msgstr "LaTeX"
 
-#: ../../source/howto/pragmas.rst:47
+#: ../../source/howto/pragmas.rst:55
+msgid ""
+"A ``\\input`` chapter with no ``\\begin{document}`` is body by default. Use "
+"``% snapper:no-preamble`` when the file also has ``\\documentclass`` or you "
+"want the flag written down:"
+msgstr ""
+
+#: ../../source/howto/pragmas.rst:66
 msgid "Markdown"
 msgstr "Markdown"
 
-#: ../../source/howto/pragmas.rst:61
+#: ../../source/howto/pragmas.rst:82
 msgid "Plaintext"
 msgstr "Hreinn texti"
 
-#: ../../source/howto/pragmas.rst:75
+#: ../../source/howto/pragmas.rst:98
 msgid "Use cases"
 msgstr "Notkunardæmi"
 
-#: ../../source/howto/pragmas.rst:77
+#: ../../source/howto/pragmas.rst:100
 msgid "Poetry or verse with intentional line breaks"
 msgstr "Ljóð eða vísuorð með ásetningarlegum linuskiptum"
 
-#: ../../source/howto/pragmas.rst:79
+#: ../../source/howto/pragmas.rst:102
 msgid "ASCII art or diagrams in comments"
 msgstr "ASCII-list eða skýringarmyndir í athugasemdum"
 
-#: ../../source/howto/pragmas.rst:81
+#: ../../source/howto/pragmas.rst:104
 msgid "Carefully aligned reference lists"
 msgstr "Vandlega jafnaðir tilvísanalistar"
 
-#: ../../source/howto/pragmas.rst:83
+#: ../../source/howto/pragmas.rst:106
 msgid "License headers with specific formatting"
 msgstr "Leyfishausa með sérstakri sniðmótun"
 
-#: ../../source/howto/pragmas.rst:85
+#: ../../source/howto/pragmas.rst:108
 msgid "Text that should match an external source exactly"
 msgstr "Texti sem á að samsvara ytri heimild nákvæmlega"
 
-#: ../../source/howto/pragmas.rst:88
+#: ../../source/howto/pragmas.rst:113
 msgid "Nesting"
 msgstr "Hreiðrun"
 
-#: ../../source/howto/pragmas.rst:90
+#: ../../source/howto/pragmas.rst:115
 msgid ""
-"Pragmas do not nest. A ``snapper:off`` disables formatting until the next"
-" ``snapper:on``. If the file ends without a ``snapper:on``, the rest of "
-"the file passes through unchanged."
+"Pragmas do not nest. A ``snapper:off`` disables formatting until the next "
+"``snapper:on``. If the file ends without a ``snapper:on``, the rest of the "
+"file passes through unchanged."
 msgstr ""
 "Forskriftir hreiðrast ekki. ``snapper:off`` slekkur á sniðmótun þar til "
 "næsta ``snapper:on``. Ef skráin endar án ``snapper:on`` fer afgangur "
 "skráarinnar í gegn óbreyttur."
 
-#: ../../source/howto/pragmas.rst:95
+#: ../../source/howto/pragmas.rst:122
 msgid "Interaction with other features"
 msgstr "Samspil við aðra eiginleika"
 
-#: ../../source/howto/pragmas.rst:97
+#: ../../source/howto/pragmas.rst:124
 msgid ""
 "Pragmas take priority over all other parsing. Inside an off region, no "
-"sentence splitting, no format-aware parsing, and no abbreviation handling"
-" occurs. The pragma comment lines themselves always pass through as "
-"structure."
+"sentence splitting, no format-aware parsing, and no abbreviation handling "
+"occurs. The pragma comment lines themselves always pass through as structure."
 msgstr ""
-"Forskriftir hafa forgang umfram alla aðra þáttun. Innan slökkt-svæðis "
-"fer engin setningaskipting, engin sniðmeðvituð þáttun og engin "
-"meðhöndlun skammstafana fram. Forskriftaathugasemdarlínurnar sjálfar "
-"fara alltaf í gegn sem bygging."
+"Forskriftir hafa forgang umfram alla aðra þáttun. Innan slökkt-svæðis fer "
+"engin setningaskipting, engin sniðmeðvituð þáttun og engin meðhöndlun "
+"skammstafana fram. Forskriftaathugasemdarlínurnar sjálfar fara alltaf í gegn "
+"sem bygging."
 
 #: ../../source/howto/pragmas.rst:128
 msgid ""
-"The pandoc path keeps ``snapper:off`` / ``snapper:on`` in the written "
-"output (the reader would otherwise delete them). Off-region text is "
-"shielded so it is not reflowed. Pass ``--native`` to force today's line "
-"parsers."
+"The pandoc path keeps ``snapper:off`` / ``snapper:on`` in the written output "
+"(the reader would otherwise delete them). Off-region text is shielded so it "
+"is not reflowed. Pass ``--native`` to force today's line parsers."
 msgstr ""
+
+#~ msgid ""
+#~ "Use ``snapper:off`` and ``snapper:on`` pragmas to mark regions that "
+#~ "should pass through unchanged."
+#~ msgstr ""
+#~ "Notaðu ``snapper:off`` og ``snapper:on`` forskriftir til að merkja svæði "
+#~ "sem eiga að fara í gegn óbreytt."
