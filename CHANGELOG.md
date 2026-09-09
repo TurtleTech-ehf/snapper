@@ -3,14 +3,30 @@ All notable changes to this project will be documented in this file. See [conven
 
 - - -
 ## Unreleased (main)
-#### Bug Fixes
-- (**sentence**) a period immediately before markup closers only starts a new sentence when the next token is a capital letter (or a quote then a capital), so plaintext `.`` "` is not split
-- (**rst**) list continuation paragraphs after a blank keep their hanging indent, so a two-space second sentence is not outdented to column 0
-- (**rst**) definition lists (flush term plus indented definition) stay structure, so the term is not glued onto the definition line
-- (**rst**) simple tables (`=====  =====` column borders) stay structure, so header and body rows are not glued onto one line
-- (**ci**) `scripts/install_cargo_dist.sh` hashes with `shasum`/`openssl` when `sha256sum` is missing and finds `dist.exe` at the zip root (Windows cargo-dist layout)
 
 - - -
+
+## v0.11.1 - 2026-09-09
+#### Features
+- (**cli**) default to pandoc when a writer is available (#68)
+- (**pandoc**) keep RST comments and snapper pragmas on write (#67)
+- (**pandoc**) write reflowed AST through pandoc writer (#56)
+#### Bug Fixes
+- (**ci**) install cargo-dist on Windows and macOS ARM (#42)
+- (**markdown**) keep indented inner fences as code body (#55)
+- (**pandoc**) write in-process when FFI exports a writer (#63)
+- (**pandoc**) refuse comments and snapper pragmas instead of dropping them (#62)
+- (**rst**) join compact list hangs into one prose region (#66)
+- (**rst**) keep two-space directive bodies as structure (#54)
+- (**rst**) keep comment bodies as structure (#52)
+- (**rst**) keep list continuation paragraph hang (#51)
+- (**rst**) keep definition lists as structure (#50)
+- (**rst**) keep simple tables as structure (#49)
+- (**sentence**) markup closer-split needs a real next sentence (#53)
+#### Documentation
+- (**i18n**) regenerate gettext catalogs for v0.11 docs (#69)
+#### Tests
+- (**pandoc**) keep wasm and editors on native parsers (#64)
 
 ## v0.11.0 - 2026-09-08
 #### Bug Fixes
