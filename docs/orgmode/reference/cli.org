@@ -182,9 +182,21 @@ Overrides =--lang=.
 :END:
 
 Use pandoc as the parser backend instead of built-in parsers.
-Requires pandoc on PATH.
+Parse may use in-process FFI when =libsnapper_pandoc= loads; the writer still needs =pandoc= on =PATH= (=libsnapper_pandoc= is reader-only) unless that library exports a writer.
+Without FFI, both parse and write use the =pandoc= CLI. A missing binary is an explicit error (never silent all-prose).
 Enables support for typst, asciidoc, docx, html, and all other pandoc-supported formats.
-Falls back silently if pandoc is unavailable (unless this flag is explicit).
+Native line parsers remain the default (omit this flag).
+
+*** =--pandoc-backend <auto|ffi|cli>=
+:PROPERTIES:
+:CUSTOM_ID: opt-pandoc-backend
+:END:
+
+How to obtain the pandoc AST when =--use-pandoc= is set.
+=auto= (default) prefers in-process FFI, else CLI.
+=ffi= requires =libsnapper_pandoc= (explicit error if missing).
+=cli= uses a =pandoc= subprocess (explicit error if missing).
+The writer still needs =pandoc= on =PATH= when the FFI library has no writer.
 
 *** =--config <PATH>=
 :PROPERTIES:

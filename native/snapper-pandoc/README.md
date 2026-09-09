@@ -1,7 +1,9 @@
 # snapper-pandoc
 
 In-process pandoc surface for snapper: a small C ABI (`include/snapper_pandoc.h`)
-over selected pandoc **readers** (JSON AST out).
+over selected pandoc **readers** (JSON AST out). The library is reader-only;
+snapper's writer still needs `pandoc` on `PATH` unless a future library
+exports `snapper_pandoc_write`.
 
 ## Platform matrix
 
@@ -81,6 +83,8 @@ Formats: `markdown`/`gfm`/`commonmark`, `org`, `rst`, `latex`, `html`, `typst`.
 
 The host process must initialize the GHC RTS (`hs_init`) before parse. Rust
 bindings in `src/parser/pandoc/ffi.rs` own that lifecycle (process-lifetime argv).
+Write stays the `pandoc` CLI unless `snapper_pandoc_write` is present; help and
+errors say so (no silent spawn).
 
 ## UPX (optional post-build pack)
 

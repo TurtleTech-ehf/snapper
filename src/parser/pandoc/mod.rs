@@ -6,8 +6,10 @@
 //! 2. **Apply** snapper only to prose-bearing nodes (`Para` / `Plain`); leave
 //!    `Header`, `CodeBlock`, `Table`, etc. alone because the AST says they are
 //!    not prose.
-//! 3. **Write** the mutated AST through pandoc's writer (`pandoc -f json
-//!    --wrap=preserve`). Do not splice original source bytes.
+//! 3. **Write** the mutated AST through an in-process FFI writer when the
+//!    loaded library exports one, otherwise `pandoc -f json --wrap=preserve`.
+//!    Do not splice original source bytes. A missing CLI writer is an
+//!    explicit PATH error (no silent spawn).
 //!
 //! That is the opposite of the native path (guess structure from source lines,
 //! then splice). Here pandoc owns structure; snapper owns sentence line breaks
@@ -17,7 +19,9 @@
 //! - **CLI** ([`PandocBackend::Cli`]): `pandoc -t json` (full installed readers).
 //! - **FFI** ([`PandocBackend::Ffi`]): `libsnapper_pandoc` (linked library readers).
 //!
-//! The writer is always the CLI (`libsnapper_pandoc` is reader-only).
+//! The shipped library is reader-only. Write stays in-process only when
+//! `snapper_pandoc_write` is exported; otherwise help/error say the writer
+//! still needs `pandoc` on PATH.
 
 pub mod ast;
 pub mod cache;
@@ -35,15 +39,16 @@ use crate::parser::{FormatParser, Region};
 
 pub use ast::{regions_from_pandoc, regions_from_pandoc_json};
 pub use cli::pandoc_cli_available as pandoc_available;
-pub use ffi::ffi_available;
+pub use ffi::{ffi_available, ffi_write_available};
 pub use reflow::reflow_pandoc;
-pub use write::write_via_cli;
+pub use write::{WRITER_NEEDS_PATH, write_ast, write_via_cli};
 
 /// How to obtain the pandoc AST.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum PandocBackend {
     /// Prefer in-process FFI when `libsnapper_pandoc` loads; else CLI.
-    /// Successor default: amortizes RTS and avoids process-per-file spawn.
+    /// Parse amortizes the RTS. Write stays in-process only when the
+    /// library exports a writer; otherwise the CLI writer is explicit.
     #[default]
     Auto,
     /// In-process Haskell FFI (`libsnapper_pandoc`). Explicit error if unavailable.
@@ -204,8 +209,8 @@ fn refuse_if_comments_missing(input: &str, format: &str, output: &str) -> Result
 
 /// Parse → reflow Para/Plain → write through pandoc's writer.
 ///
-/// Not a splice of the original bytes. The writer needs a `pandoc` binary
-/// even when parse used FFI (`libsnapper_pandoc` has no writers).
+/// Not a splice of the original bytes. If the FFI library has no writer,
+/// this still needs `pandoc` on PATH and says so (`WRITER_NEEDS_PATH`).
 ///
 /// Refuses when the source has RST `..` comments or `snapper:off` /
 /// `snapper:on` that pandoc's reader would delete (empty AST, exit 0).
@@ -225,7 +230,7 @@ pub fn format_via_pandoc(
     reflow_pandoc(&mut doc, splitter, reflow_config);
     let out_json =
         serde_json::to_string(&doc).map_err(|e| PandocError::Ast(format!("serialize AST: {e}")))?;
-    let written = write_via_cli(&out_json, format).map_err(PandocError::from)?;
+    let written = write_ast(&out_json, format).map_err(PandocError::from)?;
     refuse_if_comments_missing(input, format, &written)?;
     Ok(written)
 }
@@ -396,6 +401,41 @@ mod tests {
             PandocError::DropsComments(kind) => assert!(kind.contains("RST")),
             other => panic!("expected DropsComments, got {other}"),
         }
+    }
+
+    #[test]
+    fn default_use_pandoc_is_false() {
+        assert!(
+            !crate::FormatConfig::default().use_pandoc,
+            "native path stays default (snapper-32ps owns any flip)"
+        );
+    }
+
+    #[test]
+    fn wasm_entry_stays_native() {
+        let wasm = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/wasm.rs"));
+        assert!(
+            wasm.contains("use_pandoc: false"),
+            "wasm must keep use_pandoc false (snapper-ekc0 / this ticket)"
+        );
+    }
+
+    #[test]
+    fn cargo_dist_default_features_stay_ghc_free() {
+        let cargo = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/Cargo.toml"));
+        let default_line = cargo
+            .lines()
+            .find(|l| l.starts_with("default ="))
+            .expect("default features line");
+        assert!(
+            !default_line.contains("pandoc-colink"),
+            "cargo-dist default builds must stay GHC-free: {default_line}"
+        );
+        let dist = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/dist-workspace.toml"));
+        assert!(
+            !dist.contains("pandoc-colink"),
+            "dist-workspace.toml must not enable pandoc-colink"
+        );
     }
 
     #[test]
