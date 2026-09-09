@@ -192,7 +192,8 @@ fn parse_line_based(input: &str) -> Vec<SpannedRegion> {
             flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
             regions.push(SpannedRegion::structure(input, line.span()));
             let leading = line_text.len() - trimmed.len();
-            directive_indent = leading + 3;
+            // Docutils accepts a two-space body; +3 is convention only.
+            directive_indent = leading + 2;
             in_directive = true;
             i += 1;
             continue;
@@ -827,6 +828,62 @@ mod tests {
         assert!(
             out.contains("\n   Second sentence."),
             "second comment body line must keep indent, got:\n{out}"
+        );
+    }
+
+    #[test]
+    fn two_space_directive_option_and_body_are_structure() {
+        let input = ".. note::\n  :class: test\n\n  Body.\n";
+        let regions = RstParser.parse(input);
+        assert!(
+            regions
+                .iter()
+                .any(|r| matches!(r, Region::Structure(s) if s.contains(".. note::"))),
+            "directive opener must be Structure, got {regions:?}"
+        );
+        assert!(
+            regions
+                .iter()
+                .any(|r| matches!(r, Region::Structure(s) if s.contains(":class: test"))),
+            "two-space option must be Structure, got {regions:?}"
+        );
+        assert!(
+            regions
+                .iter()
+                .any(|r| matches!(r, Region::Structure(s) if s.contains("Body."))),
+            "two-space body must be Structure, got {regions:?}"
+        );
+        assert!(
+            !regions
+                .iter()
+                .any(|r| matches!(r, Region::Prose(s) if s.contains("Body."))),
+            "two-space body must not be Prose, got {regions:?}"
+        );
+    }
+
+    #[test]
+    fn reporter_two_space_directive_body_is_identity_under_format() {
+        use crate::format::Format;
+        use crate::{FormatConfig, format_text};
+
+        let cfg = FormatConfig {
+            format: Format::Rst,
+            max_width: 0,
+            ..Default::default()
+        };
+        let input = ".. note::\n  :class: test\n\n  Body.\n";
+        let out = format_text(input, &cfg).unwrap();
+        assert_eq!(
+            out, input,
+            "reporter two-space directive body must stay identity under format, got:\n{out}"
+        );
+        assert!(
+            out.contains("\n  :class: test"),
+            "option must keep two-space indent, got:\n{out}"
+        );
+        assert!(
+            out.contains("\n  Body."),
+            "body must keep two-space indent, got:\n{out}"
         );
     }
 }
