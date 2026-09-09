@@ -2,7 +2,7 @@ use regex::Regex;
 use std::sync::LazyLock;
 
 use crate::parser::{
-    ByteSpan, FormatParser, SpannedRegion, flush_prose_spanned, iter_lines, push_prose_line,
+    ByteSpan, FormatParser, Line, SpannedRegion, flush_prose_spanned, iter_lines, push_prose_line,
 };
 
 /// Match `.. code-block:: LANG` or `.. sourcecode:: LANG` (or `.. code:: LANG`).
@@ -241,12 +241,26 @@ fn parse_line_based(input: &str) -> Vec<SpannedRegion> {
             continue;
         }
 
-        // Grid/simple table rows
+        // Grid table rows (`| cell |` / `+---+---+`)
         if trimmed.starts_with('|') || trimmed.starts_with('+') {
             flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
             regions.push(SpannedRegion::structure(input, line.span()));
             i += 1;
             continue;
+        }
+
+        // Simple table: `=====  =====` borders plus the rows they wrap.
+        // `is_underline` rejects those borders (interior spaces), so without
+        // this the header/body rows fall through to prose and get joined.
+        if is_simple_table_border(line_text) {
+            if let Some(end) = simple_table_end(&lines, i) {
+                flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
+                for row in &lines[i..=end] {
+                    regions.push(SpannedRegion::structure(input, row.span()));
+                }
+                i = end + 1;
+                continue;
+            }
         }
 
         // Regular prose
@@ -320,6 +334,51 @@ fn is_underline(line: &str) -> bool {
     let first = trimmed.as_bytes()[0];
     matches!(first, b'=' | b'-' | b'~' | b'^' | b'"' | b'#' | b'*' | b'+')
         && trimmed.bytes().all(|b| b == first)
+}
+
+/// RST simple-table border: `=` column groups separated by spaces
+/// (`=====  =====`). A solid `=====` is a section underline, not a table.
+fn is_simple_table_border(line: &str) -> bool {
+    let t = line.trim();
+    if t.len() < 3 {
+        return false;
+    }
+    let mut groups = 0u32;
+    let mut in_eq = false;
+    let mut saw_space_between = false;
+    for b in t.bytes() {
+        match b {
+            b'=' => {
+                if !in_eq {
+                    groups += 1;
+                    in_eq = true;
+                }
+            }
+            b' ' => {
+                if in_eq {
+                    saw_space_between = true;
+                }
+                in_eq = false;
+            }
+            _ => return false,
+        }
+    }
+    saw_space_between && groups >= 2
+}
+
+/// Last line of a simple table starting at `start`, if a later `=` border
+/// closes it before a blank line.
+fn simple_table_end(lines: &[Line<'_>], start: usize) -> Option<usize> {
+    let mut last_border = start;
+    for (j, line) in lines.iter().enumerate().skip(start + 1) {
+        if line.text.trim().is_empty() {
+            break;
+        }
+        if is_simple_table_border(line.text) {
+            last_border = j;
+        }
+    }
+    (last_border > start).then_some(last_border)
 }
 
 #[cfg(test)]
@@ -411,6 +470,48 @@ mod tests {
             3,
             "each bullet must be its own Prose region, got {regions:?}"
         );
+    }
+
+    #[test]
+    fn simple_table_rows_are_structure() {
+        let input = "=====  =====\nName   Value\n=====  =====\nA      B\n=====  =====\n";
+        let regions = RstParser.parse(input);
+        let structure: Vec<_> = regions
+            .iter()
+            .filter_map(|r| match r {
+                Region::Structure(s) => Some(s.as_str()),
+                _ => None,
+            })
+            .collect();
+        assert!(
+            structure.iter().any(|s| s.contains("Name")),
+            "header row must be Structure, got {regions:?}"
+        );
+        assert!(
+            structure.iter().any(|s| s.contains("A")),
+            "body row must be Structure, got {regions:?}"
+        );
+        assert!(
+            !regions
+                .iter()
+                .any(|r| matches!(r, Region::Prose(s) if s.contains("Name") || s.contains("A"))),
+            "table rows must not be Prose, got {regions:?}"
+        );
+    }
+
+    #[test]
+    fn reporter_simple_table_is_identity_under_format() {
+        use crate::format::Format;
+        use crate::{FormatConfig, format_text};
+
+        let cfg = FormatConfig {
+            format: Format::Rst,
+            max_width: 0,
+            ..Default::default()
+        };
+        let input = "=====  =====\nName   Value\n=====  =====\nA      B\n=====  =====\n";
+        let out = format_text(input, &cfg).unwrap();
+        assert_eq!(out, input, "simple table must stay identity, got:\n{out}");
     }
 
     #[test]
