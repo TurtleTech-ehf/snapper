@@ -30,6 +30,9 @@ fn parse_line_based(input: &str) -> Vec<SpannedRegion> {
     let mut directive_indent: usize = 0;
     let mut in_definition = false;
     let mut definition_indent: usize = 0;
+    // Hang column of the current list item (`- ` → 2). Continuation
+    // paragraphs after a blank stay in the item when indented this far.
+    let mut list_hang: Option<usize> = None;
     let mut pragma_off = false;
 
     // Code-block directive bookkeeping. Mutually exclusive with `in_directive`.
@@ -243,6 +246,7 @@ fn parse_line_based(input: &str) -> Vec<SpannedRegion> {
         // bullets are not glued onto one line.
         if let Some(marker_len) = rst_list_marker_len(line_text) {
             flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
+            list_hang = Some(marker_len);
             regions.push(SpannedRegion::structure(
                 input,
                 ByteSpan::new(line.start, line.start + marker_len),
@@ -287,6 +291,27 @@ fn parse_line_based(input: &str) -> Vec<SpannedRegion> {
             in_definition = true;
             i += 1;
             continue;
+        }
+
+        // List continuation paragraph: after a list item, a later line
+        // indented to the hang (two spaces after `- `) is still the item.
+        // Hang spaces are Structure so splice does not outdent them.
+        if let Some(hang) = list_hang {
+            let leading = line_text.len() - line_text.trim_start().len();
+            if leading >= hang {
+                flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
+                regions.push(SpannedRegion::structure(
+                    input,
+                    ByteSpan::new(line.start, line.start + leading),
+                ));
+                if line_text.len() > leading {
+                    current_prose.push_str(line_text[leading..].trim());
+                    prose_span = Some(ByteSpan::new(line.start + leading, line.end));
+                }
+                i += 1;
+                continue;
+            }
+            list_hang = None;
         }
 
         // Regular prose
@@ -627,5 +652,57 @@ mod tests {
             let out = format_text(input, &cfg).unwrap();
             assert_eq!(out, input, "list must stay compact, got:\n{out}");
         }
+    }
+
+    #[test]
+    fn list_continuation_paragraph_keeps_hang_structure() {
+        let input = "- First sentence.\n\n  Second sentence.\n";
+        let regions = RstParser.parse(input);
+        assert!(
+            regions
+                .iter()
+                .any(|r| matches!(r, Region::Structure(s) if s == "- ")),
+            "marker must be Structure, got {regions:?}"
+        );
+        assert!(
+            regions
+                .iter()
+                .any(|r| { matches!(r, Region::Prose(s) if s.contains("First sentence.")) }),
+            "item text must be Prose, got {regions:?}"
+        );
+        assert!(
+            regions
+                .iter()
+                .any(|r| matches!(r, Region::Structure(s) if s == "  ")),
+            "continuation hang must be Structure, got {regions:?}"
+        );
+        assert!(
+            regions
+                .iter()
+                .any(|r| { matches!(r, Region::Prose(s) if s.contains("Second sentence.")) }),
+            "continuation text must be Prose, got {regions:?}"
+        );
+    }
+
+    #[test]
+    fn reporter_list_continuation_paragraph_is_identity_under_format() {
+        use crate::format::Format;
+        use crate::{FormatConfig, format_text};
+
+        let cfg = FormatConfig {
+            format: Format::Rst,
+            max_width: 0,
+            ..Default::default()
+        };
+        let input = "- First sentence.\n\n  Second sentence.\n";
+        let out = format_text(input, &cfg).unwrap();
+        assert_eq!(
+            out, input,
+            "list continuation paragraph must stay identity, got:\n{out}"
+        );
+        assert!(
+            out.contains("\n  Second sentence."),
+            "continuation must keep two-space hang, got:\n{out}"
+        );
     }
 }
