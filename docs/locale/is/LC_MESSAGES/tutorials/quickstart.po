@@ -8,223 +8,321 @@ msgid ""
 msgstr ""
 "Project-Id-Version: snapper \n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-03-28 02:26+0100\n"
+"POT-Creation-Date: 2026-09-09 10:12-0500\n"
 "PO-Revision-Date: 2026-03-27 23:00+0100\n"
 "Last-Translator: Rohit Goswami <rgoswami@ieee.org>\n"
-"Language: is\n"
 "Language-Team: is <LL@li.org>\n"
-"Plural-Forms: nplurals=2; plural=(n%10==1 && n%100!=11 ? 0 : 1);\n"
+"Language: is\n"
 "MIME-Version: 1.0\n"
-"Content-Type: text/plain; charset=utf-8\n"
+"Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=2; plural=(n%10==1 && n%100!=11 ? 0 : 1);\n"
 "Generated-By: Babel 2.18.0\n"
 
-#: ../../source/tutorials/quickstart.rst:4
+#: ../../source/tutorials/quickstart.rst:6
 msgid "Quickstart"
 msgstr "Byrjun"
 
-#: ../../source/tutorials/quickstart.rst:7
+#: ../../source/tutorials/quickstart.rst:11
 msgid "Installation"
 msgstr "Uppsetning"
 
-#: ../../source/tutorials/quickstart.rst:9
+#: ../../source/tutorials/quickstart.rst:13
 msgid "Pre-built binary (fastest, no compilation):"
 msgstr ""
 
-#: ../../source/tutorials/quickstart.rst:15
+#: ../../source/tutorials/quickstart.rst:19
 #, fuzzy
 msgid "Or compile from source:"
 msgstr "Eða byggt frá frumkóða:"
 
-#: ../../source/tutorials/quickstart.rst:21
+#: ../../source/tutorials/quickstart.rst:25
 msgid "Shell one-liner (Linux/macOS):"
 msgstr ""
 
-#: ../../source/tutorials/quickstart.rst:27
+#: ../../source/tutorials/quickstart.rst:31
 msgid "Homebrew (macOS/Linux):"
 msgstr ""
 
-#: ../../source/tutorials/quickstart.rst:33
+#: ../../source/tutorials/quickstart.rst:37
 msgid "pip:"
 msgstr ""
 
-#: ../../source/tutorials/quickstart.rst:39
+#: ../../source/tutorials/quickstart.rst:43
+msgid "conda-forge:"
+msgstr ""
+
+#: ../../source/tutorials/quickstart.rst:49
 #, fuzzy
 msgid "Nix:"
 msgstr "Með Nix:"
 
-#: ../../source/tutorials/quickstart.rst:45
-#, fuzzy
+#: ../../source/tutorials/quickstart.rst:55
 msgid ""
-"The crate is ``snapper-fmt`` on all registries; the binary it installs is"
-" ``snapper``."
+"The crate is ``snapper-fmt`` on all registries. Each install ships two CLI "
+"names for the same program: ``snapper`` and ``snapper-fmt``. If `openSUSE "
+"snapper <https://github.com/openSUSE/snapper>`_ (Btrfs/LVM snapshots) "
+"already owns ``/usr/bin/snapper``, call this formatter as ``snapper-fmt``."
 msgstr ""
-"Frá `crates.io <https://crates.io/crates/snapper-fmt>`_ (crate-ið er "
-"``snapper-fmt``, forritaskráin sem það setur upp er ``snapper``):"
 
-#: ../../source/tutorials/quickstart.rst:48
+#: ../../source/tutorials/quickstart.rst:62
 msgid "Basic usage"
 msgstr "Grunnnotkun"
 
-#: ../../source/tutorials/quickstart.rst:50
+#: ../../source/tutorials/quickstart.rst:64
 msgid "Format a file, printing to stdout:"
 msgstr "Sníða skrá, prenta á stdout:"
 
-#: ../../source/tutorials/quickstart.rst:56
+#: ../../source/tutorials/quickstart.rst:70
 msgid "Format in place:"
 msgstr "Sníða á staðnum:"
 
-#: ../../source/tutorials/quickstart.rst:62
+#: ../../source/tutorials/quickstart.rst:76
 msgid "Pipe through stdin (for editor integration):"
 msgstr "Sigta í gegnum stdin (fyrir samþættingu við ritil):"
 
 #: ../../source/tutorials/quickstart.rst:82
 msgid ""
-"The CLI uses pandoc (auto FFI, then CLI) when an FFI writer or ``pandoc`` "
-"on ``PATH`` is available. Otherwise it keeps the native line parsers (no "
-"error). Pass ``--native`` to force today's parsers. Pass ``--use-pandoc`` "
-"to require pandoc (error if missing). Editors, wasm, and LSP stay native."
+"The CLI uses pandoc (auto FFI, then CLI) when an FFI writer or ``pandoc`` on "
+"``PATH`` is available. Otherwise it keeps the native line parsers (no "
+"error). Pass ``--native`` to force today's parsers. Pass ``--use-pandoc`` to "
+"require pandoc (error if missing). Editors, wasm, and LSP stay native."
 msgstr ""
 
-#: ../../source/tutorials/quickstart.rst:90
+#: ../../source/tutorials/quickstart.rst:91
 msgid "What it does"
 msgstr "Hvað gerir það"
 
-#: ../../source/tutorials/quickstart.rst:71
+#: ../../source/tutorials/quickstart.rst:93
 msgid "Given a paragraph like this:"
 msgstr "Fyrir málsgrein eins og þessa:"
 
-#: ../../source/tutorials/quickstart.rst:77
+#: ../../source/tutorials/quickstart.rst:99
 msgid "``snapper`` produces:"
 msgstr "``snapper`` framleiðir:"
 
-#: ../../source/tutorials/quickstart.rst:85
+#: ../../source/tutorials/quickstart.rst:107
 msgid ""
-"Each sentence occupies its own line. Structural elements like code "
-"blocks, tables, drawers, math environments, and front matter pass through"
-" unchanged."
+"Each sentence occupies its own line. Tables, drawers, math environments, and "
+"front matter pass through unchanged. Source blocks are code regions: fences "
+"stay fixed and configured language comments reflow (see the formats and "
+"config references)."
 msgstr ""
-"Hver setning tekur sína eigin línu. Uppbyggingareiningar eins og "
-"kóðablokkir, töflur, skúffur, stærðfræðiumhverfi og framefni fara í gegn "
-"óbreytt."
 
-#: ../../source/tutorials/quickstart.rst:89
+#: ../../source/tutorials/quickstart.rst:114
 msgid "Format detection"
 msgstr "Sniðgreining"
 
-#: ../../source/tutorials/quickstart.rst:91
+#: ../../source/tutorials/quickstart.rst:116
 msgid "``snapper`` auto-detects the format from the file extension:"
 msgstr "``snapper`` sjálfgreinir sniðið frá skráarendingu:"
 
-#: ../../source/tutorials/quickstart.rst:93
+#: ../../source/tutorials/quickstart.rst:118
 msgid "``.org`` -- Org-mode"
 msgstr "``.org`` -- Org-mode"
 
-#: ../../source/tutorials/quickstart.rst:95
+#: ../../source/tutorials/quickstart.rst:120
 msgid "``.tex``, ``.latex`` -- LaTeX"
 msgstr "``.tex``, ``.latex`` -- LaTeX"
 
-#: ../../source/tutorials/quickstart.rst:97
+#: ../../source/tutorials/quickstart.rst:122
 msgid "``.md``, ``.markdown`` -- Markdown"
 msgstr "``.md``, ``.markdown`` -- Markdown"
 
-#: ../../source/tutorials/quickstart.rst:99
+#: ../../source/tutorials/quickstart.rst:124
 msgid "Everything else -- plaintext"
 msgstr "Allt annað -- ósniðinn texti"
 
-#: ../../source/tutorials/quickstart.rst:101
+#: ../../source/tutorials/quickstart.rst:126
 msgid "Override with ``--format``:"
 msgstr "Hnekkja með ``--format``:"
 
-#: ../../source/tutorials/quickstart.rst:108
+#: ../../source/tutorials/quickstart.rst:135
 msgid "Sentence-level diff"
 msgstr "Setningamunur"
 
-#: ../../source/tutorials/quickstart.rst:110
+#: ../../source/tutorials/quickstart.rst:137
 msgid ""
-"Compare two versions of a file at the sentence level, ignoring whitespace"
-" reflow:"
+"Compare two versions of a file at the sentence level, ignoring whitespace "
+"reflow:"
 msgstr ""
 "Berðu saman tvær útgáfur af skrá á setningastigi, án tillits til "
 "endurumbrots á bilum:"
 
-#: ../../source/tutorials/quickstart.rst:116
+#: ../../source/tutorials/quickstart.rst:143
 msgid ""
-"Only actual content changes appear. Reformatting (rewrapping) the same "
-"text produces zero diff. Useful for reviewing collaborator edits on "
-"shared papers."
+"Only actual content changes appear. Reformatting (rewrapping) the same text "
+"produces zero diff. Useful for reviewing collaborator edits on shared papers."
 msgstr ""
 "Aðeins raunverulegar efnisbreytingar birtast. Endurumbrot "
-"(endurumbrotsröðun) á sama texta skilar engum mun. Gagnlegt til að "
-"yfirfara breytingar samstarfsaðila á sameiginlegum greinum."
+"(endurumbrotsröðun) á sama texta skilar engum mun. Gagnlegt til að yfirfara "
+"breytingar samstarfsaðila á sameiginlegum greinum."
 
-#: ../../source/tutorials/quickstart.rst:121
+#: ../../source/tutorials/quickstart.rst:150
 msgid "Watch mode"
 msgstr "Fylgjast með"
 
-#: ../../source/tutorials/quickstart.rst:123
+#: ../../source/tutorials/quickstart.rst:152
 msgid "Auto-reformat files on save:"
 msgstr "Sjálfvirkt endurumbrot skráa við vistun:"
 
-#: ../../source/tutorials/quickstart.rst:129
+#: ../../source/tutorials/quickstart.rst:158
 msgid ""
 "Monitors files and runs ``--in-place`` on change (200ms debounce). Press "
 "Ctrl+C to stop."
 msgstr ""
-"Fylgist með skrám og keyrir ``--in-place`` við breytingu (200ms tafir). "
-"Ýttu á Ctrl+C til að stöðva."
+"Fylgist með skrám og keyrir ``--in-place`` við breytingu (200ms tafir). Ýttu "
+"á Ctrl+C til að stöðva."
 
-#: ../../source/tutorials/quickstart.rst:133
+#: ../../source/tutorials/quickstart.rst:164
 msgid "Project setup"
 msgstr "Uppsetning verkefnis"
 
-#: ../../source/tutorials/quickstart.rst:135
+#: ../../source/tutorials/quickstart.rst:166
 msgid "Initialize snapper for a new project:"
 msgstr "Frumstilltu snapper fyrir nýtt verkefni:"
 
-#: ../../source/tutorials/quickstart.rst:141
+#: ../../source/tutorials/quickstart.rst:172
 msgid ""
 "Detects which formats exist and generates ``.snapperrc.toml``, "
-"``.gitattributes``, pre-commit config, and Apheleia snippets. Use "
-"``--dry-run`` to preview."
+"``.gitattributes``, pre-commit config, and Apheleia snippets. Use ``--dry-"
+"run`` to preview."
 msgstr ""
 "Greinir hvaða snið eru til staðar og býr til ``.snapperrc.toml``, "
-"``.gitattributes``, pre-commit stillingar og Apheleia búta. Notaðu "
-"``--dry-run`` til að forskoða."
+"``.gitattributes``, pre-commit stillingar og Apheleia búta. Notaðu ``--dry-"
+"run`` til að forskoða."
 
-#: ../../source/tutorials/quickstart.rst:145
+#: ../../source/tutorials/quickstart.rst:178
+msgid "MCP server (AI assistants)"
+msgstr ""
+
+#: ../../source/tutorials/quickstart.rst:180
+msgid ""
+"Published ``snapper`` / ``snapper-fmt`` binaries include the MCP server. "
+"Configure an MCP client to run the stdio command:"
+msgstr ""
+
+#: ../../source/tutorials/quickstart.rst:187
+msgid ""
+"Agents should call this server or the ``snapper`` CLI instead of applying "
+"`sembr.org <https://sembr.org/>`_ / `sembr/skills <https://github.com/sembr/"
+"skills>`_ wrapping by hand."
+msgstr ""
+
+#: ../../source/tutorials/quickstart.rst:189
+msgid "From source with ``--no-default-features``, rebuild with MCP:"
+msgstr ""
+
+#: ../../source/tutorials/quickstart.rst:206
+msgid "See `MCP Integration <../howto/mcp-integration.rst>`_ for details."
+msgstr ""
+
+#: ../../source/tutorials/quickstart.rst:211
 msgid "CI integration"
 msgstr "CI samþætting"
 
-#: ../../source/tutorials/quickstart.rst:147
+#: ../../source/tutorials/quickstart.rst:213
 msgid ""
 "Use ``--check`` mode to verify formatting without modifying files. Exits "
 "with code 1 if any file would change:"
 msgstr ""
-"Notaðu ``--check`` stillingu til að staðfesta sníðmótun án þess að breyta"
-" skrám. Hættir með kóða 1 ef einhver skrá myndi breytast:"
+"Notaðu ``--check`` stillingu til að staðfesta sníðmótun án þess að breyta "
+"skrám. Hættir með kóða 1 ef einhver skrá myndi breytast:"
 
-#: ../../source/tutorials/quickstart.rst:154
+#: ../../source/tutorials/quickstart.rst:220
 msgid "For GitHub Code Scanning, use SARIF output:"
 msgstr "Fyrir GitHub Code Scanning, notaðu SARIF úttak:"
 
-#: ../../source/tutorials/quickstart.rst:161
+#: ../../source/tutorials/quickstart.rst:229
 msgid "Pre-commit hook"
 msgstr "Pre-commit hook"
 
-#: ../../source/tutorials/quickstart.rst:163
+#: ../../source/tutorials/quickstart.rst:231
 msgid "Add to your ``.pre-commit-config.yaml``:"
 msgstr "Bættu við í ``.pre-commit-config.yaml``:"
 
-#: ../../source/tutorials/quickstart.rst:173
+#: ../../source/tutorials/quickstart.rst:240
+msgid ""
+"Runs ``snapper --in-place`` on ``\\*.org``, ``\\*.tex=/=*.latex``, ``\\*.md=/"
+"=*.markdown``, ``\\*.rst``, and ``\\*.txt`` (extension match; identify has "
+"no ``org`` type). Requires a Rust toolchain so pre-commit can build the hook "
+"from this repo."
+msgstr ""
+
+#: ../../source/tutorials/quickstart.rst:246
+#, fuzzy
+msgid "Editor integration"
+msgstr "CI samþætting"
+
+#: ../../source/tutorials/quickstart.rst:251
+msgid "VS Code"
+msgstr ""
+
+#: ../../source/tutorials/quickstart.rst:253
+msgid ""
+"Install `TurtleTech.snapper <https://marketplace.visualstudio.com/items?"
+"itemName=TurtleTech.snapper>`_ from the Marketplace. Provides format-on-"
+"save, range formatting, diagnostics, and code actions out of the box."
+msgstr ""
+
+#: ../../source/tutorials/quickstart.rst:259
+msgid "Neovim"
+msgstr ""
+
+#: ../../source/tutorials/quickstart.rst:261
+msgid ""
+"See the `snapper.nvim plugin <https://github.com/TurtleTech-ehf/snapper/tree/"
+"main/editors/nvim>`_ for full LSP integration, or use ``formatprg``:"
+msgstr ""
+
+#: ../../source/tutorials/quickstart.rst:270
 msgid "Emacs (Apheleia)"
 msgstr "Emacs (Apheleia)"
 
-#: ../../source/tutorials/quickstart.rst:175
-msgid "Add to your Emacs config:"
-msgstr "Bættu við í Emacs stillinguna þína:"
+#: ../../source/tutorials/quickstart.rst:281
+msgid "Obsidian"
+msgstr ""
 
-#: ../../source/tutorials/quickstart.rst:183
-msgid "This runs ``snapper`` on save for Org-mode buffers."
-msgstr "Þetta keyrir ``snapper`` við vistun fyrir Org-mode minnissvæði."
+#: ../../source/tutorials/quickstart.rst:283
+msgid ""
+"Development preview; not listed in Community Plugins. Use the source in "
+"``editors/obsidian`` for development builds."
+msgstr ""
 
+#: ../../source/tutorials/quickstart.rst:289
+msgid "Word"
+msgstr ""
+
+#: ../../source/tutorials/quickstart.rst:291
+msgid ""
+"Development preview; not published in AppSource. Use the source and "
+"sideloading instructions in ``editors/word``."
+msgstr ""
+
+#: ../../source/tutorials/quickstart.rst:294
+msgid ""
+"See `Editor Integration <../howto/editor-integration.rst>`_ for Vim, Helix, "
+"eglot, conform.nvim, and other setups."
+msgstr ""
+
+#~ msgid ""
+#~ "The crate is ``snapper-fmt`` on all registries; the binary it installs is "
+#~ "``snapper``."
+#~ msgstr ""
+#~ "Frá `crates.io <https://crates.io/crates/snapper-fmt>`_ (crate-ið er "
+#~ "``snapper-fmt``, forritaskráin sem það setur upp er ``snapper``):"
+
+#~ msgid ""
+#~ "Each sentence occupies its own line. Structural elements like code "
+#~ "blocks, tables, drawers, math environments, and front matter pass through "
+#~ "unchanged."
+#~ msgstr ""
+#~ "Hver setning tekur sína eigin línu. Uppbyggingareiningar eins og "
+#~ "kóðablokkir, töflur, skúffur, stærðfræðiumhverfi og framefni fara í gegn "
+#~ "óbreytt."
+
+#~ msgid "Add to your Emacs config:"
+#~ msgstr "Bættu við í Emacs stillinguna þína:"
+
+#~ msgid "This runs ``snapper`` on save for Org-mode buffers."
+#~ msgstr "Þetta keyrir ``snapper`` við vistun fyrir Org-mode minnissvæði."

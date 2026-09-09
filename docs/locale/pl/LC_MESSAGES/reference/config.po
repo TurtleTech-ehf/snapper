@@ -8,94 +8,94 @@ msgid ""
 msgstr ""
 "Project-Id-Version: snapper \n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-03-28 02:18+0100\n"
+"POT-Creation-Date: 2026-09-09 10:12-0500\n"
 "PO-Revision-Date: 2026-03-27 23:00+0100\n"
 "Last-Translator: Rohit Goswami <rgoswami@ieee.org>\n"
-"Language: pl\n"
 "Language-Team: pl <LL@li.org>\n"
-"Plural-Forms: nplurals=3; plural=(n==1 ? 0 : n%10>=2 && n%10<=4 && "
-"(n%100<10 || n%100>=20) ? 1 : 2);\n"
+"Language: pl\n"
 "MIME-Version: 1.0\n"
-"Content-Type: text/plain; charset=utf-8\n"
+"Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=3; plural=(n==1 ? 0 : n%10>=2 && n%10<=4 && (n%100<10 "
+"|| n%100>=20) ? 1 : 2);\n"
 "Generated-By: Babel 2.18.0\n"
 
 #: ../../source/reference/config.rst:3
 msgid "Configuration"
 msgstr "Konfiguracja"
 
-#: ../../source/reference/config.rst:8
+#: ../../source/reference/config.rst:10
 msgid "Project config file"
 msgstr "Plik konfiguracji projektu"
 
-#: ../../source/reference/config.rst:10
+#: ../../source/reference/config.rst:12
 msgid ""
-"Snapper looks for ``.snapperrc.toml`` starting from the current directory"
-" and walking up to the filesystem root. Override the search with "
-"``--config path/to/config.toml``."
+"Snapper looks for ``.snapperrc.toml`` starting from the current directory "
+"and walking up to the filesystem root. Override the search with ``--config "
+"path/to/config.toml``."
 msgstr ""
-"Snapper szuka pliku ``.snapperrc.toml`` począwszy od bieżącego katalogu w"
-" górę aż do korzenia systemu plików. Przesłoń wyszukiwanie za pomocą "
-"``--config path/to/config.toml``."
+"Snapper szuka pliku ``.snapperrc.toml`` począwszy od bieżącego katalogu w "
+"górę aż do korzenia systemu plików. Przesłoń wyszukiwanie za pomocą ``--"
+"config path/to/config.toml``."
 
-#: ../../source/reference/config.rst:13
+#: ../../source/reference/config.rst:15
 msgid "Or generate one with ``snapper init``."
 msgstr ""
 
-#: ../../source/reference/config.rst:16
+#: ../../source/reference/config.rst:20
 msgid "Config format"
 msgstr "Format konfiguracji"
 
-#: ../../source/reference/config.rst:44
+#: ../../source/reference/config.rst:73
 msgid "Fields"
 msgstr "Pola"
 
-#: ../../source/reference/config.rst:47
+#: ../../source/reference/config.rst:78
 msgid "lang"
 msgstr ""
 
-#: ../../source/reference/config.rst:49
+#: ../../source/reference/config.rst:80
 msgid ""
 "String. Language code for the built-in abbreviation set used by the rule-"
-"based splitter. One of: ``en`` (default), ``de``, ``fr``, ``is``, ``pl``."
-" Also selectable via ``--lang`` CLI flag."
+"based splitter. One of: ``en`` (default), ``de``, ``fr``, ``is``, ``pl``. "
+"Also selectable via ``--lang`` CLI flag."
 msgstr ""
 
-#: ../../source/reference/config.rst:55
+#: ../../source/reference/config.rst:88
 msgid "extra\\ :sub:`abbreviations`"
 msgstr "extra\\ :sub:`abbreviations`"
 
-#: ../../source/reference/config.rst:57
+#: ../../source/reference/config.rst:90
 #, fuzzy
 msgid ""
 "String array. Each entry names an abbreviation that should not trigger a "
-"sentence break when followed by a period. Merged with the built-in list "
-"for the selected language. Useful for domain-specific terms your papers "
-"use frequently."
+"sentence break when followed by a period. Merged with the built-in list for "
+"the selected language. Useful for domain-specific terms your papers use "
+"frequently."
 msgstr ""
 "Tablica ciągów znaków. Każdy wpis określa skrót, który nie powinien "
-"powodować podziału zdania po kropce. Przydatne dla terminów dziedzinowych"
-" często używanych w artykułach."
+"powodować podziału zdania po kropce. Przydatne dla terminów dziedzinowych "
+"często używanych w artykułach."
 
-#: ../../source/reference/config.rst:63
+#: ../../source/reference/config.rst:98
 msgid "ignore"
 msgstr "ignore"
 
-#: ../../source/reference/config.rst:65
+#: ../../source/reference/config.rst:100
 msgid ""
 "String array of glob patterns. Files matching these patterns get skipped "
-"during ``--in-place`` and ``--check`` operations. Does not affect "
-"stdin/stdout mode."
+"during ``--in-place`` and ``--check`` operations. Does not affect stdin/"
+"stdout mode."
 msgstr ""
-"Tablica ciągów znaków ze wzorcami glob. Pliki pasujące do tych wzorców są"
-" pomijane podczas operacji ``--in-place`` i ``--check``. Nie wpływa na "
-"tryb stdin/stdout."
+"Tablica ciągów znaków ze wzorcami glob. Pliki pasujące do tych wzorców są "
+"pomijane podczas operacji ``--in-place`` i ``--check``. Nie wpływa na tryb "
+"stdin/stdout."
 
-#: ../../source/reference/config.rst:70
+#: ../../source/reference/config.rst:107
 msgid "format"
 msgstr "format"
 
-#: ../../source/reference/config.rst:72
+#: ../../source/reference/config.rst:109
 #, fuzzy
 msgid ""
 "String. Default format when auto-detection from file extension does not "
@@ -105,56 +105,311 @@ msgstr ""
 "rozszerzenia pliku nie ma zastosowania. Jeden z: ``org``, ``latex``, "
 "``markdown``, ``plaintext``."
 
-#: ../../source/reference/config.rst:77
+#: ../../source/reference/config.rst:116
 msgid "max\\ :sub:`width`"
 msgstr "max\\ :sub:`width`"
 
-#: ../../source/reference/config.rst:79
+#: ../../source/reference/config.rst:118
 #, fuzzy
 msgid ""
-"Integer. Sentences exceeding this width get wrapped at word boundaries. "
-"Set to ``0`` for unlimited (the default). Also respects "
-"``max_line_length`` from ``.editorconfig`` if present."
+"Integer. Sentences exceeding this width get wrapped at word boundaries. Set "
+"to ``0`` for unlimited (the default). Also respects ``max_line_length`` from "
+"``.editorconfig`` if present."
 msgstr ""
 "Liczba całkowita. Zdania przekraczające tę szerokość są zawijane na "
 "granicach słów. Ustaw na ``0`` dla braku limitu (wartość domyślna)."
 
-#: ../../source/reference/config.rst:85
+#: ../../source/reference/config.rst:126
+#, fuzzy
+msgid "clause\\ :sub:`breaks`"
+msgstr "extra\\ :sub:`abbreviations`"
+
+#: ../../source/reference/config.rst:128
+msgid "Boolean. Default: ``false``. Also selectable via ``--clause-breaks``."
+msgstr ""
+
+#: ../../source/reference/config.rst:132
+msgid ""
+"When true, snapper inserts a soft break after independent-clause punctuation "
+"(comma, semicolon, colon, em dash, or ASCII ``--``) that is already followed "
+"by whitespace."
+msgstr ""
+
+#: ../../source/reference/config.rst:134
+msgid ""
+"``max_width = 0`` (the default): every such mark starts a new line. A "
+"sentence that is already one independent clause stays one line."
+msgstr ""
+
+#: ../../source/reference/config.rst:137
+msgid ""
+"``max_width > 0``: overflowing sentences prefer those marks; a sentence that "
+"already fits stays on one line."
+msgstr ""
+
+#: ../../source/reference/config.rst:139
+msgid ""
+"Tokens such as ``1,000``, ``10:30``, URLs, ``--flags``, and unspaced dashes "
+"never split. ``--check`` uses the same mode when this flag or config is on."
+msgstr ""
+
+#: ../../source/reference/config.rst:145
+msgid "long\\ :sub:`threshold`"
+msgstr ""
+
+#: ../../source/reference/config.rst:147
+msgid ""
+"Integer. Character threshold for advisory ``long`` diagnostics when "
+"``max_width`` is unset. Default: 120. A ``long`` finding is never the sole "
+"cause of ``--check`` exit 1 unless ``--strict-long`` is set."
+msgstr ""
+
+#: ../../source/reference/config.rst:155
 msgid "Per-format sections"
 msgstr ""
 
-#: ../../source/reference/config.rst:87
+#: ../../source/reference/config.rst:157
 msgid ""
-"Add ``[org]``, ``[latex]``, ``[markdown]``, ``[rst]``, or ``[plaintext]``"
-" sections to override settings for specific formats."
+"Add ``[org]``, ``[latex]``, ``[markdown]``, ``[rst]``, or ``[plaintext]`` "
+"sections to override settings for specific formats."
 msgstr ""
 
-#: ../../source/reference/config.rst:89
+#: ../../source/reference/config.rst:159
 msgid ""
-"Per-format ``extra_abbreviations`` merge with the top-level list. Per-"
-"format ``max_width`` overrides the top-level value."
+"Per-format ``extra_abbreviations`` merge with the top-level list. Per-format "
+"``max_width`` overrides the top-level value."
 msgstr ""
 
-#: ../../source/reference/config.rst:93
+#: ../../source/reference/config.rst:162
+msgid ""
+"The following keys are meaningful under ``[latex]`` only. Missing keys (or "
+"empty arrays) keep the built-in lists; present entries are added to those "
+"lists. There is no regex ``other:`` key (latexindent's pattern-based extra "
+"matching is not supported)."
+msgstr ""
+
+#: ../../source/reference/config.rst:169
+msgid "verbatim\\ :sub:`envs`\\ (latex)"
+msgstr ""
+
+#: ../../source/reference/config.rst:171
+msgid ""
+"String array of environment names treated like ``minted`` / ``lstlisting`` / "
+"``verbatim`` (``Region::Code``, no reflow). Built-in: ``minted``, "
+"``lstlisting``, ``verbatim``. Adding ``Verbatim`` (fancyvrb) stops reflow of "
+"that environment."
+msgstr ""
+
+#: ../../source/reference/config.rst:178
+msgid "structure\\ :sub:`envs`\\ (latex)"
+msgstr ""
+
+#: ../../source/reference/config.rst:180
+msgid ""
+"String array of environment names treated like ``equation`` / ``figure`` "
+"(``Region::Structure``, no reflow). Built-in: the ``NON_PROSE_ENVS`` list "
+"(equation, align, figure, table, tabular, tikzpicture, and starred variants, "
+"plus the built-in code envs). Adding ``algorithm`` or ``comment`` stops "
+"reflow of those environments."
+msgstr ""
+
+#: ../../source/reference/config.rst:187
+msgid "verbatim\\ :sub:`commands`\\ (latex)"
+msgstr ""
+
+#: ../../source/reference/config.rst:189
+msgid ""
+"String array of extra command names tokenized like the built-in verb command "
+"before sentence split. The next character after the name is the delimiter. "
+"Built-in names are ``verb`` and ``lstinline``; ``lstinline`` still accepts "
+"optional ``[...]`` and ``{...}``. Adding ``Verb`` (fancyvrb) keeps that "
+"command's delimited body atomic and treats an inner ``%`` as content, not a "
+"comment."
+msgstr ""
+
+#: ../../source/reference/config.rst:197
+msgid "Code-block sections (``[code.<lang>]``)"
+msgstr ""
+
+#: ../../source/reference/config.rst:199
+msgid ""
+"Each ``[code.<lang>]`` table configures how fenced or delimited source "
+"blocks for that language are handled. ``snapper init`` writes seed entries "
+"for common languages (``rust``, ``python``, ``toml``, ``lua``, ``lisp``, "
+"``html``, ``javascript``)."
+msgstr ""
+
+#: ../../source/reference/config.rst:205
+msgid "line\\ :sub:`comment`"
+msgstr ""
+
+#: ../../source/reference/config.rst:207
+msgid ""
+"String. Marker for single-line comments (for example ``\"//\"`` or "
+"``\"#\"``). Comment text after the marker is reflowed with the sentence "
+"splitter; the marker and indentation are preserved."
+msgstr ""
+
+#: ../../source/reference/config.rst:211
+msgid ""
+"A marker that repeats or decorates this one keeps its written form, so ``///"
+"`` and ``//!`` survive a split instead of collapsing to ``//``. A ``#!`` "
+"shebang is left alone."
+msgstr ""
+
+#: ../../source/reference/config.rst:214
+msgid ""
+"Where a grammar backs the language (see `grammar-backed-languages`_), the "
+"reflow also reaches a comment that follows code on the same line, aligning "
+"continuation sentences under the comment:"
+msgstr ""
+
+#: ../../source/reference/config.rst:221
+msgid ""
+"Without a grammar the marker must open the line. That rule keeps the ``//`` "
+"inside ``\"// not a comment.\"`` out of the reflow."
+msgstr ""
+
+#: ../../source/reference/config.rst:227
+msgid "block\\ :sub:`comment`"
+msgstr ""
+
+#: ../../source/reference/config.rst:229
+msgid ""
+"String array of length two: open and close markers (for example ``[\"/*\", "
+"\"*/\"]``). One-line and multi-line block comments are reflowed as prose "
+"between the markers."
+msgstr ""
+
+#: ../../source/reference/config.rst:235
+msgid "string\\ :sub:`delims`"
+msgstr ""
+
+#: ../../source/reference/config.rst:237
+msgid "String array of quote characters. Defaults to ``[\"\\\"\", \"'\"]``."
+msgstr ""
+
+#: ../../source/reference/config.rst:240
+msgid ""
+"Without a grammar, quoting is the only thing separating a comment marker "
+"from the same characters inside a literal: a marker that trails code "
+"reflows, while the same marker inside a quoted string does not. The tracking "
+"stays conservative: an unbalanced quote, such as a Rust lifetime or an "
+"apostrophe in a shell word, makes the rest of the line read as quoted, so a "
+"marker after it goes unreflowed rather than mangled."
+msgstr ""
+
+#: ../../source/reference/config.rst:243
+msgid ""
+"Grammar-backed languages ignore this field; the parse already knows which "
+"bytes belong to a string."
+msgstr ""
+
+#: ../../source/reference/config.rst:248
+msgid "escape"
+msgstr ""
+
+#: ../../source/reference/config.rst:250
+msgid ""
+"String holding one character that escapes the next inside a string literal. "
+"Defaults to a backslash."
+msgstr ""
+
+#: ../../source/reference/config.rst:256
+#, fuzzy
+msgid "formatter"
+msgstr "format"
+
+#: ../../source/reference/config.rst:258
+msgid ""
+"String array treated as argv for ``std::process::Command``. Only runs when "
+"the CLI flag ``--format-code`` is set. Missing binaries, non-zero exits, and "
+"a ~30s watchdog timeout each leave the reflowed body in place (non-fatal)."
+msgstr ""
+
+#: ../../source/reference/config.rst:262
+msgid ""
+"If a language has no ``[code.<lang>]`` entry (or the fence has no language), "
+"the block body passes through unchanged aside from normal trailing-newline "
+"preservation."
+msgstr ""
+
+#: ../../source/reference/config.rst:267
+msgid "Grammar-backed languages"
+msgstr ""
+
+#: ../../source/reference/config.rst:269
+msgid ""
+"The ``treesitter`` feature, on by default, parses code blocks in ``rust``, "
+"``python``, ``javascript``, ``c``, ``cpp``, ``go``, ``bash`` and ``html`` to "
+"tell a comment from a string. Fence aliases resolve as well: ``rs``, ``py``, "
+"``js``, ``sh``."
+msgstr ""
+
+#: ../../source/reference/config.rst:272
+msgid ""
+"A build feature governs this, not a config field, and a ``[code.<lang>]`` "
+"entry remains required. The grammar decides which bytes form a comment; the "
+"entry supplies the markers used to re-emit it."
+msgstr ""
+
+#: ../../source/reference/config.rst:275
+msgid ""
+"Two builds carry no grammars and fall back to the scanner for every language:"
+msgstr ""
+
+#: ../../source/reference/config.rst:277
+msgid ""
+"``wasm32-unknown-unknown``, the target behind the Obsidian and Word "
+"integrations, where the C runtime and its grammars would need a ``wasm`` "
+"libc."
+msgstr ""
+
+#: ../../source/reference/config.rst:279
+msgid ""
+"Any build configured with ``--no-default-features`` that does not opt back "
+"in."
+msgstr ""
+
+#: ../../source/reference/config.rst:281
+msgid ""
+"The VS Code extension runs the CLI rather than the wasm build, so it has "
+"grammars."
+msgstr ""
+
+#: ../../source/reference/config.rst:283
+msgid ""
+"The scanner reads `field-string-delims`_ to find trailing comments on its "
+"own, so both engines agree on ordinary code. A grammar still wins on raw "
+"strings, heredocs, triple-quoted strings and nested comments, where quote "
+"counting alone gives the wrong answer."
+msgstr ""
+
+#: ../../source/reference/config.rst:286
+msgid ""
+"Block comments stay on the scanner. A close marker inside a string does not "
+"end the comment, so ``let s = \"*/\";`` in a ``/* ... */`` block stays in "
+"the comment. When the closer is itself a quote sequence (``\"\"\"``, "
+"``'''``), the first match is the closer, which is how Python docstrings "
+"reflow."
+msgstr ""
+
+#: ../../source/reference/config.rst:293
 msgid "Precedence"
 msgstr "Kolejność priorytetów"
 
-#: ../../source/reference/config.rst:95
+#: ../../source/reference/config.rst:295
 msgid ""
 "CLI flags override config file values. Per-format sections override top-"
-"level config values. Config file values override ``.editorconfig`` "
-"values. ``.editorconfig`` overrides built-in defaults."
+"level config values. Config file values override ``.editorconfig`` values. "
+"``.editorconfig`` overrides built-in defaults."
 msgstr ""
 
 #~ msgid ""
-#~ "CLI flags override config file values."
-#~ " Config file values override built-in"
-#~ " defaults. Explicitly passing ``--format`` "
-#~ "or ``--max-width`` always wins."
+#~ "CLI flags override config file values. Config file values override built-"
+#~ "in defaults. Explicitly passing ``--format`` or ``--max-width`` always "
+#~ "wins."
 #~ msgstr ""
-#~ "Flagi CLI nadpisują wartości z pliku "
-#~ "konfiguracyjnego. Wartości z pliku "
-#~ "konfiguracyjnego nadpisują wbudowane wartości "
-#~ "domyślne. Jawne podanie ``--format`` lub "
-#~ "``--max-width`` zawsze ma pierwszeństwo."
-
+#~ "Flagi CLI nadpisują wartości z pliku konfiguracyjnego. Wartości z pliku "
+#~ "konfiguracyjnego nadpisują wbudowane wartości domyślne. Jawne podanie ``--"
+#~ "format`` lub ``--max-width`` zawsze ma pierwszeństwo."
