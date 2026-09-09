@@ -30,6 +30,9 @@ fn parse_line_based(input: &str) -> Vec<SpannedRegion> {
     let mut directive_indent: usize = 0;
     let mut in_definition = false;
     let mut definition_indent: usize = 0;
+    // Comment body: indented lines after `..` / `.. text` stay Structure.
+    let mut in_comment = false;
+    let mut comment_indent: usize = 0;
     // Hang column of the current list item (`- ` → 2). Continuation
     // paragraphs after a blank stay in the item when indented this far.
     let mut list_hang: Option<usize> = None;
@@ -135,6 +138,17 @@ fn parse_line_based(input: &str) -> Vec<SpannedRegion> {
             in_directive = false;
         }
 
+        // Inside comment body (indented lines after `..` / `.. text`).
+        if in_comment {
+            let leading = line_text.len() - line_text.trim_start().len();
+            if line_text.trim().is_empty() || leading >= comment_indent {
+                regions.push(SpannedRegion::structure(input, line.span()));
+                i += 1;
+                continue;
+            }
+            in_comment = false;
+        }
+
         // Blank line
         if line_text.trim().is_empty() {
             flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
@@ -184,10 +198,15 @@ fn parse_line_based(input: &str) -> Vec<SpannedRegion> {
             continue;
         }
 
-        // RST comment (.. without directive)
-        if trimmed.starts_with(".. ") && !trimmed.contains("::") {
+        // RST comment (`..` or `.. text` without `::`). Bare `..` is a
+        // comment opener; following indented lines are the comment body.
+        if is_rst_comment_opener(trimmed) {
             flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
             regions.push(SpannedRegion::structure(input, line.span()));
+            let leading = line_text.len() - trimmed.len();
+            // Any indent past the opener is body (docutils).
+            comment_indent = leading + 1;
+            in_comment = true;
             i += 1;
             continue;
         }
@@ -339,6 +358,15 @@ fn parse_line_based(input: &str) -> Vec<SpannedRegion> {
         ));
     }
     regions
+}
+
+/// True when `trimmed` is an RST comment opener, not a `.. name::` directive.
+/// Bare `..` (no trailing space) is a valid opener; so is `.. text`.
+fn is_rst_comment_opener(trimmed: &str) -> bool {
+    if trimmed.contains("::") {
+        return false;
+    }
+    trimmed == ".." || trimmed.starts_with(".. ") || trimmed.starts_with("..\t")
 }
 
 /// Byte length of a compact RST list opener on `line`, including the
@@ -703,6 +731,102 @@ mod tests {
         assert!(
             out.contains("\n  Second sentence."),
             "continuation must keep two-space hang, got:\n{out}"
+        );
+    }
+
+    #[test]
+    fn comment_opener_and_body_are_structure() {
+        let input = "..\n   First sentence.\n   Second sentence.\n";
+        let regions = RstParser.parse(input);
+        assert!(
+            regions
+                .iter()
+                .any(|r| matches!(r, Region::Structure(s) if s.trim() == "..")),
+            "bare .. must be Structure, got {regions:?}"
+        );
+        assert!(
+            regions
+                .iter()
+                .any(|r| matches!(r, Region::Structure(s) if s.contains("First sentence."))),
+            "comment body must be Structure, got {regions:?}"
+        );
+        assert!(
+            regions
+                .iter()
+                .any(|r| matches!(r, Region::Structure(s) if s.contains("Second sentence."))),
+            "comment body must be Structure, got {regions:?}"
+        );
+        assert!(
+            !regions.iter().any(|r| {
+                matches!(
+                    r,
+                    Region::Prose(s)
+                        if s.contains("First sentence.") || s.contains("Second sentence.")
+                )
+            }),
+            "comment body must not be Prose, got {regions:?}"
+        );
+    }
+
+    #[test]
+    fn reporter_comment_body_is_identity_under_format() {
+        use crate::format::Format;
+        use crate::{FormatConfig, format_text};
+
+        let cfg = FormatConfig {
+            format: Format::Rst,
+            max_width: 0,
+            ..Default::default()
+        };
+        let input = "..\n   First sentence.\n   Second sentence.\n";
+        let out = format_text(input, &cfg).unwrap();
+        assert_eq!(
+            out, input,
+            "reporter comment body must stay identity under format, got:\n{out}"
+        );
+        assert!(
+            out.contains("\n   First sentence."),
+            "first comment line must keep indent, got:\n{out}"
+        );
+        assert!(
+            out.contains("\n   Second sentence."),
+            "second comment line must keep indent, got:\n{out}"
+        );
+    }
+
+    #[test]
+    fn bare_dotdot_is_comment_opener() {
+        assert!(is_rst_comment_opener(".."));
+        assert!(is_rst_comment_opener(".. This is a comment."));
+        assert!(is_rst_comment_opener("..\tThis is a comment."));
+        assert!(!is_rst_comment_opener(".. note::"));
+        assert!(!is_rst_comment_opener("..."));
+        assert!(!is_rst_comment_opener("Hello"));
+    }
+
+    #[test]
+    fn recognized_comment_line_keeps_indented_body() {
+        use crate::format::Format;
+        use crate::{FormatConfig, format_text};
+
+        let cfg = FormatConfig {
+            format: Format::Rst,
+            max_width: 0,
+            ..Default::default()
+        };
+        let input = ".. This is a comment.\n   First sentence.\n   Second sentence.\n";
+        let out = format_text(input, &cfg).unwrap();
+        assert_eq!(
+            out, input,
+            "recognized comment line must keep indented body identity, got:\n{out}"
+        );
+        assert!(
+            out.contains("\n   First sentence."),
+            "first comment body line must keep indent, got:\n{out}"
+        );
+        assert!(
+            out.contains("\n   Second sentence."),
+            "second comment body line must keep indent, got:\n{out}"
         );
     }
 }
