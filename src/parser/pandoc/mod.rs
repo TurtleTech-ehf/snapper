@@ -412,12 +412,61 @@ mod tests {
     }
 
     #[test]
-    fn wasm_entry_stays_native() {
+    fn wasm_and_editor_config_cannot_set_use_pandoc() {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
         let wasm = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/wasm.rs"));
         assert!(
             wasm.contains("use_pandoc: false"),
-            "wasm must keep use_pandoc false (snapper-ekc0 / this ticket)"
+            "wasm must keep use_pandoc false (snapper-ekc0)"
         );
+        assert!(
+            !wasm.contains("set_use_pandoc"),
+            "WasmConfig must not expose a use_pandoc setter"
+        );
+        let struct_block = wasm
+            .split("pub struct WasmConfig {")
+            .nth(1)
+            .and_then(|s| s.split('}').next())
+            .expect("WasmConfig struct");
+        assert!(
+            !struct_block.contains("pandoc"),
+            "WasmConfig must not carry a pandoc field: {struct_block}"
+        );
+
+        // Editor / wrapper sources live in the repo, not the crates.io package.
+        let repo_sources = [
+            "packages/snapper-wasm/src/types.ts",
+            "packages/snapper-wasm/src/index.ts",
+            "editors/vscode/src/extension.ts",
+            "editors/vscode/package.json",
+            "editors/obsidian/src/formatter.ts",
+            "editors/obsidian/src/settings.ts",
+            "editors/word/src/shared/formatter.ts",
+            "editors/word/src/taskpane/taskpane.ts",
+            "src/lsp.rs",
+        ];
+        for rel in repo_sources {
+            let path = root.join(rel);
+            if !path.exists() {
+                continue;
+            }
+            let text = std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("read {rel}: {e}"));
+            for needle in ["use_pandoc", "usePandoc", "use-pandoc"] {
+                assert!(
+                    !text.contains(needle),
+                    "{rel} must not let editor config set {needle}"
+                );
+            }
+        }
+
+        let howto = root.join("docs/orgmode/howto/pandoc-backend.org");
+        if howto.exists() {
+            let text = std::fs::read_to_string(&howto).expect("read pandoc-backend howto");
+            assert!(
+                text.contains("CLI pandoc") && text.contains("editor native"),
+                "howto must state the CLI pandoc vs editor native contract"
+            );
+        }
     }
 
     #[test]

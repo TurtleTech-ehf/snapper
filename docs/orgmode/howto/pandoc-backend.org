@@ -101,3 +101,4 @@ The two paths are different pipelines, not two ways to fake the same source line
 - Use the native parser (omit =--use-pandoc=) to keep that text.
 - Round-trip is through the AST (not a perfect source-preserving rewrite of every markup character)
 - FFI library is optional; wasm/editor bundles do not embed GHC/pandoc
+- The contract is CLI pandoc versus editor native: =--use-pandoc= is a CLI opt-in; VS Code / Obsidian / Word and wasm stay on native parsers.
