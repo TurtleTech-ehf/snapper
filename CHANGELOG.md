@@ -3,8 +3,6 @@ All notable changes to this project will be documented in this file. See [conven
 
 - - -
 ## Unreleased (main)
-#### Features
-- (**cli**) default uses pandoc (auto FFI then CLI) when an FFI writer or `pandoc` on PATH is available; `--native` keeps today's line parsers; `--use-pandoc` still errors if the backend is missing. Editors, wasm, and LSP stay native
 #### Bug Fixes
 - (**sentence**) a period immediately before markup closers only starts a new sentence when the next token is a capital letter (or a quote then a capital), so plaintext `.`` "` is not split
 - (**rst**) list continuation paragraphs after a blank keep their hanging indent, so a two-space second sentence is not outdented to column 0
