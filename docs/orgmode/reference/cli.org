@@ -183,7 +183,8 @@ Overrides =--lang=.
 
 Use pandoc as the parser backend instead of built-in parsers.
 Parse may use in-process FFI when =libsnapper_pandoc= loads; the writer still needs =pandoc= on =PATH= (=libsnapper_pandoc= is reader-only) unless that library exports a writer.
-Without FFI, both parse and write use the =pandoc= CLI. A missing binary is an explicit error (never silent all-prose).
+Without FFI, both parse and write use the =pandoc= CLI.
+A missing binary is an explicit error (never silent all-prose).
 Enables support for typst, asciidoc, docx, html, and all other pandoc-supported formats.
 Native line parsers remain the default (omit this flag).
 

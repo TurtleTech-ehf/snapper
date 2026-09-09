@@ -66,7 +66,8 @@ snapper --use-pandoc --pandoc-backend ffi paper.md
 #+end_src
 
 Native line parsers remain the default until product flip.
-Use =--use-pandoc= when you need formats without a built-in parser or AST-true structure; prefer FFI for parse latency once =libsnapper_pandoc= is installed. The writer still needs =pandoc= on =PATH= unless the library exports a writer.
+Use =--use-pandoc= when you need formats without a built-in parser or AST-true structure; prefer FFI for parse latency once =libsnapper_pandoc= is installed.
+The writer still needs =pandoc= on =PATH= unless the library exports a writer.
 
 **Speed.**
 Warm in-process FFI parse is a few times native cost; a cold =pandoc= CLI process reloads the GHC RTS (tens of ms).
