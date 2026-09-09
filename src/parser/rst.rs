@@ -2,7 +2,7 @@ use regex::Regex;
 use std::sync::LazyLock;
 
 use crate::parser::{
-    ByteSpan, FormatParser, SpannedRegion, flush_prose_spanned, iter_lines, push_prose_line,
+    ByteSpan, FormatParser, Line, SpannedRegion, flush_prose_spanned, iter_lines, push_prose_line,
 };
 
 /// Match `.. code-block:: LANG` or `.. sourcecode:: LANG` (or `.. code:: LANG`).
@@ -241,7 +241,19 @@ fn parse_line_based(input: &str) -> Vec<SpannedRegion> {
             continue;
         }
 
-        // Grid/simple table rows
+        // RST simple tables: `=====  =====` borders (equals with interior
+        // spaces). `is_underline` rejects those, so the rows used to fall
+        // through to prose and format_text joined them.
+        if let Some(end) = simple_table_last_border(&lines, i) {
+            flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
+            for row in &lines[i..=end] {
+                regions.push(SpannedRegion::structure(input, row.span()));
+            }
+            i = end + 1;
+            continue;
+        }
+
+        // Grid table rows
         if trimmed.starts_with('|') || trimmed.starts_with('+') {
             flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
             regions.push(SpannedRegion::structure(input, line.span()));
@@ -320,6 +332,48 @@ fn is_underline(line: &str) -> bool {
     let first = trimmed.as_bytes()[0];
     matches!(first, b'=' | b'-' | b'~' | b'^' | b'"' | b'#' | b'*' | b'+')
         && trimmed.bytes().all(|b| b == first)
+}
+
+/// RST simple-table border: two or more `=` columns separated by spaces.
+/// Distinguishes `=====  =====` from a section underline (`========`).
+fn is_simple_table_border(line: &str) -> bool {
+    let t = line.trim();
+    if t.len() < 3 || !t.contains(' ') {
+        return false;
+    }
+    let mut in_col = false;
+    let mut cols = 0usize;
+    for b in t.bytes() {
+        match b {
+            b'=' => {
+                if !in_col {
+                    cols += 1;
+                    in_col = true;
+                }
+            }
+            b' ' => in_col = false,
+            _ => return false,
+        }
+    }
+    cols >= 2
+}
+
+/// Index of the last `=====  =====` border in this simple table, if `start`
+/// is a border and another border follows before a blank line.
+fn simple_table_last_border(lines: &[Line<'_>], start: usize) -> Option<usize> {
+    if !is_simple_table_border(lines.get(start)?.text) {
+        return None;
+    }
+    let mut last = None;
+    for (j, line) in lines.iter().enumerate().skip(start + 1) {
+        if line.text.trim().is_empty() {
+            break;
+        }
+        if is_simple_table_border(line.text) {
+            last = Some(j);
+        }
+    }
+    last
 }
 
 #[cfg(test)]
@@ -433,5 +487,36 @@ mod tests {
             let out = format_text(input, &cfg).unwrap();
             assert_eq!(out, input, "list must stay compact, got:\n{out}");
         }
+    }
+
+    #[test]
+    fn rst_simple_table_rows_are_structure() {
+        let input = "=====  =====\nName   Value\n=====  =====\nA      B\n=====  =====\n";
+        let regions = RstParser.parse(input);
+        assert!(
+            regions
+                .iter()
+                .any(|r| matches!(r, Region::Structure(s) if s.contains("Name"))),
+            "header row must be structure, got {regions:?}"
+        );
+        assert!(
+            !regions.iter().any(|r| matches!(r, Region::Prose(_))),
+            "simple table must not fall through to prose, got {regions:?}"
+        );
+    }
+
+    #[test]
+    fn rst_simple_table_is_identity_under_format() {
+        use crate::format::Format;
+        use crate::{FormatConfig, format_text};
+
+        let cfg = FormatConfig {
+            format: Format::Rst,
+            max_width: 0,
+            ..Default::default()
+        };
+        let input = "=====  =====\nName   Value\n=====  =====\nA      B\n=====  =====\n";
+        let out = format_text(input, &cfg).unwrap();
+        assert_eq!(out, input, "simple table must stay aligned, got:\n{out}");
     }
 }
