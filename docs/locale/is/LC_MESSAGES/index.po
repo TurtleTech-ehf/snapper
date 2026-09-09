@@ -5,15 +5,15 @@ msgid ""
 msgstr ""
 "Project-Id-Version: snapper\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-03-27 21:56+0100\n"
+"POT-Creation-Date: 2026-09-09 10:12-0500\n"
 "PO-Revision-Date: 2026-03-27 23:00+0100\n"
 "Last-Translator: Rohit Goswami <rgoswami@ieee.org>\n"
-"Language: is\n"
 "Language-Team: is\n"
-"Plural-Forms: nplurals=2; plural=(n%10==1 && n%100!=11 ? 0 : 1);\n"
+"Language: is\n"
 "MIME-Version: 1.0\n"
-"Content-Type: text/plain; charset=utf-8\n"
+"Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=2; plural=(n%10==1 && n%100!=11 ? 0 : 1);\n"
 
 #: ../../source/index.rst:13
 msgid "Tutorials"
@@ -23,11 +23,11 @@ msgstr "Leiðbeiningar"
 msgid "How-to guides"
 msgstr "Hvernig á að"
 
-#: ../../source/index.rst:28
+#: ../../source/index.rst:32
 msgid "Reference"
 msgstr "Tilvísanir"
 
-#: ../../source/index.rst:37
+#: ../../source/index.rst:41
 msgid "Development"
 msgstr "Þróun"
 
@@ -35,7 +35,7 @@ msgstr "Þróun"
 msgid "snapper"
 msgstr "snapper"
 
-#: ../../source/index.rst
+#: ../../source/index.rst:0
 msgid "Author"
 msgstr "Höfundur"
 
@@ -45,10 +45,10 @@ msgstr "`Rohit Goswami <https://rgoswami.me>`_"
 
 #: ../../source/index.rst:10
 msgid ""
-"A fast, format-aware semantic line break formatter. Reformats prose so "
-"each sentence occupies its own line, producing minimal and meaningful git"
-" diffs when collaborating on papers and documentation."
+"A fast, format-aware semantic line break formatter. Reformats prose so each "
+"sentence occupies its own line, producing minimal and meaningful git diffs "
+"when collaborating on papers and documentation."
 msgstr ""
-"Hraðvirkt og sniðvitandi línuskiptatól sem byggir á merkingu. Endursníður texta þannig að hver setning "
-"er á sinni eigin línu, sem gefur hrein og merkingarbær git diff þegar "
-"höfundar vinna saman að ritum og skjölun."
+"Hraðvirkt og sniðvitandi línuskiptatól sem byggir á merkingu. Endursníður "
+"texta þannig að hver setning er á sinni eigin línu, sem gefur hrein og "
+"merkingarbær git diff þegar höfundar vinna saman að ritum og skjölun."

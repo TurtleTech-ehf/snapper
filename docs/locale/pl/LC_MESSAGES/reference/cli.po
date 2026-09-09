@@ -8,178 +8,248 @@ msgid ""
 msgstr ""
 "Project-Id-Version: snapper \n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-03-29 10:14+0200\n"
+"POT-Creation-Date: 2026-09-09 10:12-0500\n"
 "PO-Revision-Date: 2026-03-27 23:00+0100\n"
 "Last-Translator: Rohit Goswami <rgoswami@ieee.org>\n"
-"Language: pl\n"
 "Language-Team: pl <LL@li.org>\n"
-"Plural-Forms: nplurals=3; plural=(n==1 ? 0 : n%10>=2 && n%10<=4 && "
-"(n%100<10 || n%100>=20) ? 1 : 2);\n"
+"Language: pl\n"
 "MIME-Version: 1.0\n"
-"Content-Type: text/plain; charset=utf-8\n"
+"Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=3; plural=(n==1 ? 0 : n%10>=2 && n%10<=4 && (n%100<10 "
+"|| n%100>=20) ? 1 : 2);\n"
 "Generated-By: Babel 2.18.0\n"
 
-#: ../../source/reference/cli.rst:4
+#: ../../source/reference/cli.rst:6
 msgid "CLI Reference"
 msgstr "Dokumentacja CLI"
 
-#: ../../source/reference/cli.rst:7
+#: ../../source/reference/cli.rst:11
 msgid "Synopsis"
 msgstr "Składnia"
 
-#: ../../source/reference/cli.rst:18
-msgid "If no files are given, ``snapper`` reads from stdin and writes to stdout."
+#: ../../source/reference/cli.rst:23
+msgid ""
+"If no files are given, ``snapper`` reads from stdin and writes to stdout."
 msgstr "Jeśli nie podano plików, ``snapper`` czyta ze stdin i pisze na stdout."
 
-#: ../../source/reference/cli.rst:21
+#: ../../source/reference/cli.rst:28
 msgid "Options"
 msgstr "Opcje"
 
-#: ../../source/reference/cli.rst:24
+#: ../../source/reference/cli.rst:33
 msgid "``-f``, ``--format <FORMAT>``"
 msgstr "``-f``, ``--format <FORMAT>``"
 
-#: ../../source/reference/cli.rst:26
-msgid "Input format. One of: ``org``, ``latex``, ``markdown``, ``plaintext``."
-msgstr ""
-"Format wejściowy. Jeden z: ``org``, ``latex``, ``markdown``, "
-"``plaintext``."
-
-#: ../../source/reference/cli.rst:29
+#: ../../source/reference/cli.rst:35
+#, fuzzy
 msgid ""
-"Auto-detected from file extension when omitted. Defaults to ``plaintext``"
-" for stdin."
+"Input format. One of: ``org``, ``latex``, ``markdown``, ``rst``, "
+"``plaintext``."
+msgstr ""
+"Format wejściowy. Jeden z: ``org``, ``latex``, ``markdown``, ``plaintext``."
+
+#: ../../source/reference/cli.rst:38
+msgid ""
+"Auto-detected from file extension when omitted. Defaults to ``plaintext`` "
+"for stdin."
 msgstr ""
 "Wykrywany automatycznie na podstawie rozszerzenia pliku, gdy pominięty. "
 "Domyślnie ``plaintext`` dla stdin."
 
-#: ../../source/reference/cli.rst:33
+#: ../../source/reference/cli.rst:44
 msgid "``--stdin-filepath <PATH>``"
 msgstr "``--stdin-filepath <ŚCIEŻKA>``"
 
-#: ../../source/reference/cli.rst:35
+#: ../../source/reference/cli.rst:46
 msgid ""
-"Assume this filename when reading stdin, for format auto-detection. "
-"Useful for editor integrations that pipe buffer contents."
+"Assume this filename when reading stdin, for format auto-detection. Useful "
+"for editor integrations that pipe buffer contents."
 msgstr ""
 "Przyjmij tę nazwę pliku podczas czytania ze stdin, na potrzeby "
 "automatycznego wykrywania formatu. Przydatne dla integracji z edytorem, "
 "które przekazują zawartość bufora potokiem."
 
-#: ../../source/reference/cli.rst:38
+#: ../../source/reference/cli.rst:49
 msgid "Example: ``cat paper.org | snapper --stdin-filepath paper.org``"
 msgstr "Przykład: ``cat paper.org | snapper --stdin-filepath paper.org``"
 
-#: ../../source/reference/cli.rst:41
+#: ../../source/reference/cli.rst:54
 msgid "``-o``, ``--output <FILE>``"
 msgstr "``-o``, ``--output <PLIK>``"
 
-#: ../../source/reference/cli.rst:43
+#: ../../source/reference/cli.rst:56
 msgid "Write output to a file instead of stdout."
 msgstr "Zapisz wynik do pliku zamiast na stdout."
 
-#: ../../source/reference/cli.rst:46
+#: ../../source/reference/cli.rst:61
 msgid "``-i``, ``--in-place``"
 msgstr "``-i``, ``--in-place``"
 
-#: ../../source/reference/cli.rst:48
+#: ../../source/reference/cli.rst:63
 msgid "Modify input files in place. Requires file arguments (not stdin)."
 msgstr ""
-"Modyfikuj pliki wejściowe w miejscu. Wymaga argumentów plikowych (nie "
-"stdin)."
+"Modyfikuj pliki wejściowe w miejscu. Wymaga argumentów plikowych (nie stdin)."
 
-#: ../../source/reference/cli.rst:52
+#: ../../source/reference/cli.rst:69
 msgid "``-w``, ``--max-width <N>``"
 msgstr "``-w``, ``--max-width <N>``"
 
-#: ../../source/reference/cli.rst:54
+#: ../../source/reference/cli.rst:71
+#, fuzzy
 msgid ""
-"Maximum line width. Sentences exceeding this width are wrapped at word "
-"boundaries using ``textwrap``. Default: ``0`` (unlimited). Also respects "
-"``max_line_length`` from ``.editorconfig`` if present."
+"Maximum line width. Sentences exceeding this width are wrapped at atomic "
+"word boundaries (links, inline code, math, and similar tokens stay on one "
+"line). Default: ``0`` (unlimited). Also respects ``max_line_length`` from "
+"``.editorconfig`` if present."
 msgstr ""
-"Maksymalna szerokość linii. Zdania przekraczające tę szerokość są "
-"zawijane na granicach słów za pomocą ``textwrap``. Domyślnie: ``0`` (bez "
-"limitu). Uwzględnia również ``max_line_length`` z ``.editorconfig``, "
-"jeśli obecny."
+"Maksymalna szerokość linii. Zdania przekraczające tę szerokość są zawijane "
+"na granicach słów za pomocą ``textwrap``. Domyślnie: ``0`` (bez limitu). "
+"Uwzględnia również ``max_line_length`` z ``.editorconfig``, jeśli obecny."
 
-#: ../../source/reference/cli.rst:60
+#: ../../source/reference/cli.rst:79
+#, fuzzy
+msgid "``--clause-breaks``"
+msgstr "``--check``"
+
+#: ../../source/reference/cli.rst:81
+msgid ""
+"Prefer soft breaks after independent-clause punctuation (comma, semicolon, "
+"colon, em dash, ASCII ``--``). Off by default."
+msgstr ""
+
+#: ../../source/reference/cli.rst:84
+msgid ""
+"With ``--max-width 0`` (the default), insert a newline after every such mark "
+"that is already followed by whitespace. A sentence that is already one "
+"independent clause stays one line."
+msgstr ""
+
+#: ../../source/reference/cli.rst:87
+msgid ""
+"With ``--max-width`` set, overflowing sentences prefer those marks; a "
+"sentence that already fits stays on one line."
+msgstr ""
+
+#: ../../source/reference/cli.rst:89
+msgid ""
+"Tokens such as ``1,000``, ``10:30``, URLs, ``--flags``, and unspaced dashes "
+"never split. ``--check`` uses the same mode when the flag or "
+"``clause_breaks`` config is on."
+msgstr ""
+
+#: ../../source/reference/cli.rst:95
+#, fuzzy
+msgid "``--format-code``"
+msgstr "``--lang <KOD>``"
+
+#: ../../source/reference/cli.rst:97
+msgid ""
+"After in-block comment reflow, pipe each code-block body through the "
+"``formatter`` argv from ``[code.<lang>]`` in ``.snapperrc.toml`` (if "
+"present). Default is off so subprocesses are never spawned unless requested. "
+"Missing binaries, non-zero exits, and a ~30s timeout are non-fatal; the "
+"reflowed body is kept and a diagnostic may be written to stderr."
+msgstr ""
+
+#: ../../source/reference/cli.rst:104
 msgid "``--check``"
 msgstr "``--check``"
 
-#: ../../source/reference/cli.rst:62
+#: ../../source/reference/cli.rst:106
+#, fuzzy
 msgid ""
 "Check mode for CI. Exits with code 1 if any file would change, without "
-"modifying anything. Prints the paths of files that would be reformatted "
-"to stderr."
+"modifying anything. Prints the paths of files that would be reformatted to "
+"stderr. With no file arguments, checks stdin (JSON/SARIF on stdout, same "
+"exit codes)."
 msgstr ""
-"Tryb sprawdzania dla CI. Kończy działanie z kodem 1, jeśli jakikolwiek "
-"plik uległby zmianie, bez modyfikowania czegokolwiek. Wypisuje ścieżki "
-"plików wymagających przeformatowania na stderr."
+"Tryb sprawdzania dla CI. Kończy działanie z kodem 1, jeśli jakikolwiek plik "
+"uległby zmianie, bez modyfikowania czegokolwiek. Wypisuje ścieżki plików "
+"wymagających przeformatowania na stderr."
 
-#: ../../source/reference/cli.rst:67
+#: ../../source/reference/cli.rst:114
 msgid "``--diff``"
 msgstr "``--diff``"
 
-#: ../../source/reference/cli.rst:69
+#: ../../source/reference/cli.rst:116
 msgid ""
-"Show a unified diff of what would change, without modifying anything. "
-"Useful for reviewing before committing. Exits with code 1 if any file "
-"would change."
+"Show a unified diff of what would change, without modifying anything. Useful "
+"for reviewing before committing. Exits with code 1 if any file would change."
 msgstr ""
 "Wyświetla ujednolicony diff planowanych zmian, bez modyfikowania "
 "czegokolwiek. Przydatne do przeglądu przed commitem. Kończy działanie z "
 "kodem 1, jeśli jakikolwiek plik uległby zmianie."
 
-#: ../../source/reference/cli.rst:74
+#: ../../source/reference/cli.rst:123
 msgid "``--range <START:END>``"
 msgstr "``--range <START:END>``"
 
-#: ../../source/reference/cli.rst:76
+#: ../../source/reference/cli.rst:125
 msgid ""
-"Only format lines in the given range (1-indexed, inclusive). Lines "
-"outside the range pass through unchanged. Useful for editor format-"
-"selection integrations."
+"Only format lines in the given range (1-indexed, inclusive). Lines outside "
+"the range pass through unchanged. Useful for editor format-selection "
+"integrations."
 msgstr ""
-"Formatuj tylko linie w podanym zakresie (indeksowanie od 1, włącznie). "
-"Linie poza zakresem przechodzą bez zmian. Przydatne dla integracji "
-"formatowania zaznaczenia w edytorze."
+"Formatuj tylko linie w podanym zakresie (indeksowanie od 1, włącznie). Linie "
+"poza zakresem przechodzą bez zmian. Przydatne dla integracji formatowania "
+"zaznaczenia w edytorze."
 
-#: ../../source/reference/cli.rst:80
+#: ../../source/reference/cli.rst:129
 msgid "Example: ``snapper --range 10:20 paper.org``"
 msgstr "Przykład: ``snapper --range 10:20 paper.org``"
 
-#: ../../source/reference/cli.rst:83
+#: ../../source/reference/cli.rst:134
 msgid "``--output-format <text|json|sarif>``"
 msgstr "``--output-format <text|json|sarif>``"
 
-#: ../../source/reference/cli.rst:85
+#: ../../source/reference/cli.rst:136
 msgid ""
-"Output format for ``--check`` mode. Default: ``text`` (prints filenames "
-"to stderr)."
+"Output format for ``--check`` mode. Default: ``text`` (prints filenames to "
+"stderr)."
 msgstr ""
-"Format wyjściowy dla trybu ``--check``. Domyślnie: ``text`` (wypisuje "
-"nazwy plików na stderr)."
+"Format wyjściowy dla trybu ``--check``. Domyślnie: ``text`` (wypisuje nazwy "
+"plików na stderr)."
 
-#: ../../source/reference/cli.rst:88
-msgid "``json`` : outputs a JSON array with file paths and line counts"
-msgstr "``json`` : zwraca tablicę JSON ze ścieżkami plików i liczbą linii"
+#: ../../source/reference/cli.rst:139
+msgid ""
+"``json`` : outputs a JSON array of files, each with ``would_reformat`` and a "
+"``diagnostics`` array of 1-indexed ``line`` / ``kind`` (``fused`` / "
+"``wrap`` / ``long``) / ``excerpt``"
+msgstr ""
 
-#: ../../source/reference/cli.rst:90
-msgid "``sarif`` : outputs SARIF v2.1.0 for GitHub Code Scanning integration"
-msgstr "``sarif`` : zwraca SARIF v2.1.0 do integracji z GitHub Code Scanning"
+#: ../../source/reference/cli.rst:141
+msgid ""
+"``sarif`` : outputs SARIF v2.1.0 for GitHub Code Scanning, with one result "
+"per diagnostic (``snapper/fused``, ``snapper/wrap``, ``snapper/long``) plus "
+"``snapper/needs-reformat`` when the file would change"
+msgstr ""
 
-#: ../../source/reference/cli.rst:93
+#: ../../source/reference/cli.rst:146
+msgid "``--strict-long``"
+msgstr ""
+
+#: ../../source/reference/cli.rst:148
+msgid "Treat advisory ``long`` diagnostics as ``--check`` failures."
+msgstr ""
+
+#: ../../source/reference/cli.rst:150
+msgid ""
+"A ``long`` finding is never the sole cause of exit 1 unless this flag is "
+"set. The threshold is ``--max-width`` when that is non-zero, otherwise "
+"``long_threshold`` from ``.snapperrc.toml`` (default 120)."
+msgstr ""
+
+#: ../../source/reference/cli.rst:156
 msgid "``--neural``"
 msgstr "``--neural``"
 
-#: ../../source/reference/cli.rst:95
+#: ../../source/reference/cli.rst:158
 msgid ""
-"Use neural sentence detection via nnsplit (byte-level LSTM, tract "
-"backend). Downloads and caches the model (~4MB) to ``~/.cache/nnsplit/`` "
-"on first use. Rule-based detection remains the default (faster, better "
-"abbreviation handling). Neural excels for non-English text."
+"Use neural sentence detection via nnsplit (byte-level LSTM, tract backend). "
+"Downloads and caches the model (~4MB) to ``~/.cache/nnsplit/`` on first use. "
+"Rule-based detection remains the default (faster, better abbreviation "
+"handling). Neural excels for non-English text."
 msgstr ""
 "Użyj neuronowego wykrywania zdań przez nnsplit (LSTM na poziomie bajtów, "
 "backend tract). Pobiera i zapisuje model (~4MB) do ``~/.cache/nnsplit/`` "
@@ -187,63 +257,75 @@ msgstr ""
 "(szybsze, lepsza obsługa skrótów). Wykrywanie neuronowe sprawdza się "
 "najlepiej w tekście nieangielskim."
 
-#: ../../source/reference/cli.rst:101
+#: ../../source/reference/cli.rst:166
 msgid "``--lang <CODE>``"
 msgstr "``--lang <KOD>``"
 
-#: ../../source/reference/cli.rst:103
+#: ../../source/reference/cli.rst:168
 msgid ""
-"Language for neural sentence detection. Default: ``en``. Available: "
-"``en``, ``de``, ``fr``, ``no``, ``sv``, ``zh``, ``tr``, ``ru``, ``uk``."
+"Language for neural sentence detection. Default: ``en``. Available: ``en``, "
+"``de``, ``fr``, ``no``, ``sv``, ``zh``, ``tr``, ``ru``, ``uk``."
 msgstr ""
-"Język dla neuronowego wykrywania zdań. Domyślnie: ``en``. Dostępne: "
-"``en``, ``de``, ``fr``, ``no``, ``sv``, ``zh``, ``tr``, ``ru``, ``uk``."
+"Język dla neuronowego wykrywania zdań. Domyślnie: ``en``. Dostępne: ``en``, "
+"``de``, ``fr``, ``no``, ``sv``, ``zh``, ``tr``, ``ru``, ``uk``."
 
-#: ../../source/reference/cli.rst:108
+#: ../../source/reference/cli.rst:175
 msgid "``--model-path <PATH>``"
 msgstr "``--model-path <ŚCIEŻKA>``"
 
-#: ../../source/reference/cli.rst:110
+#: ../../source/reference/cli.rst:177
 msgid ""
-"Path to a custom ONNX model file for neural detection. Overrides "
-"``--lang``."
+"Path to a custom ONNX model file for neural detection. Overrides ``--lang``."
 msgstr ""
-"Ścieżka do niestandardowego pliku modelu ONNX dla wykrywania neuronowego."
-" Nadpisuje ``--lang``."
+"Ścieżka do niestandardowego pliku modelu ONNX dla wykrywania neuronowego. "
+"Nadpisuje ``--lang``."
 
-#: ../../source/reference/cli.rst:114
+#: ../../source/reference/cli.rst:183
 msgid "``--use-pandoc``"
 msgstr ""
 
 #: ../../source/reference/cli.rst:185
 msgid ""
-"Require the pandoc path (auto FFI, then CLI). Parse may use in-process "
-"FFI when ``libsnapper_pandoc`` loads; the writer still needs ``pandoc`` "
-"on ``PATH`` (``libsnapper_pandoc`` is reader-only) unless that library "
-"exports a writer. Without FFI, both parse and write use the ``pandoc`` "
-"CLI. A missing binary is an explicit error (never silent all-prose). "
-"Enables support for typst, asciidoc, docx, html, and all other pandoc-"
-"supported formats. The default (omit this flag) already uses pandoc when "
-"an FFI writer or ``pandoc`` on ``PATH`` is available."
+"Require the pandoc path (auto FFI, then CLI). Parse may use in-process FFI "
+"when ``libsnapper_pandoc`` loads; the writer still needs ``pandoc`` on "
+"``PATH`` (``libsnapper_pandoc`` is reader-only) unless that library exports "
+"a writer. Without FFI, both parse and write use the ``pandoc`` CLI. A "
+"missing binary is an explicit error (never silent all-prose). Enables "
+"support for typst, asciidoc, docx, html, and all other pandoc-supported "
+"formats. The default (omit this flag) already uses pandoc when an FFI writer "
+"or ``pandoc`` on ``PATH`` is available."
 msgstr ""
 
-#: ../../source/reference/cli.rst:194
+#: ../../source/reference/cli.rst:195
 msgid "``--native``"
 msgstr ""
 
 #: ../../source/reference/cli.rst:197
 msgid ""
 "Force today's native line parsers (markdown / org / rst / latex / "
-"plaintext). Conflicts with ``--use-pandoc``. Use this when you want "
-"source-oriented splice instead of the pandoc writer. Editors, wasm, and "
-"LSP stay native even without this flag."
+"plaintext). Conflicts with ``--use-pandoc``. Use this when you want source-"
+"oriented splice instead of the pandoc writer. Editors, wasm, and LSP stay "
+"native even without this flag."
 msgstr ""
 
-#: ../../source/reference/cli.rst:214
+#: ../../source/reference/cli.rst:205
+msgid "``--pandoc-backend <auto|ffi|cli>``"
+msgstr ""
+
+#: ../../source/reference/cli.rst:207
+msgid ""
+"How to obtain the pandoc AST when the pandoc path is used. ``auto`` "
+"(default) prefers in-process FFI, else CLI. ``ffi`` requires "
+"``libsnapper_pandoc`` (explicit error if missing). ``cli`` uses a ``pandoc`` "
+"subprocess (explicit error if missing). The writer still needs ``pandoc`` on "
+"``PATH`` when the FFI library has no writer."
+msgstr ""
+
+#: ../../source/reference/cli.rst:216
 msgid "``--config <PATH>``"
 msgstr "``--config <ŚCIEŻKA>``"
 
-#: ../../source/reference/cli.rst:124
+#: ../../source/reference/cli.rst:218
 msgid ""
 "Path to a ``.snapperrc.toml`` config file. When omitted, ``snapper`` "
 "searches from the current directory upward."
@@ -251,133 +333,141 @@ msgstr ""
 "Ścieżka do pliku konfiguracyjnego ``.snapperrc.toml``. Gdy pominięta, "
 "``snapper`` szuka od bieżącego katalogu w górę."
 
-#: ../../source/reference/cli.rst:128
+#: ../../source/reference/cli.rst:224
 msgid "``-h``, ``--help``"
 msgstr "``-h``, ``--help``"
 
-#: ../../source/reference/cli.rst:130
+#: ../../source/reference/cli.rst:226
 msgid "Print help message."
 msgstr "Wyświetl komunikat pomocy."
 
-#: ../../source/reference/cli.rst:133
+#: ../../source/reference/cli.rst:231
 msgid "``-V``, ``--version``"
 msgstr "``-V``, ``--version``"
 
-#: ../../source/reference/cli.rst:135
+#: ../../source/reference/cli.rst:233
 msgid "Print version."
 msgstr "Wyświetl wersję."
 
-#: ../../source/reference/cli.rst:138
+#: ../../source/reference/cli.rst:238
 msgid "Subcommands"
 msgstr "Podkomendy"
 
-#: ../../source/reference/cli.rst:141
+#: ../../source/reference/cli.rst:243
 msgid "``snapper init``"
 msgstr "``snapper init``"
 
-#: ../../source/reference/cli.rst:143
+#: ../../source/reference/cli.rst:245
 msgid ""
-"Initialize snapper for a project. Detects which prose formats exist in "
-"the directory tree and generates:"
+"Initialize snapper for a project. Detects which prose formats exist in the "
+"directory tree and generates:"
 msgstr ""
-"Zainicjalizuj snappera dla projektu. Wykrywa, które formaty prozy "
-"istnieją w drzewie katalogów i generuje:"
+"Zainicjalizuj snappera dla projektu. Wykrywa, które formaty prozy istnieją w "
+"drzewie katalogów i generuje:"
 
-#: ../../source/reference/cli.rst:146
+#: ../../source/reference/cli.rst:248
 msgid "``.snapperrc.toml`` with sensible defaults"
 msgstr "``.snapperrc.toml`` z rozsądnymi wartościami domyślnymi"
 
-#: ../../source/reference/cli.rst:148
+#: ../../source/reference/cli.rst:250
 msgid "``.gitattributes`` entries for the git smudge/clean filter"
 msgstr "wpisy ``.gitattributes`` dla filtra git smudge/clean"
 
-#: ../../source/reference/cli.rst:150
+#: ../../source/reference/cli.rst:252
 msgid "pre-commit hook snippet"
 msgstr "fragment hooka pre-commit"
 
-#: ../../source/reference/cli.rst:152
+#: ../../source/reference/cli.rst:254
 msgid "Apheleia (Emacs) configuration snippet"
 msgstr "fragment konfiguracji Apheleia (Emacs)"
 
-#: ../../source/reference/cli.rst:154
+#: ../../source/reference/cli.rst:256
 msgid "Use ``--dry-run`` to preview without writing files."
 msgstr "Użyj ``--dry-run``, aby wyświetlić podgląd bez zapisywania plików."
 
-#: ../../source/reference/cli.rst:157
+#: ../../source/reference/cli.rst:261
 #, fuzzy
 msgid "``snapper sdiff <OLD> <NEW>``"
 msgstr "``snapper init``"
 
-#: ../../source/reference/cli.rst:159
+#: ../../source/reference/cli.rst:263
 msgid ""
 "Sentence-level diff between two files. Parses both files, extracts "
-"sentences, diffs at sentence granularity. Whitespace reflow produces zero"
-" diff. Colored output by default; use ``--no-color`` to disable. Exits "
-"with code 1 if differences found."
+"sentences, diffs at sentence granularity. Whitespace reflow produces zero "
+"diff. Colored output by default; use ``--no-color`` to disable. Exits with "
+"code 1 if differences found."
 msgstr ""
 
-#: ../../source/reference/cli.rst:166
+#: ../../source/reference/cli.rst:272
 msgid "``snapper git-diff [REF] [FILE...]``"
 msgstr ""
 
-#: ../../source/reference/cli.rst:168
+#: ../../source/reference/cli.rst:274
 msgid ""
-"Sentence-level diff against a git ref. Default ref: ``HEAD``. If no files"
-" specified, diffs all changed prose files (``.org``, ``.tex``, ``.md``). "
-"Uses ``git show REF:path`` to retrieve the old version."
+"Sentence-level diff against a git ref. Default ref: ``HEAD``. If no files "
+"specified, diffs all changed prose files (``.org``, ``.tex``, ``.md``). Uses "
+"``git show REF:path`` to retrieve the old version."
 msgstr ""
 
-#: ../../source/reference/cli.rst:174
+#: ../../source/reference/cli.rst:282
 msgid "``snapper watch <PATTERNS...>``"
 msgstr ""
 
-#: ../../source/reference/cli.rst:176
+#: ../../source/reference/cli.rst:284
 msgid ""
-"Watch files and auto-reformat on save. Accepts file paths or glob "
-"patterns. 200ms debounce to avoid reformatting during rapid saves. Press "
-"Ctrl+C to stop."
+"Watch files and auto-reformat on save. Accepts file paths or glob patterns. "
+"200ms debounce to avoid reformatting during rapid saves. Press Ctrl+C to "
+"stop."
 msgstr ""
 
-#: ../../source/reference/cli.rst:181
+#: ../../source/reference/cli.rst:291
 #, fuzzy
 msgid "``snapper lsp``"
 msgstr "``snapper init``"
 
-#: ../../source/reference/cli.rst:183
+#: ../../source/reference/cli.rst:293
 msgid ""
-"Start the Language Server Protocol server on stdin/stdout. Provides "
-"document formatting, range formatting, and diagnostics (flags lines with "
-"multiple sentences). Works with any LSP-compatible editor (Neovim, Emacs "
-"eglot, VS Code, Helix)."
+"Start the Language Server Protocol server on stdin/stdout. Provides document "
+"formatting, range formatting, and diagnostics (flags lines with multiple "
+"sentences). Works with any LSP-compatible editor (Neovim, Emacs eglot, VS "
+"Code, Helix)."
 msgstr ""
 
-#: ../../source/reference/cli.rst:188
+#: ../../source/reference/cli.rst:300
 msgid "Exit codes"
 msgstr "Kody wyjścia"
 
-#: ../../source/reference/cli.rst:190
-msgid "``0`` : Success (or ``--check`` / ``--diff`` with no changes needed)"
-msgstr "``0`` : Sukces (lub ``--check`` / ``--diff`` gdy nie są potrzebne zmiany)"
-
-#: ../../source/reference/cli.rst:192
+#: ../../source/reference/cli.rst:302
+#, fuzzy
 msgid ""
-"``1`` : ``--check`` or ``--diff`` found files that would change, or any "
-"error"
+"``0`` : Success (or ``--check`` / ``--diff`` with no changes needed; "
+"advisory ``long`` diagnostics do not fail ``--check`` unless ``--strict-"
+"long``)"
+msgstr ""
+"``0`` : Sukces (lub ``--check`` / ``--diff`` gdy nie są potrzebne zmiany)"
+
+#: ../../source/reference/cli.rst:304
+#, fuzzy
+msgid ""
+"``1`` : ``--check`` or ``--diff`` found files that would change, ``--strict-"
+"long`` saw a ``long`` diagnostic, or any error"
 msgstr ""
 "``1`` : ``--check`` lub ``--diff`` znalazły pliki wymagające zmian, lub "
 "wystąpił błąd"
 
 #~ msgid ""
-#~ "Use neural sentence detection via "
-#~ "``nnsplit``. Requires building with "
-#~ "``--features neural``. Useful for non-"
-#~ "English text where rule-based splitting"
-#~ " produces poor results."
+#~ "Use neural sentence detection via ``nnsplit``. Requires building with ``--"
+#~ "features neural``. Useful for non-English text where rule-based splitting "
+#~ "produces poor results."
 #~ msgstr ""
-#~ "Użyj neuronowego wykrywania zdań przez "
-#~ "``nnsplit``. Wymaga budowania z ``--features"
-#~ " neural``. Przydatne dla tekstu w "
-#~ "językach innych niż angielski, gdzie "
-#~ "dzielenie oparte na regułach daje słabe"
-#~ " wyniki."
+#~ "Użyj neuronowego wykrywania zdań przez ``nnsplit``. Wymaga budowania z "
+#~ "``--features neural``. Przydatne dla tekstu w językach innych niż "
+#~ "angielski, gdzie dzielenie oparte na regułach daje słabe wyniki."
 
+#~ msgid "``json`` : outputs a JSON array with file paths and line counts"
+#~ msgstr "``json`` : zwraca tablicę JSON ze ścieżkami plików i liczbą linii"
+
+#~ msgid ""
+#~ "``sarif`` : outputs SARIF v2.1.0 for GitHub Code Scanning integration"
+#~ msgstr ""
+#~ "``sarif`` : zwraca SARIF v2.1.0 do integracji z GitHub Code Scanning"

@@ -8,22 +8,22 @@ msgid ""
 msgstr ""
 "Project-Id-Version: snapper \n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-03-27 21:56+0100\n"
+"POT-Creation-Date: 2026-09-09 10:12-0500\n"
 "PO-Revision-Date: 2026-03-27 23:00+0100\n"
 "Last-Translator: Rohit Goswami <rgoswami@ieee.org>\n"
-"Language: is\n"
 "Language-Team: is <LL@li.org>\n"
-"Plural-Forms: nplurals=2; plural=(n%10==1 && n%100!=11 ? 0 : 1);\n"
+"Language: is\n"
 "MIME-Version: 1.0\n"
-"Content-Type: text/plain; charset=utf-8\n"
+"Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=2; plural=(n%10==1 && n%100!=11 ? 0 : 1);\n"
 "Generated-By: Babel 2.18.0\n"
 
 #: ../../source/contributing/index.rst:3
 msgid "Contributing"
 msgstr "Að leggja til"
 
-#: ../../source/contributing/index.rst
+#: ../../source/contributing/index.rst:0
 msgid "Author"
 msgstr "Höfundur"
 
@@ -31,126 +31,126 @@ msgstr "Höfundur"
 msgid "Rohit Goswami"
 msgstr "Rohit Goswami"
 
-#: ../../source/contributing/index.rst:9
+#: ../../source/contributing/index.rst:11
 msgid "Development setup"
 msgstr "Þróunaruppsetning"
 
-#: ../../source/contributing/index.rst:18
+#: ../../source/contributing/index.rst:20
 msgid "With pixi:"
 msgstr "Með pixi:"
 
-#: ../../source/contributing/index.rst:25
+#: ../../source/contributing/index.rst:29
 msgid "Running checks"
 msgstr "Keyra prófanir"
 
-#: ../../source/contributing/index.rst:33
+#: ../../source/contributing/index.rst:37
 msgid "Dogfood check (verify all docs pass formatting):"
 msgstr "Sjálfsprófun (staðfesta að öll skjöl standist sníðmótun):"
 
-#: ../../source/contributing/index.rst:40
+#: ../../source/contributing/index.rst:46
 msgid "Project structure"
 msgstr "Verkefnisbygging"
 
-#: ../../source/contributing/index.rst:74
+#: ../../source/contributing/index.rst:99
 msgid "Commit conventions"
 msgstr "Innleggjavenjur"
 
-#: ../../source/contributing/index.rst:76
-msgid "Commits follow conventional commits, managed by ``cocogitto`` (``cog``):"
+#: ../../source/contributing/index.rst:101
+msgid ""
+"Commits follow conventional commits, managed by ``cocogitto`` (``cog``):"
 msgstr "Innlegg fylgja stöðluðum innleggjum, stýrt af ``cocogitto`` (``cog``):"
 
-#: ../../source/contributing/index.rst:78
+#: ../../source/contributing/index.rst:103
 msgid "``feat:``"
 msgstr "``feat:``"
 
-#: ../../source/contributing/index.rst:79
+#: ../../source/contributing/index.rst:104
 msgid "new features"
 msgstr "nýir eiginleikar"
 
-#: ../../source/contributing/index.rst:81
+#: ../../source/contributing/index.rst:106
 msgid "``fix:``"
 msgstr "``fix:``"
 
-#: ../../source/contributing/index.rst:82
+#: ../../source/contributing/index.rst:107
 msgid "bug fixes"
 msgstr "villuleiðréttingar"
 
-#: ../../source/contributing/index.rst:84
+#: ../../source/contributing/index.rst:109
 msgid "``doc:``"
 msgstr "``doc:``"
 
-#: ../../source/contributing/index.rst:85
+#: ../../source/contributing/index.rst:110
 msgid "documentation changes"
 msgstr "breytingar á skjölun"
 
-#: ../../source/contributing/index.rst:87
+#: ../../source/contributing/index.rst:112
 msgid "``chore:``"
 msgstr "``chore:``"
 
-#: ../../source/contributing/index.rst:88
+#: ../../source/contributing/index.rst:113
 msgid "maintenance, dependency bumps"
 msgstr "viðhald, uppfærsla á háðum pökkum"
 
-#: ../../source/contributing/index.rst:90
+#: ../../source/contributing/index.rst:115
 msgid "``tst:``"
 msgstr "``tst:``"
 
-#: ../../source/contributing/index.rst:91
+#: ../../source/contributing/index.rst:116
 msgid "test changes"
 msgstr "breytingar á prófunum"
 
-#: ../../source/contributing/index.rst:93
+#: ../../source/contributing/index.rst:118
 msgid "``bld:``"
 msgstr "``bld:``"
 
-#: ../../source/contributing/index.rst:94
+#: ../../source/contributing/index.rst:119
 msgid "build system changes"
 msgstr "breytingar á byggingarkerfi"
 
-#: ../../source/contributing/index.rst:97
+#: ../../source/contributing/index.rst:124
 msgid "Building documentation"
 msgstr "Byggja skjölun"
 
-#: ../../source/contributing/index.rst:103
+#: ../../source/contributing/index.rst:130
 msgid "Or manually:"
 msgstr "Eða handvirkt:"
 
-#: ../../source/contributing/index.rst:111
+#: ../../source/contributing/index.rst:140
 msgid "Adding a new format parser"
 msgstr "Bæta við nýjum sniðþáttara"
 
-#: ../../source/contributing/index.rst:113
+#: ../../source/contributing/index.rst:142
 msgid ""
-"Create ``src/parser/yourformat.rs`` implementing the ``FormatParser`` "
-"trait"
+"Create ``src/parser/yourformat.rs`` implementing the ``FormatParser`` trait"
 msgstr ""
 "Búðu til ``src/parser/yourformat.rs`` sem útfærir ``FormatParser`` "
 "eiginleikann"
 
-#: ../../source/contributing/index.rst:115
+#: ../../source/contributing/index.rst:144
 msgid "Add the variant to ``Format`` enum in ``src/format.rs``"
 msgstr "Bættu afbrigðinu við ``Format`` upptalninguna í ``src/format.rs``"
 
-#: ../../source/contributing/index.rst:117
+#: ../../source/contributing/index.rst:146
 msgid "Wire it into ``format_text()`` in ``src/lib.rs``"
 msgstr "Tengdu það inn í ``format_text()`` í ``src/lib.rs``"
 
-#: ../../source/contributing/index.rst:119
-msgid "Add extension mapping in ``Format::from_path()``"
+#: ../../source/contributing/index.rst:148
+#, fuzzy
+msgid "Add extension mapping in ``Format::recognized_from_extension()``"
 msgstr "Bættu við skráarendingarvörpun í ``Format::from_path()``"
 
-#: ../../source/contributing/index.rst:121
+#: ../../source/contributing/index.rst:150
 msgid ""
-"Add fixture pair in ``tests/fixtures/`` (``sample.fmt`` + "
-"``expected.fmt``)"
+"Add fixture pair in ``tests/fixtures/`` (``sample.fmt`` + ``expected.fmt``)"
 msgstr ""
 "Bættu við prófunargögnum í ``tests/fixtures/`` (``sample.fmt`` + "
 "``expected.fmt``)"
 
-#: ../../source/contributing/index.rst:123
+#: ../../source/contributing/index.rst:152
 msgid "Add integration tests in ``tests/integration.rs``"
 msgstr "Bættu við samþættingarprófunum í ``tests/integration.rs``"
 
-#: ../../source/contributing/index.rst:125
+#: ../../source/contributing/index.rst:154
 msgid "Document in ``docs/orgmode/reference/formats.org``"
 msgstr "Skjalaðu í ``docs/orgmode/reference/formats.org``"

@@ -8,57 +8,58 @@ msgid ""
 msgstr ""
 "Project-Id-Version: snapper \n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-03-28 02:18+0100\n"
+"POT-Creation-Date: 2026-09-09 10:12-0500\n"
 "PO-Revision-Date: 2026-03-27 23:00+0100\n"
 "Last-Translator: Rohit Goswami <rgoswami@ieee.org>\n"
-"Language: is\n"
 "Language-Team: is <LL@li.org>\n"
-"Plural-Forms: nplurals=2; plural=(n%10==1 && n%100!=11 ? 0 : 1);\n"
+"Language: is\n"
 "MIME-Version: 1.0\n"
-"Content-Type: text/plain; charset=utf-8\n"
+"Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=2; plural=(n%10==1 && n%100!=11 ? 0 : 1);\n"
 "Generated-By: Babel 2.18.0\n"
 
 #: ../../source/reference/abbreviations.rst:3
 msgid "Abbreviation Handling"
 msgstr "Meðhöndlun skammstöfunar"
 
-#: ../../source/reference/abbreviations.rst:8
+#: ../../source/reference/abbreviations.rst:10
 msgid "How abbreviation detection works"
 msgstr "Hvernig skammstöfunargreining virkar"
 
-#: ../../source/reference/abbreviations.rst:10
+#: ../../source/reference/abbreviations.rst:12
 msgid ""
-"Snapper uses Unicode UAX #29 sentence boundary detection as a baseline. "
-"UAX #29 sometimes splits at periods that belong to abbreviations rather "
-"than sentence endings. Snapper post-processes the split results, merging "
-"segments where the break occurred at a known abbreviation."
+"Snapper uses Unicode UAX #29 sentence boundary detection as a baseline. UAX "
+"#29 sometimes splits at periods that belong to abbreviations rather than "
+"sentence endings. Snapper post-processes the split results, merging segments "
+"where the break occurred at a known abbreviation."
 msgstr ""
-"Snapper notar Unicode UAX #29 setningarmarkaskil sem grunn. UAX #29 "
-"skiptir stundum við punkta sem tilheyra skammstöfunum frekar en "
-"setningalokum. Snapper eftirmeðhöndlar skiptiniðurstöðurnar og sameinar "
-"hluta þar sem skiptingin átti sér stað við þekkta skammstöfun."
+"Snapper notar Unicode UAX #29 setningarmarkaskil sem grunn. UAX #29 skiptir "
+"stundum við punkta sem tilheyra skammstöfunum frekar en setningalokum. "
+"Snapper eftirmeðhöndlar skiptiniðurstöðurnar og sameinar hluta þar sem "
+"skiptingin átti sér stað við þekkta skammstöfun."
 
-#: ../../source/reference/abbreviations.rst:14
-msgid "Select a language with ``--lang`` to use the appropriate abbreviation set:"
-msgstr ""
-
-#: ../../source/reference/abbreviations.rst:21
+#: ../../source/reference/abbreviations.rst:16
 msgid ""
-"Available languages: ``en`` (default), ``de``, ``fr``, ``is``, ``pl``. "
-"Set in config: ``lang = \"de\"`` in ``.snapperrc.toml``."
+"Select a language with ``--lang`` to use the appropriate abbreviation set:"
 msgstr ""
 
-#: ../../source/reference/abbreviations.rst:25
+#: ../../source/reference/abbreviations.rst:23
+msgid ""
+"Available languages: ``en`` (default), ``de``, ``fr``, ``is``, ``pl``. Set "
+"in config: ``lang = \"de\"`` in ``.snapperrc.toml``."
+msgstr ""
+
+#: ../../source/reference/abbreviations.rst:29
 #, fuzzy
 msgid "Built-in abbreviations (English, default)"
 msgstr "Innbyggðar skammstafanir"
 
-#: ../../source/reference/abbreviations.rst:28
+#: ../../source/reference/abbreviations.rst:34
 msgid "Titles and honorifics"
 msgstr "Titlar og virðingarheiti"
 
-#: ../../source/reference/abbreviations.rst:30
+#: ../../source/reference/abbreviations.rst:36
 msgid ""
 "Mr., Mrs., Ms., Dr., Prof., Sr., Jr., St., Rev., Gen., Gov., Sgt., Cpl., "
 "Pvt., Capt., Lt., Col., Maj., Cmdr., Adm."
@@ -66,31 +67,31 @@ msgstr ""
 "Mr., Mrs., Ms., Dr., Prof., Sr., Jr., St., Rev., Gen., Gov., Sgt., Cpl., "
 "Pvt., Capt., Lt., Col., Maj., Cmdr., Adm."
 
-#: ../../source/reference/abbreviations.rst:33
+#: ../../source/reference/abbreviations.rst:41
 msgid "Academic and scientific"
 msgstr "Fræðileg og vísindaleg"
 
-#: ../../source/reference/abbreviations.rst:35
+#: ../../source/reference/abbreviations.rst:43
 msgid ""
-"Fig., Figs., Eq., Eqs., Ref., Refs., Tab., Sec., Ch., Vol., No., Nos., "
-"Ed., Eds., Trans., Dept., Thm., Lem., Prop., Def., Cor., Rem., Ex."
+"Fig., Figs., Eq., Eqs., Ref., Refs., Tab., Sec., Ch., Vol., No., Nos., Ed., "
+"Eds., Trans., Dept., Thm., Lem., Prop., Def., Cor., Rem., Ex."
 msgstr ""
-"Fig., Figs., Eq., Eqs., Ref., Refs., Tab., Sec., Ch., Vol., No., Nos., "
-"Ed., Eds., Trans., Dept., Thm., Lem., Prop., Def., Cor., Rem., Ex."
+"Fig., Figs., Eq., Eqs., Ref., Refs., Tab., Sec., Ch., Vol., No., Nos., Ed., "
+"Eds., Trans., Dept., Thm., Lem., Prop., Def., Cor., Rem., Ex."
 
-#: ../../source/reference/abbreviations.rst:38
+#: ../../source/reference/abbreviations.rst:48
 msgid "Latin"
 msgstr "Latneskt"
 
-#: ../../source/reference/abbreviations.rst:40
+#: ../../source/reference/abbreviations.rst:50
 msgid "e.g., i.e., et al., cf., etc., viz., ibid., ca., approx., v.s."
 msgstr "e.g., i.e., et al., cf., etc., viz., ibid., ca., approx., v.s."
 
-#: ../../source/reference/abbreviations.rst:43
+#: ../../source/reference/abbreviations.rst:55
 msgid "Time and dates"
 msgstr "Tími og dagsetningar"
 
-#: ../../source/reference/abbreviations.rst:45
+#: ../../source/reference/abbreviations.rst:57
 msgid ""
 "Jan., Feb., Mar., Apr., Jun., Jul., Aug., Sep., Oct., Nov., Dec., Mon., "
 "Tue., Wed., Thu., Fri., Sat., Sun., a.m., p.m."
@@ -98,131 +99,129 @@ msgstr ""
 "Jan., Feb., Mar., Apr., Jun., Jul., Aug., Sep., Oct., Nov., Dec., Mon., "
 "Tue., Wed., Thu., Fri., Sat., Sun., a.m., p.m."
 
-#: ../../source/reference/abbreviations.rst:48
+#: ../../source/reference/abbreviations.rst:62
 msgid "Common"
 msgstr "Algengt"
 
-#: ../../source/reference/abbreviations.rst:50
+#: ../../source/reference/abbreviations.rst:64
 msgid ""
-"vs., misc., est., govt., dept., univ., inc., corp., ltd., Ave., Blvd., "
-"Rd., pp., pg., pt., pts."
+"vs., misc., est., govt., dept., univ., inc., corp., ltd., Ave., Blvd., Rd., "
+"pp., pg., pt., pts."
 msgstr ""
-"vs., misc., est., govt., dept., univ., inc., corp., ltd., Ave., Blvd., "
-"Rd., pp., pg., pt., pts."
+"vs., misc., est., govt., dept., univ., inc., corp., ltd., Ave., Blvd., Rd., "
+"pp., pg., pt., pts."
 
-#: ../../source/reference/abbreviations.rst:53
+#: ../../source/reference/abbreviations.rst:69
 msgid "Single-letter initials"
 msgstr "Eins stafs upphafsstafir"
 
-#: ../../source/reference/abbreviations.rst:55
+#: ../../source/reference/abbreviations.rst:71
 msgid "through Z. (for names like J. K. Rowling)."
 msgstr "til og með Z. (fyrir nöfn eins og J. K. Rowling)."
 
-#: ../../source/reference/abbreviations.rst:58
+#: ../../source/reference/abbreviations.rst:76
 msgid "German abbreviations (``--lang de``)"
 msgstr ""
 
-#: ../../source/reference/abbreviations.rst:60
+#: ../../source/reference/abbreviations.rst:78
 msgid ""
-"Hr., Fr., Dr., Prof., Abb., Bd., Hrsg., Kap., Nr., S., Verl., Aufl., Jg.,"
-" Anm., Anh., Beil., Tab., Gl., Abschn., Bsp., Str., Pl., bzw., ca., etc.,"
-" evtl., ggf., vgl., usw."
+"Hr., Fr., Dr., Prof., Abb., Bd., Hrsg., Kap., Nr., S., Verl., Aufl., Jg., "
+"Anm., Anh., Beil., Tab., Gl., Abschn., Bsp., Str., Pl., bzw., ca., etc., "
+"evtl., ggf., vgl., usw."
 msgstr ""
 
-#: ../../source/reference/abbreviations.rst:62
+#: ../../source/reference/abbreviations.rst:80
 msgid "Multi-word: z.B., d.h., u.a., o.g., s.o., u.U."
 msgstr ""
 
-#: ../../source/reference/abbreviations.rst:65
+#: ../../source/reference/abbreviations.rst:85
 msgid "French abbreviations (``--lang fr``)"
 msgstr ""
 
-#: ../../source/reference/abbreviations.rst:67
+#: ../../source/reference/abbreviations.rst:87
 msgid ""
 "M., Mme., Mlle., Dr., Prof., Me., fig., eq., chap., vol., p., pp., ed., "
 "trad., n., t., av., apr., env., cf., etc."
 msgstr ""
 
-#: ../../source/reference/abbreviations.rst:69
+#: ../../source/reference/abbreviations.rst:89
 msgid "Multi-word: c.-a-d., p.ex."
 msgstr ""
 
-#: ../../source/reference/abbreviations.rst:72
+#: ../../source/reference/abbreviations.rst:94
 msgid "Icelandic abbreviations (``--lang is``)"
 msgstr ""
 
-#: ../../source/reference/abbreviations.rst:74
+#: ../../source/reference/abbreviations.rst:96
 msgid "Hr., Fr., Dr., sbr., frk., sk., nr."
 msgstr ""
 
-#: ../../source/reference/abbreviations.rst:76
+#: ../../source/reference/abbreviations.rst:98
 msgid "Multi-word: m.a., o.fl."
 msgstr ""
 
-#: ../../source/reference/abbreviations.rst:79
+#: ../../source/reference/abbreviations.rst:103
 msgid "Polish abbreviations (``--lang pl``)"
 msgstr ""
 
-#: ../../source/reference/abbreviations.rst:81
+#: ../../source/reference/abbreviations.rst:105
 msgid ""
 "dr., mgr., prof., doc., rys., tab., wyd., red., t., s., nr., poz., zob., "
 "por., ul., al., pl., os."
 msgstr ""
 
-#: ../../source/reference/abbreviations.rst:83
+#: ../../source/reference/abbreviations.rst:107
 msgid "Multi-word: m.in., t.j., j.w., t.zw., b.r."
 msgstr ""
 
-#: ../../source/reference/abbreviations.rst:86
+#: ../../source/reference/abbreviations.rst:112
 msgid "Adding project-specific abbreviations"
 msgstr "Bæta við verkefnasértækum skammstöfunum"
 
-#: ../../source/reference/abbreviations.rst:88
+#: ../../source/reference/abbreviations.rst:114
 msgid "Create a ``.snapperrc.toml`` in your project root:"
 msgstr "Búðu til ``.snapperrc.toml`` í rót verkefnisins:"
 
-#: ../../source/reference/abbreviations.rst:94
+#: ../../source/reference/abbreviations.rst:120
 msgid "These merge with the built-in list at runtime."
 msgstr "Þær sameinast innbyggða listanum við keyrslu."
 
-#: ../../source/reference/abbreviations.rst:97
+#: ../../source/reference/abbreviations.rst:125
 msgid "Inline token protection"
 msgstr "Vörn innleidds tákns"
 
-#: ../../source/reference/abbreviations.rst:99
+#: ../../source/reference/abbreviations.rst:127
 msgid ""
-"Periods inside inline tokens never trigger sentence breaks, regardless of"
-" abbreviation lists:"
+"Periods inside inline tokens never trigger sentence breaks, regardless of "
+"abbreviation lists:"
 msgstr ""
 "Punktar inni í innleiddum táknum kalla aldrei fram setningarskil, óháð "
 "skammstöfunarlistum:"
 
-#: ../../source/reference/abbreviations.rst:101
+#: ../../source/reference/abbreviations.rst:129
 msgid "Org links: ``[[https://example.com][Ex. Site]]``"
 msgstr "Org tenglar: ``[[https://example.com][Ex. Site]]``"
 
-#: ../../source/reference/abbreviations.rst:103
+#: ../../source/reference/abbreviations.rst:131
 msgid "LaTeX math: ``$x = 3.14$``"
 msgstr "LaTeX stærðfræði: ``$x = 3.14$``"
 
-#: ../../source/reference/abbreviations.rst:105
-#, python-brace-format
+#: ../../source/reference/abbreviations.rst:133
 msgid "LaTeX commands: ``\\cite{smith.2024}``"
 msgstr "LaTeX skipanir: ``\\cite{smith.2024}``"
 
-#: ../../source/reference/abbreviations.rst:107
+#: ../../source/reference/abbreviations.rst:135
 msgid "Markdown links: ``[Example Inc.](url)``"
 msgstr "Markdown tenglar: ``[Example Inc.](url)``"
 
-#: ../../source/reference/abbreviations.rst:109
+#: ../../source/reference/abbreviations.rst:137
 msgid "Inline code: ``~std.io.Read~``,"
 msgstr "Innleiður kóði: ``~std.io.Read~``,"
 
-#: ../../source/reference/abbreviations.rst:111
+#: ../../source/reference/abbreviations.rst:139
 msgid ""
-"These tokens get replaced with safe placeholders before sentence "
-"detection and restored afterward."
+"These tokens get replaced with safe placeholders before sentence detection "
+"and restored afterward."
 msgstr ""
-"Þessi tákn eru skipt út fyrir örugg staðhaldstákn áður en "
-"setningargreining fer fram og endurheimast síðan."
-
+"Þessi tákn eru skipt út fyrir örugg staðhaldstákn áður en setningargreining "
+"fer fram og endurheimast síðan."
