@@ -215,15 +215,31 @@ msgstr ""
 msgid "``--use-pandoc``"
 msgstr ""
 
-#: ../../source/reference/cli.rst:116
+#: ../../source/reference/cli.rst:185
 msgid ""
-"Use pandoc as the parser backend instead of built-in parsers. Requires "
-"pandoc on PATH. Enables support for typst, asciidoc, docx, html, and all "
-"other pandoc-supported formats. Falls back silently if pandoc is "
-"unavailable (unless this flag is explicit)."
+"Require the pandoc path (auto FFI, then CLI). Parse may use in-process "
+"FFI when ``libsnapper_pandoc`` loads; the writer still needs ``pandoc`` "
+"on ``PATH`` (``libsnapper_pandoc`` is reader-only) unless that library "
+"exports a writer. Without FFI, both parse and write use the ``pandoc`` "
+"CLI. A missing binary is an explicit error (never silent all-prose). "
+"Enables support for typst, asciidoc, docx, html, and all other pandoc-"
+"supported formats. The default (omit this flag) already uses pandoc when "
+"an FFI writer or ``pandoc`` on ``PATH`` is available."
 msgstr ""
 
-#: ../../source/reference/cli.rst:122
+#: ../../source/reference/cli.rst:194
+msgid "``--native``"
+msgstr ""
+
+#: ../../source/reference/cli.rst:197
+msgid ""
+"Force today's native line parsers (markdown / org / rst / latex / "
+"plaintext). Conflicts with ``--use-pandoc``. Use this when you want "
+"source-oriented splice instead of the pandoc writer. Editors, wasm, and "
+"LSP stay native even without this flag."
+msgstr ""
+
+#: ../../source/reference/cli.rst:214
 msgid "``--config <PATH>``"
 msgstr "``--config <ŚCIEŻKA>``"
 

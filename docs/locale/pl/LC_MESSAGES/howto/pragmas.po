@@ -120,3 +120,11 @@ msgstr ""
 "Wewnątrz regionu wyłączonego nie następuje podział zdań, parser "
 "rozpoznający format ani obsługa skrótów. Same linie komentarzy pragm "
 "zawsze przechodzą jako struktura."
+
+#: ../../source/howto/pragmas.rst:128
+msgid ""
+"The pandoc path keeps ``snapper:off`` / ``snapper:on`` in the written "
+"output (the reader would otherwise delete them). Off-region text is "
+"shielded so it is not reflowed. Pass ``--native`` to force today's line "
+"parsers."
+msgstr ""
