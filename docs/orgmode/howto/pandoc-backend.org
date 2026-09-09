@@ -19,9 +19,12 @@ That is how snapper can format everything pandoc can read (typst, asciidoc, docx
 How to run step 1 (same step-2 walker):
 
 1. *Auto* — =--pandoc-backend auto= (default): prefer in-process FFI when =libsnapper_pandoc= loads, else CLI.
-This amortizes the GHC RTS for *parse*. The shipped library is reader-only, so the writer still needs =pandoc= on =PATH= unless that library exports a writer (no silent spawn).
-2. *CLI* — =--pandoc-backend cli=: =pandoc -t json= (full reader set of the installed binary). Explicit error if =pandoc= is missing.
-3. *FFI* — =--pandoc-backend ffi=: require =libsnapper_pandoc= (explicit error if missing). Writer still needs =pandoc= on =PATH= when the library has no writer.
+This amortizes the GHC RTS for *parse*.
+The shipped library is reader-only, so the writer still needs =pandoc= on =PATH= unless that library exports a writer (no silent spawn).
+2. *CLI* — =--pandoc-backend cli=: =pandoc -t json= (full reader set of the installed binary).
+Explicit error if =pandoc= is missing.
+3. *FFI* — =--pandoc-backend ffi=: require =libsnapper_pandoc= (explicit error if missing).
+Writer still needs =pandoc= on =PATH= when the library has no writer.
 
 * Requirements
 :PROPERTIES:
@@ -33,7 +36,9 @@ Pandoc 2.x or 3.x on =PATH=.
 With =--use-pandoc=, a missing or failing pandoc is an explicit error (no silent all-prose).
 
 **Writer.**
-=libsnapper_pandoc= is reader-only. The write step still needs =pandoc= on =PATH= (help and errors say so). A library that exports =snapper_pandoc_write= stays in-process for write too.
+=libsnapper_pandoc= is reader-only.
+The write step still needs =pandoc= on =PATH= (help and errors say so).
+A library that exports =snapper_pandoc_write= stays in-process for write too.
 
 **FFI backend (dynamic).**
 Build =native/snapper-pandoc=, set =SNAPPER_PANDOC_LIB= to =libsnapper_pandoc.so= (or put it on the search path).
