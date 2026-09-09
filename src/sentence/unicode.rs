@@ -830,7 +830,7 @@ fn take_markup_terminal_sentence(seg: &str) -> Option<(String, String)> {
     // sentence.
     static CAP: LazyLock<Regex> = LazyLock::new(|| {
         Regex::new(
-            r#"(?s)^(.*?[.!?](?:\*{1,3}|_{1,3}|`+|~{1,2}|\]\([^)]*\))+)\s+(["'A-Z][\s\S]*)$"#,
+            r#"(?s)^(.*?[.!?](?:\*{1,3}|_{1,3}|`+|~{1,2}|\]\([^)]*\))+)\s+([A-Z][\s\S]*|["'][A-Z][\s\S]*)$"#,
         )
         .expect("valid markup-terminal sentence regex")
     });
@@ -1784,6 +1784,16 @@ mod tests {
                 "Then read more.".to_string()
             ]
         );
+        assert_eq!(
+            split("**Bold sentence.** \"Quoted next.\""),
+            vec![
+                "**Bold sentence.**".to_string(),
+                "\"Quoted next.\"".to_string()
+            ]
+        );
+        // PR #52 CI seed: period before backticks, then quote-backtick.
+        // Next token is not a capital letter, so this is not a new sentence.
+        assert_eq!(split("`.`` \"`"), vec!["`.`` \"`".to_string()]);
     }
 
     #[test]
