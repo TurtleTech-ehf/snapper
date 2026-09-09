@@ -411,13 +411,79 @@ mod tests {
         );
     }
 
+    fn assert_no_use_pandoc_knob(label: &str, src: &str) {
+        let lower = src.to_ascii_lowercase();
+        assert!(
+            !lower.contains("set_use_pandoc"),
+            "{label} must not expose set_use_pandoc"
+        );
+        assert!(
+            !lower.contains("usepandoc"),
+            "{label} must not expose usePandoc"
+        );
+        assert!(
+            !src.contains("use_pandoc"),
+            "{label} must not set or forward use_pandoc"
+        );
+        assert!(
+            !src.contains("--use-pandoc"),
+            "{label} must not pass --use-pandoc"
+        );
+    }
+
+    fn repo_src(rel: &str) -> Option<String> {
+        std::fs::read_to_string(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(rel)).ok()
+    }
+
     #[test]
-    fn wasm_entry_stays_native() {
+    fn wasm_and_editor_config_cannot_set_use_pandoc() {
         let wasm = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/wasm.rs"));
         assert!(
             wasm.contains("use_pandoc: false"),
-            "wasm must keep use_pandoc false (snapper-ekc0 / this ticket)"
+            "wasm must hardcode use_pandoc false (snapper-ekc0)"
         );
+        assert_eq!(
+            wasm.matches("use_pandoc").count(),
+            1,
+            "wasm must have exactly one use_pandoc (hardcoded false, no setter)"
+        );
+        assert!(
+            !wasm.contains("set_use_pandoc"),
+            "WasmConfig must not grow a use_pandoc setter"
+        );
+
+        let lsp = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/lsp.rs"));
+        assert!(
+            lsp.contains("use_pandoc: false"),
+            "VS Code LSP must force native parsers"
+        );
+        assert!(!lsp.contains("use_pandoc: true"));
+        assert!(!lsp.contains("set_use_pandoc"));
+        assert!(!lsp.contains("--use-pandoc"));
+
+        // Editor / JS wrappers live in the git tree, not the crates.io tarball.
+        let extras = [
+            "packages/snapper-wasm/src/types.ts",
+            "packages/snapper-wasm/src/index.ts",
+            "editors/obsidian/src/formatter.ts",
+            "editors/obsidian/src/settings.ts",
+            "editors/word/src/shared/formatter.ts",
+            "editors/vscode/src/extension.ts",
+        ];
+        let mut seen = 0;
+        for rel in extras {
+            if let Some(src) = repo_src(rel) {
+                seen += 1;
+                assert_no_use_pandoc_knob(rel, &src);
+            }
+        }
+        if repo_src("editors/vscode/src/extension.ts").is_some() {
+            assert_eq!(
+                seen,
+                extras.len(),
+                "all editor sources readable in checkout"
+            );
+        }
     }
 
     #[test]

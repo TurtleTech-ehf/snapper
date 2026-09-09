@@ -55,6 +55,8 @@ impl SnapperLsp {
             latex_structure_envs: project.latex_structure_envs(),
             latex_verbatim_commands: project.latex_verbatim_commands(),
             clause_breaks: project.clause_breaks.unwrap_or(false),
+            // VS Code / Helix LSP stay native even if the CLI default flips.
+            use_pandoc: false,
             ..Default::default()
         }
     }
