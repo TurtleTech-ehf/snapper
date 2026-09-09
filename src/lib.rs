@@ -152,8 +152,9 @@ impl Default for FormatConfig {
 #[error("input is not valid UTF-8")]
 pub struct InvalidUtf8Error;
 
-/// Pandoc's AST has no source offsets, so it cannot splice into original
-/// bytes. `format_text` refuses rather than reconstruct.
+/// Historical: the pandoc path used to refuse because the AST has no
+/// source offsets. `format_text` now writes the reflowed AST through
+/// pandoc's writer instead of splicing original bytes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
 #[error("pandoc backend cannot splice original source bytes")]
 pub struct PandocCannotSplice;
@@ -268,30 +269,38 @@ pub fn format_text_with_splitter(
         input
     };
 
-    let once = format_once(work_input, config, splitter, config.format_code)?;
-    // Later passes prove prose stability. External code formatters
-    // already ran on the first pass; re-invoking them multiplies
-    // timeout budgets and is not part of the planner fixpoint.
-    let candidate = run_fixpoint(work_input, config.fixpoint_backstop, |cur| {
-        if cur == work_input {
-            Ok(once.clone())
-        } else {
-            format_once(cur, config, splitter, false)
-        }
-    })?;
-
-    let candidate = if config.render_backstop
-        && candidate != work_input
-        && !oracle::matches_ex(
-            config.format,
-            work_input,
-            &candidate,
-            config.format_code,
-            Some(config),
-        ) {
-        work_input.to_string()
+    // The pandoc writer is not a native splice: it normalizes markup, so
+    // the native region-tree oracle and byte fixpoint would veto a correct
+    // write-through and return the original (no sentence breaks).
+    let candidate = if config.use_pandoc {
+        format_once(work_input, config, splitter, config.format_code)?
     } else {
-        candidate
+        let once = format_once(work_input, config, splitter, config.format_code)?;
+        // Later passes prove prose stability. External code formatters
+        // already ran on the first pass; re-invoking them multiplies
+        // timeout budgets and is not part of the planner fixpoint.
+        let candidate = run_fixpoint(work_input, config.fixpoint_backstop, |cur| {
+            if cur == work_input {
+                Ok(once.clone())
+            } else {
+                format_once(cur, config, splitter, false)
+            }
+        })?;
+
+        if config.render_backstop
+            && candidate != work_input
+            && !oracle::matches_ex(
+                config.format,
+                work_input,
+                &candidate,
+                config.format_code,
+                Some(config),
+            )
+        {
+            work_input.to_string()
+        } else {
+            candidate
+        }
     };
 
     let mut output = candidate;
@@ -314,7 +323,7 @@ pub fn format_text_with_splitter(
 }
 
 /// One parse+reflow pass. Native parsers splice into original bytes;
-/// pandoc concatenates reconstructed regions.
+/// pandoc reflows the AST and writes through pandoc's writer.
 fn format_once(
     work_input: &str,
     config: &FormatConfig,
@@ -333,7 +342,7 @@ fn format_once(
     };
 
     // Two pipelines:
-    // - use_pandoc: pandoc parses source → AST → regions by node kind → reflow prose only.
+    // - use_pandoc: parse → reflow Para/Plain in the AST → pandoc writer.
     // - else: native line parsers (markdown/org/…) then splice. Never mixed after success.
     if config.use_pandoc {
         #[cfg(feature = "pandoc")]
@@ -348,14 +357,14 @@ fn format_once(
                     Format::Rst => "rst",
                     Format::Plaintext => "markdown",
                 });
-            let parser =
-                parser::pandoc::PandocParser::with_backend(pandoc_fmt, config.pandoc_backend);
-            // Surface parse errors (no silent all-prose). Splice still
-            // requires source offsets the AST does not carry.
-            parser
-                .try_parse(work_input)
-                .map_err(|e| anyhow::anyhow!("{e}"))?;
-            return Err(anyhow::Error::new(PandocCannotSplice));
+            return parser::pandoc::format_via_pandoc(
+                work_input,
+                pandoc_fmt,
+                config.pandoc_backend,
+                splitter,
+                &reflow_config,
+            )
+            .map_err(|e| anyhow::anyhow!("{e}"));
         }
         #[cfg(not(feature = "pandoc"))]
         {
