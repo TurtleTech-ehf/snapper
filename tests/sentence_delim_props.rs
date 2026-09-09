@@ -20,6 +20,19 @@ fn plaintext_cfg() -> FormatConfig {
     .without_safety_backstops()
 }
 
+/// PR #52 CI seed: period before backticks, then quote-backtick.
+/// Markup closer-split must not invent a newline inside a DelimState span.
+#[test]
+fn plaintext_period_before_backticks_quote_is_span_safe() {
+    let input = ".`` \"`";
+    let out = format_plain(input);
+    assert_eq!(format_plain(&out), out, "idempotence");
+    assert!(
+        newlines_respect_delimiter_spans(&out),
+        "span newline\n in={input:?}\n out={out:?}"
+    );
+}
+
 fn format_plain(input: &str) -> String {
     let mut s = input.to_string();
     if !s.ends_with('\n') {

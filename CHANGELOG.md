@@ -4,6 +4,7 @@ All notable changes to this project will be documented in this file. See [conven
 - - -
 ## Unreleased (main)
 #### Bug Fixes
+- (**sentence**) a period immediately before markup closers only starts a new sentence when the next token is a capital letter (or a quote then a capital), so plaintext `.`` "` is not split
 - (**rst**) list continuation paragraphs after a blank keep their hanging indent, so a two-space second sentence is not outdented to column 0
 - (**rst**) definition lists (flush term plus indented definition) stay structure, so the term is not glued onto the definition line
 - (**rst**) simple tables (`=====  =====` column borders) stay structure, so header and body rows are not glued onto one line
