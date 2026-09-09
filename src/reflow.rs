@@ -815,6 +815,15 @@ pub(crate) fn is_hanging_marker(s: &str) -> bool {
     !hanging_prefix(s).is_empty()
 }
 
+/// True when `hang` is the space-only continuation prefix of `marker`.
+/// `* ` / `- ` hang at two spaces; `1. ` hangs at three.
+pub(crate) fn is_space_hang_of(marker: &str, hang: &str) -> bool {
+    if hang.is_empty() || hang.contains('\n') || !hang.bytes().all(|b| b == b' ') {
+        return false;
+    }
+    hanging_prefix(marker) == hang
+}
+
 /// Prefix emitted on continuation lines after a list or quote marker.
 /// Lists hang with spaces of marker width; Markdown quotes repeat the
 /// quote prefix (`> `, `> > `, `>> `, including leading indent). Empty
@@ -1421,6 +1430,12 @@ They are endowed with reason and conscience and should act towards one another i
         assert_eq!(hanging_prefix("- "), "  ");
         assert_eq!(hanging_prefix("1. "), "   ");
         assert_eq!(hanging_prefix("  "), "  ");
+        assert!(is_space_hang_of("* ", "  "));
+        assert!(is_space_hang_of("- ", "  "));
+        assert!(is_space_hang_of("1. ", "   "));
+        assert!(!is_space_hang_of("* ", "   "));
+        assert!(!is_space_hang_of("> ", "  "));
+        assert!(!is_space_hang_of("* ", "* "));
         assert_eq!(hanging_indent_width("  "), 0);
         assert_eq!(hanging_indent_width("\n"), 0);
         assert_eq!(hanging_indent_width("#+TITLE: Test\n"), 0);

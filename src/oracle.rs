@@ -134,6 +134,9 @@ fn md_unescape_ascii_punct(word: &str) -> String {
 /// `> One.\n> Two.` parses as two Structure+Prose pairs; hanging indent
 /// emitted that from one source item. Folding them keeps the oracle from
 /// vetoing a render-preserving hang.
+///
+/// RST list wraps emit the hang spaces as Structure (`* One.\n  Two.`),
+/// so a space-hang of the same marker is the same item, not a new one.
 fn coalesce_hang_items(regions: &[Region]) -> Vec<Region> {
     let mut out = Vec::new();
     let mut i = 0;
@@ -160,12 +163,19 @@ fn coalesce_hang_items(regions: &[Region]) -> Vec<Region> {
                     prose.push_str(p);
                     i += 1;
                 }
+                Some(Region::Structure(hang)) if crate::reflow::is_space_hang_of(&marker, hang) => {
+                    i += 1;
+                }
                 Some(Region::Structure(nl)) if nl == "\n" => {
                     let same_marker = matches!(
                         regions.get(i + 1),
                         Some(Region::Structure(m2)) if *m2 == marker
                     );
-                    if same_marker {
+                    let space_hang = matches!(
+                        regions.get(i + 1),
+                        Some(Region::Structure(h)) if crate::reflow::is_space_hang_of(&marker, h)
+                    );
+                    if same_marker || space_hang {
                         i += 2;
                         continue;
                     }
@@ -341,6 +351,14 @@ mod tests {
             "- One.\n  Two.\n"
         ));
         assert!(matches(Format::Org, "- One. Two.\n", "- One.\n  Two.\n"));
+        assert!(matches(Format::Rst, "- One. Two.\n", "- One.\n  Two.\n"));
+        assert!(matches(Format::Rst, "* One. Two.\n", "* One.\n  Two.\n"));
+        // macos PR #63 safety_props seed: list wrap of starred quotes.
+        assert!(matches(Format::Rst, "* a*'*'. A.", "* a*'*'.\n  A."));
+        assert!(
+            !matches(Format::Rst, "* One. Two.\n", "* One.\n\n  Two.\n"),
+            "a blank is a new paragraph, not a hang"
+        );
     }
 
     #[test]

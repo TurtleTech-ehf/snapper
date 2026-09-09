@@ -898,6 +898,36 @@ mod tests {
     }
 
     #[test]
+    fn starred_quotes_list_is_idempotent_and_matches_oracle() {
+        use crate::format::Format;
+        use crate::oracle;
+        use crate::{FormatConfig, format_text};
+
+        // macos PR #63 `format_text_idempotent_and_oracle` seed.
+        let cfg = FormatConfig {
+            format: Format::Rst,
+            max_width: 0,
+            ..Default::default()
+        }
+        .without_safety_backstops();
+        let input = "* a*'*'. A.";
+        let out = format_text(input, &cfg).unwrap();
+        let twice = format_text(&out, &cfg).unwrap();
+        assert_eq!(
+            out, twice,
+            "not idempotent, first:\n{out}\nsecond:\n{twice}"
+        );
+        assert_eq!(
+            out, "* a*'*'.\n  A.",
+            "list wrap must hang at marker width, got:\n{out}"
+        );
+        assert!(
+            oracle::matches(Format::Rst, input, &out),
+            "oracle mismatch\n in={input:?}\n out={out:?}"
+        );
+    }
+
+    #[test]
     fn reporter_two_space_directive_body_is_identity_under_format() {
         use crate::format::Format;
         use crate::{FormatConfig, format_text};
