@@ -36,7 +36,7 @@ Pandoc 2.x or 3.x on =PATH=.
 With =--use-pandoc=, a missing or failing pandoc is an explicit error (no silent all-prose).
 
 **Writer.**
-=libsnapper_pandoc= is reader-only.
+The library =libsnapper_pandoc= is reader-only.
 The write step still needs =pandoc= on =PATH= (help and errors say so).
 A library that exports =snapper_pandoc_write= stays in-process for write too.
 
