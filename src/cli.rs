@@ -94,6 +94,8 @@ pub struct Cli {
     pub model_path: Option<PathBuf>,
 
     /// Use pandoc as parser backend (universal format support).
+    /// Refuses when the source has comments or `snapper:off` / `snapper:on`
+    /// that pandoc's reader would delete.
     #[arg(long)]
     pub use_pandoc: bool,
 
