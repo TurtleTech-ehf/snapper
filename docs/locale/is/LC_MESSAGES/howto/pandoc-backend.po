@@ -9,78 +9,176 @@ msgid ""
 msgstr ""
 "Project-Id-Version: snapper \n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-03-29 03:12+0200\n"
+"POT-Creation-Date: 2026-09-09 10:12-0500\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
-"Language: is\n"
 "Language-Team: is <LL@li.org>\n"
-"Plural-Forms: nplurals=2; plural=(n%10==1 && n%100!=11 ? 0 : 1);\n"
+"Language: is\n"
 "MIME-Version: 1.0\n"
-"Content-Type: text/plain; charset=utf-8\n"
+"Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=2; plural=(n%10==1 && n%100!=11 ? 0 : 1);\n"
 "Generated-By: Babel 2.18.0\n"
 
 #: ../../source/howto/pandoc-backend.rst:3
 msgid "Pandoc Backend"
 msgstr ""
 
-#: ../../source/howto/pandoc-backend.rst:8
+#: ../../source/howto/pandoc-backend.rst:10
 msgid "Overview"
 msgstr ""
 
-#: ../../source/howto/pandoc-backend.rst:10
+#: ../../source/howto/pandoc-backend.rst:12
 msgid ""
-"Snapper includes a universal parser backend powered by `pandoc "
-"<https://pandoc.org>`_. When enabled with ``--use-pandoc``, snapper "
-"shells out to pandoc to parse the document into a JSON AST, then walks "
-"the AST to extract prose and structure regions."
+"The pandoc path is ****parse with pandoc, then apply snapper**** — not "
+"“guess markdown lines like the built-in parsers.”"
 msgstr ""
 
-#: ../../source/howto/pandoc-backend.rst:13
-msgid ""
-"This gives snapper support for every format pandoc handles: typst, "
-"asciidoc, docx, html, epub, and more."
+#: ../../source/howto/pandoc-backend.rst:14
+msgid "Pandoc reads the file (any format it supports) into its document AST."
 msgstr ""
 
 #: ../../source/howto/pandoc-backend.rst:16
-msgid "Requirements"
+msgid ""
+"Snapper walks that AST and reflows only prose-bearing nodes (``Para`` / "
+"``Plain``)."
 msgstr ""
 
 #: ../../source/howto/pandoc-backend.rst:18
-msgid "Pandoc 2.x or 3.x must be installed and on your PATH. Verify with:"
+msgid ""
+"Nodes pandoc already classified as structure (``Header``, ``CodeBlock``, "
+"``Table``, …) are left alone."
+msgstr ""
+
+#: ../../source/howto/pandoc-backend.rst:20
+msgid ""
+"The mutated AST is written through an in-process FFI writer when the loaded "
+"library exports one, otherwise ``pandoc -f json --wrap=preserve``."
+msgstr ""
+
+#: ../../source/howto/pandoc-backend.rst:22
+msgid "This is not a splice of the original bytes."
+msgstr ""
+
+#: ../../source/howto/pandoc-backend.rst:24
+msgid ""
+"That is how snapper can format everything pandoc can read (typst, asciidoc, "
+"docx, html, …) without inventing per-format line heuristics."
+msgstr ""
+
+#: ../../source/howto/pandoc-backend.rst:26
+msgid "How to run step 1 (same step-2 walker):"
+msgstr ""
+
+#: ../../source/howto/pandoc-backend.rst:28
+msgid ""
+"**Auto** — ``--pandoc-backend auto`` (default): prefer in-process FFI when "
+"``libsnapper_pandoc`` loads, else CLI."
+msgstr ""
+
+#: ../../source/howto/pandoc-backend.rst:30
+msgid ""
+"This amortizes the GHC RTS for **parse**. The shipped library is reader-"
+"only, so the writer still needs ``pandoc`` on ``PATH`` unless that library "
+"exports a writer (no silent spawn)."
+msgstr ""
+
+#: ../../source/howto/pandoc-backend.rst:33
+msgid ""
+"**CLI** — ``--pandoc-backend cli``: ``pandoc -t json`` (full reader set of "
+"the installed binary)."
+msgstr ""
+
+#: ../../source/howto/pandoc-backend.rst:35
+msgid "Explicit error if ``pandoc`` is missing."
+msgstr ""
+
+#: ../../source/howto/pandoc-backend.rst:37
+msgid ""
+"**FFI** — ``--pandoc-backend ffi``: require ``libsnapper_pandoc`` (explicit "
+"error if missing)."
+msgstr ""
+
+#: ../../source/howto/pandoc-backend.rst:39
+msgid ""
+"Writer still needs ``pandoc`` on ``PATH`` when the library has no writer."
+msgstr ""
+
+#: ../../source/howto/pandoc-backend.rst:44
+msgid "Requirements"
 msgstr ""
 
 #: ../../source/howto/pandoc-backend.rst:46
 msgid ""
-"The CLI default uses pandoc when an FFI writer or ``pandoc`` on ``PATH`` "
-"is available. Otherwise it keeps the native line parsers (no error, no "
-"silent all-prose). With ``--use-pandoc``, a missing or failing pandoc is "
-"an explicit error (no silent all-prose). Pass ``--native`` to force "
-"today's line parsers."
+"****CLI backend.**** Pandoc 2.x or 3.x on ``PATH``. The CLI default uses "
+"pandoc when an FFI writer or ``pandoc`` on ``PATH`` is available. Otherwise "
+"it keeps the native line parsers (no error, no silent all-prose). With ``--"
+"use-pandoc``, a missing or failing pandoc is an explicit error (no silent "
+"all-prose). Pass ``--native`` to force today's line parsers."
 msgstr ""
 
-#: ../../source/howto/pandoc-backend.rst:29
+#: ../../source/howto/pandoc-backend.rst:53
+msgid ""
+"****Writer.**** The library ``libsnapper_pandoc`` is reader-only. The write "
+"step still needs ``pandoc`` on ``PATH`` (help and errors say so). A library "
+"that exports ``snapper_pandoc_write`` stays in-process for write too."
+msgstr ""
+
+#: ../../source/howto/pandoc-backend.rst:58
+msgid ""
+"****FFI backend (dynamic).**** Build ``native/snapper-pandoc``, set "
+"``SNAPPER_PANDOC_LIB`` to ``libsnapper_pandoc.so`` (or put it on the search "
+"path). A missing library with ``--pandoc-backend ffi`` errors with ``pandoc "
+"FFI library unavailable`` (fail-closed; never silent all-prose)."
+msgstr ""
+
+#: ../../source/howto/pandoc-backend.rst:62
+msgid ""
+"****FFI backend (co-linked / one binary).**** Feature ``pandoc-colink`` is a "
+"**build** path: produce ``libsnapper_pandoc.a`` with ``native/snapper-pandoc/"
+"build-static.sh`` (``ghc -staticlib``), then Cargo absorbs that archive into "
+"a single ``snapper`` executable (``--gc-sections``). No "
+"``SNAPPER_PANDOC_LIB`` discovery and no multi-hundred-MB ``libHS*`` RUNPATH "
+"graph."
+msgstr ""
+
+#: ../../source/howto/pandoc-backend.rst:73
+msgid "See ``native/snapper-pandoc/README.md``."
+msgstr ""
+
+#: ../../source/howto/pandoc-backend.rst:78
 msgid "Usage"
 msgstr ""
 
 #: ../../source/howto/pandoc-backend.rst:92
 msgid ""
-"The CLI default uses pandoc (auto FFI, then CLI) when an in-process "
-"writer or ``pandoc`` on ``PATH`` is available. Otherwise it keeps the "
-"native line parsers (no error, no silent all-prose). Pass ``--native`` to "
-"force today's line parsers. Pass ``--use-pandoc`` to require the pandoc "
-"path (explicit error if FFI and ``pandoc`` are missing). The writer still "
-"needs ``pandoc`` on ``PATH`` unless the library exports a writer."
+"The CLI default uses pandoc (auto FFI, then CLI) when an in-process writer "
+"or ``pandoc`` on ``PATH`` is available. Otherwise it keeps the native line "
+"parsers (no error, no silent all-prose). Pass ``--native`` to force today's "
+"line parsers. Pass ``--use-pandoc`` to require the pandoc path (explicit "
+"error if FFI and ``pandoc`` are missing). The writer still needs ``pandoc`` "
+"on ``PATH`` unless the library exports a writer."
 msgstr ""
 
-#: ../../source/howto/pandoc-backend.rst:107
+#: ../../source/howto/pandoc-backend.rst:98
+msgid ""
+"****Speed.**** Warm in-process FFI parse is a few times native cost; a cold "
+"``pandoc`` CLI process reloads the GHC RTS (tens of ms). The writer is that "
+"CLI spawn unless the FFI library exports a writer — it is never a surprise. "
+"Snapper also caches pandoc JSON ASTs by content hash (memory + disk under "
+"``$XDG_CACHE_HOME/snapper/pandoc-ast``). Re-formatting the same source skips "
+"pandoc parse. Disable with ``SNAPPER_PANDOC_CACHE=0``; override dir with "
+"``SNAPPER_PANDOC_CACHE_DIR``."
+msgstr ""
+
+#: ../../source/howto/pandoc-backend.rst:108
 msgid "When to use pandoc vs built-in parsers"
 msgstr ""
 
 #: ../../source/howto/pandoc-backend.rst:110
 msgid ""
-"****Pandoc**** (CLI default when available): structure from pandoc’s "
-"model and coverage of formats without a built-in parser."
+"****Pandoc**** (CLI default when available): structure from pandoc’s model "
+"and coverage of formats without a built-in parser."
 msgstr ""
 
 #: ../../source/howto/pandoc-backend.rst:112
@@ -89,25 +187,46 @@ msgid ""
 "LaTeX / Markdown / RST (e.g. full ATX lines as structure)."
 msgstr ""
 
-#: ../../source/howto/pandoc-backend.rst:64
+#: ../../source/howto/pandoc-backend.rst:114
+msgid ""
+"The two paths are different pipelines, not two ways to fake the same source "
+"lines."
+msgstr ""
+
+#: ../../source/howto/pandoc-backend.rst:119
 msgid "Limitations"
 msgstr ""
 
-#: ../../source/howto/pandoc-backend.rst:66
+#: ../../source/howto/pandoc-backend.rst:121
 msgid ""
-"Pandoc strips comments, so ``snapper:off`` / ``snapper:on`` pragmas do "
-"not work through the pandoc backend"
+"Pandoc's reader deletes comments (RST ``..`` comments, HTML comments) and "
+"therefore ``snapper:off`` / ``snapper:on``."
 msgstr ""
 
-#: ../../source/howto/pandoc-backend.rst:68
+#: ../../source/howto/pandoc-backend.rst:123
 msgid ""
-"Table content is not preserved verbatim (pandoc normalizes table "
-"structure)"
+"``--use-pandoc`` shields RST ``..`` comments and ``snapper:off`` / "
+"``snapper:on`` so the written output still contains that text and exits 0."
 msgstr ""
 
-#: ../../source/howto/pandoc-backend.rst:70
+#: ../../source/howto/pandoc-backend.rst:125
 msgid ""
-"Some format-specific markup (Org drawers, LaTeX preamble) gets simplified"
-" in the AST"
+"Other HTML / Org / LaTeX comments that are not snapper pragmas may still be "
+"dropped."
 msgstr ""
 
+#: ../../source/howto/pandoc-backend.rst:127
+msgid ""
+"Round-trip is through the AST (not a perfect source-preserving rewrite of "
+"every markup character)"
+msgstr ""
+
+#: ../../source/howto/pandoc-backend.rst:129
+msgid "FFI library is optional; wasm/editor bundles do not embed GHC/pandoc"
+msgstr ""
+
+#: ../../source/howto/pandoc-backend.rst:131
+msgid ""
+"CLI pandoc versus editor native is the contract: the CLI default may use "
+"pandoc; VS Code, Obsidian, Word, wasm, and LSP stay on native parsers."
+msgstr ""

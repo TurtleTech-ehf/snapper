@@ -8,84 +8,83 @@ msgid ""
 msgstr ""
 "Project-Id-Version: snapper \n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-03-28 02:26+0100\n"
+"POT-Creation-Date: 2026-09-09 10:12-0500\n"
 "PO-Revision-Date: 2026-03-27 23:00+0100\n"
 "Last-Translator: Rohit Goswami <rgoswami@ieee.org>\n"
-"Language: pl\n"
 "Language-Team: pl <LL@li.org>\n"
-"Plural-Forms: nplurals=3; plural=(n==1 ? 0 : n%10>=2 && n%10<=4 && "
-"(n%100<10 || n%100>=20) ? 1 : 2);\n"
+"Language: pl\n"
 "MIME-Version: 1.0\n"
-"Content-Type: text/plain; charset=utf-8\n"
+"Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=3; plural=(n==1 ? 0 : n%10>=2 && n%10<=4 && (n%100<10 "
+"|| n%100>=20) ? 1 : 2);\n"
 "Generated-By: Babel 2.18.0\n"
 
 #: ../../source/howto/ci-enforcement.rst:3
 msgid "CI Enforcement"
 msgstr "Wymuszanie w CI"
 
-#: ../../source/howto/ci-enforcement.rst:8
+#: ../../source/howto/ci-enforcement.rst:10
 #, fuzzy
 msgid "GitHub Action (recommended)"
 msgstr "GitHub Actions"
 
-#: ../../source/howto/ci-enforcement.rst:10
+#: ../../source/howto/ci-enforcement.rst:12
 msgid ""
-"The easiest way to enforce semantic line breaks in CI. Add to your "
-"workflow:"
-msgstr ""
-
-#: ../../source/howto/ci-enforcement.rst:19
-msgid "This installs snapper and runs ``--check`` on the specified files."
+"The easiest way to enforce semantic line breaks in CI. Add to your workflow:"
 msgstr ""
 
 #: ../../source/howto/ci-enforcement.rst:21
+msgid "This installs snapper and runs ``--check`` on the specified files."
+msgstr ""
+
+#: ../../source/howto/ci-enforcement.rst:23
 msgid "For GitHub Code Scanning integration (SARIF annotations on PRs):"
 msgstr ""
 
-#: ../../source/howto/ci-enforcement.rst:31
+#: ../../source/howto/ci-enforcement.rst:35
 msgid "Pre-commit hook"
 msgstr "Hook pre-commit"
 
-#: ../../source/howto/ci-enforcement.rst:33
+#: ../../source/howto/ci-enforcement.rst:37
 #, fuzzy
 msgid "Add to ``.pre-commit-config.yaml``:"
 msgstr "Najprostsza integracja z CI. Dodaj do ``.pre-commit-config.yaml``:"
 
-#: ../../source/howto/ci-enforcement.rst:42
+#: ../../source/howto/ci-enforcement.rst:46
 msgid ""
-"This runs ``snapper --in-place`` on changed files matching ``.org``, "
-"``.tex``, ``.md``, and ``.txt``."
+"This runs ``snapper --in-place`` on changed files matching ``.org``, ``.tex=/"
+"``.latex=, ``.md=/``.markdown=, ``.rst``, and ``.txt`` (extension match; pre-"
+"commit identify has no ``org`` type). Requires a Rust toolchain to build the "
+"hook from this repo."
 msgstr ""
-"Uruchamia ``snapper --in-place`` na zmienionych plikach pasujących do "
-"``.org``, ``.tex``, ``.md`` i ``.txt``."
 
-#: ../../source/howto/ci-enforcement.rst:45
+#: ../../source/howto/ci-enforcement.rst:52
 #, fuzzy
 msgid "Manual GitHub Actions"
 msgstr "GitHub Actions"
 
-#: ../../source/howto/ci-enforcement.rst:47
+#: ../../source/howto/ci-enforcement.rst:54
 msgid "If you prefer manual setup over the composite action:"
 msgstr ""
 
-#: ../../source/howto/ci-enforcement.rst:57
+#: ../../source/howto/ci-enforcement.rst:64
 msgid "For structured output:"
 msgstr ""
 
-#: ../../source/howto/ci-enforcement.rst:69
+#: ../../source/howto/ci-enforcement.rst:78
 msgid "Preview changes in CI"
 msgstr "Podgląd zmian w CI"
 
-#: ../../source/howto/ci-enforcement.rst:71
+#: ../../source/howto/ci-enforcement.rst:80
 msgid "Use ``--diff`` to show what would change:"
 msgstr "Użyj ``--diff``, aby wyświetlić planowane zmiany:"
 
-#: ../../source/howto/ci-enforcement.rst:79
+#: ../../source/howto/ci-enforcement.rst:90
 msgid "GitLab CI"
 msgstr "GitLab CI"
 
-#: ../../source/howto/ci-enforcement.rst:91
+#: ../../source/howto/ci-enforcement.rst:104
 msgid "Makefile integration"
 msgstr "Integracja z Makefile"
 
@@ -93,18 +92,20 @@ msgstr "Integracja z Makefile"
 #~ msgstr "Dodaj krok sprawdzania formatowania do swojego workflow CI:"
 
 #~ msgid ""
-#~ "The ``--check`` flag exits with code "
-#~ "1 if any file needs reformatting, "
+#~ "The ``--check`` flag exits with code 1 if any file needs reformatting, "
 #~ "without modifying anything."
 #~ msgstr ""
-#~ "Flaga ``--check`` kończy działanie z "
-#~ "kodem 1, jeśli jakikolwiek plik wymaga"
-#~ " przeformatowania, bez modyfikowania "
-#~ "czegokolwiek."
+#~ "Flaga ``--check`` kończy działanie z kodem 1, jeśli jakikolwiek plik "
+#~ "wymaga przeformatowania, bez modyfikowania czegokolwiek."
 
 #~ msgid "This prints a unified diff to stdout, useful for PR review comments."
 #~ msgstr ""
-#~ "Wypisuje ujednolicony diff na stdout, "
-#~ "przydatny do komentarzy w przeglądzie "
-#~ "PR."
+#~ "Wypisuje ujednolicony diff na stdout, przydatny do komentarzy w "
+#~ "przeglądzie PR."
 
+#~ msgid ""
+#~ "This runs ``snapper --in-place`` on changed files matching ``.org``, "
+#~ "``.tex``, ``.md``, and ``.txt``."
+#~ msgstr ""
+#~ "Uruchamia ``snapper --in-place`` na zmienionych plikach pasujących do "
+#~ "``.org``, ``.tex``, ``.md`` i ``.txt``."
