@@ -341,6 +341,8 @@ mod tests {
             "- One.\n  Two.\n"
         ));
         assert!(matches(Format::Org, "- One. Two.\n", "- One.\n  Two.\n"));
+        assert!(matches(Format::Rst, "* One. Two.\n", "* One.\n  Two.\n"));
+        assert!(matches(Format::Rst, "* a*'*'. A.", "* a*'*'.\n  A."));
     }
 
     #[test]
