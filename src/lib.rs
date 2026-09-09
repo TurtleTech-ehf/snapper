@@ -86,7 +86,9 @@ pub struct FormatConfig {
     /// Pandoc input format string (for pandoc backend).
     pub pandoc_format: Option<String>,
     /// How to obtain the pandoc AST when `use_pandoc` is set.
-    /// `Ffi` uses in-process Haskell/C bindings; `Cli` uses a subprocess.
+    /// `Ffi` uses in-process Haskell/C bindings for parse; `Cli` uses a
+    /// subprocess. Write is in-process only when the library exports a
+    /// writer; otherwise it still needs `pandoc` on PATH.
     #[cfg(feature = "pandoc")]
     pub pandoc_backend: parser::pandoc::PandocBackend,
     /// Per-language code-block configuration loaded from `[code]` in

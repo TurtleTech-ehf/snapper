@@ -49,8 +49,8 @@ Semantic line break formatter
 * `--neural` — Use neural sentence detection (nnsplit LSTM model)
 * `--lang <LANG>` — Language for neural sentence detection (default: en). Available: en, de, fr, no, sv, zh, tr, ru, uk
 * `--model-path <MODEL_PATH>` — Path to custom ONNX model file for neural detection
-* `--use-pandoc` — Use pandoc as parser backend (universal format support). Refuses when the source has comments or `snapper:off` / `snapper:on` that pandoc's reader would delete
-* `--pandoc-backend <BACKEND>` — Pandoc AST source when `--use-pandoc` is set: `auto` (prefer in-process FFI, else CLI), `ffi` (`libsnapper_pandoc`), or `cli` (`pandoc` subprocess). Default: `auto`. `ffi` fails explicitly if the library is missing
+* `--use-pandoc` — Use pandoc as parser backend (universal format support). Refuses when the source has comments or `snapper:off` / `snapper:on` that pandoc's reader would delete. Parse may use in-process FFI; the writer still needs `pandoc` on PATH (`libsnapper_pandoc` is reader-only) unless that library exports a writer. Without FFI, both parse and write use the `pandoc` CLI (explicit error if missing)
+* `--pandoc-backend <BACKEND>` — Pandoc AST source when `--use-pandoc` is set: `auto` (prefer in-process FFI, else CLI), `ffi` (`libsnapper_pandoc`), or `cli` (`pandoc` subprocess). Default: `auto`. `ffi` fails explicitly if the library is missing. The writer still needs `pandoc` on PATH (no silent spawn surprise)
 
   Default value: `auto`
 * `--check` — Exit with code 1 if any file would change
