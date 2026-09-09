@@ -118,6 +118,6 @@ Pragmas take priority over all other parsing.
 Inside an off region, no sentence splitting, no format-aware parsing, and no abbreviation handling occurs.
 The pragma comment lines themselves always pass through as structure.
 
-=--use-pandoc= keeps =snapper:off= / =snapper:on= in the written output (the reader would otherwise delete them).
+The pandoc path keeps =snapper:off= / =snapper:on= in the written output (the reader would otherwise delete them).
 Off-region text is shielded so it is not reflowed.
-Native parsers remain the default.
+Pass =--native= to force today's line parsers.

@@ -16,6 +16,7 @@ fn write_txt(dir: &Path, name: &str, body: &str) -> String {
 
 fn check_json(path: &str, extra: &[&str]) -> (bool, serde_json::Value, String) {
     let mut args = vec![
+        "--native",
         "--check",
         "--output-format",
         "json",
@@ -153,6 +154,7 @@ fn check_sarif_includes_start_line_and_kind() {
     let path = write_txt(dir.path(), "fused.txt", "Hello world. This is a test.\n");
     let output = snapper_binary()
         .args([
+            "--native",
             "--check",
             "--output-format",
             "sarif",
@@ -188,6 +190,7 @@ fn check_sarif_includes_start_line_and_kind() {
 fn check_json_fmt(path: &str, format: &str) -> (bool, serde_json::Value) {
     let output = snapper_binary()
         .args([
+            "--native",
             "--check",
             "--output-format",
             "json",
@@ -253,11 +256,11 @@ fn would_reformat_matches_cli_check_identity() {
     let clean = write_txt(dir.path(), "clean.txt", "Hello world.\nThis is a test.\n");
 
     let dirty_out = snapper_binary()
-        .args(["--check", "--format", "plaintext", &dirty])
+        .args(["--native", "--check", "--format", "plaintext", &dirty])
         .output()
         .unwrap();
     let clean_out = snapper_binary()
-        .args(["--check", "--format", "plaintext", &clean])
+        .args(["--native", "--check", "--format", "plaintext", &clean])
         .output()
         .unwrap();
     assert!(!dirty_out.status.success());
@@ -269,6 +272,7 @@ fn would_reformat_matches_cli_check_identity() {
 
     let clean_json_run = snapper_binary()
         .args([
+            "--native",
             "--check",
             "--output-format",
             "json",
@@ -292,7 +296,7 @@ fn would_reformat_matches_cli_check_identity() {
 
 fn pipe_check(input: &str, extra: &[&str]) -> (bool, String, String) {
     let mut cmd = snapper_binary();
-    let mut args = vec!["--check", "--format", "plaintext"];
+    let mut args = vec!["--native", "--check", "--format", "plaintext"];
     args.extend_from_slice(extra);
     cmd.args(&args)
         .stdin(std::process::Stdio::piped())
@@ -362,6 +366,7 @@ fn strict_long_does_not_fail_structure_equation() {
     fs::write(&path, body).unwrap();
     let output = snapper_binary()
         .args([
+            "--native",
             "--check",
             "--strict-long",
             "--output-format",
@@ -398,6 +403,7 @@ fn sarif_uri_is_repo_relative_or_file_with_workdir() {
     let output = snapper_binary()
         .current_dir(dir.path())
         .args([
+            "--native",
             "--check",
             "--output-format",
             "sarif",

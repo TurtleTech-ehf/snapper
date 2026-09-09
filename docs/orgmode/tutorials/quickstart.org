@@ -79,6 +79,12 @@ Pipe through stdin (for editor integration):
 cat draft.org | snapper --format org
 #+end_src
 
+The CLI uses pandoc (auto FFI, then CLI) when an FFI writer or =pandoc= on =PATH= is available.
+Otherwise it keeps the native line parsers (no error).
+Pass =--native= to force today's parsers.
+Pass =--use-pandoc= to require pandoc (error if missing).
+Editors, wasm, and LSP stay native.
+
 ** What it does
 :PROPERTIES:
 :CUSTOM_ID: what-it-does
@@ -252,7 +258,7 @@ Provides format-on-save, range formatting, diagnostics, and code actions out of 
 See the [[https://github.com/TurtleTech-ehf/snapper/tree/main/editors/nvim][snapper.nvim plugin]] for full LSP integration, or use =formatprg=:
 
 #+begin_src vim
-autocmd FileType org setlocal formatprg=snapper\ --format\ org
+autocmd FileType org setlocal formatprg=snapper\ --native\ --format\ org
 #+end_src
 
 *** Emacs (Apheleia)
@@ -262,7 +268,7 @@ autocmd FileType org setlocal formatprg=snapper\ --format\ org
 
 #+begin_src elisp
 (with-eval-after-load 'apheleia
-  (push '(snapper . ("snapper" "--format" "org")) apheleia-formatters)
+  (push '(snapper . ("snapper" "--native" "--format" "org")) apheleia-formatters)
   (push '(org-mode . snapper) apheleia-mode-alist))
 #+end_src
 

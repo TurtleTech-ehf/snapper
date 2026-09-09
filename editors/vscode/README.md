@@ -26,7 +26,8 @@ To format on save, add to your `settings.json`:
 
 ## Features
 
-- **Format on save** via the built-in LSP server
+- **Format on save** via the built-in LSP server (native line parsers; the extension does not follow the CLI pandoc default)
+- **Check / diff** via `snapper --native` so the CLI default cannot flip editor output
 - **Range formatting** -- format just the selected text
 - **Diagnostics** -- flags lines with multiple sentences as hints
 - **Quick fixes** -- code actions to split multi-sentence lines

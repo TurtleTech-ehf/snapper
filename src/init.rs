@@ -146,7 +146,7 @@ fn generate_precommit() -> String {
 /// Generate Apheleia elisp snippet.
 fn generate_apheleia(formats: &[&str]) -> String {
     let mut s = String::from(";; Add to your Emacs config:\n(with-eval-after-load 'apheleia\n");
-    s.push_str("  (push '(snapper . (\"snapper\")) apheleia-formatters)\n");
+    s.push_str("  (push '(snapper . (\"snapper\" \"--native\")) apheleia-formatters)\n");
     for fmt in formats {
         let mode = match *fmt {
             "org" => "org-mode",

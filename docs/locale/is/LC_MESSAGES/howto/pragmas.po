@@ -118,3 +118,11 @@ msgstr ""
 "fer engin setningaskipting, engin sniðmeðvituð þáttun og engin "
 "meðhöndlun skammstafana fram. Forskriftaathugasemdarlínurnar sjálfar "
 "fara alltaf í gegn sem bygging."
+
+#: ../../source/howto/pragmas.rst:128
+msgid ""
+"The pandoc path keeps ``snapper:off`` / ``snapper:on`` in the written "
+"output (the reader would otherwise delete them). Off-region text is "
+"shielded so it is not reflowed. Pass ``--native`` to force today's line "
+"parsers."
+msgstr ""

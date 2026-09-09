@@ -1,4 +1,4 @@
-vim.bo.formatprg = "snapper --format org"
+vim.bo.formatprg = "snapper --native --format org"
 
 local ok, _ = pcall(require, "snapper")
 if ok then

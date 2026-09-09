@@ -50,53 +50,43 @@ msgstr ""
 msgid "Pandoc 2.x or 3.x must be installed and on your PATH. Verify with:"
 msgstr ""
 
-#: ../../source/howto/pandoc-backend.rst:25
+#: ../../source/howto/pandoc-backend.rst:46
 msgid ""
-"When pandoc is not available, snapper falls back to its built-in parsers "
-"silently. If you explicitly pass ``--use-pandoc`` and pandoc is missing, "
-"snapper reports an error."
+"The CLI default uses pandoc when an FFI writer or ``pandoc`` on ``PATH`` "
+"is available. Otherwise it keeps the native line parsers (no error, no "
+"silent all-prose). With ``--use-pandoc``, a missing or failing pandoc is "
+"an explicit error (no silent all-prose). Pass ``--native`` to force "
+"today's line parsers."
 msgstr ""
 
 #: ../../source/howto/pandoc-backend.rst:29
 msgid "Usage"
 msgstr ""
 
-#: ../../source/howto/pandoc-backend.rst:45
+#: ../../source/howto/pandoc-backend.rst:92
 msgid ""
-"Format auto-detects from the file extension. Override with ``-f`` when "
-"needed."
+"The CLI default uses pandoc (auto FFI, then CLI) when an in-process "
+"writer or ``pandoc`` on ``PATH`` is available. Otherwise it keeps the "
+"native line parsers (no error, no silent all-prose). Pass ``--native`` to "
+"force today's line parsers. Pass ``--use-pandoc`` to require the pandoc "
+"path (explicit error if FFI and ``pandoc`` are missing). The writer still "
+"needs ``pandoc`` on ``PATH`` unless the library exports a writer."
 msgstr ""
 
-#: ../../source/howto/pandoc-backend.rst:49
+#: ../../source/howto/pandoc-backend.rst:107
 msgid "When to use pandoc vs built-in parsers"
 msgstr ""
 
-#: ../../source/howto/pandoc-backend.rst:51
+#: ../../source/howto/pandoc-backend.rst:110
 msgid ""
-"The built-in parsers (Org, LaTeX, Markdown, RST) handle their formats "
-"well and run faster since they avoid spawning a subprocess. Use the "
-"pandoc backend when:"
+"****Pandoc**** (CLI default when available): structure from pandoc’s "
+"model and coverage of formats without a built-in parser."
 msgstr ""
 
-#: ../../source/howto/pandoc-backend.rst:54
+#: ../../source/howto/pandoc-backend.rst:112
 msgid ""
-"Working with typst, asciidoc, docx, html, or other formats without a "
-"built-in parser"
-msgstr ""
-
-#: ../../source/howto/pandoc-backend.rst:56
-msgid "You want consistent parsing across many formats in one project"
-msgstr ""
-
-#: ../../source/howto/pandoc-backend.rst:58
-msgid "The built-in parser mishandles an edge case that pandoc gets right"
-msgstr ""
-
-#: ../../source/howto/pandoc-backend.rst:60
-msgid ""
-"The built-in parsers preserve more source-level structure (pragmas, "
-"inline tokens). The pandoc backend strips format-specific markup since it"
-" works through the abstract AST."
+"****Built-in**** (``--native``): fast, source-oriented parsers for Org / "
+"LaTeX / Markdown / RST (e.g. full ATX lines as structure)."
 msgstr ""
 
 #: ../../source/howto/pandoc-backend.rst:64

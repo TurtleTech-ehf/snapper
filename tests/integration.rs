@@ -8,7 +8,7 @@ fn snapper_binary() -> Command {
 
 fn run_format(format: &str, input_path: &str) -> String {
     let output = snapper_binary()
-        .args(["--format", format, input_path])
+        .args(["--native", "--format", format, input_path])
         .output()
         .expect("failed to run snapper");
     assert!(
@@ -21,6 +21,7 @@ fn run_format(format: &str, input_path: &str) -> String {
 
 fn pipe_stdin(input: &str, args: &[&str]) -> std::process::Output {
     let mut cmd = snapper_binary();
+    cmd.arg("--native");
     cmd.args(args)
         .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped())
@@ -40,6 +41,7 @@ fn pipe_stdin(input: &str, args: &[&str]) -> std::process::Output {
 
 fn pipe_stdin_in_dir(input: &str, args: &[&str], dir: &Path) -> std::process::Output {
     let mut cmd = snapper_binary();
+    cmd.arg("--native");
     cmd.args(args)
         .current_dir(dir)
         .stdin(std::process::Stdio::piped())
@@ -182,7 +184,13 @@ fn idempotent_markdown() {
 #[test]
 fn check_mode_passes_on_formatted() {
     let output = snapper_binary()
-        .args(["--check", "--format", "org", &fixture_path("expected.org")])
+        .args([
+            "--native",
+            "--check",
+            "--format",
+            "org",
+            &fixture_path("expected.org"),
+        ])
         .output()
         .expect("failed to run snapper");
     assert!(
@@ -194,7 +202,13 @@ fn check_mode_passes_on_formatted() {
 #[test]
 fn check_mode_fails_on_unformatted() {
     let output = snapper_binary()
-        .args(["--check", "--format", "org", &fixture_path("sample.org")])
+        .args([
+            "--native",
+            "--check",
+            "--format",
+            "org",
+            &fixture_path("sample.org"),
+        ])
         .output()
         .expect("failed to run snapper");
     assert!(
@@ -318,6 +332,7 @@ fn range_preserves_outside_lines_exactly() {
     .unwrap();
     let output = snapper_binary()
         .args([
+            "--native",
             "--format",
             "plaintext",
             "--range",
@@ -338,6 +353,7 @@ fn range_preserves_outside_lines_exactly() {
 fn check_json_output() {
     let output = snapper_binary()
         .args([
+            "--native",
             "--check",
             "--output-format",
             "json",
@@ -359,6 +375,7 @@ fn check_json_output() {
 fn check_sarif_output() {
     let output = snapper_binary()
         .args([
+            "--native",
             "--check",
             "--output-format",
             "sarif",
@@ -458,7 +475,7 @@ fn config_ignore_skips_check_mode() {
     fs::write(dir.path().join("draft.md"), "Sentence one. Sentence two.\n").unwrap();
     let output = snapper_binary()
         .current_dir(dir.path())
-        .args(["--check", "draft.md"])
+        .args(["--native", "--check", "draft.md"])
         .output()
         .expect("failed to run snapper");
     assert!(output.status.success());
@@ -480,7 +497,7 @@ fn config_per_format_width_applies() {
     .unwrap();
     let output = snapper_binary()
         .current_dir(dir.path())
-        .arg("draft.txt")
+        .args(["--native", "draft.txt"])
         .output()
         .expect("failed to run snapper");
     assert!(output.status.success());

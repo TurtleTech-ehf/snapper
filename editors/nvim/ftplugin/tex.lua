@@ -1,4 +1,4 @@
-vim.bo.formatprg = "snapper --format latex"
+vim.bo.formatprg = "snapper --native --format latex"
 
 local ok, _ = pcall(require, "snapper")
 if ok then

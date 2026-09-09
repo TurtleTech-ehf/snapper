@@ -9,7 +9,7 @@ function M.setup(config)
   -- Register formatter
   conform.formatters.snapper = {
     command = config.cmd,
-    args = { "--stdin-filepath", "$FILENAME" },
+    args = { "--native", "--stdin-filepath", "$FILENAME" },
     stdin = true,
     cwd = require("conform.util").root_file({ ".snapperrc.toml" }),
   }

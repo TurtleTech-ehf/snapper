@@ -33,7 +33,10 @@ Writer still needs =pandoc= on =PATH= when the library has no writer.
 
 **CLI backend.**
 Pandoc 2.x or 3.x on =PATH=.
+The CLI default uses pandoc when an FFI writer or =pandoc= on =PATH= is available.
+Otherwise it keeps the native line parsers (no error, no silent all-prose).
 With =--use-pandoc=, a missing or failing pandoc is an explicit error (no silent all-prose).
+Pass =--native= to force today's line parsers.
 
 **Writer.**
 The library =libsnapper_pandoc= is reader-only.
@@ -63,15 +66,21 @@ See =native/snapper-pandoc/README.md=.
 :END:
 
 #+begin_src bash
-# Pandoc parses; snapper reflows prose from the AST (auto = FFI if available)
+# Default: pandoc when FFI or pandoc on PATH is available
+snapper paper.md
+snapper --pandoc-backend auto paper.md
+snapper --pandoc-backend cli guide.adoc
+snapper --pandoc-backend ffi paper.md
+# Require pandoc (error if missing)
 snapper --use-pandoc paper.typ
-snapper --use-pandoc --pandoc-backend auto paper.md
-snapper --use-pandoc --pandoc-backend cli guide.adoc
-snapper --use-pandoc --pandoc-backend ffi paper.md
+# Force today's line parsers
+snapper --native paper.md
 #+end_src
 
-Native line parsers remain the default until product flip.
-Use =--use-pandoc= when you need formats without a built-in parser or AST-true structure; prefer FFI for parse latency once =libsnapper_pandoc= is installed.
+The CLI default uses pandoc (auto FFI, then CLI) when an in-process writer or =pandoc= on =PATH= is available.
+Otherwise it keeps the native line parsers (no error, no silent all-prose).
+Pass =--native= to force today's line parsers.
+Pass =--use-pandoc= to require the pandoc path (explicit error if FFI and =pandoc= are missing).
 The writer still needs =pandoc= on =PATH= unless the library exports a writer.
 
 **Speed.**
@@ -86,8 +95,8 @@ Disable with =SNAPPER_PANDOC_CACHE=0=; override dir with =SNAPPER_PANDOC_CACHE_D
 :CUSTOM_ID: when-to-use
 :END:
 
-- **Built-in** (default): fast, source-oriented parsers for Org / LaTeX / Markdown / RST (e.g. full ATX lines as structure).
-- **Pandoc**: you want structure from pandoc’s model and coverage of formats without a built-in parser.
+- **Pandoc** (CLI default when available): structure from pandoc’s model and coverage of formats without a built-in parser.
+- **Built-in** (=--native=): fast, source-oriented parsers for Org / LaTeX / Markdown / RST (e.g. full ATX lines as structure).
 
 The two paths are different pipelines, not two ways to fake the same source lines.
 
@@ -101,4 +110,4 @@ The two paths are different pipelines, not two ways to fake the same source line
 - Other HTML / Org / LaTeX comments that are not snapper pragmas may still be dropped.
 - Round-trip is through the AST (not a perfect source-preserving rewrite of every markup character)
 - FFI library is optional; wasm/editor bundles do not embed GHC/pandoc
-- CLI pandoc versus editor native is the contract: the CLI may take =--use-pandoc=; VS Code, Obsidian, and Word stay on native parsers.
+- CLI pandoc versus editor native is the contract: the CLI default may use pandoc; VS Code, Obsidian, Word, wasm, and LSP stay on native parsers.
