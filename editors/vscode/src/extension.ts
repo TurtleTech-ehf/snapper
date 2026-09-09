@@ -241,7 +241,7 @@ export function activate(context: ExtensionContext): void {
             const filePath = editor.document.uri.fsPath;
             const snapperPath = getSnapperPath();
             try {
-                await execFileAsync(snapperPath, ["--check", filePath], {
+                await execFileAsync(snapperPath, ["--native", "--check", filePath], {
                     timeout: 30000,
                 });
                 window.showInformationMessage("File is already formatted.");
@@ -279,7 +279,7 @@ export function activate(context: ExtensionContext): void {
             try {
                 const { stdout } = await execFileAsync(
                     snapperPath,
-                    ["--diff", filePath],
+                    ["--native", "--diff", filePath],
                     {
                         timeout: 30000,
                     },

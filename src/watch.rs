@@ -14,6 +14,7 @@ pub fn run_watch(
     patterns: &[String],
     format_override: Option<Format>,
     config_path: Option<&std::path::Path>,
+    use_pandoc: bool,
 ) -> Result<()> {
     let project_config = ProjectConfig::resolve(config_path).unwrap_or_default();
 
@@ -82,7 +83,7 @@ pub fn run_watch(
                     last_format.insert(canonical.clone(), now);
 
                     // Format
-                    match format_file_in_place(path, format_override, &project_config) {
+                    match format_file_in_place(path, format_override, &project_config, use_pandoc) {
                         Err(e) => eprintln!("  error formatting {}: {e}", path.display()),
                         Ok(true) => {
                             eprintln!("  formatted: {}", path.display());
@@ -106,6 +107,7 @@ fn format_file_in_place(
     path: &std::path::Path,
     format_override: Option<Format>,
     project_config: &ProjectConfig,
+    use_pandoc: bool,
 ) -> Result<bool> {
     if project_config.is_ignored(path) {
         return Ok(false);
@@ -132,6 +134,7 @@ fn format_file_in_place(
         latex_structure_envs: project_config.latex_structure_envs(),
         latex_verbatim_commands: project_config.latex_verbatim_commands(),
         clause_breaks: project_config.clause_breaks.unwrap_or(false),
+        use_pandoc,
         ..Default::default()
     };
 

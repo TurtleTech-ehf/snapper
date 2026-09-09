@@ -10,7 +10,7 @@
 
 #+begin_src elisp
 (with-eval-after-load 'apheleia
-  (push '(snapper . ("snapper" "--format" "org")) apheleia-formatters)
+  (push '(snapper . ("snapper" "--native" "--format" "org")) apheleia-formatters)
   (push '(org-mode . snapper) apheleia-mode-alist)
   ;; Add for other formats:
   (push '(latex-mode . snapper) apheleia-mode-alist)
@@ -27,9 +27,9 @@ The =--format= flag auto-detects from the file extension, so you can omit it if 
 Use =formatprg= to pipe through snapper:
 
 #+begin_src vim
-autocmd FileType org setlocal formatprg=snapper\ --format\ org
-autocmd FileType tex setlocal formatprg=snapper\ --format\ latex
-autocmd FileType markdown setlocal formatprg=snapper\ --format\ markdown
+autocmd FileType org setlocal formatprg=snapper\ --native\ --format\ org
+autocmd FileType tex setlocal formatprg=snapper\ --native\ --format\ latex
+autocmd FileType markdown setlocal formatprg=snapper\ --native\ --format\ markdown
 #+end_src
 
 Then =gq= to reformat selected text, or =gggqG= to reformat the entire buffer.
@@ -41,7 +41,7 @@ require("conform").setup({
   formatters = {
     snapper = {
       command = "snapper",
-      args = { "--format", "$FILETYPE" },
+      args = { "--native", "--format", "$FILETYPE" },
       stdin = true,
     },
   },
@@ -103,7 +103,7 @@ Use the "Run on Save" extension with a custom command:
     "commands": [
       {
         "match": "\\.(org|tex|md|rst)$",
-        "cmd": "snapper --in-place ${file}"
+        "cmd": "snapper --native --in-place ${file}"
       }
     ]
   }
@@ -249,5 +249,5 @@ Snapper reads stdin and writes stdout by default.
 Any editor that supports piping through an external program works:
 
 #+begin_src bash
-cat paper.org | snapper --format org
+cat paper.org | snapper --native --format org
 #+end_src

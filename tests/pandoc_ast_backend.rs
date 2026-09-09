@@ -11,7 +11,7 @@ use snapper_fmt::format::Format;
 use snapper_fmt::parser::Region;
 use snapper_fmt::parser::pandoc::{
     PandocBackend, PandocParser, WRITER_NEEDS_PATH, dropped_comment_kind, ffi_available,
-    ffi_write_available, regions_from_pandoc_json,
+    ffi_write_available, pandoc_default_available, regions_from_pandoc_json,
 };
 use snapper_fmt::{FormatConfig, format_text};
 
@@ -911,4 +911,207 @@ fn snapper_ffi_without_pandoc_on_path_is_inprocess_or_explicit() {
         err.contains("PATH") || err.contains(WRITER_NEEDS_PATH) || err.contains("writer"),
         "expected explicit writer PATH error, got: {err}"
     );
+}
+
+/// CLI default (no flag) uses pandoc when a writer runtime exists.
+#[test]
+fn snapper_cli_default_uses_pandoc_when_available() {
+    if !pandoc_default_available() {
+        eprintln!("skipping: no FFI writer and no pandoc on PATH");
+        return;
+    }
+    let bin = env!("CARGO_BIN_EXE_snapper");
+    let input = fixture("mixed.md");
+    let default_out = std::process::Command::new(bin)
+        .args(["--format", "markdown"])
+        .arg(&input)
+        .output()
+        .expect("spawn default");
+    let forced = std::process::Command::new(bin)
+        .args(["--use-pandoc", "--format", "markdown"])
+        .arg(&input)
+        .output()
+        .expect("spawn --use-pandoc");
+    assert!(
+        default_out.status.success(),
+        "default must use pandoc without error; stderr={} stdout={}",
+        String::from_utf8_lossy(&default_out.stderr),
+        String::from_utf8_lossy(&default_out.stdout)
+    );
+    assert!(
+        forced.status.success(),
+        "--use-pandoc must still work; stderr={}",
+        String::from_utf8_lossy(&forced.stderr)
+    );
+    assert_eq!(
+        String::from_utf8_lossy(&default_out.stdout),
+        String::from_utf8_lossy(&forced.stdout),
+        "default CLI output must match --use-pandoc when runtime exists"
+    );
+    let stdout = String::from_utf8_lossy(&default_out.stdout);
+    assert_has_sentence_break(&stdout, "Hello world.", "Second sentence");
+}
+
+/// `--native` keeps today's line parsers even when pandoc is available.
+#[test]
+fn snapper_cli_native_forces_line_parsers() {
+    let bin = env!("CARGO_BIN_EXE_snapper");
+    let input = fixture("numbered_heading.md");
+    let out = std::process::Command::new(bin)
+        .args(["--native", "--format", "markdown"])
+        .arg(&input)
+        .output()
+        .expect("spawn --native");
+    assert!(
+        out.status.success(),
+        "--native must exit 0; stderr={} stdout={}",
+        String::from_utf8_lossy(&out.stderr),
+        String::from_utf8_lossy(&out.stdout)
+    );
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(
+        stdout.contains("### 1. `cargo binstall` (preferred binary install)"),
+        "native path must keep the full ATX source line:\n{stdout}"
+    );
+}
+
+/// Without FFI writer and without `pandoc` on PATH, the default stays native
+/// (no error, no silent all-prose of a structured file).
+#[test]
+fn snapper_cli_default_is_native_when_pandoc_missing() {
+    let bin = env!("CARGO_BIN_EXE_snapper");
+    let input = fixture("numbered_heading.md");
+    let out = std::process::Command::new(bin)
+        .args(["--format", "markdown"])
+        .arg(&input)
+        .env("PATH", "/nonexistent-snapper-32ps")
+        .env("SNAPPER_PANDOC_CACHE", "0")
+        .env_remove("SNAPPER_PANDOC_LIB")
+        .env_remove("SNAPPER_PANDOC_LIB_DIR")
+        .output()
+        .expect("spawn default without pandoc");
+    if ffi_write_available() {
+        assert!(
+            out.status.success(),
+            "FFI writer default must still succeed; stderr={}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        return;
+    }
+    assert!(
+        out.status.success(),
+        "default without pandoc must stay native, not error; stderr={} stdout={}",
+        String::from_utf8_lossy(&out.stderr),
+        String::from_utf8_lossy(&out.stdout)
+    );
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(
+        stdout.contains("### 1. `cargo binstall` (preferred binary install)"),
+        "missing pandoc must keep native ATX line, not all-prose:\n{stdout}"
+    );
+}
+
+/// `--use-pandoc` still errors when the runtime is missing (default does not).
+#[test]
+fn snapper_cli_use_pandoc_still_errors_when_missing() {
+    if ffi_available() || ffi_write_available() {
+        eprintln!("skipping: FFI present, --use-pandoc would not miss a runtime");
+        return;
+    }
+    let bin = env!("CARGO_BIN_EXE_snapper");
+    let input = fixture("mixed.md");
+    let out = std::process::Command::new(bin)
+        .args(["--use-pandoc", "--format", "markdown"])
+        .arg(&input)
+        .env("PATH", "/nonexistent-snapper-32ps")
+        .env("SNAPPER_PANDOC_CACHE", "0")
+        .env_remove("SNAPPER_PANDOC_LIB")
+        .env_remove("SNAPPER_PANDOC_LIB_DIR")
+        .output()
+        .expect("spawn --use-pandoc without runtime");
+    assert!(
+        !out.status.success(),
+        "--use-pandoc without runtime must error; stdout={}",
+        String::from_utf8_lossy(&out.stdout)
+    );
+    let err = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        err.contains("PATH")
+            || err.contains("unavailable")
+            || err.contains("pandoc")
+            || err.contains("CLI"),
+        "expected explicit missing-runtime error, got: {err}"
+    );
+}
+
+/// `--help` names the new default and `--native`.
+#[test]
+fn snapper_help_names_native_and_default_pandoc() {
+    let bin = env!("CARGO_BIN_EXE_snapper");
+    let out = std::process::Command::new(bin)
+        .arg("--help")
+        .output()
+        .expect("snapper --help");
+    assert!(out.status.success(), "help must exit 0");
+    let text = String::from_utf8_lossy(&out.stdout);
+    assert!(
+        text.contains("--native"),
+        "help must name --native:\n{text}"
+    );
+    assert!(
+        text.contains("native line parsers") || text.contains("today's native"),
+        "help must describe the native flag:\n{text}"
+    );
+    assert!(
+        text.contains("when") && (text.contains("available") || text.contains("PATH")),
+        "help must say the default uses pandoc when available:\n{text}"
+    );
+}
+
+/// `--native` and `--use-pandoc` conflict.
+#[test]
+fn snapper_cli_native_conflicts_with_use_pandoc() {
+    let bin = env!("CARGO_BIN_EXE_snapper");
+    let out = std::process::Command::new(bin)
+        .args(["--native", "--use-pandoc", "--format", "markdown"])
+        .output()
+        .expect("spawn snapper");
+    assert!(
+        !out.status.success(),
+        "--native --use-pandoc must fail; stdout={}",
+        String::from_utf8_lossy(&out.stdout)
+    );
+    let err = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        err.contains("cannot be used with") || err.contains("conflict"),
+        "expected clap conflict, got: {err}"
+    );
+}
+
+/// `--native` matches library native `format_text` even when pandoc exists.
+#[test]
+fn snapper_cli_native_matches_library_native() {
+    let input = read_fixture("mixed.md");
+    let expected = format_text(
+        &input,
+        &FormatConfig {
+            format: Format::Markdown,
+            use_pandoc: false,
+            ..Default::default()
+        },
+    )
+    .expect("native format_text");
+    let bin = env!("CARGO_BIN_EXE_snapper");
+    let out = std::process::Command::new(bin)
+        .args(["--native", "--format", "markdown"])
+        .arg(fixture("mixed.md"))
+        .output()
+        .expect("spawn snapper");
+    assert!(
+        out.status.success(),
+        "--native must exit 0; stderr={}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert_eq!(stdout, expected);
 }
