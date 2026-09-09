@@ -19,7 +19,7 @@ impl FormatParser for RstParser {
 }
 
 /// Line-based RST parser. Handles directives, literal blocks, sections,
-/// field lists, comments, and tables as structure regions.
+/// field lists, comments, tables, and definition lists as structure regions.
 fn parse_line_based(input: &str) -> Vec<SpannedRegion> {
     let mut regions = Vec::new();
     let mut current_prose = String::new();
@@ -28,6 +28,8 @@ fn parse_line_based(input: &str) -> Vec<SpannedRegion> {
     let mut literal_indent: usize = 0;
     let mut in_directive = false;
     let mut directive_indent: usize = 0;
+    let mut in_definition = false;
+    let mut definition_indent: usize = 0;
     let mut pragma_off = false;
 
     // Code-block directive bookkeeping. Mutually exclusive with `in_directive`.
@@ -128,6 +130,17 @@ fn parse_line_based(input: &str) -> Vec<SpannedRegion> {
                 continue;
             }
             in_directive = false;
+        }
+
+        // Inside a definition-list body (indented lines after a term).
+        if in_definition {
+            let leading = line_text.len() - line_text.trim_start().len();
+            if line_text.trim().is_empty() || leading >= definition_indent {
+                regions.push(SpannedRegion::structure(input, line.span()));
+                i += 1;
+                continue;
+            }
+            in_definition = false;
         }
 
         // Blank line
@@ -260,6 +273,25 @@ fn parse_line_based(input: &str) -> Vec<SpannedRegion> {
                 }
                 i = end + 1;
                 continue;
+            }
+        }
+
+        // Definition list: a flush term plus an immediately indented
+        // definition. Without this both lines are Prose and splice joins
+        // `Term` and `Definition sentence.` onto one line.
+        if i + 1 < total {
+            let next = lines[i + 1].text;
+            if !next.trim().is_empty() {
+                let term_indent = line_text.len() - trimmed.len();
+                let next_indent = next.len() - next.trim_start().len();
+                if next_indent > term_indent {
+                    flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
+                    regions.push(SpannedRegion::structure(input, line.span()));
+                    definition_indent = next_indent;
+                    in_definition = true;
+                    i += 1;
+                    continue;
+                }
             }
         }
 
@@ -512,6 +544,50 @@ mod tests {
         let input = "=====  =====\nName   Value\n=====  =====\nA      B\n=====  =====\n";
         let out = format_text(input, &cfg).unwrap();
         assert_eq!(out, input, "simple table must stay identity, got:\n{out}");
+    }
+
+    #[test]
+    fn definition_list_term_and_body_are_structure() {
+        let input = "Term\n   Definition sentence.\n";
+        let regions = RstParser.parse(input);
+        assert!(
+            regions
+                .iter()
+                .any(|r| matches!(r, Region::Structure(s) if s.contains("Term"))),
+            "term must be Structure, got {regions:?}"
+        );
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Structure(s) if s.contains("Definition sentence.")
+            )),
+            "definition must be Structure, got {regions:?}"
+        );
+        assert!(
+            !regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(s) if s.contains("Term") || s.contains("Definition")
+            )),
+            "definition list must not fall through to prose, got {regions:?}"
+        );
+    }
+
+    #[test]
+    fn reporter_definition_list_is_identity_under_format() {
+        use crate::format::Format;
+        use crate::{FormatConfig, format_text};
+
+        let cfg = FormatConfig {
+            format: Format::Rst,
+            max_width: 0,
+            ..Default::default()
+        };
+        let input = "Term\n   Definition sentence.\n";
+        let out = format_text(input, &cfg).unwrap();
+        assert_eq!(
+            out, input,
+            "definition list must stay identity, got:\n{out}"
+        );
     }
 
     #[test]
