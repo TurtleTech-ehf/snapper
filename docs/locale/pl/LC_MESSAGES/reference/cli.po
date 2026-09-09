@@ -211,19 +211,66 @@ msgstr ""
 "Ścieżka do niestandardowego pliku modelu ONNX dla wykrywania neuronowego."
 " Nadpisuje ``--lang``."
 
-#: ../../source/reference/cli.rst:114
+#: ../../source/reference/cli.rst:182
 msgid "``--use-pandoc``"
 msgstr ""
 
-#: ../../source/reference/cli.rst:116
-msgid ""
-"Use pandoc as the parser backend instead of built-in parsers. Requires "
-"pandoc on PATH. Enables support for typst, asciidoc, docx, html, and all "
-"other pandoc-supported formats. Falls back silently if pandoc is "
-"unavailable (unless this flag is explicit)."
+#: ../../source/reference/cli.rst:184
+msgid "Require the pandoc path (auto FFI, then CLI)."
 msgstr ""
 
-#: ../../source/reference/cli.rst:122
+#: ../../source/reference/cli.rst:185
+msgid ""
+"Parse may use in-process FFI when ``libsnapper_pandoc`` loads; the writer "
+"still needs ``pandoc`` on ``PATH`` (``libsnapper_pandoc`` is reader-only) "
+"unless that library exports a writer."
+msgstr ""
+
+#: ../../source/reference/cli.rst:186
+msgid "Without FFI, both parse and write use the ``pandoc`` CLI."
+msgstr ""
+
+#: ../../source/reference/cli.rst:187
+msgid "A missing binary is an explicit error (never silent all-prose)."
+msgstr ""
+
+#: ../../source/reference/cli.rst:188
+msgid ""
+"Enables support for typst, asciidoc, docx, html, and all other pandoc-"
+"supported formats."
+msgstr ""
+
+#: ../../source/reference/cli.rst:189
+msgid ""
+"The default (omit this flag) already uses pandoc when an FFI writer or "
+"``pandoc`` on ``PATH`` is available."
+msgstr ""
+
+#: ../../source/reference/cli.rst:194
+msgid "``--native``"
+msgstr ""
+
+#: ../../source/reference/cli.rst:196
+msgid ""
+"Force today's native line parsers (markdown / org / rst / latex / "
+"plaintext)."
+msgstr ""
+
+#: ../../source/reference/cli.rst:197
+msgid "Conflicts with ``--use-pandoc``."
+msgstr ""
+
+#: ../../source/reference/cli.rst:198
+msgid ""
+"Use this when you want source-oriented splice instead of the pandoc "
+"writer."
+msgstr ""
+
+#: ../../source/reference/cli.rst:199
+msgid "Editors, wasm, and LSP stay native even without this flag."
+msgstr ""
+
+#: ../../source/reference/cli.rst:216
 msgid "``--config <PATH>``"
 msgstr "``--config <ŚCIEŻKA>``"
 

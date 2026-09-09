@@ -79,7 +79,29 @@ msgstr "Sformatuj w miejscu:"
 msgid "Pipe through stdin (for editor integration):"
 msgstr "Prześlij przez stdin (dla integracji z edytorem):"
 
-#: ../../source/tutorials/quickstart.rst:69
+#: ../../source/tutorials/quickstart.rst:82
+msgid ""
+"The CLI uses pandoc (auto FFI, then CLI) when an FFI writer or ``pandoc`` "
+"on ``PATH`` is available."
+msgstr ""
+
+#: ../../source/tutorials/quickstart.rst:83
+msgid "Otherwise it keeps the native line parsers (no error)."
+msgstr ""
+
+#: ../../source/tutorials/quickstart.rst:84
+msgid "Pass ``--native`` to force today's parsers."
+msgstr ""
+
+#: ../../source/tutorials/quickstart.rst:85
+msgid "Pass ``--use-pandoc`` to require pandoc (error if missing)."
+msgstr ""
+
+#: ../../source/tutorials/quickstart.rst:86
+msgid "Editors, wasm, and LSP stay native."
+msgstr ""
+
+#: ../../source/tutorials/quickstart.rst:90
 msgid "What it does"
 msgstr "Co robi"
 

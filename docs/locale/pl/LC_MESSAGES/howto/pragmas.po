@@ -109,7 +109,7 @@ msgstr ""
 msgid "Interaction with other features"
 msgstr "Interakcja z innymi funkcjami"
 
-#: ../../source/howto/pragmas.rst:97
+#: ../../source/howto/pragmas.rst:123
 msgid ""
 "Pragmas take priority over all other parsing. Inside an off region, no "
 "sentence splitting, no format-aware parsing, and no abbreviation handling"
@@ -120,3 +120,17 @@ msgstr ""
 "Wewnątrz regionu wyłączonego nie następuje podział zdań, parser "
 "rozpoznający format ani obsługa skrótów. Same linie komentarzy pragm "
 "zawsze przechodzą jako struktura."
+
+#: ../../source/howto/pragmas.rst:128
+msgid ""
+"The pandoc path keeps ``snapper:off`` / ``snapper:on`` in the written "
+"output (the reader would otherwise delete them)."
+msgstr ""
+
+#: ../../source/howto/pragmas.rst:129
+msgid "Off-region text is shielded so it is not reflowed."
+msgstr ""
+
+#: ../../source/howto/pragmas.rst:130
+msgid "Pass ``--native`` to force today's line parsers."
+msgstr ""

@@ -107,7 +107,7 @@ msgstr ""
 msgid "Interaction with other features"
 msgstr "Samspil við aðra eiginleika"
 
-#: ../../source/howto/pragmas.rst:97
+#: ../../source/howto/pragmas.rst:123
 msgid ""
 "Pragmas take priority over all other parsing. Inside an off region, no "
 "sentence splitting, no format-aware parsing, and no abbreviation handling"
@@ -118,3 +118,17 @@ msgstr ""
 "fer engin setningaskipting, engin sniðmeðvituð þáttun og engin "
 "meðhöndlun skammstafana fram. Forskriftaathugasemdarlínurnar sjálfar "
 "fara alltaf í gegn sem bygging."
+
+#: ../../source/howto/pragmas.rst:128
+msgid ""
+"The pandoc path keeps ``snapper:off`` / ``snapper:on`` in the written "
+"output (the reader would otherwise delete them)."
+msgstr ""
+
+#: ../../source/howto/pragmas.rst:129
+msgid "Off-region text is shielded so it is not reflowed."
+msgstr ""
+
+#: ../../source/howto/pragmas.rst:130
+msgid "Pass ``--native`` to force today's line parsers."
+msgstr ""

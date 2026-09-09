@@ -51,11 +51,24 @@ msgstr ""
 msgid "Pandoc 2.x or 3.x must be installed and on your PATH. Verify with:"
 msgstr ""
 
-#: ../../source/howto/pandoc-backend.rst:25
+#: ../../source/howto/pandoc-backend.rst:48
 msgid ""
-"When pandoc is not available, snapper falls back to its built-in parsers "
-"silently. If you explicitly pass ``--use-pandoc`` and pandoc is missing, "
-"snapper reports an error."
+"The CLI default uses pandoc when an FFI writer or ``pandoc`` on ``PATH`` "
+"is available."
+msgstr ""
+
+#: ../../source/howto/pandoc-backend.rst:49
+msgid "Otherwise it keeps the native line parsers (no error, no silent all-prose)."
+msgstr ""
+
+#: ../../source/howto/pandoc-backend.rst:50
+msgid ""
+"With ``--use-pandoc``, a missing or failing pandoc is an explicit error "
+"(no silent all-prose)."
+msgstr ""
+
+#: ../../source/howto/pandoc-backend.rst:51
+msgid "Pass ``--native`` to force today's line parsers."
 msgstr ""
 
 #: ../../source/howto/pandoc-backend.rst:29
