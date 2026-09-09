@@ -19,7 +19,7 @@ impl FormatParser for RstParser {
 }
 
 /// Line-based RST parser. Handles directives, literal blocks, sections,
-/// field lists, comments, and tables as structure regions.
+/// field lists, comments, tables, and definition lists as structure regions.
 fn parse_line_based(input: &str) -> Vec<SpannedRegion> {
     let mut regions = Vec::new();
     let mut current_prose = String::new();
@@ -28,6 +28,8 @@ fn parse_line_based(input: &str) -> Vec<SpannedRegion> {
     let mut literal_indent: usize = 0;
     let mut in_directive = false;
     let mut directive_indent: usize = 0;
+    let mut in_definition = false;
+    let mut definition_indent: usize = 0;
     let mut pragma_off = false;
 
     // Code-block directive bookkeeping. Mutually exclusive with `in_directive`.
@@ -136,6 +138,18 @@ fn parse_line_based(input: &str) -> Vec<SpannedRegion> {
             regions.push(SpannedRegion::blank(input, line.span()));
             i += 1;
             continue;
+        }
+
+        // Inside a definition-list body (indented lines after a flush term).
+        // Blanks already fell through above so they stay BlankLines.
+        if in_definition {
+            let leading = line_text.len() - line_text.trim_start().len();
+            if leading >= definition_indent {
+                regions.push(SpannedRegion::structure(input, line.span()));
+                i += 1;
+                continue;
+            }
+            in_definition = false;
         }
 
         // RST code-block directive (.. code-block:: LANG)
@@ -263,6 +277,18 @@ fn parse_line_based(input: &str) -> Vec<SpannedRegion> {
             }
         }
 
+        // Definition list: flush term plus an immediately indented definition.
+        // Without this both lines are Prose and splice joins them.
+        if is_definition_term(&lines, i) {
+            flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
+            regions.push(SpannedRegion::structure(input, line.span()));
+            let next = lines[i + 1].text;
+            definition_indent = next.len() - next.trim_start().len();
+            in_definition = true;
+            i += 1;
+            continue;
+        }
+
         // Regular prose
         push_prose_line(&mut current_prose, &mut prose_span, line, true, true);
         i += 1;
@@ -364,6 +390,23 @@ fn is_simple_table_border(line: &str) -> bool {
         }
     }
     saw_space_between && groups >= 2
+}
+
+/// True when `lines[i]` is a definition-list term: the next physical line
+/// is non-blank and indented further than this one. RST forbids a blank
+/// between term and definition.
+fn is_definition_term(lines: &[Line<'_>], i: usize) -> bool {
+    let next = match lines.get(i + 1) {
+        Some(line) => line.text,
+        None => return false,
+    };
+    if next.trim().is_empty() {
+        return false;
+    }
+    let line = lines[i].text;
+    let indent = line.len() - line.trim_start().len();
+    let next_indent = next.len() - next.trim_start().len();
+    next_indent > indent
 }
 
 /// Last line of a simple table starting at `start`, if a later `=` border
@@ -512,6 +555,53 @@ mod tests {
         let input = "=====  =====\nName   Value\n=====  =====\nA      B\n=====  =====\n";
         let out = format_text(input, &cfg).unwrap();
         assert_eq!(out, input, "simple table must stay identity, got:\n{out}");
+    }
+
+    #[test]
+    fn definition_list_term_and_body_are_structure() {
+        let input = "Term\n   Definition sentence.\n";
+        let regions = RstParser.parse(input);
+        assert!(
+            regions
+                .iter()
+                .any(|r| matches!(r, Region::Structure(s) if s.contains("Term"))),
+            "term must be Structure, got {regions:?}"
+        );
+        assert!(
+            regions
+                .iter()
+                .any(|r| matches!(r, Region::Structure(s) if s.contains("Definition"))),
+            "definition must be Structure, got {regions:?}"
+        );
+        assert!(
+            !regions.iter().any(|r| {
+                matches!(r, Region::Prose(s) if s.contains("Term") || s.contains("Definition"))
+            }),
+            "definition list must not be Prose, got {regions:?}"
+        );
+    }
+
+    #[test]
+    fn reporter_definition_list_is_identity_under_format() {
+        use crate::format::Format;
+        use crate::{FormatConfig, format_text};
+
+        let cfg = FormatConfig {
+            format: Format::Rst,
+            max_width: 0,
+            ..Default::default()
+        };
+        let input = "Term\n   Definition sentence.\n";
+        let out = format_text(input, &cfg).unwrap();
+        assert_eq!(out, input, "definition list must stay identity, got:\n{out}");
+        assert!(
+            out.starts_with("Term\n"),
+            "term must stay at column 0, got:\n{out}"
+        );
+        assert!(
+            out.contains("\n   Definition sentence."),
+            "definition must keep indent, got:\n{out}"
+        );
     }
 
     #[test]
