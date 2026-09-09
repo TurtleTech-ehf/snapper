@@ -2,7 +2,8 @@ use regex::Regex;
 use std::sync::LazyLock;
 
 use crate::parser::{
-    ByteSpan, FormatParser, Line, SpannedRegion, flush_prose_spanned, iter_lines, push_prose_line,
+    ByteSpan, FormatParser, Line, Region, SpannedRegion, flush_prose_spanned, iter_lines,
+    push_prose_line,
 };
 
 /// Match `.. code-block:: LANG` or `.. sourcecode:: LANG` (or `.. code:: LANG`).
@@ -313,20 +314,39 @@ fn parse_line_based(input: &str) -> Vec<SpannedRegion> {
             continue;
         }
 
-        // List continuation paragraph: after a list item, a later line
-        // indented to the hang (two spaces after `- `) is still the item.
-        // Hang spaces are Structure so splice does not outdent them.
+        // List continuation: after a list item, a later line indented
+        // to the hang (two spaces after `- `) is still the item.
+        // A blank before it is a new paragraph: hang spaces stay
+        // Structure so splice does not outdent them. Compact wrap
+        // (no blank) is the same paragraph; join into the open Prose
+        // so a reflow hang reparses as the source list item.
         if let Some(hang) = list_hang {
             let leading = line_text.len() - line_text.trim_start().len();
             if leading >= hang {
-                flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
-                regions.push(SpannedRegion::structure(
-                    input,
-                    ByteSpan::new(line.start, line.start + leading),
-                ));
-                if line_text.len() > leading {
+                let after_blank = regions
+                    .last()
+                    .is_some_and(|r| matches!(r.region, Region::BlankLines(_)));
+                if after_blank {
+                    flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
+                    regions.push(SpannedRegion::structure(
+                        input,
+                        ByteSpan::new(line.start, line.start + leading),
+                    ));
+                    if line_text.len() > leading {
+                        current_prose.push_str(line_text[leading..].trim());
+                        prose_span = Some(ByteSpan::new(line.start + leading, line.end));
+                    }
+                } else if line_text.len() > leading {
+                    if !current_prose.is_empty() {
+                        current_prose.push(' ');
+                    }
                     current_prose.push_str(line_text[leading..].trim());
-                    prose_span = Some(ByteSpan::new(line.start + leading, line.end));
+                    match prose_span.as_mut() {
+                        Some(span) => span.end = line.end,
+                        None => {
+                            prose_span = Some(ByteSpan::new(line.start + leading, line.end));
+                        }
+                    }
                 }
                 i += 1;
                 continue;
@@ -731,6 +751,65 @@ mod tests {
                 .iter()
                 .any(|r| { matches!(r, Region::Prose(s) if s.contains("Second sentence.")) }),
             "continuation text must be Prose, got {regions:?}"
+        );
+    }
+
+    #[test]
+    fn compact_list_hang_joins_into_one_prose_region() {
+        let input = "* One.\n  Two.\n";
+        let regions = RstParser.parse(input);
+        assert!(
+            regions
+                .iter()
+                .any(|r| matches!(r, Region::Structure(s) if s == "* ")),
+            "marker must be Structure, got {regions:?}"
+        );
+        let prose: Vec<_> = regions
+            .iter()
+            .filter_map(|r| match r {
+                Region::Prose(s) => Some(s.as_str()),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(
+            prose,
+            ["One. Two."],
+            "compact hang must join into one Prose, got {regions:?}"
+        );
+        assert!(
+            !regions
+                .iter()
+                .any(|r| matches!(r, Region::Structure(s) if s == "  ")),
+            "compact hang must not be Structure, got {regions:?}"
+        );
+    }
+
+    #[test]
+    fn starred_quote_list_item_is_idempotent_and_oracle() {
+        use crate::format::Format;
+        use crate::oracle;
+        use crate::{FormatConfig, format_text};
+
+        let cfg = FormatConfig {
+            format: Format::Rst,
+            max_width: 0,
+            ..Default::default()
+        }
+        .without_safety_backstops();
+        let input = "* a*'*'. A.";
+        let out = format_text(input, &cfg).expect("format_text");
+        let twice = format_text(&out, &cfg).expect("second pass");
+        assert_eq!(
+            out, twice,
+            "not idempotent:\n first={out:?}\n second={twice:?}"
+        );
+        assert_eq!(
+            out, "* a*'*'.\n  A.",
+            "list wrap must hang at marker width, got:\n{out}"
+        );
+        assert!(
+            oracle::matches(Format::Rst, input, &out),
+            "oracle mismatch\n in={input:?}\n out={out:?}"
         );
     }
 

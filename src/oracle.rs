@@ -341,6 +341,13 @@ mod tests {
             "- One.\n  Two.\n"
         ));
         assert!(matches(Format::Org, "- One. Two.\n", "- One.\n  Two.\n"));
+        assert!(matches(Format::Rst, "- One. Two.\n", "- One.\n  Two.\n"));
+        assert!(matches(Format::Rst, "* One. Two.\n", "* One.\n  Two.\n"));
+        assert!(matches(Format::Rst, "* a*'*'. A.", "* a*'*'.\n  A."));
+        assert!(
+            !matches(Format::Rst, "* One. Two.\n", "* One.\n\n  Two.\n"),
+            "a blank is a new paragraph, not a hang"
+        );
     }
 
     #[test]
