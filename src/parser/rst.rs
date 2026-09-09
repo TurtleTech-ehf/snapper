@@ -363,11 +363,32 @@ fn parse_line_based(input: &str) -> Vec<SpannedRegion> {
 
 /// True when `trimmed` is an RST comment opener, not a `.. name::` directive.
 /// Bare `..` (no trailing space) is a valid opener; so is `.. text`.
-fn is_rst_comment_opener(trimmed: &str) -> bool {
+pub(crate) fn is_rst_comment_opener(trimmed: &str) -> bool {
     if trimmed.contains("::") {
         return false;
     }
     trimmed == ".." || trimmed.starts_with(".. ") || trimmed.starts_with("..\t")
+}
+
+/// Comment openers pandoc's RST reader drops (zero blocks). Hyperlink
+/// targets (`.. _name:`) and footnotes (`.. [1]`) start with `..` but
+/// survive the reader, so they are not a drop.
+pub(crate) fn is_rst_dropped_comment_opener(trimmed: &str) -> bool {
+    if !is_rst_comment_opener(trimmed) {
+        return false;
+    }
+    let after = trimmed.strip_prefix("..").unwrap_or("").trim_start();
+    if after.is_empty() {
+        return true;
+    }
+    !after.starts_with('_') && !after.starts_with('[')
+}
+
+/// Source has an RST `..` comment that `pandoc -f rst` would delete.
+pub(crate) fn source_has_dropped_rst_comments(input: &str) -> bool {
+    input
+        .lines()
+        .any(|line| is_rst_dropped_comment_opener(line.trim_start()))
 }
 
 /// Byte length of a compact RST list opener on `line`, including the
@@ -803,6 +824,21 @@ mod tests {
         assert!(!is_rst_comment_opener(".. note::"));
         assert!(!is_rst_comment_opener("..."));
         assert!(!is_rst_comment_opener("Hello"));
+    }
+
+    #[test]
+    fn dropped_comment_excludes_targets_and_footnotes() {
+        assert!(is_rst_dropped_comment_opener(".."));
+        assert!(is_rst_dropped_comment_opener(".. This is a comment."));
+        assert!(source_has_dropped_rst_comments(
+            "..\n   First sentence.\n   Second sentence.\n"
+        ));
+        assert!(!is_rst_dropped_comment_opener(".. _label:"));
+        assert!(!is_rst_dropped_comment_opener(".. [1]"));
+        assert!(!is_rst_dropped_comment_opener(".. note::"));
+        assert!(!source_has_dropped_rst_comments(
+            "Hello world. Second sentence.\n\n.. _label:\n\n.. note::\n   Body.\n"
+        ));
     }
 
     #[test]

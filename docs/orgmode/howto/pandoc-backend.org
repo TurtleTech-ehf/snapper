@@ -86,6 +86,6 @@ The two paths are different pipelines, not two ways to fake the same source line
 :CUSTOM_ID: limitations
 :END:
 
-- Pandoc strips comments, so =snapper:off= / =snapper:on= pragmas do not work on the pandoc path
+- Pandoc's reader deletes comments (RST =..= comments, HTML comments) and therefore =snapper:off= / =snapper:on=. =--use-pandoc= refuses with an explicit error instead of writing the stripped document and exiting 0. Use the native parser (omit =--use-pandoc=) to keep that text.
 - Round-trip is through the AST (not a perfect source-preserving rewrite of every markup character)
 - FFI library is optional; wasm/editor bundles do not embed GHC/pandoc
