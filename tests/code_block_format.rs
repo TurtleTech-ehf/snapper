@@ -52,7 +52,7 @@ fn fixture_with_formatter(argv: &[&str]) -> TempDir {
 fn run_snapper(input: &str, dir: &Path, extra_args: &[&str]) -> std::process::Output {
     let mut cmd = snapper_binary();
     cmd.current_dir(dir);
-    cmd.args(["--format", "markdown", "--format-code"]);
+    cmd.args(["--native", "--format", "markdown", "--format-code"]);
     cmd.args(extra_args);
     cmd.stdin(Stdio::piped())
         .stdout(Stdio::piped())
@@ -73,7 +73,7 @@ fn run_snapper(input: &str, dir: &Path, extra_args: &[&str]) -> std::process::Ou
 fn run_snapper_no_format(input: &str, dir: &Path) -> std::process::Output {
     let mut cmd = snapper_binary();
     cmd.current_dir(dir);
-    cmd.args(["--format", "markdown"]);
+    cmd.args(["--native", "--format", "markdown"]);
     cmd.stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());

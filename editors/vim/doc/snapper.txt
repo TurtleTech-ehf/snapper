@@ -66,11 +66,11 @@ COMMANDS                                      *snapper-commands*
 INTEGRATION                                  *snapper-integration*
 
 The plugin automatically sets formatprg for supported filetypes:
-- org: snapper --format org
-- tex: snapper --format latex
-- markdown: snapper --format markdown
-- rst: snapper --format rst
-- plaintex: snapper --format plaintex
+- org: snapper --native --format org
+- tex: snapper --native --format latex
+- markdown: snapper --native --format markdown
+- rst: snapper --native --format rst
+- plaintex: snapper --native --format plaintex
 
 This enables formatting with gq operator in normal mode.
 

@@ -87,6 +87,11 @@ Pipe through stdin (for editor integration):
 #+begin_src bash
 cat draft.org | snapper --format org
 #+end_src
+The CLI uses pandoc (auto FFI, then CLI) when an FFI writer or =pandoc= on =PATH= is available.
+Otherwise it keeps the native line parsers (no error).
+Pass =--native= to force today's parsers.
+Pass =--use-pandoc= to require pandoc (error if missing).
+Editors, wasm, and LSP stay native.
 Check formatting without modifying (for CI):
 #+begin_src bash
 snapper --check paper.org paper.tex notes.md
@@ -163,7 +168,7 @@ Configuration guide (org source in-tree): =docs/orgmode/howto/mcp-integration.or
 :END:
 #+begin_src elisp
 (with-eval-after-load 'apheleia
-  (push '(snapper . ("snapper" "--format" "org")) apheleia-formatters)
+  (push '(snapper . ("snapper" "--native" "--format" "org")) apheleia-formatters)
   (push '(org-mode . snapper) apheleia-mode-alist))
 #+end_src
 ** VS Code

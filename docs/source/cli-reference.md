@@ -49,8 +49,9 @@ Semantic line break formatter
 * `--neural` — Use neural sentence detection (nnsplit LSTM model)
 * `--lang <LANG>` — Language for neural sentence detection (default: en). Available: en, de, fr, no, sv, zh, tr, ru, uk
 * `--model-path <MODEL_PATH>` — Path to custom ONNX model file for neural detection
-* `--use-pandoc` — Use pandoc as parser backend (universal format support). RST `..` comments and `snapper:off` / `snapper:on` are written through so the output still contains that text. Parse may use in-process FFI; the writer still needs `pandoc` on PATH (`libsnapper_pandoc` is reader-only) unless that library exports a writer. Without FFI, both parse and write use the `pandoc` CLI (explicit error if missing)
-* `--pandoc-backend <BACKEND>` — Pandoc AST source when `--use-pandoc` is set: `auto` (prefer in-process FFI, else CLI), `ffi` (`libsnapper_pandoc`), or `cli` (`pandoc` subprocess). Default: `auto`. `ffi` fails explicitly if the library is missing. The writer still needs `pandoc` on PATH (no silent spawn surprise)
+* `--use-pandoc` — Force the pandoc path (auto FFI then CLI). Errors if FFI and `pandoc` on PATH are both missing (no silent all-prose). The default (omit this flag) already uses pandoc when an FFI writer or `pandoc` on PATH is available. RST `..` comments and `snapper:off` / `snapper:on` are written through so the output still contains that text. Parse may use in-process FFI; the writer still needs `pandoc` on PATH (`libsnapper_pandoc` is reader-only) unless that library exports a writer
+* `--native` — Force today's native line parsers (markdown/org/rst/latex/plaintext). The default (omit this flag) uses pandoc when an FFI writer or `pandoc` on PATH is available; otherwise it keeps these parsers (no error, no silent all-prose). Editors, wasm, and LSP stay native
+* `--pandoc-backend <BACKEND>` — Pandoc AST source when the pandoc path is used: `auto` (prefer in-process FFI, else CLI), `ffi` (`libsnapper_pandoc`), or `cli` (`pandoc` subprocess). Default: `auto`. `ffi` fails explicitly if the library is missing. The writer still needs `pandoc` on PATH (no silent spawn surprise)
 
   Default value: `auto`
 * `--check` — Exit with code 1 if any file would change

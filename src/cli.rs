@@ -93,17 +93,26 @@ pub struct Cli {
     #[arg(long)]
     pub model_path: Option<PathBuf>,
 
-    /// Use pandoc as parser backend (universal format support).
+    /// Force the pandoc path (auto FFI then CLI).
+    /// Errors if FFI and `pandoc` on PATH are both missing (no silent
+    /// all-prose). The default (omit this flag) already uses pandoc when
+    /// an FFI writer or `pandoc` on PATH is available.
     /// RST `..` comments and `snapper:off` / `snapper:on` are written
     /// through so the output still contains that text.
     /// Parse may use in-process FFI; the writer still needs `pandoc` on PATH
     /// (`libsnapper_pandoc` is reader-only) unless that library exports a
-    /// writer. Without FFI, both parse and write use the `pandoc` CLI
-    /// (explicit error if missing).
-    #[arg(long)]
+    /// writer.
+    #[arg(long, conflicts_with = "native")]
     pub use_pandoc: bool,
 
-    /// Pandoc AST source when `--use-pandoc` is set:
+    /// Force today's native line parsers (markdown/org/rst/latex/plaintext).
+    /// The default (omit this flag) uses pandoc when an FFI writer or
+    /// `pandoc` on PATH is available; otherwise it keeps these parsers
+    /// (no error, no silent all-prose). Editors, wasm, and LSP stay native.
+    #[arg(long, conflicts_with = "use_pandoc")]
+    pub native: bool,
+
+    /// Pandoc AST source when the pandoc path is used:
     /// `auto` (prefer in-process FFI, else CLI), `ffi` (`libsnapper_pandoc`),
     /// or `cli` (`pandoc` subprocess). Default: `auto`.
     /// `ffi` fails explicitly if the library is missing.
@@ -207,6 +216,37 @@ pub enum Commands {
     },
 }
 
+impl Cli {
+    /// Whether this invocation should take the pandoc write path.
+    ///
+    /// `--native` forces today's line parsers. `--use-pandoc` requires
+    /// pandoc (error if missing). With neither flag, use pandoc when an
+    /// FFI writer or `pandoc` on PATH is available, else native.
+    pub fn resolve_use_pandoc(&self) -> bool {
+        if self.native {
+            false
+        } else if self.use_pandoc {
+            true
+        } else {
+            Self::default_use_pandoc()
+        }
+    }
+
+    /// CLI default (no `--native` / `--use-pandoc`): pandoc when the
+    /// write path can complete, else native. Library/wasm/LSP stay
+    /// `FormatConfig::default().use_pandoc == false`.
+    pub fn default_use_pandoc() -> bool {
+        #[cfg(feature = "pandoc")]
+        {
+            crate::parser::pandoc::pandoc_default_available()
+        }
+        #[cfg(not(feature = "pandoc"))]
+        {
+            false
+        }
+    }
+}
+
 /// Parse a range string "START:END" into (start, end) 1-indexed inclusive.
 pub fn parse_range(s: &str) -> Option<(usize, usize)> {
     let parts: Vec<&str> = s.split(':').collect();
@@ -224,6 +264,7 @@ pub fn parse_range(s: &str) -> Option<(usize, usize)> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use clap::Parser;
 
     #[test]
     fn parse_range_valid() {
@@ -252,5 +293,39 @@ mod tests {
         assert_eq!(parse_range("a:b"), None);
         assert_eq!(parse_range(":5"), None);
         assert_eq!(parse_range("5:"), None);
+    }
+
+    #[test]
+    fn resolve_use_pandoc_native_wins() {
+        let cli = Cli::parse_from(["snapper", "--native"]);
+        assert!(cli.native);
+        assert!(!cli.use_pandoc);
+        assert!(!cli.resolve_use_pandoc());
+    }
+
+    #[test]
+    fn resolve_use_pandoc_explicit_flag() {
+        let cli = Cli::parse_from(["snapper", "--use-pandoc"]);
+        assert!(cli.use_pandoc);
+        assert!(!cli.native);
+        assert!(cli.resolve_use_pandoc());
+    }
+
+    #[test]
+    fn resolve_use_pandoc_default_matches_runtime() {
+        let cli = Cli::parse_from(["snapper"]);
+        assert!(!cli.native);
+        assert!(!cli.use_pandoc);
+        assert_eq!(cli.resolve_use_pandoc(), Cli::default_use_pandoc());
+    }
+
+    #[test]
+    fn native_conflicts_with_use_pandoc() {
+        let err = Cli::try_parse_from(["snapper", "--native", "--use-pandoc"]).unwrap_err();
+        let text = err.to_string();
+        assert!(
+            text.contains("cannot be used with") || text.contains("conflict"),
+            "expected clap conflict, got: {text}"
+        );
     }
 }

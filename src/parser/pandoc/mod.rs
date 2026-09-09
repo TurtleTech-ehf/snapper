@@ -108,8 +108,16 @@ pub enum PandocError {
     Ast(String),
     /// Backstop: write-through deleted an RST `..` comment or a
     /// `snapper:off` / `snapper:on` that the shield failed to restore.
-    #[error("pandoc path would drop {0}; omit --use-pandoc to keep comments and snapper pragmas")]
+    #[error("pandoc path would drop {0}; pass --native to keep comments and snapper pragmas")]
     DropsComments(String),
+}
+
+/// Whether the CLI default can run the pandoc path without erroring.
+///
+/// True when an in-process FFI writer is loaded or `pandoc` is on PATH.
+/// Reader-only FFI without PATH is not enough (write would fail).
+pub fn pandoc_default_available() -> bool {
+    ffi_write_available() || pandoc_available()
 }
 
 /// Parse input with the selected backend and classify via the pandoc AST.
@@ -427,7 +435,7 @@ mod tests {
     fn default_use_pandoc_is_false() {
         assert!(
             !crate::FormatConfig::default().use_pandoc,
-            "native path stays default (snapper-32ps owns any flip)"
+            "library/wasm/LSP stay native; CLI default is snapper-32ps"
         );
     }
 

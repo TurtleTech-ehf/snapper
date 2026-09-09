@@ -12,7 +12,7 @@ function! snapper#check()
     return
   endif
 
-  let l:output = system('snapper --check ' . shellescape(expand('%')))
+  let l:output = system('snapper --native --check ' . shellescape(expand('%')))
   if v:shell_error == 0
     echo 'Snapper: file is already formatted'
   else

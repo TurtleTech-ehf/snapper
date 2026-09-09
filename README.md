@@ -122,6 +122,11 @@ Pipe through stdin (for editor integration):
 
     cat draft.org | snapper --format org
 
+The CLI uses pandoc (auto FFI, then CLI) when an FFI writer or `pandoc` on `PATH` is available.
+Otherwise it keeps the native line parsers (no error).
+Pass `--native` to force today's parsers.
+Pass `--use-pandoc` to require pandoc (error if missing).
+Editors, wasm, and LSP stay native.
 Check formatting without modifying (for CI):
 
     snapper --check paper.org paper.tex notes.md
@@ -137,7 +142,6 @@ With the default unlimited width this inserts a newline after every such mark th
 
 With `--max-width` set, overflowing sentences prefer those marks.
 A one-clause sentence stays one line.
-
 Preview changes as a unified diff before committing:
 
     snapper --diff paper.org
@@ -244,7 +248,7 @@ Configuration guide (org source in-tree): `docs/orgmode/howto/mcp-integration.or
 ## Emacs (Apheleia)
 
     (with-eval-after-load 'apheleia
-      (push '(snapper . ("snapper" "--format" "org")) apheleia-formatters)
+      (push '(snapper . ("snapper" "--native" "--format" "org")) apheleia-formatters)
       (push '(org-mode . snapper) apheleia-mode-alist))
 
 
@@ -342,14 +346,14 @@ Drop a `.snapperrc.toml` in your project root:
     format = "org"
     max_width = 0
     clause_breaks = false
-
+    
     [latex]
     verbatim_envs = ["Verbatim"]
     structure_envs = ["algorithm", "comment"]
     verbatim_commands = ["Verb"]
 
-`snapper` walks up from the current directory to find it.
 Missing `[latex]` keys keep the built-in minted/lstlisting/verbatim, equation/figure, and verb/lstinline lists.
+`snapper` walks up from the current directory to find it.
 
 
 <a id="documentation"></a>

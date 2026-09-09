@@ -51,7 +51,7 @@ function M.create_commands()
       return
     end
     vim.cmd("silent update")
-    local output = vim.fn.system({ M.config.cmd, "--check", filename })
+    local output = vim.fn.system({ M.config.cmd, "--native", "--check", filename })
     if vim.v.shell_error == 0 then
       vim.notify("[snapper] File is already formatted", vim.log.levels.INFO)
     else
