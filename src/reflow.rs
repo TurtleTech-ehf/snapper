@@ -807,6 +807,10 @@ fn hanging_prefix(s: &str) -> String {
     if is_quote_marker(s) {
         return s.to_string();
     }
+    // RST list continuation paragraphs emit the hang spaces as Structure.
+    if !s.is_empty() && !s.contains('\n') && s.bytes().all(|b| b == b' ') {
+        return s.to_string();
+    }
     let width = hanging_indent_width(s);
     if width > 0 {
         " ".repeat(width)
@@ -960,6 +964,8 @@ mod tests {
         assert_eq!(hanging_prefix("  > "), "  > ");
         assert_eq!(hanging_prefix("- "), "  ");
         assert_eq!(hanging_prefix("1. "), "   ");
+        assert_eq!(hanging_prefix("  "), "  ");
+        assert_eq!(hanging_indent_width("  "), 0);
         assert_eq!(hanging_indent_width("> "), 0);
         assert_eq!(hanging_indent_width("- "), 2);
     }
@@ -1398,6 +1404,8 @@ They are endowed with reason and conscience and should act towards one another i
         assert_eq!(hanging_prefix("  > "), "  > ");
         assert_eq!(hanging_prefix("- "), "  ");
         assert_eq!(hanging_prefix("1. "), "   ");
+        assert_eq!(hanging_prefix("  "), "  ");
+        assert_eq!(hanging_indent_width("  "), 0);
         assert_eq!(hanging_indent_width("\n"), 0);
         assert_eq!(hanging_indent_width("#+TITLE: Test\n"), 0);
         assert_eq!(hanging_indent_width("$x$"), 0);
@@ -1413,6 +1421,16 @@ They are endowed with reason and conscience and should act towards one another i
             Region::Structure("\n".to_string()),
         ]);
         assert_eq!(result, "- One.\n  Two.\n");
+    }
+
+    #[test]
+    fn space_hang_structure_continues_sentences() {
+        let result = reflow_regions(vec![
+            Region::Structure("  ".to_string()),
+            Region::Prose("Second. Third.".to_string()),
+            Region::Structure("\n".to_string()),
+        ]);
+        assert_eq!(result, "  Second.\n  Third.\n");
     }
 
     #[test]
