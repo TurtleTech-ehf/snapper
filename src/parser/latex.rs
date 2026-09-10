@@ -44,8 +44,28 @@ static LSTLISTING_LANG_RE: LazyLock<Regex> = LazyLock::new(|| {
 });
 
 /// Built-in source-code environments whose body is `Region::Code`.
+///
+/// Beyond minted/lstlisting/verbatim: latexindent `fileContentsEnvironments`
+/// (`filecontents`, `filecontents*`) and tree-sitter-latex raw trivia envs
+/// (`asy`, `asydef`, `pycode`, `luacode`, `luacode*`, `sagesilent`,
+/// `sageblock`) plus fancyvrb `verbatim*`.
 fn is_builtin_code_env(name: &str) -> bool {
-    matches!(name, "minted" | "lstlisting" | "verbatim")
+    matches!(
+        name,
+        "minted"
+            | "lstlisting"
+            | "verbatim"
+            | "verbatim*"
+            | "filecontents"
+            | "filecontents*"
+            | "asy"
+            | "asydef"
+            | "pycode"
+            | "luacode"
+            | "luacode*"
+            | "sagesilent"
+            | "sageblock"
+    )
 }
 
 static DISPLAY_MATH_OPEN: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^\s*\\\[").unwrap());
@@ -1663,6 +1683,179 @@ Some text.
         assert!(
             oracle::matches(Format::Latex, input, &out),
             "oracle mismatch\n in={input:?}\n out={out:?}"
+        );
+    }
+
+    #[test]
+    fn filecontents_fixture_file_is_code_not_prose() {
+        let input = include_str!("../../tests/fixtures/filecontents.tex");
+        let regions = LatexParser::default().parse(input);
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Code { body, .. }
+                    if body.contains("must not reflow as prose inside filecontents")
+            )),
+            "tests/fixtures/filecontents.tex body must be Code, got: {regions:?}"
+        );
+        assert!(
+            !regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(p) if p.contains("inside filecontents")
+            )),
+            "filecontents fixture must not be Prose, got: {regions:?}"
+        );
+    }
+
+    #[test]
+    fn pycode_fixture_file_is_code_not_prose() {
+        let input = include_str!("../../tests/fixtures/pycode.tex");
+        let regions = LatexParser::default().parse(input);
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Code { body, .. }
+                    if body.contains("must not reflow as prose inside pycode")
+            )),
+            "tests/fixtures/pycode.tex body must be Code, got: {regions:?}"
+        );
+        assert!(
+            !regions
+                .iter()
+                .any(|r| matches!(r, Region::Prose(p) if p.contains("inside pycode"))),
+            "pycode fixture must not be Prose, got: {regions:?}"
+        );
+    }
+
+    /// Ticket fixture: filecontents / pycode must be Code, not reflowed prose.
+    #[test]
+    fn filecontents_and_pycode_fixtures_are_code_not_prose() {
+        use crate::format_text;
+
+        let input = concat!(
+            "\\begin{filecontents}{x.tex}\n",
+            "This is a long sentence that must not reflow as prose inside filecontents.\n",
+            "\\end{filecontents}\n",
+            "\n",
+            "\\begin{pycode}\n",
+            "This is a long sentence that must not reflow as prose inside pycode.\n",
+            "\\end{pycode}\n",
+        );
+        let regions = LatexParser::default().parse(input);
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Code { body, .. }
+                    if body.contains("must not reflow as prose inside filecontents")
+            )),
+            "filecontents body must be Code, got: {regions:?}"
+        );
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Code { body, .. }
+                    if body.contains("must not reflow as prose inside pycode")
+            )),
+            "pycode body must be Code, got: {regions:?}"
+        );
+        assert!(
+            !regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(p)
+                    if p.contains("inside filecontents") || p.contains("inside pycode")
+            )),
+            "filecontents/pycode bodies must not be Prose, got: {regions:?}"
+        );
+        let out = format_text(input, &latex_cfg()).unwrap();
+        assert!(
+            out.contains(
+                "This is a long sentence that must not reflow as prose inside filecontents."
+            ),
+            "filecontents body must stay intact, got:\n{out}"
+        );
+        assert!(
+            out.contains("This is a long sentence that must not reflow as prose inside pycode."),
+            "pycode body must stay intact, got:\n{out}"
+        );
+        assert_eq!(format_text(&out, &latex_cfg()).unwrap(), out);
+    }
+
+    #[test]
+    fn filecontents_and_trivia_env_two_sentences_do_not_reflow() {
+        use crate::format_text;
+
+        let names = [
+            "filecontents*",
+            "verbatim*",
+            "asy",
+            "asydef",
+            "luacode",
+            "luacode*",
+            "sagesilent",
+            "sageblock",
+        ];
+        for name in names {
+            let input = format!(
+                "\\begin{{{name}}}\nFirst line. Second line.\n\\end{{{name}}}\nAfter the block. Next.\n"
+            );
+            let regions = LatexParser::default().parse(&input);
+            assert!(
+                regions.iter().any(|r| matches!(
+                    r,
+                    Region::Code { body, .. } if body.contains("First line. Second line.")
+                )),
+                "{name} body must be Code, got: {regions:?}"
+            );
+            assert!(
+                !regions
+                    .iter()
+                    .any(|r| matches!(r, Region::Prose(p) if p.contains("First line"))),
+                "{name} body must not leak into Prose, got: {regions:?}"
+            );
+            let out = format_text(&input, &latex_cfg()).unwrap();
+            assert!(
+                out.contains("First line. Second line."),
+                "{name} body must not reflow, got:\n{out}"
+            );
+            assert!(
+                !out.contains("First line.\nSecond line."),
+                "{name} must stay verbatim, got:\n{out}"
+            );
+            assert!(
+                out.contains("After the block.\nNext."),
+                "prose after {name} must still reflow, got:\n{out}"
+            );
+            assert_eq!(format_text(&out, &latex_cfg()).unwrap(), out);
+        }
+    }
+
+    #[test]
+    fn filecontents_required_filename_stays_on_begin() {
+        let input = "\\begin{filecontents}{x.tex}\nFirst line. Second line.\n\\end{filecontents}\n";
+        let regions = LatexParser::default().parse(input);
+        let code = regions.iter().find_map(|r| match r {
+            Region::Code {
+                header,
+                body,
+                footer,
+                ..
+            } => Some((header.as_str(), body.as_str(), footer.as_str())),
+            _ => None,
+        });
+        let Some((header, body, footer)) = code else {
+            panic!("filecontents must be Code, got: {regions:?}");
+        };
+        assert!(
+            header.contains(r"\begin{filecontents}{x.tex}"),
+            "filename arg must stay on the begin header, got header={header:?}"
+        );
+        assert!(
+            body.contains("First line. Second line."),
+            "filecontents body must keep both sentences, got body={body:?}"
+        );
+        assert!(
+            footer.contains(r"\end{filecontents}"),
+            "footer must be \\end{{filecontents}}, got footer={footer:?}"
         );
     }
 }
