@@ -2717,6 +2717,22 @@ mod tests {
             "double-backtick literal must stay split, got:\n{out}"
         );
         assert_eq!(format_text(&out, &cfg).unwrap(), out);
+
+        let suffix = "The task is in `README.md`:file:.\nUse this section for questions.\n";
+        let out = format_text(suffix, &cfg).unwrap();
+        assert_eq!(
+            out, suffix,
+            "suffix role closer must stay two lines, got:\n{out}"
+        );
+        assert_eq!(format_text(&out, &cfg).unwrap(), out);
+
+        let same_line = "The task is in `README.md`:file:. Use this section for questions.\n";
+        let out = format_text(same_line, &cfg).unwrap();
+        assert_eq!(
+            out, suffix,
+            "same-line suffix role closer must split, got:\n{out}"
+        );
+        assert_eq!(format_text(&out, &cfg).unwrap(), out);
     }
 
     #[test]
