@@ -2126,4 +2126,31 @@ mod tests {
         );
         assert_eq!(format_text(&out, &org_cfg()).unwrap(), out);
     }
+
+    /// Ticket fixture (Format::Org / GitHub #112): org-element 5.5
+    /// citations are atomic so `p.` inside the object is not a boundary.
+    fn org_cite_locator_fixture() -> &'static str {
+        "See [cite/t:see;@foo p. 7;@bar pp. 4;by foo]. Next sentence.\n"
+    }
+
+    #[test]
+    fn org_cite_locator_p_dot_is_not_a_sentence_boundary() {
+        use crate::format_text;
+
+        let input = org_cite_locator_fixture();
+        let out = format_text(input, &org_cfg()).unwrap();
+        assert!(
+            out.contains("[cite/t:see;@foo p. 7;@bar pp. 4;by foo]"),
+            "citation object must stay intact, got:\n{out}"
+        );
+        assert!(
+            !out.contains("[cite/t:see;@foo p.\n"),
+            "must not split on p. inside the citation, got:\n{out}"
+        );
+        assert!(
+            out.contains("See [cite/t:see;@foo p. 7;@bar pp. 4;by foo].\nNext sentence."),
+            "sentence after the citation must still reflow, got:\n{out}"
+        );
+        assert_eq!(format_text(&out, &org_cfg()).unwrap(), out);
+    }
 }

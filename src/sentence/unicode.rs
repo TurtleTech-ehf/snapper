@@ -16,12 +16,15 @@ static INLINE_TOKEN_RE: LazyLock<Regex> = LazyLock::new(|| {
         &[
             r"\[\[[^\]]*\]\]",           // Org links: [[url]] or [[url][desc]]
             r"\[\[[^\]]*\]\[[^\]]*\]\]", // Org links with desc
-            r"\[[^\]]+\]\([^)]+\)",      // Markdown links: [text](url)
-            r"!\[[^\]]*\]\([^)]+\)",     // Markdown images: ![alt](url)
-            r"\$\$[^$\n]+\$\$",          // Display math: $$...$$
-            r"\$[^$\n]+\$",              // Inline math: $...$
-            r"\\\([^\\\n]+\\\)",         // LaTeX inline math: \(...\)
-            r"\\([a-zA-Z]+)\{[^}]*\}",   // LaTeX commands: \cmd{arg}
+            // Org-element 5.5 citations: [cite/style:@key p. 7]. Atomic so
+            // locator abbreviations inside the object are not sentence ends.
+            r"\[cite(?:/[^\]:\n]+)?:[^\]\n]*\]",
+            r"\[[^\]]+\]\([^)]+\)",    // Markdown links: [text](url)
+            r"!\[[^\]]*\]\([^)]+\)",   // Markdown images: ![alt](url)
+            r"\$\$[^$\n]+\$\$",        // Display math: $$...$$
+            r"\$[^$\n]+\$",            // Inline math: $...$
+            r"\\\([^\\\n]+\\\)",       // LaTeX inline math: \(...\)
+            r"\\([a-zA-Z]+)\{[^}]*\}", // LaTeX commands: \cmd{arg}
             // Org emphasis must be protected before sentence splits so a line
             // cannot begin with `*rest` (false headline) or leave markers open.
             // Org requires a non-space immediately after the opener and before
@@ -583,7 +586,7 @@ fn find_md_code_span(text: &str, open_at: usize) -> Option<usize> {
 }
 
 /// Byte ranges of inline tokens that wrapping must not split (links, images,
-/// inline code, autolinks, math, Org `[[...]]`, paired spans).
+/// inline code, autolinks, math, Org `[[...]]`, Org `[cite...]`, paired spans).
 ///
 /// Ranges are half-open `[start, end)`, sorted, non-overlapping, and merged
 /// when a regex match wraps a paired span.
@@ -1354,6 +1357,25 @@ mod tests {
     }
 
     #[test]
+    fn inline_org_cite_locator_not_split() {
+        let text = "See [cite/t:see;@foo p. 7;@bar pp. 4;by foo]. Next sentence.";
+        let (_, placeholders) = protect_inline_tokens(text);
+        assert!(
+            placeholders
+                .iter()
+                .any(|p| p == "[cite/t:see;@foo p. 7;@bar pp. 4;by foo]"),
+            "org-element citation must be an atomic token, got {placeholders:?}"
+        );
+        assert_eq!(
+            split(text),
+            vec![
+                "See [cite/t:see;@foo p. 7;@bar pp. 4;by foo].".to_string(),
+                "Next sentence.".to_string(),
+            ]
+        );
+    }
+
+    #[test]
     fn inline_math_preserved() {
         assert_eq!(
             split("The value $x = 3.14$ matters. Next sentence."),
@@ -1390,7 +1412,7 @@ mod tests {
 
     #[test]
     fn atomic_inline_spans_cover_wrap_tokens() {
-        let text = "See [the example site](https://ex.com) and `some long code` plus $E = m$ and [[https://example.com][the example site]] and <https://ex.com/a>.";
+        let text = "See [the example site](https://ex.com) and `some long code` plus $E = m$ and [[https://example.com][the example site]] and [cite/t:@foo p. 7] and <https://ex.com/a>.";
         let spans = atomic_inline_spans(text);
         let tokens: Vec<&str> = spans.iter().map(|&(s, e)| &text[s..e]).collect();
         assert!(
@@ -1409,6 +1431,10 @@ mod tests {
                 .iter()
                 .any(|t| *t == "[[https://example.com][the example site]]"),
             "org link: {tokens:?}"
+        );
+        assert!(
+            tokens.iter().any(|t| *t == "[cite/t:@foo p. 7]"),
+            "org cite: {tokens:?}"
         );
         assert!(
             tokens.iter().any(|t| *t == "<https://ex.com/a>"),
