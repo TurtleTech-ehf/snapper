@@ -584,7 +584,35 @@ fn org_opens_block(line: &str) -> bool {
     if t.starts_with("$$") {
         return true;
     }
+    if org_drawer_begin(t) || org_fixed_width(t) || org_horizontal_rule(t) {
+        return true;
+    }
     ordered_list_start(t)
+}
+
+/// org-element drawer opener: `:NAME:` with NAME=`[A-Za-z_-]+`, not `:END:`.
+fn org_drawer_begin(line: &str) -> bool {
+    let t = line.trim();
+    let Some(name) = t.strip_prefix(':').and_then(|s| s.strip_suffix(':')) else {
+        return false;
+    };
+    !name.is_empty()
+        && name
+            .bytes()
+            .all(|b| b.is_ascii_alphabetic() || b == b'_' || b == b'-')
+        && !name.eq_ignore_ascii_case("END")
+}
+
+/// org-element fixed-width: colon then a space, or a lone colon.
+fn org_fixed_width(line: &str) -> bool {
+    let t = line.trim_start_matches([' ', '\t']);
+    t == ":" || t.starts_with(": ")
+}
+
+/// org-element horizontal rule: five or more hyphens.
+fn org_horizontal_rule(line: &str) -> bool {
+    let t = line.trim();
+    t.len() >= 5 && t.bytes().all(|b| b == b'-')
 }
 
 fn latex_opens_block(line: &str) -> bool {
