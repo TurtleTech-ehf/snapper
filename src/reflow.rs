@@ -587,7 +587,21 @@ fn org_opens_block(line: &str) -> bool {
     if org_drawer_begin(t) || org_fixed_width(t) || org_horizontal_rule(t) {
         return true;
     }
+    if org_planning_or_clock(t) {
+        return true;
+    }
     ordered_list_start(t)
+}
+
+/// org-element planning (`DEADLINE:`/`SCHEDULED:`/`CLOSED:`) and clock.
+/// Wrap must not invent these at column 0 (same class as `*` / `|`).
+fn org_planning_or_clock(line: &str) -> bool {
+    let t = line.trim_start();
+    let upper = t.to_ascii_uppercase();
+    upper.starts_with("DEADLINE:")
+        || upper.starts_with("SCHEDULED:")
+        || upper.starts_with("CLOSED:")
+        || upper.starts_with("CLOCK:")
 }
 
 /// org-element drawer opener: `:NAME:` with NAME=`[A-Za-z_-]+`, not `:END:`.
@@ -2226,6 +2240,19 @@ They are endowed with reason and conscience and should act towards one another i
             result.contains("apples |"),
             "Org skip-cut keeps the pipe:\n{result}"
         );
+    }
+
+    #[test]
+    fn wrap_created_org_planning_or_clock_is_not_a_block() {
+        for token in ["DEADLINE:", "SCHEDULED:", "CLOSED:", "CLOCK:"] {
+            let input = format!("The options are apples {token} extra words here.");
+            let result = wrap_fmt(&input, 23, crate::format::Format::Org);
+            assert_no_col0_block(&result, &[token]);
+            assert!(
+                result.contains(&format!("apples {token}")),
+                "Org skip-cut keeps {token} on the previous line:\n{result}"
+            );
+        }
     }
 
     #[test]
