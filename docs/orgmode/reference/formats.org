@@ -73,7 +73,7 @@ These tokens within prose are not split across lines:
 - Non-prose environments: equation, align, figure, table, tabular, tikzpicture, and their starred variants (plus other non-code envs)
 - Extra names from =[latex].structure_envs= in =.snapperrc.toml= (for example =algorithm=)
 - Display math: =\[...\]=
-- =\iffalse= ... =\fi= (tree-sitter =block_comment=)
+- =\iffalse= through =\fi= (tree-sitter =block_comment=)
 - Comment lines (starting with =%=)
 - =\end{document}=
 - Full sectioning command lines (=\section{...}=, =\subsection{...}=, and friends, including title text)
