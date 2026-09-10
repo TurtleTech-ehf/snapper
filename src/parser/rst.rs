@@ -348,7 +348,18 @@ fn parse_line_based(input: &str) -> Vec<SpannedRegion> {
         // List item: marker is Structure so `1. First` does not split
         // after `1.`, and each item is its own region so adjacent
         // bullets are not glued onto one line.
+        //
+        // Docutils opens a list only after a blank, a structure line,
+        // or the start of the document. A list-like line that follows
+        // an open paragraph with no blank stays in that paragraph
+        // (GitHub #134). Once a list is open (`list_hang`), the next
+        // marker is the next item.
         if let Some(marker_len) = rst_list_marker_len(line_text) {
+            if !current_prose.is_empty() && list_hang.is_none() {
+                push_prose_line(&mut current_prose, &mut prose_span, line, true, true);
+                i += 1;
+                continue;
+            }
             flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
             list_hang = Some(marker_len);
             // A next line indented past the hang is a definition of this
@@ -1480,6 +1491,80 @@ mod tests {
                 )
             }),
             "definition inside a list item must not join as Prose, got {regions:?}"
+        );
+    }
+
+    /// GitHub #134 / snapper-7rgg: `* ` after a paragraph with no blank
+    /// is still that paragraph, not a list.
+    fn compact_listlike_paragraph() -> &'static str {
+        concat!(
+            "Topics include:\n",
+            "* Product requirements - what pages exist? What functionality lives on them?\n",
+            "* Technical requirements\n",
+        )
+    }
+
+    #[test]
+    fn compact_listlike_prose_joins_into_one_paragraph() {
+        let input = compact_listlike_paragraph();
+        let regions = RstParser.parse(input);
+        let prose: Vec<_> = regions
+            .iter()
+            .filter_map(|r| match r {
+                Region::Prose(s) => Some(s.as_str()),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(
+            prose,
+            [concat!(
+                "Topics include: * Product requirements - what pages exist? What functionality lives on them?\n",
+                "* Technical requirements",
+            )],
+            "compact list-like lines must stay one Prose paragraph, got {regions:?}"
+        );
+        assert!(
+            !regions
+                .iter()
+                .any(|r| matches!(r, Region::Structure(s) if s.contains('*'))),
+            "must not invent a list marker Structure, got {regions:?}"
+        );
+    }
+
+    #[test]
+    fn compact_listlike_prose_does_not_invent_a_list() {
+        use crate::format::Format;
+        use crate::oracle;
+        use crate::{FormatConfig, format_text};
+
+        let cfg = FormatConfig {
+            format: Format::Rst,
+            max_width: 0,
+            ..Default::default()
+        };
+        let input = compact_listlike_paragraph();
+        let out = format_text(input, &cfg).unwrap();
+        assert_eq!(
+            out,
+            concat!(
+                "Topics include: * Product requirements - what pages exist?\n",
+                "What functionality lives on them?\n",
+                "* Technical requirements\n",
+            ),
+            "must stay one paragraph and not hang a list, got:\n{out}"
+        );
+        assert!(
+            !out.contains("\n  What functionality"),
+            "must not invent list hang, got:\n{out}"
+        );
+        let twice = format_text(&out, &cfg).unwrap();
+        assert_eq!(
+            out, twice,
+            "compact list-like paragraph must be identity, got:\n{twice}"
+        );
+        assert!(
+            oracle::matches(Format::Rst, input, &out),
+            "oracle mismatch\n in={input:?}\n out={out:?}"
         );
     }
 
