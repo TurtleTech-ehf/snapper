@@ -865,3 +865,203 @@ fn hard_break_then_indented_setext_does_not_split_first_title_line() {
         "body Prose must still split, got:\n{out}"
     );
 }
+
+/// snapper-705k / snapper-u5ku: quoted multi-line list plus `> =======`
+/// is outside the item. Hung `>   =======` stays a heading.
+#[test]
+fn quoted_multiline_list_column0_underline_is_not_setext() {
+    let input = concat!(
+        "> - Foo is the first title line. Still title.\n",
+        ">   Bar is the second title line.\n",
+        "> =======\n",
+        "\n",
+        "Body after setext. Second body.\n",
+    );
+    let regions = MarkdownParser.parse(input);
+    assert!(
+        regions.iter().any(|r| matches!(
+            r,
+            Region::Prose(p) if p.contains("Still title") || p.contains("Foo is the first")
+        )),
+        "quoted list plus > ======= must stay Prose, got: {regions:?}"
+    );
+    let out = format_text(input, &md_cfg()).unwrap();
+    assert!(
+        out.contains("first title line.\n"),
+        "Foo must still split, got:\n{out}"
+    );
+    assert!(
+        out.contains("Body after setext.\nSecond body."),
+        "body Prose must still split, got:\n{out}"
+    );
+
+    let hung = concat!(
+        "> - Foo is the first title line. Still title.\n",
+        ">   Bar is the second title line.\n",
+        ">   =======\n",
+    );
+    let hung_regions = MarkdownParser.parse(hung);
+    assert!(
+        !hung_regions.iter().any(|r| matches!(
+            r,
+            Region::Prose(p) if p.contains("Still title") || p.contains("Bar is the second")
+        )),
+        "hung quoted list setext must not be Prose: {hung_regions:?}"
+    );
+}
+
+/// snapper-cydz: four spaces or a tab before `>` is not a quote marker.
+#[test]
+fn four_space_or_tab_quoted_underline_is_not_setext() {
+    let four = concat!(
+        "> Foo is the first title line. Still title.\n",
+        "    > =======\n",
+        "\n",
+        "Body after setext. Second body.\n",
+    );
+    let regions = MarkdownParser.parse(four);
+    assert!(
+        regions.iter().any(|r| matches!(
+            r,
+            Region::Prose(p) if p.contains("Still title") || p.contains("Foo is the first")
+        )),
+        "4-space > ======= must stay quote Prose, got: {regions:?}"
+    );
+    let out = format_text(four, &md_cfg()).unwrap();
+    assert!(
+        out.contains("first title line.\n"),
+        "Foo must still split, got:\n{out}"
+    );
+    assert!(
+        out.contains("Body after setext.\nSecond body."),
+        "body Prose must still split, got:\n{out}"
+    );
+
+    let multi = concat!(
+        "> Foo is the first title line. Still title.\n",
+        "> Bar is the second title line.\n",
+        "    > =======\n",
+    );
+    let multi_regions = MarkdownParser.parse(multi);
+    assert!(
+        multi_regions.iter().any(|r| matches!(
+            r,
+            Region::Prose(p) if p.contains("Still title") || p.contains("Bar is the second")
+        )),
+        "4-space underline after two title lines must stay Prose, got: {multi_regions:?}"
+    );
+
+    let tab = concat!(
+        "> Foo is the first title line. Still title.\n",
+        "\t> =======\n",
+    );
+    let tab_regions = MarkdownParser.parse(tab);
+    assert!(
+        tab_regions.iter().any(|r| matches!(
+            r,
+            Region::Prose(p) if p.contains("Still title") || p.contains("Foo is the first")
+        )),
+        "tab-prefixed > ======= must stay quote Prose, got: {tab_regions:?}"
+    );
+
+    let three = concat!(
+        "> Foo is the first title line. Still title.\n",
+        "   > =======\n",
+    );
+    let three_regions = MarkdownParser.parse(three);
+    assert!(
+        !three_regions.iter().any(|r| matches!(
+            r,
+            Region::Prose(p) if p.contains("Still title") || p.contains("Foo is the first")
+        )),
+        "3-space > ======= is a real closer, got: {three_regions:?}"
+    );
+}
+
+/// snapper-qvjl: nested `>>` mid-title closes the outer quote paragraph.
+#[test]
+fn nested_quote_opener_mid_title_promotes_only_inner_setext() {
+    let input = concat!(
+        "> Foo is the first title line. Still title.\n",
+        ">> Bar is the second title line.\n",
+        ">> Baz is the third title line.\n",
+        ">> =======\n",
+        "\n",
+        "Body after setext. Second body.\n",
+    );
+    let regions = MarkdownParser.parse(input);
+    assert!(
+        regions.iter().any(|r| matches!(
+            r,
+            Region::Prose(p) if p.contains("Still title") || p.contains("Foo is the first")
+        )),
+        "outer Foo must stay Prose, got: {regions:?}"
+    );
+    assert!(
+        !regions.iter().any(|r| matches!(
+            r,
+            Region::Prose(p) if p.contains("Bar is the second") || p.contains("Baz is the third")
+        )),
+        "inner Bar+Baz must not stay Prose: {regions:?}"
+    );
+    assert!(
+        regions.iter().any(|r| matches!(
+            r,
+            Region::Structure(s) if s.contains("Bar is the second title line.")
+        )),
+        "Bar must be Structure, got: {regions:?}"
+    );
+    assert!(
+        regions.iter().any(|r| matches!(
+            r,
+            Region::Structure(s) if s.contains("Baz is the third title line.")
+        )),
+        "Baz must be Structure, got: {regions:?}"
+    );
+    let out = format_text(input, &md_cfg()).unwrap();
+    assert!(
+        out.contains("first title line.\n"),
+        "Foo must still split, got:\n{out}"
+    );
+    assert!(
+        out.contains("Body after setext.\nSecond body."),
+        "body Prose must still split, got:\n{out}"
+    );
+}
+
+/// snapper-qvjl: quoted list opener mid-title closes the outer quote.
+#[test]
+fn quoted_list_opener_mid_title_promotes_only_list_setext() {
+    let input = concat!(
+        "> Foo is quoted. Still quoted.\n",
+        "> - Bar is the first title. Still title.\n",
+        ">   Baz is the second title.\n",
+        ">   =======\n",
+        "\n",
+        "Body after setext. Second body.\n",
+    );
+    let regions = MarkdownParser.parse(input);
+    assert!(
+        regions.iter().any(|r| matches!(
+            r,
+            Region::Prose(p) if p.contains("Foo is quoted") || p.contains("Still quoted")
+        )),
+        "outer Foo must stay Prose, got: {regions:?}"
+    );
+    assert!(
+        !regions.iter().any(|r| matches!(
+            r,
+            Region::Prose(p) if p.contains("Bar is the first") || p.contains("Baz is the second")
+        )),
+        "list Bar+Baz must not stay Prose: {regions:?}"
+    );
+    let out = format_text(input, &md_cfg()).unwrap();
+    assert!(
+        out.contains("Foo is quoted.\n"),
+        "Foo must still split, got:\n{out}"
+    );
+    assert!(
+        out.contains("Body after setext.\nSecond body."),
+        "body Prose must still split, got:\n{out}"
+    );
+}
