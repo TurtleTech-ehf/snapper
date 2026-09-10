@@ -490,8 +490,9 @@ fn parse_line_based(input: &str) -> Vec<SpannedRegion> {
         // (no blank) is the same paragraph; join into the open Prose
         // so a reflow hang reparses as the source list item.
         // A join_prose_gap newline after `No.` / `etc.`, an open quote,
-        // or an open `(` stays in that Prose; reflow repeats the hang on
-        // those continuation lines (GitHub #129, #130, #131).
+        // an open `(`, or an open RST inline literal stays in that
+        // Prose; reflow repeats the hang on those continuation lines
+        // (GitHub #129, #130, #131, #143).
         // Empty current_prose after a nested Structure block (directive)
         // is a new hung paragraph, not a compact join (GitHub #135).
         if let Some(hang) = list_hang {
@@ -1911,6 +1912,36 @@ mod tests {
     }
 
     #[test]
+    fn compact_open_literal_list_hang_joins_into_one_prose_region() {
+        let input = concat!(
+            "- The error is ``not valid.\n",
+            "  Choose from: one, two`` and continue.\n",
+            "  A separate sentence.\n",
+        );
+        let regions = RstParser.parse(input);
+        let prose: Vec<_> = regions
+            .iter()
+            .filter_map(|r| match r {
+                Region::Prose(s) => Some(s.as_str()),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(
+            prose,
+            [
+                "The error is ``not valid.\nChoose from: one, two`` and continue.\nA separate sentence."
+            ],
+            "compact open-literal hang must join into one Prose, got {regions:?}"
+        );
+        assert!(
+            !regions
+                .iter()
+                .any(|r| matches!(r, Region::Structure(s) if s == "  ")),
+            "compact open-literal hang must not be Structure, got {regions:?}"
+        );
+    }
+
+    #[test]
     fn compact_open_paren_list_hang_joins_into_one_prose_region() {
         let input = concat!(
             "- Ordering (smaller indices mean higher priority.\n",
@@ -1969,6 +2000,55 @@ mod tests {
         assert_eq!(
             out, twice,
             "hung open-quote list must be identity, got:\n{twice}"
+        );
+        assert!(
+            oracle::matches(Format::Rst, input, &out),
+            "oracle mismatch\n in={input:?}\n out={out:?}"
+        );
+    }
+
+    #[test]
+    fn reporter_open_literal_list_continuation_keeps_two_space_hang() {
+        use crate::format::Format;
+        use crate::oracle;
+        use crate::{FormatConfig, format_text};
+
+        let cfg = FormatConfig {
+            format: Format::Rst,
+            max_width: 0,
+            ..Default::default()
+        }
+        .without_safety_backstops();
+        let input = concat!(
+            "- The error is ``not valid.\n",
+            "  Choose from: one, two`` and continue.\n",
+            "  A separate sentence.\n",
+        );
+        let out = format_text(input, &cfg).unwrap();
+        assert_eq!(
+            out, input,
+            "open-literal list continuation must keep two-space hang, got:\n{out}"
+        );
+        assert!(
+            out.contains("\n  Choose from: one, two`` and continue."),
+            "continuation inside the open literal must stay hung, got:\n{out}"
+        );
+        assert!(
+            out.contains("\n  A separate sentence."),
+            "following sentence in the same item must stay hung, got:\n{out}"
+        );
+        assert!(
+            !out.contains("\nChoose from: one, two"),
+            "must not outdent inside the open inline literal, got:\n{out}"
+        );
+        assert!(
+            !out.contains("\nA separate sentence."),
+            "must not outdent the following sentence, got:\n{out}"
+        );
+        let twice = format_text(&out, &cfg).unwrap();
+        assert_eq!(
+            out, twice,
+            "hung open-literal list must be identity, got:\n{twice}"
         );
         assert!(
             oracle::matches(Format::Rst, input, &out),
