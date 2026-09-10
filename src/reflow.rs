@@ -856,13 +856,15 @@ fn hanging_indent_width(s: &str) -> usize {
         return 0;
     }
     // Parser markers are `core` plus one trailing space; leading indent is
-    // part of the hang so nested `   - ` continues at column 5.
+    // part of the hang so nested `   - ` continues at column 5. RST `#.`
+    // is an auto-enumerator (GitHub #60); digits-only would miss it.
     let core = &trimmed[..trimmed.len() - 1];
     let is_bullet = matches!(core, "-" | "*" | "+");
+    let is_rst_autoenum = core == "#.";
     let is_ordered = (core.ends_with('.') || core.ends_with(')'))
         && core.len() > 1
         && core[..core.len() - 1].bytes().all(|b| b.is_ascii_digit());
-    if is_bullet || is_ordered {
+    if is_bullet || is_ordered || is_rst_autoenum {
         s.chars().count()
     } else {
         0
@@ -980,10 +982,12 @@ mod tests {
         assert_eq!(hanging_prefix("  > "), "  > ");
         assert_eq!(hanging_prefix("- "), "  ");
         assert_eq!(hanging_prefix("1. "), "   ");
+        assert_eq!(hanging_prefix("#. "), "   ");
         assert_eq!(hanging_prefix("  "), "  ");
         assert_eq!(hanging_indent_width("  "), 0);
         assert_eq!(hanging_indent_width("> "), 0);
         assert_eq!(hanging_indent_width("- "), 2);
+        assert_eq!(hanging_indent_width("#. "), 3);
     }
 
     #[test]
@@ -1411,6 +1415,7 @@ They are endowed with reason and conscience and should act towards one another i
         assert_eq!(hanging_indent_width("1. "), 3);
         assert_eq!(hanging_indent_width("10. "), 4);
         assert_eq!(hanging_indent_width("1) "), 3);
+        assert_eq!(hanging_indent_width("#. "), 3);
         assert_eq!(hanging_indent_width("   - "), 5);
         // Quotes are a prefix hang, not a space-hang bullet.
         assert_eq!(hanging_indent_width("> "), 0);
@@ -1420,6 +1425,7 @@ They are endowed with reason and conscience and should act towards one another i
         assert_eq!(hanging_prefix("  > "), "  > ");
         assert_eq!(hanging_prefix("- "), "  ");
         assert_eq!(hanging_prefix("1. "), "   ");
+        assert_eq!(hanging_prefix("#. "), "   ");
         assert_eq!(hanging_prefix("  "), "  ");
         assert_eq!(hanging_indent_width("  "), 0);
         assert_eq!(hanging_indent_width("\n"), 0);
@@ -1457,6 +1463,16 @@ They are endowed with reason and conscience and should act towards one another i
             Region::Structure("\n".to_string()),
         ]);
         assert_eq!(result, "1. One.\n   Two.\n");
+    }
+
+    #[test]
+    fn rst_autoenum_list_hanging_indent() {
+        let result = reflow_regions(vec![
+            Region::Structure("#. ".to_string()),
+            Region::Prose("First sentence. Second sentence.".to_string()),
+            Region::Structure("\n".to_string()),
+        ]);
+        assert_eq!(result, "#. First sentence.\n   Second sentence.\n");
     }
 
     #[test]

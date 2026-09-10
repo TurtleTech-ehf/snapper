@@ -909,6 +909,53 @@ mod tests {
     }
 
     #[test]
+    fn reporter_enumerated_item_second_sentence_hangs_at_marker_width() {
+        use crate::format::Format;
+        use crate::oracle;
+        use crate::{FormatConfig, format_text};
+
+        let cfg = FormatConfig {
+            format: Format::Rst,
+            max_width: 0,
+            ..Default::default()
+        };
+        let input = "#. First sentence. Second sentence.\n";
+        let out = format_text(input, &cfg).unwrap();
+        assert_eq!(
+            out, "#. First sentence.\n   Second sentence.\n",
+            "second sentence must hang at `#. ` width, got:\n{out}"
+        );
+        let twice = format_text(&out, &cfg).unwrap();
+        assert_eq!(
+            out, twice,
+            "hung enumerated item must be identity, got:\n{twice}"
+        );
+        assert!(
+            oracle::matches(Format::Rst, input, &out),
+            "oracle mismatch\n in={input:?}\n out={out:?}"
+        );
+
+        // Bullet hang from #51 stays.
+        let bullet = "* First sentence. Second sentence.\n";
+        let bullet_out = format_text(bullet, &cfg).unwrap();
+        assert_eq!(
+            bullet_out, "* First sentence.\n  Second sentence.\n",
+            "bullet hang must stay, got:\n{bullet_out}"
+        );
+        let bullet_twice = format_text(&bullet_out, &cfg).unwrap();
+        assert_eq!(
+            bullet_out, bullet_twice,
+            "hung bullet must be identity, got:\n{bullet_twice}"
+        );
+        let blank_hang = "- First sentence.\n\n  Second sentence.\n";
+        let blank_out = format_text(blank_hang, &cfg).unwrap();
+        assert_eq!(
+            blank_out, blank_hang,
+            "list continuation hang from #51 must stay, got:\n{blank_out}"
+        );
+    }
+
+    #[test]
     fn comment_opener_and_body_are_structure() {
         let input = "..\n   First sentence.\n   Second sentence.\n";
         let regions = RstParser.parse(input);
