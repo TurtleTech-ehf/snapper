@@ -169,11 +169,45 @@ fn line_indent(line: &str) -> usize {
     line.len() - line.trim_start().len()
 }
 
+/// Payload after one or more CommonMark `>` markers. Space after `>` is
+/// optional so `>``` is a quoted fence opener. `None` when the line is
+/// not quote-prefixed.
+fn after_blockquote_markers(line: &str) -> Option<&str> {
+    let indent = line_indent(line);
+    let mut rest = &line[indent..];
+    if !rest.starts_with('>') {
+        return None;
+    }
+    while let Some(after) = rest.strip_prefix('>') {
+        rest = after.strip_prefix(' ').unwrap_or(after);
+    }
+    Some(rest)
+}
+
+/// Line used for fence opener/closer/lang. Quoted openers scan after `>`.
+fn fence_scan_line(line: &str, quoted_opener: bool) -> &str {
+    if quoted_opener {
+        after_blockquote_markers(line).unwrap_or(line)
+    } else {
+        line
+    }
+}
+
 /// Closing fence: same marker char, length at least the opener, indent at
 /// most `max(3, opener_indent)`. CommonMark allows 0–3 spaces on a closer;
 /// list-nested openers keep their own indent so a matching 4-space closer
 /// still ends the block. Deeper inner fences stay content.
-fn is_closing_fence(line: &str, fence_marker: &str, opener_indent: usize) -> bool {
+///
+/// A quoted opener (`> ```) matches a closer after the `>` markers so the
+/// inner quote lines stay Code. An unquoted opener does not treat `> ```
+/// as a closer (that line is fence content).
+fn is_closing_fence(
+    line: &str,
+    fence_marker: &str,
+    opener_indent: usize,
+    quoted_opener: bool,
+) -> bool {
+    let line = fence_scan_line(line, quoted_opener);
     if line_indent(line) > opener_indent.max(3) {
         return false;
     }
@@ -214,6 +248,7 @@ impl FormatParser for MarkdownParser {
         let mut in_fenced_code = false;
         let mut fence_marker = String::new();
         let mut fence_indent = 0usize;
+        let mut fence_quoted = false;
         let mut code_header = ByteSpan::default();
         let mut code_body_start = 0usize;
         let mut code_lang: Option<String> = None;
@@ -299,8 +334,9 @@ impl FormatParser for MarkdownParser {
                     &mut regions,
                 );
                 flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
-                if is_closing_fence(line_text, &fence_marker, fence_indent) {
+                if is_closing_fence(line_text, &fence_marker, fence_indent, fence_quoted) {
                     in_fenced_code = false;
+                    fence_quoted = false;
                     regions.push(SpannedRegion::code(
                         input,
                         code_lang.take(),
@@ -313,8 +349,19 @@ impl FormatParser for MarkdownParser {
                 continue;
             }
 
-            // Fenced code block start
-            if let Some(caps) = FENCED_CODE_RE.captures(line_text.trim_start()) {
+            // Fenced code block start. Scan after `>` so `> ``` / `>```
+            // opens Code inside the quote (GitHub #101).
+            let quoted_rest = after_blockquote_markers(line_text);
+            let fence_open = if FENCED_CODE_RE.is_match(line_text.trim_start()) {
+                Some((line_text, false))
+            } else if let Some(rest) = quoted_rest {
+                FENCED_CODE_RE
+                    .is_match(rest.trim_start())
+                    .then_some((rest, true))
+            } else {
+                None
+            };
+            if let Some((scan, quoted)) = fence_open {
                 close_list_item(
                     &mut in_list_item,
                     &mut current_prose,
@@ -324,11 +371,15 @@ impl FormatParser for MarkdownParser {
                     &mut regions,
                 );
                 flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
+                let caps = FENCED_CODE_RE
+                    .captures(scan.trim_start())
+                    .expect("fence_open implies FENCED_CODE_RE");
                 fence_marker = caps.get(1).unwrap().as_str().to_string();
-                fence_indent = line_indent(line_text);
+                fence_indent = line_indent(scan);
+                fence_quoted = quoted;
                 in_fenced_code = true;
                 code_lang = FENCED_LANG_RE
-                    .captures(line_text.trim_start())
+                    .captures(scan.trim_start())
                     .map(|c| c.get(1).unwrap().as_str().to_string());
                 code_header = line.span();
                 code_body_start = line.end;
@@ -624,6 +675,122 @@ mod tests {
             other => panic!("expected Region::Code, got {other:?}"),
         }
         assert!(matches!(&regions[2], Region::Prose(_)));
+    }
+
+    #[test]
+    fn quoted_fence_is_code_not_prose() {
+        // GitHub #101 / snapper-bznt: FENCED_CODE_RE used to run on the raw
+        // line, so `> ``` never opened in_fenced_code and inner quote
+        // lines were Prose (sentence-split).
+        let input = concat!(
+            "> ```\n",
+            "> print(1. 2)\n",
+            "> still code. yes\n",
+            "> ```\n",
+        );
+        let regions = MarkdownParser.parse(input);
+        match &regions[0] {
+            Region::Code {
+                header,
+                body,
+                footer,
+                ..
+            } => {
+                assert_eq!(header, "> ```\n");
+                assert_eq!(body, "> print(1. 2)\n> still code. yes\n");
+                assert_eq!(footer, "> ```\n");
+            }
+            other => panic!("quoted fence must be Code, got {other:?}"),
+        }
+        assert!(
+            !regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(p) if p.contains("print") || p.contains("still code")
+            )),
+            "quoted fence body must not be Prose: {regions:?}"
+        );
+        assert_eq!(regions.len(), 1);
+    }
+
+    #[test]
+    fn quoted_fence_fixture_is_identity_under_format() {
+        use crate::format::Format;
+        use crate::{FormatConfig, format_text};
+
+        let input = concat!(
+            "> ```\n",
+            "> print(1. 2)\n",
+            "> still code. yes\n",
+            "> ```\n",
+        );
+        let mut cfg = FormatConfig {
+            format: Format::Markdown,
+            max_width: 0,
+            ..Default::default()
+        };
+        assert_eq!(format_text(input, &cfg).unwrap(), input);
+        cfg = cfg.without_safety_backstops();
+        assert_eq!(format_text(input, &cfg).unwrap(), input);
+        assert!(
+            !format_text(input, &cfg).unwrap().contains("print(1.\n"),
+            "must not sentence-split quoted fence body"
+        );
+
+        // Capital follow-up is a real UAX split; origin/main rewrites this.
+        let splitty = concat!(
+            "> ```\n",
+            "> print(1. 2)\n",
+            "> Still code. Yes.\n",
+            "> ```\n",
+        );
+        assert_eq!(format_text(splitty, &cfg).unwrap(), splitty);
+        assert!(
+            !format_text(splitty, &cfg)
+                .unwrap()
+                .contains("Still code.\n> Yes."),
+            "quoted fence body must stay literal, got:\n{}",
+            format_text(splitty, &cfg).unwrap()
+        );
+    }
+
+    #[test]
+    fn quoted_fence_space_optional_and_tilde() {
+        for input in [
+            concat!(">```\n", ">print(1. 2)\n", ">```\n"),
+            concat!("> ~~~\n", "> print(1. 2)\n", "> ~~~\n"),
+            concat!("> > ```\n", "> > print(1. 2)\n", "> > ```\n"),
+        ] {
+            let regions = MarkdownParser.parse(input);
+            assert!(
+                matches!(
+                    &regions[0],
+                    Region::Code { body, .. } if body.contains("print(1. 2)")
+                ),
+                "quoted fence must be Code, got {regions:?}"
+            );
+            assert!(
+                !regions
+                    .iter()
+                    .any(|r| matches!(r, Region::Prose(p) if p.contains("print"))),
+                "must not sentence-split quoted fence: {regions:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn unquoted_fence_keeps_quoted_inner_fence_as_body() {
+        let input = concat!("```\n", "> ```\n", "print(1. 2)\n", "```\n");
+        let regions = MarkdownParser.parse(input);
+        match &regions[0] {
+            Region::Code { body, footer, .. } => {
+                assert!(
+                    body.contains("> ```"),
+                    "quoted inner fence is content, not a closer: {body:?}"
+                );
+                assert_eq!(footer, "```\n");
+            }
+            other => panic!("expected one Code, got {other:?}"),
+        }
     }
 
     #[test]
