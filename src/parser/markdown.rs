@@ -18,16 +18,18 @@ static FENCED_CODE_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^(`{3,}|~
 static FENCED_LANG_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"^(?:`{3,}|~{3,})\s*([A-Za-z0-9_+.\-]+)").unwrap());
 
-/// CommonMark list marker: 0–3 spaces, then `-`/`*`/`+` or `1.`/`1)`, then a space.
+/// CommonMark list marker: 0–3 spaces, then `-`/`*`/`+` or 1–9 digits plus
+/// `.`/`)`, then a space. Ten or more digits is prose (spec 0.31.2 sec 5.2).
 /// Four or more spaces is indented code, not a list (spec 0.31.2 ex. 289).
 static LIST_ITEM_RE: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"^( {0,3}(?:[-*+]|\d+[.)]) )(.*)$").unwrap());
+    LazyLock::new(|| Regex::new(r"^( {0,3}(?:[-*+]|\d{1,9}[.)]) )(.*)$").unwrap());
 
 /// List-looking line at any indent (including 4+ spaces). LIST_ITEM_RE is
 /// 0–3 only; a 4-space dash is indented code, but after a blank we still
 /// need the shape so hang-relative close can hand it to snapper-tupp.
+/// Digit cap matches LIST_ITEM_RE (CommonMark 1–9).
 static LIST_LOOKING_RE: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"^[\t ]*(?:[-*+]|\d+[.)]) ").unwrap());
+    LazyLock::new(|| Regex::new(r"^[\t ]*(?:[-*+]|\d{1,9}[.)]) ").unwrap());
 
 /// Markdown blockquote prefix: optional indent plus one or more `>`
 /// each followed by an optional space (CommonMark 0.31.2 ex. 229).
@@ -1876,6 +1878,25 @@ mod tests {
                 .iter()
                 .any(|r| matches!(r, Region::Structure(s) if s.contains("with a pipe"))),
             "prose pipe must not become Structure, got {regions:?}"
+        );
+    }
+
+    #[test]
+    fn ten_digit_ordered_marker_is_prose() {
+        let input = "1234567890. This is a long sentence. Another sentence.";
+        let regions = MarkdownParser.parse(input);
+        assert!(
+            regions
+                .iter()
+                .any(|r| matches!(r, Region::Prose(p) if p.contains("1234567890."))),
+            "10-digit opener must stay Prose, got: {regions:?}"
+        );
+        assert!(
+            !regions.iter().any(|r| matches!(
+                r,
+                Region::Structure(s) if s.contains("1234567890.")
+            )),
+            "10-digit opener must not be a list Structure, got: {regions:?}"
         );
     }
 
