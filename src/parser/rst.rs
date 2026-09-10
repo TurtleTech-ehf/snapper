@@ -1749,6 +1749,29 @@ mod tests {
     }
 
     #[test]
+    fn substitution_ref_interior_punct_stays_prose() {
+        // snapper-15i9 / GitHub #233: Inliner leftover. `|fig. 1|` is
+        // still Prose (t0th); the period is not a region bound.
+        let input = "See |fig. 1| in the caption. Next sentence.\n";
+        let regions = RstParser.parse(input);
+        assert!(
+            !regions.iter().any(|r| matches!(
+                r,
+                Region::Structure(s) if s.contains("|fig. 1|")
+            )),
+            "|fig. 1| must stay Prose not Structure, got {regions:?}"
+        );
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(s)
+                    if s.contains("|fig. 1|") && s.contains("Next sentence.")
+            )),
+            "|fig. 1| and the next sentence must stay Prose, got {regions:?}"
+        );
+    }
+
+    #[test]
     fn leftover_plus_fragment_stays_structure() {
         let input = "+===+===+\n";
         let regions = RstParser.parse(input);
