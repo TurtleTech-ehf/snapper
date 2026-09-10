@@ -126,7 +126,7 @@ Periods inside inline tokens never trigger sentence breaks, regardless of abbrev
 - Org links: =[[https://example.com][Ex. Site]]=
 - LaTeX math: =$x = 3.14$=
 - LaTeX commands: =\cite{smith.2024}=
-- Markdown links: =[Example Inc.](url)=
+- Markdown links: =[Example Inc.](url)=, =[the Fourier. transform][wiki]=
 - Inline code: =~std.io.Read~=, src_bash{`path.to.file`}
 
 These tokens get replaced with safe placeholders before sentence detection and restored afterward.

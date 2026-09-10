@@ -4,6 +4,7 @@ All notable changes to this project will be documented in this file. See [conven
 - - -
 ## Unreleased (main)
 #### Bug Fixes
+- (**sentence**) Markdown reference links (`[text][ref]`, `[text][]`) stay one token so interior punctuation is not a sentence or wrap boundary (#215)
 - (**markdown**) multi-line setext titles keep every title line as structure, not just the line above the underline (#208)
 - (**latex**) treat fancyvrb `SaveVerbatim` and `VerbatimOut` as code so listing bodies do not reflow as prose (#213)
 - (**latex**) treat fancyvrb `BVerbatim` and `LVerbatim` as code so listing bodies do not reflow as prose (#209)
