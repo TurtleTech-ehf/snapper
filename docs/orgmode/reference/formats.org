@@ -116,6 +116,7 @@ These tokens within prose are not split across lines:
 - Setext headings (title line plus ====== or ------ underline)
 - List item markers (=-=, =*=, =+=, =1.=); continuation sentences hang at the marker width
 - Blockquote markers (=>= / nested => > =); continuation sentences repeat the quote prefix
+- GFM alert type markers (=[!NOTE]= / =[!TIP]= / =[!WARNING]= / =[!CAUTION]= / =[!IMPORTANT]=); the body hangs and splits like a quote
 - Hard line breaks (two trailing spaces, or a trailing backslash)
 - HTML comments (=<!-- ... -->=, including multiline); =<!-- snapper:off -->= / =<!-- snapper:on -->= remain pragmas
 - Pipe tables
