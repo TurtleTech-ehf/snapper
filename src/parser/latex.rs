@@ -132,15 +132,18 @@ static LSTLISTING_LANG_RE: LazyLock<Regex> = LazyLock::new(|| {
 /// `sageblock`) plus fancyvrb `verbatim*` / `Verbatim` / `BVerbatim` /
 /// `LVerbatim` / `SaveVerbatim` / `VerbatimOut`, moreverb
 /// `boxedverbatim`, tcolorbox `tcblisting` / `codeexample`, standard
-/// `alltt` (alltt.sty: macros still apply, line breaks stay raw), and the
-/// `comment` package env (tree-sitter `comment_environment`: raw
-/// through matching `\end{comment}`). Overleaf `verbatimEnvNames` is
-/// Verbatim, boxedverbatim, tcblisting, codeexample. fancyvrb
-/// `BVerbatim` / `LVerbatim` are the same raw class as `Verbatim`
-/// (GitHub #209). `SaveVerbatim` / `VerbatimOut` are the same
-/// `FV@Scan` class (GitHub #213). `alltt` is the same verbatim-like
-/// class (GitHub #230). listings.sty `\lstnewenvironment{lstlisting}`
+/// `alltt` (alltt.sty: macros still apply, line breaks stay raw),
+/// spverbatim.sty `spverbatim` (raw line breaks; `\spverb` is the
+/// delimiter-body twin of `\verb`), and the `comment` package env
+/// (tree-sitter `comment_environment`: raw through matching
+/// `\end{comment}`). Overleaf `verbatimEnvNames` is Verbatim,
+/// boxedverbatim, tcblisting, codeexample. fancyvrb `BVerbatim` /
+/// `LVerbatim` are the same raw class as `Verbatim` (GitHub #209).
+/// `SaveVerbatim` / `VerbatimOut` are the same `FV@Scan` class
+/// (GitHub #213). `alltt` is the same verbatim-like class
+/// (GitHub #230). listings.sty `\lstnewenvironment{lstlisting}`
 /// also defines `lstlisting*` (same raw body scan; GitHub #234).
+/// `spverbatim` is the same raw class as `verbatim` (GitHub #235).
 fn is_builtin_code_env(name: &str) -> bool {
     matches!(
         name,
@@ -158,6 +161,7 @@ fn is_builtin_code_env(name: &str) -> bool {
             | "tcblisting"
             | "codeexample"
             | "alltt"
+            | "spverbatim"
             | "filecontents"
             | "filecontents*"
             | "asy"
@@ -270,7 +274,7 @@ impl LatexParser {
     }
 
     /// Byte offset of the first `%` that is not escaped as `\%` and is not
-    /// inside `\verb` / `\lstinline` / configured verbatim commands.
+    /// inside `\verb` / `\spverb` / `\lstinline` / configured verbatim commands.
     fn unescaped_percent(&self, line: &str) -> Option<usize> {
         unescaped_percent_with(line, &self.extra_verbatim_commands)
     }
@@ -2670,6 +2674,67 @@ Some text.
                 .any(|r| matches!(r, Region::Prose(p) if p.contains("After the block"))),
             "prose after lstlisting* % closer must resume, got: {raw_regions:?}"
         );
+    }
+
+    /// Ticket fixture (GitHub #235): spverbatim.sty `spverbatim` is a
+    /// verbatim-like env. Body stays Code; `\spverb|a.b%|` is one token;
+    /// following prose still splits.
+    #[test]
+    fn spverbatim_is_code_and_spverb_stays_atomic() {
+        use crate::format_text;
+
+        let input = concat!(
+            "\\begin{spverbatim}\n",
+            "First line. Second line.\n",
+            "\\end{spverbatim}\n",
+            "See \\spverb|a.b%| please. Next.\n",
+        );
+        let regions = LatexParser::default().parse(input);
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Code { body, .. } if body.contains("First line. Second line.")
+            )),
+            "spverbatim body must be Code, got: {regions:?}"
+        );
+        assert!(
+            !regions
+                .iter()
+                .any(|r| matches!(r, Region::Prose(p) if p.contains("First line"))),
+            "spverbatim body must not leak into Prose, got: {regions:?}"
+        );
+        assert!(
+            !regions.iter().any(
+                |r| matches!(r, Region::Structure(s) if s.contains("%|") || s.trim() == "%|\n")
+            ),
+            "inner % of \\spverb|a.b%| must not be a comment, got: {regions:?}"
+        );
+        let out = format_text(input, &latex_cfg()).unwrap();
+        assert!(
+            out.contains("\\begin{spverbatim}") && out.contains("\\end{spverbatim}"),
+            "spverbatim begin/end must stay, got:\n{out}"
+        );
+        assert!(
+            out.contains("First line. Second line."),
+            "spverbatim body must stay one source line, got:\n{out}"
+        );
+        assert!(
+            !out.contains("First line.\nSecond line."),
+            "spverbatim must not reflow as prose, got:\n{out}"
+        );
+        assert!(
+            out.contains(r"\spverb|a.b%|"),
+            "spverb must stay intact, got:\n{out}"
+        );
+        assert!(
+            !out.contains("\\spverb|a.\n") && !out.contains("\\spverb|a.b%\n"),
+            "inner .% must not split the spverb, got:\n{out}"
+        );
+        assert!(
+            out.contains("See \\spverb|a.b%| please.\nNext."),
+            "prose after spverb must still split, got:\n{out}"
+        );
+        assert_eq!(format_text(&out, &latex_cfg()).unwrap(), out);
     }
 
     #[test]
