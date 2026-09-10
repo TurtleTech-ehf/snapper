@@ -26,9 +26,10 @@ static LIST_ITEM_RE: LazyLock<Regex> =
 static LIST_LOOKING_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"^[\t ]*(?:[-*+]|\d+[.)]) ").unwrap());
 
-/// Markdown blockquote prefix: optional indent plus one or more `> `.
-/// Nested `> > text` keeps the full prefix so reflow can repeat it.
-static QUOTE_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^(\s*(?:> )+)(.*)$").unwrap());
+/// Markdown blockquote prefix: optional indent plus one or more `>`
+/// with an optional space after each (CommonMark 0.31.2 ex. 229).
+/// Nested `>>text` / `> > text` keep the full prefix so reflow can repeat it.
+static QUOTE_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^(\s*(?:> ?)+)(.*)$").unwrap());
 
 /// Match a markdown table row: line whose trimmed form starts and ends with `|`.
 /// Also matches separator rows like `|---|---|`.
@@ -1153,8 +1154,10 @@ impl FormatParser for MarkdownParser {
                 }
             }
 
-            // Blockquote: emit the full `> ` / `> > ` prefix as Structure.
-            // Checked before list items so nested `> >` is not flattened.
+            // Blockquote: emit the full `>` / `> ` / `>>` prefix as Structure.
+            // Space after each `>` is optional (ex. 229). A following line
+            // without `>` stays in the open item (lazy continuation, ex. 228).
+            // Checked before list items so nested `>>` is not flattened.
             // Each source quote line is its own item so splice ranges stay
             // contiguous. A hard break is Structure; the next line supplies
             // its own `>` (no pre-emitted resume marker).
@@ -3233,5 +3236,139 @@ mod tests {
             );
             assert_eq!(format_text(&out, &md_cfg()).unwrap(), out);
         }
+    }
+
+    /// Ticket fixture (Format::Markdown): `>One` is a quote (space
+    /// optional); lazy continuation stays in the quote (snapper-fbmn / #104).
+    fn fbmn_fixture() -> &'static str {
+        concat!(">One. Two.\n", "\n", "> Three. Four.\n", "five. six\n",)
+    }
+
+    #[test]
+    fn gt_without_space_is_blockquote_marker() {
+        use crate::format_text;
+
+        let input = ">One. Two.\n";
+        let regions = MarkdownParser.parse(input);
+        assert_eq!(regions[0], Region::Structure(">".to_string()));
+        assert_eq!(regions[1], Region::Prose("One. Two.".to_string()));
+        assert!(
+            !regions
+                .iter()
+                .any(|r| matches!(r, Region::Prose(p) if p.contains('>'))),
+            "> must not leak into Prose: {regions:?}"
+        );
+        let out = format_text(input, &md_cfg()).unwrap();
+        assert_eq!(out, ">One.\n>Two.\n");
+        assert_eq!(format_text(&out, &md_cfg()).unwrap(), out);
+    }
+
+    #[test]
+    fn compact_nested_quote_is_blockquote() {
+        use crate::format_text;
+
+        let input = ">>Nested one. Nested two.\n";
+        let regions = MarkdownParser.parse(input);
+        assert_eq!(regions[0], Region::Structure(">>".to_string()));
+        assert_eq!(
+            regions[1],
+            Region::Prose("Nested one. Nested two.".to_string())
+        );
+        assert!(
+            !regions
+                .iter()
+                .any(|r| matches!(r, Region::Prose(p) if p.contains('>'))),
+            ">> must not leak into Prose: {regions:?}"
+        );
+        let out = format_text(input, &md_cfg()).unwrap();
+        assert_eq!(out, ">>Nested one.\n>>Nested two.\n");
+        assert_eq!(format_text(&out, &md_cfg()).unwrap(), out);
+    }
+
+    #[test]
+    fn lazy_continuation_stays_in_quote() {
+        use crate::format_text;
+
+        let input = "> Three. Four.\nfive. six\n";
+        let regions = MarkdownParser.parse(input);
+        assert_eq!(regions[0], Region::Structure("> ".to_string()));
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(p) if p.contains("Three. Four.") && p.contains("five. six")
+            )),
+            "lazy line must stay in the quote prose, got: {regions:?}"
+        );
+        assert!(
+            !regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(p) if p.contains("five. six") && !p.contains("Three")
+            )),
+            "lazy line must not be a new paragraph, got: {regions:?}"
+        );
+        let out = format_text(input, &md_cfg()).unwrap();
+        assert!(
+            out.contains("> Three.\n> Four.\n> five. six"),
+            "lazy continuation must reflow inside the quote, got:\n{out}"
+        );
+        assert!(
+            !out.lines()
+                .any(|l| l == "five. six" || l == "five." || l == "six"),
+            "lazy line must not become a new paragraph, got:\n{out}"
+        );
+        assert_eq!(format_text(&out, &md_cfg()).unwrap(), out);
+    }
+
+    #[test]
+    fn fbmn_fixture_optional_space_and_lazy_continuation() {
+        use crate::format::Format;
+        use crate::format_text;
+        use crate::oracle;
+
+        let input = fbmn_fixture();
+        let regions = MarkdownParser.parse(input);
+        assert!(
+            matches!(&regions[0], Region::Structure(s) if s == ">"),
+            ">One must be a quote marker, got: {regions:?}"
+        );
+        assert!(
+            regions
+                .iter()
+                .any(|r| matches!(r, Region::Prose(p) if p.contains("One. Two."))),
+            ">One body must be Prose, got: {regions:?}"
+        );
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(p) if p.contains("Three. Four.") && p.contains("five. six")
+            )),
+            "lazy five. six must stay in the quote, got: {regions:?}"
+        );
+        assert!(
+            !regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(p) if p.contains('>')
+            )),
+            "quote markers must not leak into Prose, got: {regions:?}"
+        );
+        let out = format_text(input, &md_cfg()).unwrap();
+        assert!(
+            out.contains(">One.\n>Two."),
+            "space-optional quote must reflow and keep `>`, got:\n{out}"
+        );
+        assert!(
+            out.contains("> Three.\n> Four.\n> five. six"),
+            "lazy continuation must stay in the quote, got:\n{out}"
+        );
+        assert!(
+            !out.lines()
+                .any(|l| l == "Two." || l == "five. six" || l == "five." || l == "six"),
+            "quote body must not fall out as a paragraph, got:\n{out}"
+        );
+        assert_eq!(format_text(&out, &md_cfg()).unwrap(), out);
+        assert!(
+            oracle::matches(Format::Markdown, input, &out),
+            "oracle must accept the fixture reflow\n in={input:?}\n out={out:?}"
+        );
     }
 }

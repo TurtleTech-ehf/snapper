@@ -1114,7 +1114,9 @@ mod tests {
     #[test]
     fn hanging_prefix_quote_repeats_marker_list_uses_spaces() {
         assert_eq!(hanging_prefix("> "), "> ");
+        assert_eq!(hanging_prefix(">"), ">");
         assert_eq!(hanging_prefix(">> "), ">> ");
+        assert_eq!(hanging_prefix(">>"), ">>");
         assert_eq!(hanging_prefix("  > "), "  > ");
         assert_eq!(hanging_prefix("- "), "  ");
         assert_eq!(hanging_prefix("1. "), "   ");
