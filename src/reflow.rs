@@ -560,6 +560,9 @@ fn md_opens_block(line: &str) -> bool {
     if md_html_opener(t) {
         return true;
     }
+    if t.starts_with("$$") {
+        return true;
+    }
     false
 }
 

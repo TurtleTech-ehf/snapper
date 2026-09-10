@@ -493,7 +493,26 @@ fn is_setext_title_line(line: &str) -> bool {
     if FENCED_CODE_RE.is_match(line.trim_start()) {
         return false;
     }
+    // Pandoc / academic MD display math is not a setext title.
+    if line.trim().starts_with("$$") {
+        return false;
+    }
     true
+}
+
+/// Pandoc / academic Markdown display math: a line that starts with `$$`.
+fn display_math_open(line: &str) -> bool {
+    line.trim().starts_with("$$")
+}
+
+/// A line that is only `$$` is an opener, not a one-line `$$...$$` block.
+fn display_math_is_single_line(line: &str) -> bool {
+    let t = line.trim();
+    t != "$$" && t.ends_with("$$")
+}
+
+fn is_display_math_close(line: &str) -> bool {
+    line.trim_end().ends_with("$$")
 }
 
 impl FormatParser for MarkdownParser {
@@ -512,6 +531,7 @@ impl FormatParser for MarkdownParser {
         let mut frontmatter_fence = String::new();
         let mut in_list_item = false;
         let mut list_term: Option<ByteSpan> = None;
+        let mut in_display_math = false;
         let mut pragma_off = false;
 
         let lines = iter_lines(input);
@@ -609,6 +629,25 @@ impl FormatParser for MarkdownParser {
                 continue;
             }
 
+            // Inside display math $$...$$ -- everything is structure
+            if in_display_math {
+                close_list_item(
+                    &mut in_list_item,
+                    &mut current_prose,
+                    &mut prose_span,
+                    &mut list_term,
+                    input,
+                    &mut regions,
+                );
+                flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
+                if is_display_math_close(line_text) {
+                    in_display_math = false;
+                }
+                regions.push(SpannedRegion::structure(input, line.span()));
+                i += 1;
+                continue;
+            }
+
             // Fenced code block start. `>` (space optional) then ``` / ~~~
             // opens Code inside the quote; FENCED_CODE_RE on the raw line
             // would miss `> ``` and leave inner lines as sentence-split Prose.
@@ -688,6 +727,25 @@ impl FormatParser for MarkdownParser {
                     ByteSpan::new(body_start, body_end),
                     footer,
                 ));
+                continue;
+            }
+
+            // Display math open (`$$` or one-line `$$...$$`).
+            if display_math_open(line_text) {
+                close_list_item(
+                    &mut in_list_item,
+                    &mut current_prose,
+                    &mut prose_span,
+                    &mut list_term,
+                    input,
+                    &mut regions,
+                );
+                flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
+                if !display_math_is_single_line(line_text) {
+                    in_display_math = true;
+                }
+                regions.push(SpannedRegion::structure(input, line.span()));
+                i += 1;
                 continue;
             }
 
@@ -2113,5 +2171,148 @@ mod tests {
             "oracle-silent path must match, got:\n{raw_out}"
         );
         assert_eq!(format_text(&raw_out, &raw).unwrap(), raw_out);
+    }
+
+    fn md_cfg() -> crate::FormatConfig {
+        crate::FormatConfig {
+            format: crate::format::Format::Markdown,
+            ..Default::default()
+        }
+        .without_safety_backstops()
+    }
+
+    /// GitHub #84 / snapper-gfsw: Markdown `$$` display math is Structure.
+    #[test]
+    fn dollar_dollar_display_math_is_structure_not_prose() {
+        let input = "$$\nThis is a long sentence that must stay inside display math and must not reflow as prose.\n$$\n";
+        let regions = MarkdownParser.parse(input);
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Structure(s)
+                    if s.contains("This is a long sentence that must stay inside display math")
+            )),
+            "$$ body must be Structure, got: {regions:?}"
+        );
+        assert!(
+            !regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(p)
+                    if p.contains("This is a long sentence that must stay inside display math")
+            )),
+            "$$ body must not be Prose, got: {regions:?}"
+        );
+        assert!(
+            regions
+                .iter()
+                .any(|r| matches!(r, Region::Structure(s) if s.trim() == "$$")),
+            "$$ delimiters must be Structure, got: {regions:?}"
+        );
+    }
+
+    #[test]
+    fn dollar_dollar_display_math_does_not_reflow_as_prose() {
+        use crate::format::Format;
+        use crate::{FormatConfig, format_text};
+
+        let input = "$$\nThis is a long sentence that must stay inside display math and must not reflow as prose.\n$$\n";
+        let cfg = FormatConfig {
+            format: Format::Markdown,
+            ..Default::default()
+        };
+        let out = format_text(input, &cfg).unwrap();
+        assert!(
+            out.contains(
+                "$$\nThis is a long sentence that must stay inside display math and must not reflow as prose.\n$$"
+            ),
+            "$$ display math must stay a structure block, got:\n{out}"
+        );
+        assert!(
+            !out.contains("$$ This is a long sentence"),
+            "must not join $$ into surrounding prose, got:\n{out}"
+        );
+        assert_eq!(format_text(&out, &cfg).unwrap(), out);
+
+        let raw = cfg.without_safety_backstops();
+        let raw_out = format_text(input, &raw).unwrap();
+        assert_eq!(
+            raw_out, out,
+            "oracle-silent path must match, got:\n{raw_out}"
+        );
+        assert_eq!(format_text(&raw_out, &raw).unwrap(), raw_out);
+    }
+
+    #[test]
+    fn dollar_dollar_two_sentences_do_not_split() {
+        use crate::format_text;
+
+        let input =
+            "$$\nFirst sentence. Second sentence that would split if this were prose.\n$$\n";
+        let out = format_text(input, &md_cfg()).unwrap();
+        assert!(
+            out.contains(
+                "$$\nFirst sentence. Second sentence that would split if this were prose.\n$$"
+            ),
+            "$$ display math must stay a structure block, got:\n{out}"
+        );
+        assert!(
+            !out.contains("$$ First sentence"),
+            "must not join $$ into surrounding prose, got:\n{out}"
+        );
+        assert!(
+            !out.contains("First sentence.\nSecond sentence"),
+            "$$ body must not split at sentence end, got:\n{out}"
+        );
+        assert_eq!(format_text(&out, &md_cfg()).unwrap(), out);
+    }
+
+    #[test]
+    fn dollar_dollar_single_line_display_is_structure() {
+        use crate::format_text;
+
+        let input = "Before the math. More before.\n$$E = mc^2$$\nAfter the math. More after.\n";
+        let regions = MarkdownParser.parse(input);
+        assert!(
+            regions
+                .iter()
+                .any(|r| matches!(r, Region::Structure(s) if s.contains("$$E = mc^2$$"))),
+            "single-line $$...$$ must be Structure, got: {regions:?}"
+        );
+        assert!(
+            !regions
+                .iter()
+                .any(|r| matches!(r, Region::Prose(p) if p.contains("E = mc^2"))),
+            "single-line $$ body must not be Prose, got: {regions:?}"
+        );
+        let out = format_text(input, &md_cfg()).unwrap();
+        assert!(
+            out.contains("$$E = mc^2$$"),
+            "single-line $$ must stay intact, got:\n{out}"
+        );
+        assert!(
+            out.contains("Before the math.\nMore before."),
+            "surrounding prose must still reflow, got:\n{out}"
+        );
+        assert_eq!(format_text(&out, &md_cfg()).unwrap(), out);
+    }
+
+    #[test]
+    fn inline_single_dollar_math_is_still_prose() {
+        use crate::format_text;
+
+        let input = "See $x = 1$ here. Next sentence.\n";
+        let regions = MarkdownParser.parse(input);
+        assert!(
+            regions
+                .iter()
+                .any(|r| matches!(r, Region::Prose(p) if p.contains("$x = 1$"))),
+            "inline $...$ must stay Prose, got: {regions:?}"
+        );
+        let out = format_text(input, &md_cfg()).unwrap();
+        assert!(
+            out.contains("See $x = 1$ here.\nNext sentence."),
+            "inline $...$ must not open display math, got:\n{out}"
+        );
+        assert_eq!(format_text(&out, &md_cfg()).unwrap(), out);
     }
 }
