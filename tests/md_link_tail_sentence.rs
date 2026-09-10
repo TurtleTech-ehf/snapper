@@ -5,7 +5,7 @@
 //! `format_text` `Format::Markdown` `max_width=0`.
 
 use snapper_fmt::format::Format;
-use snapper_fmt::{format_text, FormatConfig};
+use snapper_fmt::{FormatConfig, format_text};
 
 fn md_cfg() -> FormatConfig {
     FormatConfig {

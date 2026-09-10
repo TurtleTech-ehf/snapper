@@ -288,11 +288,7 @@ fn md_inline_dest_len(s: &str) -> Option<usize> {
         }
         i += 1;
     }
-    if nest != 0 || i == 0 {
-        None
-    } else {
-        Some(i)
-    }
+    if nest != 0 || i == 0 { None } else { Some(i) }
 }
 
 fn md_title_then_close(s: &str) -> bool {
