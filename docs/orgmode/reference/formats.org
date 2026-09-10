@@ -21,7 +21,8 @@ The classification depends on the format.
 - Non-source =#+BEGIN_*= ...
 =#+END_*= fences, and the bodies of literal blocks (example, export, comment)
 - Dynamic blocks (=#+BEGIN: NAME= ... =#+END:=), including the generated body
-- Quote, verse, and center open/close lines; verse inner lines stay unjoined
+- Quote, verse, center, and special-block (NOTE and other unknown NAME) open/close lines; verse inner lines stay unjoined
+- Special-block interiors (NOTE, ABSTRACT, WARNING, ...) reflow as prose
 - =:PROPERTIES:= ...
 =:END:= drawers
 - =#+KEYWORD:= directives (TITLE, AUTHOR, DATE, OPTIONS, etc.)
@@ -48,7 +49,7 @@ The classification depends on the format.
 :END:
 - Paragraph text
 - List item text (after the marker); continuation sentences hang at the marker width so Org rejoins the item
-- Quote, verse, and center inner text (verse stays line-preserving)
+- Quote, verse, center, and special-block inner text (verse stays line-preserving)
 
 *** Inline tokens (kept atomic)
 :PROPERTIES:
