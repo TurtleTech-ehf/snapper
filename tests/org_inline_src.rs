@@ -99,3 +99,32 @@ fn inline_src_headers_stay_one_span() {
     );
     assert_eq!(format_text(&out, &org_cfg()).unwrap(), out);
 }
+
+#[test]
+fn inline_src_after_underscore_stays_one_span() {
+    // org-element `\<src_` matches after `_` (symbol, not word).
+    let input = "See foo_src_python{print(1. 2)} today. Next sentence.\n";
+    let src = "src_python{print(1. 2)}";
+    let regions = OrgParser.parse(input);
+    assert!(
+        regions.iter().any(|r| matches!(
+            r,
+            Region::Prose(s) if s.contains(src) && s.contains("Next sentence.")
+        )),
+        "src after underscore must stay Prose, got {regions:?}"
+    );
+    let out = format_text(input, &org_cfg()).unwrap();
+    assert!(
+        out.contains("foo_src_python{print(1. 2)}"),
+        "src after underscore must stay one token, got:\n{out}"
+    );
+    assert!(
+        !out.contains("src_python{print(1.\n") && !out.contains("print(1.\n2)}"),
+        "must not split inside src after underscore, got:\n{out}"
+    );
+    assert!(
+        out.contains("today.\nNext sentence."),
+        "following sentence must still split, got:\n{out}"
+    );
+    assert_eq!(format_text(&out, &org_cfg()).unwrap(), out);
+}

@@ -360,9 +360,10 @@ fn org_inline_src_or_call_span_end(text: &str, at: usize) -> Option<usize> {
     org_inline_src_span_end(text, at).or_else(|| org_inline_call_span_end(text, at))
 }
 
-/// `\<` in `org-element-inline-src-block-regexp`: start of text or a
-/// non-identifier character. Underscore stays inside the identifier so
-/// `foo_src_python{...}` is not an object (`asrc_python{...}` neither).
+/// `\<` in `org-element-inline-src-block-regexp` / inline-babel-call:
+/// word-start, not symbol-start. Org `_` is symbol syntax (`_`), so
+/// `foo_src_python{...}` and `_src_python{...}` are objects. Word
+/// characters still reject (`asrc_python{...}`, `1src_python{...}`).
 fn org_inline_object_start(text: &str, at: usize) -> bool {
     if at == 0 {
         return true;
@@ -370,7 +371,7 @@ fn org_inline_object_start(text: &str, at: usize) -> bool {
     !text[..at]
         .chars()
         .next_back()
-        .is_some_and(|c| c.is_ascii_alphanumeric() || c == '_')
+        .is_some_and(|c| c.is_ascii_alphanumeric())
 }
 
 /// org-element `scan-lists` on a one-pair syntax table. Newlines are
@@ -759,6 +760,12 @@ pub fn atomic_inline_spans(text: &str) -> Vec<(usize, usize)> {
         i += ch.len_utf8();
     }
     for m in INLINE_TOKEN_RE.find_iter(text) {
+        // `foo_src_python{...}`: org-element raw is `src_python{...}`.
+        // The underline regex also matches `_src_` (no Org pre-border).
+        // Drop overlapping regex hits so wrap spans stay the object.
+        if spans.iter().any(|&(s, e)| m.start() < e && m.end() > s) {
+            continue;
+        }
         spans.push((m.start(), m.end()));
     }
     merge_byte_ranges(spans)
@@ -1830,19 +1837,70 @@ mod tests {
     }
 
     #[test]
-    fn inline_org_src_requires_identifier_boundary() {
+    fn inline_org_src_matches_after_underscore() {
+        // org-element `\<src_` is word-start. `_` is symbol syntax, so
+        // `foo_src_python{...}` and `_src_python{...}` are objects.
+        let src = "src_python{print(1. 2)}";
+        let text = "See foo_src_python{print(1. 2)} today. Next sentence.";
+        let (_, placeholders) = protect_inline_tokens(text);
+        assert!(
+            placeholders.iter().any(|p| p == src),
+            "src_ after underscore must be a token, got {placeholders:?}"
+        );
+        let spans = atomic_inline_spans(text);
+        assert!(
+            spans.iter().any(|&(s, e)| &text[s..e] == src),
+            "src_ after underscore must be an atomic wrap span, got {:?}",
+            spans.iter().map(|&(s, e)| &text[s..e]).collect::<Vec<_>>()
+        );
+        assert_eq!(
+            split(text),
+            vec![
+                "See foo_src_python{print(1. 2)} today.".to_string(),
+                "Next sentence.".to_string()
+            ]
+        );
+
+        let leading = "_src_python{1}";
+        let (_, placeholders) = protect_inline_tokens(leading);
+        assert!(
+            placeholders.iter().any(|p| p == "src_python{1}"),
+            "src_ after a leading underscore must be a token, got {placeholders:?}"
+        );
+    }
+
+    #[test]
+    fn inline_org_src_rejects_word_prefix() {
         for text in [
             "asrc_python{print(1. 2)} today. Next sentence.",
-            "foo_src_python{print(1. 2)} today. Next sentence.",
+            "1src_python{print(1. 2)} today. Next sentence.",
         ] {
             let (_, placeholders) = protect_inline_tokens(text);
             assert!(
                 !placeholders
                     .iter()
                     .any(|p| p.contains("src_python{print(1. 2)}")),
-                "src_ must not match inside an identifier, got {placeholders:?} for {text:?}"
+                "src_ must not match after a word char, got {placeholders:?} for {text:?}"
             );
         }
+    }
+
+    #[test]
+    fn inline_org_call_matches_after_underscore() {
+        let call = "call_name(1. 2)";
+        let text = "See foo_call_name(1. 2) today. Next sentence.";
+        let (_, placeholders) = protect_inline_tokens(text);
+        assert!(
+            placeholders.iter().any(|p| p == call),
+            "call_ after underscore must be a token, got {placeholders:?}"
+        );
+        assert_eq!(
+            split(text),
+            vec![
+                "See foo_call_name(1. 2) today.".to_string(),
+                "Next sentence.".to_string()
+            ]
+        );
     }
 
     #[test]
