@@ -291,12 +291,24 @@ pub fn format_text_with_splitter(
             }
         })?;
 
+        // Judge the document we will return: reflow always ends prose
+        // with `\n`, then the caller strips it when the source had none.
+        // Comparing the unstripped candidate invents a trailing
+        // Structure newline and vetoes a render-safe hang (`* 0. A.`).
+        let mut judged = candidate.clone();
+        if had_trailing_newline && !judged.ends_with('\n') {
+            judged.push('\n');
+        } else if !had_trailing_newline {
+            while judged.ends_with('\n') {
+                judged.pop();
+            }
+        }
         if config.render_backstop
-            && candidate != work_input
+            && judged != work_input
             && !oracle::matches_ex(
                 config.format,
                 work_input,
-                &candidate,
+                &judged,
                 config.format_code,
                 Some(config),
             )

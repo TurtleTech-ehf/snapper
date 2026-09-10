@@ -219,10 +219,90 @@ fn md_html_ok(original: &str, output: &str) -> bool {
     if normalize_ws(&ha) == normalize_ws(&hb) {
         return true;
     }
+    // Same-line `0. A.` after a bullet is list-item prose in the native
+    // tree. pulldown invents a nested `<ol>`; the sembr hang is a
+    // continuation. Escape that marker so HTML compares the prose
+    // reading and does not veto the hang as a new ordered list.
+    let ha_prose = md_html(&escape_same_line_ordered_prose(original));
+    let hb_prose = md_html(&escape_same_line_ordered_prose(output));
+    if normalize_ws(&ha_prose) == normalize_ws(&hb_prose) {
+        return true;
+    }
     // Full HTML (including `<pre>`) differed. Allow only when the
     // non-pre document matches and the code-byte check already passed
     // via the structure tree.
     normalize_ws(&html_without_pre_inner(&ha)) == normalize_ws(&html_without_pre_inner(&hb))
+}
+
+/// Escape a same-line ordered marker that follows a list marker.
+///
+/// `* 0. A.` / `* 0.` become `* 0\. A.` / `* 0\.` so pulldown cannot
+/// invent a nested ordered list the native parser never emitted.
+fn escape_same_line_ordered_prose(src: &str) -> String {
+    let mut out = String::with_capacity(src.len() + 8);
+    for chunk in src.split_inclusive('\n') {
+        let (line, nl) = match chunk.strip_suffix('\n') {
+            Some(body) => (body, "\n"),
+            None => (chunk, ""),
+        };
+        match escape_inner_ordered_marker(line) {
+            Some(escaped) => out.push_str(&escaped),
+            None => out.push_str(line),
+        }
+        out.push_str(nl);
+    }
+    out
+}
+
+fn escape_inner_ordered_marker(line: &str) -> Option<String> {
+    let bytes = line.as_bytes();
+    let mut i = 0;
+    while i < bytes.len() && i < 3 && bytes[i] == b' ' {
+        i += 1;
+    }
+    let rest = consume_md_list_marker(bytes, i)?;
+    if rest < bytes.len() && bytes[rest] == b'\\' {
+        return None;
+    }
+    let mut j = rest;
+    if j >= bytes.len() || !bytes[j].is_ascii_digit() {
+        return None;
+    }
+    while j < bytes.len() && bytes[j].is_ascii_digit() {
+        j += 1;
+    }
+    if j == rest || j >= bytes.len() || !matches!(bytes[j], b'.' | b')') {
+        return None;
+    }
+    let delim = j;
+    j += 1;
+    if j != bytes.len() && bytes[j] != b' ' {
+        return None;
+    }
+    let mut escaped = String::with_capacity(line.len() + 1);
+    escaped.push_str(&line[..delim]);
+    escaped.push('\\');
+    escaped.push_str(&line[delim..]);
+    Some(escaped)
+}
+
+fn consume_md_list_marker(bytes: &[u8], mut i: usize) -> Option<usize> {
+    if i >= bytes.len() {
+        return None;
+    }
+    if matches!(bytes[i], b'-' | b'*' | b'+') {
+        i += 1;
+        return (i < bytes.len() && bytes[i] == b' ').then_some(i + 1);
+    }
+    let digits = i;
+    while i < bytes.len() && bytes[i].is_ascii_digit() {
+        i += 1;
+    }
+    if i == digits || i >= bytes.len() || !matches!(bytes[i], b'.' | b')') {
+        return None;
+    }
+    i += 1;
+    (i < bytes.len() && bytes[i] == b' ').then_some(i + 1)
 }
 
 fn md_html(src: &str) -> String {
@@ -353,6 +433,37 @@ mod tests {
         assert!(
             !matches(Format::Rst, "* One. Two.\n", "* One.\n\n  Two.\n"),
             "a blank is a new paragraph, not a hang"
+        );
+    }
+
+    #[test]
+    fn same_line_ordered_prose_hang_vetoes_nested_ol() {
+        // snapper-9dc1: pulldown treats `* 0. A.` as `<ol start="0">` and
+        // the sembr hang as an empty nested item. Record that veto, then
+        // accept the hang as list-item prose (not a nested ordered list).
+        let src = "* 0. A.";
+        let hung = "* 0.\n  A.";
+        let src_html = md_html(src);
+        let hung_html = md_html(hung);
+        assert!(
+            src_html.contains("<ol"),
+            "pulldown invents nested ol for same-line 0. A.: {src_html}"
+        );
+        assert_ne!(
+            normalize_ws(&src_html),
+            normalize_ws(&hung_html),
+            "raw pulldown HTML vetoes the sembr hang"
+        );
+        assert!(
+            matches(Format::Markdown, src, hung),
+            "oracle must accept the hang without inventing a nested list"
+        );
+        assert!(matches(Format::Markdown, "* 0. A.\n", "* 0.\n  A.\n"));
+        assert!(matches(Format::Markdown, "- 0. A.", "- 0.\n  A."));
+        assert!(matches(Format::Markdown, "* 1. Hello.", "* 1.\n  Hello."));
+        assert!(
+            !matches(Format::Markdown, "* 0. A.", "*\n    0. A."),
+            "must not treat a nested ordered list as the same hang"
         );
     }
 
