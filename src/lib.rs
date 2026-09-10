@@ -116,7 +116,8 @@ pub struct FormatConfig {
     /// Extra LaTeX environments treated as code (no reflow), added to
     /// minted/lstlisting/lstlisting*/verbatim/comment, filecontents, tree-sitter
     /// trivia, Overleaf Verbatim/boxedverbatim/tcblisting/codeexample,
-    /// fancyvrb BVerbatim/LVerbatim/SaveVerbatim/VerbatimOut,
+    /// fancyvrb BVerbatim/LVerbatim/SaveVerbatim/VerbatimOut and
+    /// Verbatim*/BVerbatim*/LVerbatim*,
     /// standard alltt, and spverbatim. Empty keeps the built-in list.
     pub latex_verbatim_envs: Vec<String>,
     /// Extra LaTeX environments treated as structure (no reflow), added
