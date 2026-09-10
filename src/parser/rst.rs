@@ -564,19 +564,28 @@ pub(crate) fn rst_option_column_len(line: &str) -> Option<usize> {
 /// trailing space: `* `, `- `, `+ ` (not a `+--+` table rule), or a
 /// Docutils enumerator (`1.`, `a.`, `i.`, `#.`, `1)`, `(1)`) plus the
 /// following space (GitHub #91).
+///
+/// Extra spaces after the required one (`*  item`) are part of the hang.
+/// Docutils starts item text at the first non-space; shrinking only the
+/// marker turns a hang-aligned body into a block quote (GitHub #133).
 pub(crate) fn rst_list_marker_len(line: &str) -> Option<usize> {
     let indent = line.len() - line.trim_start().len();
     let t = &line[indent..];
     if t.starts_with("* ") || t.starts_with("- ") {
-        return Some(indent + 2);
+        return Some(indent + rst_bullet_hang_len(t));
     }
     if let Some(after) = t.strip_prefix("+ ") {
         if after.starts_with('-') || after.starts_with('+') {
             return None;
         }
-        return Some(indent + 2);
+        return Some(indent + rst_bullet_hang_len(t));
     }
     rst_enumerator_marker_len(t).map(|n| indent + n)
+}
+
+/// `* `/`- `/`+ ` plus any extra spaces before the item text.
+fn rst_bullet_hang_len(t: &str) -> usize {
+    2 + t.as_bytes()[2..].iter().take_while(|&&b| b == b' ').count()
 }
 
 /// Length of a Docutils enumerator plus trailing space, or the marker
@@ -1443,6 +1452,67 @@ mod tests {
     }
 
     #[test]
+    fn two_space_bullet_marker_is_structure_at_hang_width() {
+        let input = "*  Candidate:\n\n   Search API.\n\n   * Child item.\n";
+        let regions = RstParser.parse(input);
+        assert!(
+            regions
+                .iter()
+                .any(|r| matches!(r, Region::Structure(s) if s == "*  ")),
+            "two-space marker must stay Structure, got {regions:?}"
+        );
+        assert!(
+            !regions
+                .iter()
+                .any(|r| matches!(r, Region::Structure(s) if s == "* ")),
+            "must not shrink the marker to one space, got {regions:?}"
+        );
+        assert!(
+            regions
+                .iter()
+                .any(|r| matches!(r, Region::Prose(s) if s.contains("Candidate:"))),
+            "item text must be Prose, got {regions:?}"
+        );
+        assert!(
+            regions
+                .iter()
+                .any(|r| matches!(r, Region::Structure(s) if s == "   ")),
+            "body hang must stay three spaces, got {regions:?}"
+        );
+    }
+
+    #[test]
+    fn reporter_two_space_bullet_keeps_nested_content() {
+        use crate::format::Format;
+        use crate::oracle;
+        use crate::{FormatConfig, format_text};
+
+        let cfg = FormatConfig {
+            format: Format::Rst,
+            max_width: 0,
+            ..Default::default()
+        };
+        let input = "*  Candidate:\n\n   Search API.\n\n   * Child item.\n";
+        let out = format_text(input, &cfg).unwrap();
+        assert_eq!(
+            out, input,
+            "two-space bullet must stay identity, got:\n{out}"
+        );
+        assert!(
+            out.starts_with("*  Candidate:"),
+            "must keep two spaces after the marker, got:\n{out}"
+        );
+        assert!(
+            !out.starts_with("* Candidate:"),
+            "must not shrink only the marker, got:\n{out}"
+        );
+        assert!(
+            oracle::matches(Format::Rst, input, &out),
+            "oracle mismatch\n in={input:?}\n out={out:?}"
+        );
+    }
+
+    #[test]
     fn starred_quote_list_item_is_idempotent_and_oracle() {
         use crate::format::Format;
         use crate::oracle;
@@ -2163,6 +2233,13 @@ mod tests {
         assert_eq!(rst_list_marker_len("(i) Paren roman"), Some(4));
         assert_eq!(rst_list_marker_len("See. Prose"), None);
         assert_eq!(rst_list_marker_len("dim. Not roman"), None);
+        assert_eq!(rst_list_marker_len("* Candidate:"), Some(2));
+        assert_eq!(rst_list_marker_len("*  Candidate:"), Some(3));
+        assert_eq!(rst_list_marker_len("-  item"), Some(3));
+        assert_eq!(rst_list_marker_len("+  item"), Some(3));
+        assert_eq!(rst_list_marker_len("  *  nested"), Some(5));
+        assert_eq!(rst_list_marker_len("*  "), Some(3));
+        assert_eq!(rst_list_marker_len("+ -not-list"), None);
     }
 
     #[test]
