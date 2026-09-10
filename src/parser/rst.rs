@@ -549,20 +549,35 @@ pub(crate) fn rst_option_column_len(line: &str) -> Option<usize> {
 /// Byte length of a compact RST list opener on `line`, including the
 /// trailing space: `* `, `- `, `+ ` (not a `+--+` table rule), or a
 /// Docutils enumerator (`1.`, `a.`, `i.`, `#.`, `1)`, `(1)`) plus the
-/// following space (GitHub #91).
+/// following space (GitHub #91). Compact nested openers (`- - `,
+/// `- 1. `) consume every inner marker so hang width stays inside the
+/// innermost item (GitHub #125).
 pub(crate) fn rst_list_marker_len(line: &str) -> Option<usize> {
     let indent = line.len() - line.trim_start().len();
     let t = &line[indent..];
+    let first = rst_one_list_marker_len(t)?;
+    let mut consumed = first;
+    let mut rest = &t[first..];
+    while let Some(n) = rst_one_list_marker_len(rest) {
+        consumed += n;
+        rest = &rest[n..];
+    }
+    Some(indent + consumed)
+}
+
+/// One bullet or enumerator plus its trailing space, or an EOL
+/// enumerator that `rst_enumerator_marker_len` accepts without space.
+fn rst_one_list_marker_len(t: &str) -> Option<usize> {
     if t.starts_with("* ") || t.starts_with("- ") {
-        return Some(indent + 2);
+        return Some(2);
     }
     if let Some(after) = t.strip_prefix("+ ") {
         if after.starts_with('-') || after.starts_with('+') {
             return None;
         }
-        return Some(indent + 2);
+        return Some(2);
     }
-    rst_enumerator_marker_len(t).map(|n| indent + n)
+    rst_enumerator_marker_len(t)
 }
 
 /// Length of a Docutils enumerator plus trailing space, or the marker
@@ -1952,6 +1967,43 @@ mod tests {
         assert_eq!(rst_list_marker_len("(i) Paren roman"), Some(4));
         assert_eq!(rst_list_marker_len("See. Prose"), None);
         assert_eq!(rst_list_marker_len("dim. Not roman"), None);
+        assert_eq!(
+            rst_list_marker_len("- - Document typed fixture exports."),
+            Some(4)
+        );
+        assert_eq!(rst_list_marker_len("- - "), Some(4));
+        assert_eq!(rst_list_marker_len("  - - Nested."), Some(6));
+        assert_eq!(rst_list_marker_len("- 1. Inner enum."), Some(5));
+        assert_eq!(rst_list_marker_len("* * Star nest."), Some(4));
+        assert_eq!(rst_list_marker_len("- item"), Some(2));
+        assert_eq!(rst_list_marker_len("- --long desc"), Some(2));
+    }
+
+    #[test]
+    fn compact_nested_bullets_are_one_structure_marker() {
+        let input = concat!(
+            "- - Document typed fixture exports.\n",
+            "    The package already includes ``py.typed``.\n",
+        );
+        let regions = RstParser.parse(input);
+        assert!(
+            regions
+                .iter()
+                .any(|r| matches!(r, Region::Structure(s) if s == "- - ")),
+            "compact nested opener must be one Structure, got {regions:?}"
+        );
+        let prose: Vec<_> = regions
+            .iter()
+            .filter_map(|r| match r {
+                Region::Prose(s) => Some(s.as_str()),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(
+            prose,
+            ["Document typed fixture exports.\nThe package already includes ``py.typed``."],
+            "four-space hang must join into the inner item, got {regions:?}"
+        );
     }
 
     #[test]

@@ -964,7 +964,8 @@ fn hanging_indent_width(s: &str) -> usize {
         return s.chars().count();
     }
     // RST Docutils enumerators (`a. `, `(1) `, `i. `, `#. `) hang at
-    // marker width like `1. ` (GitHub #91).
+    // marker width like `1. ` (GitHub #91). Compact nested bullets
+    // (`- - `) use that same full-marker width (GitHub #125).
     if crate::parser::rst::rst_list_marker_len(s) == Some(s.len()) {
         return s.chars().count();
     }
@@ -1560,6 +1561,10 @@ They are endowed with reason and conscience and should act towards one another i
         assert_eq!(hanging_indent_width("   - "), 5);
         assert_eq!(hanging_indent_width("  * "), 4);
         assert_eq!(hanging_prefix("  * "), "    ");
+        assert_eq!(hanging_indent_width("- - "), 4);
+        assert_eq!(hanging_prefix("- - "), "    ");
+        assert_eq!(hanging_indent_width("- 1. "), 5);
+        assert_eq!(hanging_prefix("- 1. "), "     ");
         // Quotes are a prefix hang, not a space-hang bullet.
         assert_eq!(hanging_indent_width("> "), 0);
         assert_eq!(hanging_indent_width("> > "), 0);
@@ -1701,6 +1706,25 @@ They are endowed with reason and conscience and should act towards one another i
         assert_eq!(
             result,
             "> Quoted one.\n> Quoted two.\n> > Nested one.\n> > Nested two.\n"
+        );
+    }
+
+    #[test]
+    fn rst_compact_nested_list_hangs_at_inner_width() {
+        let result = reflow_regions(vec![
+            Region::Structure("- - ".to_string()),
+            Region::Prose(
+                "Document typed fixture exports. The package already includes py.typed."
+                    .to_string(),
+            ),
+            Region::Structure("\n".to_string()),
+        ]);
+        assert_eq!(
+            result,
+            concat!(
+                "- - Document typed fixture exports.\n",
+                "    The package already includes py.typed.\n",
+            )
         );
     }
 
