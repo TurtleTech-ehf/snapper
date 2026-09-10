@@ -110,6 +110,13 @@ fn latex_verbatim_fixture_stays_verbatim() {
 }
 
 #[test]
+fn latex_tikzcd_fixture_stays_structure() {
+    let actual = run_format("latex", &fixture_path("tikzcd.tex"));
+    let expected = fs::read_to_string(fixture_path("tikzcd.tex")).unwrap();
+    pretty_assertions::assert_eq!(actual, expected);
+}
+
+#[test]
 fn latex_comment_fixture_stays_verbatim() {
     let actual = run_format("latex", &fixture_path("comment.tex"));
     let expected = fs::read_to_string(fixture_path("comment.tex")).unwrap();
