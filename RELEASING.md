@@ -71,8 +71,10 @@ gh workflow run crates.yml --ref main -f dry_run=true
 4. Open the release PR. `main` is branch-protected with `enforce_admins`:
    `gh pr merge` is refused until the required checks are green (not pending).
    Required on every PR: `check (ubuntu-latest)`, `check (macos-latest)`,
-   `Public availability contract`, `Link check`, `build-deploy`.
+   `Public availability contract`, `Link check`.
    Those include the dogfood `--check` on docs and examples.
+   `build-deploy` still runs (docs site on `main` / tags) but is not a
+   merge gate: a single `pages` lock cannot finish on every open PR head.
    Path-filtered jobs (WASM, wheels, crates) are not required because they
    do not run on every PR; still wait for them when they do run.
    Use `gh pr merge --auto` to queue; do not merge while anything required
