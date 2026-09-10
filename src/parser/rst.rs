@@ -68,6 +68,8 @@ fn parse_line_based(input: &str) -> Vec<SpannedRegion> {
     let mut in_definition = false;
     let mut definition_indent: usize = 0;
     // Comment body: indented lines after `..` / `.. text` stay Structure.
+    // A blank ends the comment (Docutils explicit markup); later indent
+    // is a hung quote, not more comment body (GitHub #176).
     let mut in_comment = false;
     let mut comment_indent: usize = 0;
     // Hang column of the current list item (`- ` → 2) or block quote.
@@ -192,14 +194,20 @@ fn parse_line_based(input: &str) -> Vec<SpannedRegion> {
         }
 
         // Inside comment body (indented lines after `..` / `.. text`).
+        // A blank closes the comment so a later indented quote is hung
+        // Prose, not Structure (GitHub #176 / Docutils blank terminator).
         if in_comment {
-            let leading = line_text.len() - line_text.trim_start().len();
-            if line_text.trim().is_empty() || leading >= comment_indent {
-                regions.push(SpannedRegion::structure(input, line.span()));
-                i += 1;
-                continue;
+            if line_text.trim().is_empty() {
+                in_comment = false;
+            } else {
+                let leading = line_text.len() - line_text.trim_start().len();
+                if leading >= comment_indent {
+                    regions.push(SpannedRegion::structure(input, line.span()));
+                    i += 1;
+                    continue;
+                }
+                in_comment = false;
             }
-            in_comment = false;
         }
 
         // Blank line
@@ -2476,6 +2484,76 @@ mod tests {
         assert!(
             out.contains("\n   Second sentence."),
             "second comment body line must keep indent, got:\n{out}"
+        );
+    }
+
+    #[test]
+    fn blank_after_comment_closes_and_later_indent_is_hung_quote() {
+        let input = concat!(
+            ".. Comment sentence. Still comment.\n",
+            "\n",
+            "    This is a block quote. Another sentence.\n",
+        );
+        let regions = RstParser.parse(input);
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Structure(s) if s.contains("Comment sentence.")
+            )),
+            "comment opener must be Structure, got {regions:?}"
+        );
+        assert!(
+            regions.iter().any(|r| matches!(r, Region::BlankLines(_))),
+            "blank after comment must close as BlankLines, got {regions:?}"
+        );
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(s)
+                    if s.contains("This is a block quote.") && s.contains("Another sentence.")
+            )),
+            "later indent must be hung quote Prose, got {regions:?}"
+        );
+        assert!(
+            !regions.iter().any(|r| matches!(
+                r,
+                Region::Structure(s) if s.contains("This is a block quote.")
+            )),
+            "later indent must not stay comment Structure, got {regions:?}"
+        );
+    }
+
+    #[test]
+    fn blank_after_comment_quote_splits_and_hangs() {
+        use crate::format::Format;
+        use crate::{FormatConfig, format_text};
+
+        let cfg = FormatConfig {
+            format: Format::Rst,
+            max_width: 0,
+            ..Default::default()
+        }
+        .without_safety_backstops();
+        let input = concat!(
+            ".. Comment sentence. Still comment.\n",
+            "\n",
+            "    This is a block quote. Another sentence.\n",
+        );
+        let out = format_text(input, &cfg).unwrap();
+        assert_eq!(
+            out,
+            concat!(
+                ".. Comment sentence. Still comment.\n",
+                "\n",
+                "    This is a block quote.\n",
+                "    Another sentence.\n",
+            ),
+            "blank closes comment; quote hangs and splits, got:\n{out}"
+        );
+        assert_eq!(
+            format_text(&out, &cfg).unwrap(),
+            out,
+            "hung quote after comment must be identity, got:\n{out}"
         );
     }
 
