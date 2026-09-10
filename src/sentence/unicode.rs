@@ -1919,4 +1919,25 @@ mod tests {
             "must not split before the closer, got:\n{out}"
         );
     }
+
+    #[test]
+    fn keeps_break_before_lowercase_proper_noun() {
+        use crate::format::Format;
+        use crate::{FormatConfig, format_text};
+
+        let input = "First sentence.\niCloud starts the second sentence.\n";
+        for format in [Format::Markdown, Format::Plaintext] {
+            let cfg = FormatConfig {
+                format,
+                max_width: 0,
+                ..Default::default()
+            };
+            let out = format_text(input, &cfg).unwrap();
+            assert_eq!(
+                out, input,
+                "{format:?} must keep the break before iCloud, got:\n{out}"
+            );
+            assert_eq!(format_text(&out, &cfg).unwrap(), out);
+        }
+    }
 }
