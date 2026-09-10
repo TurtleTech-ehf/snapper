@@ -352,7 +352,7 @@ Drop a `.snapperrc.toml` in your project root:
     structure_envs = ["algorithm", "comment"]
     verbatim_commands = ["Verb"]
 
-Missing `[latex]` keys keep the built-in minted/lstlisting/verbatim/comment, equation/figure, and verb/lstinline lists.
+Missing `[latex]` keys keep the built-in minted/lstlisting/verbatim/comment, equation/figure, and verb/lstinline/spverb/Verb lists.
 `snapper` walks up from the current directory to find it.
 
 
