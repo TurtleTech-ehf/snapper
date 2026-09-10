@@ -1630,6 +1630,30 @@ impl FormatParser for MarkdownParser {
             // title line then has no `>`, so pass that container flag.
             let in_quote = in_list_item && list_hang.is_none();
             if i + 1 < total && is_setext_pair(line_text, lines[i + 1].text, in_quote) {
+                // A new quote or list opener interrupts (CM 4.3 / 5.2).
+                // Those arms run after this check and would call
+                // end_paragraph; do that first so setext_heading_start
+                // does not walk the interrupted paragraph (snapper-khbh).
+                let new_quote_opener = QUOTE_RE.is_match(line_text) && !in_quote;
+                let new_list_opener = LIST_ITEM_RE.is_match(line_text);
+                if new_quote_opener || new_list_opener {
+                    close_list_item(
+                        &mut in_list_item,
+                        &mut list_hang,
+                        &mut current_prose,
+                        &mut prose_span,
+                        &mut para_span,
+                        &mut list_term,
+                        input,
+                        &mut regions,
+                    );
+                    end_paragraph(
+                        &mut current_prose,
+                        &mut prose_span,
+                        &mut para_span,
+                        &mut regions,
+                    );
+                }
                 let start = setext_heading_start(&lines, i, para_span.or(prose_span));
                 // Column-0 underline is outside a list item. The opener
                 // guard in is_setext_pair covers `- Foo` then `=======`;
@@ -3500,6 +3524,101 @@ mod tests {
                     .iter()
                     .any(|r| matches!(r, Region::Prose(p) if p.contains("======="))),
             "quoted underline must stay a quote line, got: {regions:?}"
+        );
+    }
+
+    /// A new quote opener interrupts: the prior paragraph stays Prose
+    /// and only the quote setext is Structure (snapper-khbh).
+    #[test]
+    fn quote_opener_does_not_promote_interrupted_paragraph() {
+        let input = concat!(
+            "Foo is the first title line. Still title.\n",
+            "> Bar is the second title line.\n",
+            "> =======\n",
+            "\n",
+            "Body after setext. Second body.\n",
+        );
+        let regions = MarkdownParser.parse(input);
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(p)
+                    if p.contains("Still title") || p.contains("Foo is the first")
+            )),
+            "interrupted paragraph must stay Prose, got: {regions:?}"
+        );
+        assert!(
+            !regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(p) if p.contains("Bar is the second")
+            )),
+            "quote setext title must not be Prose: {regions:?}"
+        );
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Structure(s) if s.contains("Bar is the second title line.")
+            )),
+            "quote setext title must be Structure, got: {regions:?}"
+        );
+        let out = crate::format_text(input, &md_cfg()).unwrap();
+        assert!(
+            out.contains("first title line.\nStill"),
+            "interrupted paragraph must still split, got:\n{out}"
+        );
+        assert!(
+            !out.contains("second title line.\nStill")
+                && !out.contains("Bar is the second title line.\nStill"),
+            "quote setext must not sentence-split, got:\n{out}"
+        );
+        assert!(
+            out.contains("Body after setext.\nSecond body."),
+            "body Prose must still split, got:\n{out}"
+        );
+    }
+
+    /// A new list opener interrupts: the prior paragraph stays Prose
+    /// and only the list-item setext is Structure (snapper-khbh).
+    #[test]
+    fn list_opener_does_not_promote_interrupted_paragraph() {
+        let input = concat!(
+            "Previous paragraph. Still prose.\n",
+            "- Foo is the title\n",
+            "  =======\n",
+            "\n",
+            "Body after setext. Second body.\n",
+        );
+        let regions = MarkdownParser.parse(input);
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(p)
+                    if p.contains("Previous paragraph") && p.contains("Still prose")
+            )),
+            "interrupted paragraph must stay Prose, got: {regions:?}"
+        );
+        assert!(
+            !regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(p) if p.contains("Foo is the title")
+            )),
+            "list setext title must not be Prose: {regions:?}"
+        );
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Structure(s) if s.contains("Foo is the title")
+            )),
+            "list setext title must be Structure, got: {regions:?}"
+        );
+        let out = crate::format_text(input, &md_cfg()).unwrap();
+        assert!(
+            out.contains("Previous paragraph.\nStill prose."),
+            "interrupted paragraph must still split, got:\n{out}"
+        );
+        assert!(
+            out.contains("Body after setext.\nSecond body."),
+            "body Prose must still split, got:\n{out}"
         );
     }
 

@@ -414,6 +414,78 @@ fn unquoted_title_then_quoted_underline_is_not_setext() {
     );
 }
 
+/// snapper-khbh: a new quote opener interrupts the prior paragraph.
+#[test]
+fn quote_opener_does_not_promote_interrupted_paragraph() {
+    let input = concat!(
+        "Foo is the first title line. Still title.\n",
+        "> Bar is the second title line.\n",
+        "> =======\n",
+        "\n",
+        "Body after setext. Second body.\n",
+    );
+    let regions = MarkdownParser.parse(input);
+    assert!(
+        regions.iter().any(|r| matches!(
+            r,
+            Region::Prose(p) if p.contains("Still title") || p.contains("Foo is the first")
+        )),
+        "interrupted paragraph must stay Prose, got: {regions:?}"
+    );
+    assert!(
+        !regions.iter().any(|r| matches!(
+            r,
+            Region::Prose(p) if p.contains("Bar is the second")
+        )),
+        "quote setext title must not be Prose: {regions:?}"
+    );
+    let out = format_text(input, &md_cfg()).unwrap();
+    assert!(
+        out.contains("first title line.\nStill"),
+        "interrupted paragraph must still split, got:\n{out}"
+    );
+    assert!(
+        out.contains("Body after setext.\nSecond body."),
+        "body Prose must still split, got:\n{out}"
+    );
+}
+
+/// snapper-khbh: a new list opener interrupts the prior paragraph.
+#[test]
+fn list_opener_does_not_promote_interrupted_paragraph() {
+    let input = concat!(
+        "Previous paragraph. Still prose.\n",
+        "- Foo is the title\n",
+        "  =======\n",
+        "\n",
+        "Body after setext. Second body.\n",
+    );
+    let regions = MarkdownParser.parse(input);
+    assert!(
+        regions.iter().any(|r| matches!(
+            r,
+            Region::Prose(p) if p.contains("Previous paragraph") && p.contains("Still prose")
+        )),
+        "interrupted paragraph must stay Prose, got: {regions:?}"
+    );
+    assert!(
+        !regions.iter().any(|r| matches!(
+            r,
+            Region::Prose(p) if p.contains("Foo is the title")
+        )),
+        "list setext title must not be Prose: {regions:?}"
+    );
+    let out = format_text(input, &md_cfg()).unwrap();
+    assert!(
+        out.contains("Previous paragraph.\nStill prose."),
+        "interrupted paragraph must still split, got:\n{out}"
+    );
+    assert!(
+        out.contains("Body after setext.\nSecond body."),
+        "body Prose must still split, got:\n{out}"
+    );
+}
+
 /// snapper-j945: hard-break flush is not a paragraph close.
 #[test]
 fn hard_break_multiline_setext_does_not_split_first_title_line() {
