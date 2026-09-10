@@ -6,6 +6,7 @@ All notable changes to this project will be documented in this file. See [conven
 #### Bug Fixes
 - (**org**) macros (`{{{name}}}` / `{{{name(args)}}}`) stay one token so interior punctuation is not a sentence or wrap boundary (#212)
 - (**markdown**) setext titles promote only the open paragraph so a preceding HTML comment or indented code block is not re-emitted (#208)
+- (**markdown**) multi-line setext titles keep list/quote items, hard-break lines, and a lazy 4-space `<!--` as structure (#208)
 - (**org**) radio targets (`<<<...>>>`) and angle targets (`<<...>>`) stay one token so interior punctuation is not a sentence or wrap boundary (#211)
 - (**markdown**) definition-list terms and `: ` markers stay structure; the body hangs and splits (#210)
 - (**sentence**) Markdown reference links (`[text][ref]`, `[text][]`) stay one token so interior punctuation is not a sentence or wrap boundary; CommonMark 6.3 forbids a gap, so `[foo] [bar]` stays two tokens (#215)

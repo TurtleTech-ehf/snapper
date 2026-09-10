@@ -2,8 +2,8 @@ use regex::Regex;
 use std::sync::LazyLock;
 
 use crate::parser::{
-    ByteSpan, FormatParser, Line, SpannedRegion, flush_prose_spanned, iter_lines, join_prose_gap,
-    push_prose_line,
+    ByteSpan, FormatParser, Line, Region, RegionOrigin, SpannedRegion, flush_prose_spanned,
+    iter_lines, join_prose_gap, push_prose_line,
 };
 
 /// CommonMark 0.31.2 §4.2 ATX heading: 0–3 spaces, then 1–6 `#`, then
@@ -172,8 +172,10 @@ fn next_nonblank_indent(lines: &[Line<'_>], start: usize) -> Option<usize> {
         .map(|l| line_indent(l.text))
 }
 
+/// Type-2 HTML comment opener. CommonMark 4.6 allows at most three spaces
+/// of indent; four spaces is indented code or (inside a paragraph) text.
 fn starts_html_comment(line: &str) -> bool {
-    line.trim_start().starts_with("<!--")
+    html_block_rest(line).starts_with("<!--")
 }
 
 fn html_comment_closed(text: &str) -> bool {
@@ -1009,6 +1011,192 @@ fn setext_heading_start(lines: &[Line<'_>], last: usize, prose_span: Option<Byte
         .unwrap_or(last)
 }
 
+/// Quote prefix length, or list-marker length, or 0.
+fn list_or_quote_marker_len(line: &str) -> usize {
+    if let Some(caps) = QUOTE_RE.captures(line) {
+        return caps.get(1).unwrap().as_str().len();
+    }
+    if let Some(caps) = LIST_ITEM_RE.captures(line) {
+        return caps.get(1).unwrap().as_str().len();
+    }
+    0
+}
+
+/// Title text after a quote prefix and an optional list marker.
+fn setext_title_body(line: &str) -> &str {
+    let depth = quote_marker_depth(line);
+    let after_quote = strip_quote_markers(line, depth).unwrap_or(line);
+    if let Some(caps) = LIST_ITEM_RE.captures(after_quote) {
+        &after_quote[caps.get(1).unwrap().as_str().len()..]
+    } else {
+        after_quote
+    }
+}
+
+/// True when `title` plus `under` is a setext heading in the same container.
+///
+/// `> foo` then unquoted `---` is a break (CM ex. 93), not a heading.
+/// A list item plus a column-0 underline is not inside the item.
+fn is_setext_heading_pair(title: &str, under: &str) -> bool {
+    let td = quote_marker_depth(title);
+    let ud = quote_marker_depth(under);
+    if td > 0 && ud == 0 {
+        return false;
+    }
+    if ud > 0 && td != ud {
+        return false;
+    }
+    if td == 0 && LIST_ITEM_RE.is_match(title) && line_indent(under) == 0 {
+        return false;
+    }
+    let under_body = strip_quote_markers(under, ud).unwrap_or(under);
+    is_setext_title_line(setext_title_body(title)) && is_setext_underline(under_body)
+}
+
+/// Structure emitted by [`append_piece`] for a hard break (two trailing
+/// spaces or a trailing backslash, plus the line terminator).
+fn is_md_hard_break_structure(s: &str) -> bool {
+    let bytes = s.as_bytes();
+    if bytes.is_empty() {
+        return false;
+    }
+    let mut end = bytes.len();
+    if bytes[end - 1] == b'\n' {
+        end -= 1;
+        if end > 0 && bytes[end - 1] == b'\r' {
+            end -= 1;
+        }
+    }
+    let body = &s[..end];
+    if body.ends_with('\\') {
+        let n = body.bytes().rev().take_while(|&b| b == b'\\').count();
+        return n % 2 == 1;
+    }
+    let stripped = body.trim_end_matches(' ');
+    body.len() - stripped.len() >= 2
+}
+
+/// First title line when a hard-break flush cleared `current_prose`.
+///
+/// A real paragraph close leaves Code / Blank / a non-break Structure
+/// (HTML comment, ATX, …). A still-open paragraph ends with the hard-break
+/// Structure [`append_piece`] just emitted.
+fn hard_break_open_para_start(
+    lines: &[Line<'_>],
+    last: usize,
+    regions: &[SpannedRegion],
+) -> Option<usize> {
+    let last_reg = regions.last()?;
+    match &last_reg.region {
+        Region::Structure(s) if is_md_hard_break_structure(s) => {}
+        _ => return None,
+    }
+    let mut earliest = None;
+    for reg in regions.iter().rev() {
+        match &reg.region {
+            Region::Structure(s) if is_md_hard_break_structure(s) => {
+                if let Some(origin) = reg.origin {
+                    let b = origin.whole().start;
+                    earliest = Some(earliest.map_or(b, |e: usize| e.min(b)));
+                }
+            }
+            Region::Prose(_) => {
+                let Some(origin) = reg.origin else {
+                    break;
+                };
+                let span = origin.whole();
+                if last < lines.len() && span.end > lines[last].start {
+                    break;
+                }
+                earliest = Some(earliest.map_or(span.start, |e| e.min(span.start)));
+            }
+            _ => break,
+        }
+    }
+    let byte = earliest?;
+    lines[..last]
+        .iter()
+        .position(|l| l.start <= byte && byte < l.end)
+}
+
+fn setext_heading_open_start(
+    lines: &[Line<'_>],
+    last: usize,
+    prose_span: Option<ByteSpan>,
+    regions: &[SpannedRegion],
+) -> usize {
+    if prose_span.is_some() {
+        return setext_heading_start(lines, last, prose_span);
+    }
+    hard_break_open_para_start(lines, last, regions).unwrap_or(last)
+}
+
+fn emit_uncovered_structure(input: &str, regions: &mut Vec<SpannedRegion>, want: ByteSpan) {
+    if want.is_empty() {
+        return;
+    }
+    let mut covered: Vec<(usize, usize)> = regions
+        .iter()
+        .filter_map(|r| {
+            let span = r.origin?.whole();
+            let lo = span.start.max(want.start);
+            let hi = span.end.min(want.end);
+            (lo < hi).then_some((lo, hi))
+        })
+        .collect();
+    covered.sort_unstable_by_key(|c| c.0);
+    let mut cursor = want.start;
+    for (lo, hi) in covered {
+        if lo > cursor {
+            regions.push(SpannedRegion::structure(input, ByteSpan::new(cursor, lo)));
+        }
+        if hi > cursor {
+            cursor = hi;
+        }
+    }
+    if cursor < want.end {
+        regions.push(SpannedRegion::structure(
+            input,
+            ByteSpan::new(cursor, want.end),
+        ));
+    }
+}
+
+/// Promote every physical line of the open paragraph to Structure.
+/// Already-emitted hard-break Structure stays; Prose in range becomes
+/// Structure. List/quote markers already split off are not re-emitted.
+fn promote_setext_title_lines(
+    lines: &[Line<'_>],
+    start: usize,
+    last: usize,
+    input: &str,
+    regions: &mut Vec<SpannedRegion>,
+) {
+    let para_lo = lines[start].start;
+    let para_hi = lines[last].end;
+    for r in regions.iter_mut() {
+        if !matches!(r.region, Region::Prose(_)) {
+            continue;
+        }
+        let Some(RegionOrigin::Whole(span)) = r.origin else {
+            continue;
+        };
+        if span.start >= para_lo && span.start < para_hi {
+            if let Some(src) = span.slice(input) {
+                r.region = Region::Structure(src.to_string());
+            }
+        }
+    }
+    for (j, line) in lines.iter().enumerate().take(last + 1).skip(start) {
+        let prefix = if j < last {
+            list_or_quote_marker_len(line.text)
+        } else {
+            0
+        };
+        emit_uncovered_structure(input, regions, ByteSpan::new(line.start + prefix, line.end));
+    }
+}
+
 /// Pandoc / academic Markdown display math: a line that starts with `$$`.
 fn display_math_open(line: &str) -> bool {
     line.trim().starts_with("$$")
@@ -1408,40 +1596,22 @@ impl FormatParser for MarkdownParser {
             // CommonMark 4.3 / pulldown parse_setext_heading promote every
             // title line, not just the one immediately above the underline.
             // Pairing only i with i+1 left earlier title lines as Prose.
-            // Start from current_prose, not a title-line walk-back: HTML
-            // comments and indented code are already emitted.
-            if i + 1 < total
-                && is_setext_title_line(line_text)
-                && is_setext_underline(lines[i + 1].text)
-            {
-                // List/quote items reuse `in_list_item`; do not walk back
-                // into the marker line. A lazy `---` after `> Foo` is a
-                // break (CM ex. 93), not a heading of the quote.
-                // Empty `current_prose` means the last flush already closed
-                // the paragraph (HTML comment, indented code, …).
-                let start = if in_list_item || current_prose.is_empty() {
-                    i
-                } else {
-                    setext_heading_start(&lines, i, prose_span)
-                };
-                close_list_item(
-                    &mut in_list_item,
-                    &mut list_hang,
-                    &mut current_prose,
-                    &mut prose_span,
-                    &mut list_term,
-                    input,
-                    &mut regions,
-                );
-                if start < i {
-                    current_prose.clear();
-                    prose_span = None;
-                } else {
-                    flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
-                }
-                for row in &lines[start..=i] {
-                    regions.push(SpannedRegion::structure(input, row.span()));
-                }
+            // Start from the open paragraph (prose_span, or a hard-break
+            // chain), not a title-line walk-back: HTML comments and
+            // indented code are already emitted. List/quote items promote
+            // the same way; CM ex. 93 is kept by is_setext_heading_pair.
+            if i + 1 < total && is_setext_heading_pair(line_text, lines[i + 1].text) {
+                let start = setext_heading_open_start(&lines, i, prose_span, &regions);
+                // Drop unflushed title text; it is re-emitted as Structure.
+                // Do not close_list_item: that would flush the title as
+                // Prose and re-emit list_term already inside the line span.
+                current_prose.clear();
+                prose_span = None;
+                list_term = None;
+                in_list_item = false;
+                list_hang = None;
+                list_after_blank = false;
+                promote_setext_title_lines(&lines, start, i, input, &mut regions);
                 regions.push(SpannedRegion::structure(input, lines[i + 1].span()));
                 i += 2;
                 continue;
@@ -3038,6 +3208,209 @@ mod tests {
                 .iter()
                 .any(|r| matches!(r, Region::Structure(s) if s == "Heading only\n")),
             "setext after comment must be Structure, got: {regions:?}"
+        );
+    }
+
+    /// Four-space `<!--` is not a type-2 block (CM 4.6). Inside an open
+    /// paragraph it stays title text (snapper-5sck).
+    #[test]
+    fn lazy_four_space_html_comment_is_setext_title() {
+        let input = concat!(
+            "Foo is the first title line. Still title.\n",
+            "    <!-- toc -->\n",
+            "=======\n",
+            "\n",
+            "Body after setext. Second body.\n",
+        );
+        let regions = MarkdownParser.parse(input);
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Structure(s) if s == "Foo is the first title line. Still title.\n"
+            )),
+            "first title line must be Structure, got: {regions:?}"
+        );
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Structure(s) if s == "    <!-- toc -->\n"
+            )),
+            "4-space comment continuation must be title Structure, got: {regions:?}"
+        );
+        assert!(
+            !regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(p) if p.contains("Still title") || p.contains("<!-- toc")
+            )),
+            "4-space comment title must not be Prose: {regions:?}"
+        );
+        assert!(
+            !regions.iter().any(|r| matches!(r, Region::Code { .. })),
+            "open-paragraph 4-space comment must not become indented code: {regions:?}"
+        );
+    }
+
+    /// List-item setext promotes every title line (snapper-awpt).
+    #[test]
+    fn list_multiline_setext_title_is_structure() {
+        let input = concat!(
+            "- Foo is the first title line. Still title.\n",
+            "  Bar is the second title line.\n",
+            "  =======\n",
+        );
+        let regions = MarkdownParser.parse(input);
+        assert!(
+            regions
+                .iter()
+                .any(|r| matches!(r, Region::Structure(s) if s == "- ")),
+            "list marker must stay Structure, got: {regions:?}"
+        );
+        assert!(
+            !regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(p)
+                    if p.contains("Still title") || p.contains("Foo is the first")
+            )),
+            "list setext first title line must not be Prose: {regions:?}"
+        );
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Structure(s) if s.contains("Bar is the second title line")
+            )),
+            "list setext second title line must be Structure, got: {regions:?}"
+        );
+        assert!(
+            regions
+                .iter()
+                .any(|r| matches!(r, Region::Structure(s) if s.trim().ends_with("======="))),
+            "list setext underline must be Structure, got: {regions:?}"
+        );
+    }
+
+    /// Lazy quote setext promotes the open item paragraph (snapper-awpt).
+    #[test]
+    fn quote_lazy_multiline_setext_title_is_structure() {
+        let input = concat!(
+            "> Foo is the first title line. Still title.\n",
+            "Bar is the second title line.\n",
+            "=======\n",
+        );
+        let regions = MarkdownParser.parse(input);
+        assert!(
+            !regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(p)
+                    if p.contains("Still title") || p.contains("Foo is the first")
+            )),
+            "quote setext first title line must not be Prose: {regions:?}"
+        );
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Structure(s) if s.contains("Bar is the second title line")
+            )),
+            "quote setext second title line must be Structure, got: {regions:?}"
+        );
+    }
+
+    /// Fully marked quote setext (`> =======`) is a heading (snapper-awpt).
+    #[test]
+    fn quote_marked_multiline_setext_title_is_structure() {
+        let input = concat!(
+            "> Foo is the first title line. Still title.\n",
+            "> Bar is the second title line.\n",
+            "> =======\n",
+        );
+        let regions = MarkdownParser.parse(input);
+        assert!(
+            !regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(p)
+                    if p.contains("Still title")
+                        || p.contains("Foo is the first")
+                        || p.contains("Bar is the second")
+            )),
+            "marked quote setext must not be Prose: {regions:?}"
+        );
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Structure(s) if s.contains("=======")
+            )),
+            "quoted underline must be Structure, got: {regions:?}"
+        );
+    }
+
+    /// `> foo` then unquoted `---` stays a break (CM ex. 93).
+    #[test]
+    fn quote_then_unquoted_dash_stays_thematic_break() {
+        let input = "> Foo is a quoted paragraph. Still prose.\n---\nAfter. More.\n";
+        let regions = MarkdownParser.parse(input);
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(p) if p.contains("quoted paragraph") && p.contains("Still prose")
+            )),
+            "CM ex. 93 quote body must stay Prose, got: {regions:?}"
+        );
+        assert!(
+            regions
+                .iter()
+                .any(|r| matches!(r, Region::Structure(s) if s.trim() == "---")),
+            "unquoted --- after a quote must be a break, got: {regions:?}"
+        );
+    }
+
+    /// Hard-break flush is not a paragraph close (snapper-j945).
+    #[test]
+    fn hard_break_multiline_setext_title_is_structure() {
+        let input =
+            "Foo is the first title line. Still title.  \nBar is the second title line.\n=======\n";
+        let regions = MarkdownParser.parse(input);
+        assert!(
+            !regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(p)
+                    if p.contains("Still title") || p.contains("Foo is the first")
+            )),
+            "hard-break first title line must not stay Prose: {regions:?}"
+        );
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Structure(s) if s.contains("Bar is the second title line")
+            )),
+            "hard-break second title line must be Structure, got: {regions:?}"
+        );
+        assert!(
+            regions.iter().any(|r| match r {
+                Region::Structure(s) => s.contains("  \n") || s.ends_with("  \n"),
+                _ => false,
+            }),
+            "hard-break spaces must remain Structure, got: {regions:?}"
+        );
+    }
+
+    #[test]
+    fn backslash_hard_break_multiline_setext_title_is_structure() {
+        let input =
+            "Foo is the first title line. Still title.\\\nBar is the second title line.\n=======\n";
+        let regions = MarkdownParser.parse(input);
+        assert!(
+            !regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(p)
+                    if p.contains("Still title") || p.contains("Foo is the first")
+            )),
+            "backslash hard-break first title line must not stay Prose: {regions:?}"
+        );
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Structure(s) if s.contains("Bar is the second title line")
+            )),
+            "backslash hard-break second title line must be Structure, got: {regions:?}"
         );
     }
 
@@ -4759,7 +5132,7 @@ mod tests {
     #[test]
     fn definition_list_body_hangs_and_splits() {
         use crate::format::Format;
-        use crate::{format_text, FormatConfig};
+        use crate::{FormatConfig, format_text};
 
         let input = ticket_definition_list_fixture();
         let out = format_text(input, &md_cfg()).unwrap();

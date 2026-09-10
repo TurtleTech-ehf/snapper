@@ -251,3 +251,120 @@ fn setext_after_indented_code_emits_code_once() {
         "body Prose must still split, got:\n{out}"
     );
 }
+
+/// Four-space `<!--` is title text, not a type-2 interrupt (snapper-5sck).
+#[test]
+fn lazy_four_space_html_comment_stays_setext_title() {
+    let input = concat!(
+        "Foo is the first title line. Still title.\n",
+        "    <!-- toc -->\n",
+        "=======\n",
+        "\n",
+        "Body after setext. Second body.\n",
+    );
+    let regions = MarkdownParser.parse(input);
+    assert!(
+        !regions.iter().any(|r| matches!(
+            r,
+            Region::Prose(p) if p.contains("Still title") || p.contains("<!-- toc")
+        )),
+        "4-space comment must stay in the setext title, got: {regions:?}"
+    );
+    let out = format_text(input, &md_cfg()).unwrap();
+    assert!(
+        !out.contains("first title line.\nStill"),
+        "must not sentence-split the 4-space-comment title, got:\n{out}"
+    );
+    assert!(
+        out.contains("    <!-- toc -->\n======="),
+        "4-space comment plus underline must stay intact, got:\n{out}"
+    );
+    assert!(
+        out.contains("Body after setext.\nSecond body."),
+        "body Prose must still split, got:\n{out}"
+    );
+}
+
+/// List and lazy-quote setext promote every title line (snapper-awpt).
+#[test]
+fn list_and_quote_multiline_setext_do_not_split() {
+    let list = concat!(
+        "- Foo is the first title line. Still title.\n",
+        "  Bar is the second title line.\n",
+        "  =======\n",
+        "\n",
+        "Body after setext. Second body.\n",
+    );
+    let list_regions = MarkdownParser.parse(list);
+    assert!(
+        !list_regions.iter().any(|r| matches!(
+            r,
+            Region::Prose(p) if p.contains("Still title") || p.contains("Foo is the first")
+        )),
+        "list setext first title line must not be Prose: {list_regions:?}"
+    );
+    let list_out = format_text(list, &md_cfg()).unwrap();
+    assert!(
+        !list_out.contains("first title line.\nStill"),
+        "must not sentence-split a list setext title, got:\n{list_out}"
+    );
+    assert!(
+        list_out.contains("Body after setext.\nSecond body."),
+        "body after list setext must still split, got:\n{list_out}"
+    );
+
+    let quote = concat!(
+        "> Foo is the first title line. Still title.\n",
+        "Bar is the second title line.\n",
+        "=======\n",
+        "\n",
+        "Body after setext. Second body.\n",
+    );
+    let quote_regions = MarkdownParser.parse(quote);
+    assert!(
+        !quote_regions.iter().any(|r| matches!(
+            r,
+            Region::Prose(p) if p.contains("Still title") || p.contains("Foo is the first")
+        )),
+        "quote setext first title line must not be Prose: {quote_regions:?}"
+    );
+    let quote_out = format_text(quote, &md_cfg()).unwrap();
+    assert!(
+        !quote_out.contains("first title line.\nStill"),
+        "must not sentence-split a quote setext title, got:\n{quote_out}"
+    );
+}
+
+/// Hard-break title lines stay in the open paragraph (snapper-j945).
+#[test]
+fn hard_break_multiline_setext_does_not_split() {
+    let input = concat!(
+        "Foo is the first title line. Still title.  \n",
+        "Bar is the second title line.\n",
+        "=======\n",
+        "\n",
+        "Body after setext. Second body.\n",
+    );
+    let regions = MarkdownParser.parse(input);
+    assert!(
+        !regions.iter().any(|r| matches!(
+            r,
+            Region::Prose(p) if p.contains("Still title") || p.contains("Foo is the first")
+        )),
+        "hard-break setext first title line must not be Prose: {regions:?}"
+    );
+    let out = format_text(input, &md_cfg()).unwrap();
+    assert!(
+        !out.contains("first title line.\nStill"),
+        "must not sentence-split a hard-break setext title, got:\n{out}"
+    );
+    assert!(
+        out.contains("Foo is the first title line. Still title.  \n")
+            || out.contains("Foo is the first title line. Still title.  \r"),
+        "hard-break spaces must remain, got:\n{out:?}"
+    );
+    assert!(
+        out.contains("Body after setext.\nSecond body."),
+        "body Prose must still split, got:\n{out}"
+    );
+}
