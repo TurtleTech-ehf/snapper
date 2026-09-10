@@ -737,6 +737,10 @@ fn rst_opens_block(line: &str) -> bool {
     if crate::parser::rst::is_rst_doctest_opener(t) {
         return true;
     }
+    // `| ` is a line block, not wrap-created prose (GitHub #174).
+    if crate::parser::rst::rst_line_block_marker_len(line).is_some() {
+        return true;
+    }
     if t == ".." || t.starts_with(".. ") || t.starts_with("..\t") {
         return true;
     }
@@ -1074,6 +1078,11 @@ fn hanging_indent_width(s: &str) -> usize {
     // (`- - `) hang at the inner item so the continuation stays inside
     // it (GitHub #125).
     if crate::parser::rst::rst_list_marker_len(s) == Some(s.len()) {
+        return s.chars().count();
+    }
+    // RST line-block opener (`| `, `  |   `): hang at marker width so
+    // SemBr continuations stay in the line (GitHub #174).
+    if crate::parser::rst::rst_line_block_marker_len(s) == Some(s.len()) {
         return s.chars().count();
     }
     // Parser markers are `core` plus one or more trailing spaces; leading
@@ -1783,6 +1792,12 @@ They are endowed with reason and conscience and should act towards one another i
         assert_eq!(hanging_indent_width("--long        "), 14);
         assert_eq!(hanging_prefix("-a            "), "              ");
         assert_eq!(hanging_prefix("--long        "), "              ");
+        assert_eq!(hanging_indent_width("| "), 2);
+        assert_eq!(hanging_prefix("| "), "  ");
+        assert_eq!(hanging_indent_width("|   "), 4);
+        assert_eq!(hanging_prefix("|   "), "    ");
+        assert_eq!(hanging_indent_width("  | "), 4);
+        assert_eq!(hanging_indent_width("|"), 0);
     }
 
     #[test]

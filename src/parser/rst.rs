@@ -11,6 +11,10 @@ static CODE_DIRECTIVE_RE: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"^\s*\.\.\s+(?:code-block|sourcecode|code)::\s*([A-Za-z0-9_+.\-]+)?\s*$").unwrap()
 });
 
+/// Docutils `Body.grid_table_top_pat`: top/bottom of a full table.
+static GRID_TABLE_TOP_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"^\+-[-+]+-\+ *$").unwrap());
+
 /// Docutils `Body.patterns['option_marker']`: short `-a`/`+v`, long
 /// `--long`/`/V`, optional arg (`--input=file`, `-b file`, `<file>`),
 /// comma groups, then two-or-more spaces or end of line.
@@ -35,8 +39,8 @@ impl FormatParser for RstParser {
 
 /// Line-based RST parser. Handles directives, literal blocks (indented
 /// and quoted), doctest blocks, sections, field lists, option lists,
-/// comments, anonymous hyperlink targets, tables, definition lists, and
-/// block-quote hang spaces as structure regions.
+/// comments, anonymous hyperlink targets, line blocks, tables, definition
+/// lists, and block-quote hang spaces as structure regions.
 fn parse_line_based(input: &str) -> Vec<SpannedRegion> {
     let mut regions = Vec::new();
     let mut current_prose = String::new();
@@ -402,7 +406,37 @@ fn parse_line_based(input: &str) -> Vec<SpannedRegion> {
             continue;
         }
 
-        // Grid table rows (`| cell |` / `+---+---+`)
+        // Line block: Docutils Body.line_block (`\|( +|$)`) is checked
+        // before grid_table_top. `| ` is Structure; the rest hangs as
+        // Prose so SemBr still splits (GitHub #174).
+        if let Some(marker_len) = rst_line_block_marker_len(line_text) {
+            flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
+            list_hang = Some(marker_len);
+            regions.push(SpannedRegion::structure(
+                input,
+                ByteSpan::new(line.start, line.start + marker_len),
+            ));
+            if line_text.len() > marker_len {
+                current_prose.push_str(line_text[marker_len..].trim());
+                prose_span = Some(ByteSpan::new(line.start + marker_len, line.end));
+            }
+            i += 1;
+            continue;
+        }
+
+        // Grid table: Docutils grid_table_top (`+---+---+`) plus the
+        // `| cell |` / `+===+` rows it isolates. Full-line Structure.
+        if is_rst_grid_table_top(trimmed) {
+            flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
+            let end = rst_grid_table_end(&lines, i);
+            for row in &lines[i..=end] {
+                regions.push(SpannedRegion::structure(input, row.span()));
+            }
+            i = end + 1;
+            continue;
+        }
+
+        // Remaining `|cell|` / `+` fragments stay full-line Structure.
         if trimmed.starts_with('|') || trimmed.starts_with('+') {
             flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
             regions.push(SpannedRegion::structure(input, line.span()));
@@ -591,6 +625,27 @@ pub(crate) fn is_rst_field_list_line(trimmed: &str) -> bool {
     }
     let after = name_end + 2;
     after < trimmed.len() && trimmed.as_bytes()[after].is_ascii_whitespace()
+}
+
+/// Byte length of a Docutils line-block opener on `line`, including
+/// leading indent and the spaces after `|`. Pattern: `\|( +|$)`.
+/// `| ` / `|` at EOL open a line block; `|cell` does not (GitHub #174).
+pub(crate) fn rst_line_block_marker_len(line: &str) -> Option<usize> {
+    let indent = line.len() - line.trim_start().len();
+    let t = &line[indent..];
+    if t == "|" {
+        return Some(indent + 1);
+    }
+    let Some(after) = t.strip_prefix('|') else {
+        return None;
+    };
+    let spaces = after.bytes().take_while(|&b| b == b' ').count();
+    (spaces > 0).then_some(indent + 1 + spaces)
+}
+
+/// Docutils `Body.grid_table_top_pat`: `\+-[-+]+-\+ *$`.
+fn is_rst_grid_table_top(trimmed: &str) -> bool {
+    GRID_TABLE_TOP_RE.is_match(trimmed)
 }
 
 /// Byte length of the RST option column on `line`, including leading
@@ -901,6 +956,31 @@ fn simple_table_end(lines: &[Line<'_>], start: usize) -> Option<usize> {
         }
     }
     end
+}
+
+/// Last line of a grid table starting at a `+---+` top.
+///
+/// Docutils `isolate_grid_table` keeps left-edge `+`/`|` lines and
+/// closes on a later `grid_table_top`. If no closer exists, keep the
+/// collected block so a truncated `+---+---+` / `| a |` pair stays
+/// Structure.
+fn rst_grid_table_end(lines: &[Line<'_>], start: usize) -> usize {
+    let mut last = start;
+    let mut last_top = start;
+    for (j, line) in lines.iter().enumerate().skip(start + 1) {
+        let t = line.text.trim();
+        if t.is_empty() {
+            break;
+        }
+        if !(t.starts_with('+') || t.starts_with('|')) {
+            break;
+        }
+        last = j;
+        if is_rst_grid_table_top(t) {
+            last_top = j;
+        }
+    }
+    if last_top > start { last_top } else { last }
 }
 
 #[cfg(test)]
@@ -1405,6 +1485,86 @@ mod tests {
             format_text(&out, &cfg).unwrap(),
             out,
             "interior-blank simple table must be identity, got:\n{out}"
+        );
+    }
+
+    /// GitHub #174 / snapper-4a31: `| ` is a line block, not a grid row.
+    fn line_block_fixture() -> &'static str {
+        concat!(
+            "| This is a line. Another sentence.\n",
+            "| Next line. More text.\n",
+        )
+    }
+
+    #[test]
+    fn line_block_marker_len_matches_docutils() {
+        assert_eq!(rst_line_block_marker_len("| "), Some(2));
+        assert_eq!(rst_line_block_marker_len("| This is a line."), Some(2));
+        assert_eq!(rst_line_block_marker_len("|   Nested."), Some(4));
+        assert_eq!(rst_line_block_marker_len("  | hung."), Some(4));
+        assert_eq!(rst_line_block_marker_len("|"), Some(1));
+        assert_eq!(rst_line_block_marker_len("|cell"), None);
+        assert_eq!(rst_line_block_marker_len("+---+---+"), None);
+    }
+
+    #[test]
+    fn line_block_marker_is_structure_body_is_prose() {
+        let regions = RstParser.parse(line_block_fixture());
+        let structure: Vec<_> = regions
+            .iter()
+            .filter_map(|r| match r {
+                Region::Structure(s) if s.contains('|') => Some(s.as_str()),
+                _ => None,
+            })
+            .collect();
+        assert!(
+            structure.iter().any(|s| s == &"| " || s.starts_with("| ")),
+            "| plus spaces must be Structure, got {regions:?}"
+        );
+        assert!(
+            !structure.iter().any(|s| s.contains("This is a line")),
+            "line-block body must not be in the | Structure, got {regions:?}"
+        );
+        assert!(
+            regions
+                .iter()
+                .any(|r| matches!(r, Region::Prose(s) if s.contains("This is a line"))),
+            "line-block body must be Prose, got {regions:?}"
+        );
+        assert!(
+            regions
+                .iter()
+                .any(|r| matches!(r, Region::Prose(s) if s.contains("Another sentence"))),
+            "second sentence must stay Prose, got {regions:?}"
+        );
+        assert!(
+            !regions.iter().any(|r| matches!(
+                r,
+                Region::Structure(s)
+                    if s.contains("This is a line") || s.contains("Another sentence")
+            )),
+            "line-block sentences must not be full-line Structure, got {regions:?}"
+        );
+    }
+
+    #[test]
+    fn grid_table_rows_stay_full_line_structure() {
+        let input = "+---+---+\n| a | b |\n+---+---+\n";
+        let regions = RstParser.parse(input);
+        for needle in ["+---+---+", "| a | b |"] {
+            assert!(
+                regions
+                    .iter()
+                    .any(|r| matches!(r, Region::Structure(s) if s.contains(needle))),
+                "grid line {needle:?} must be Structure, got {regions:?}"
+            );
+        }
+        assert!(
+            !regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(s) if s.contains("a") || s.contains("---+---+")
+            )),
+            "grid table must not be Prose, got {regions:?}"
         );
     }
 
