@@ -1090,6 +1090,11 @@ fn hanging_indent_width(s: &str) -> usize {
     if crate::parser::rst::rst_footnote_citation_marker_len(s) == Some(s.len()) {
         return s.chars().count();
     }
+    // Org footnote definition (`[fn:1] `, `[fn:note] `): hang at
+    // marker width so the body stays a hung paragraph (GitHub #180).
+    if crate::parser::org::org_footnote_definition_marker_len(s) == Some(s.len()) {
+        return s.chars().count();
+    }
     // Parser markers are `core` plus one or more trailing spaces; leading
     // indent is part of the hang so nested `   - ` continues at column 5.
     // Extra spaces after `*` (`*  Candidate:`) stay in the hang so a
@@ -1809,6 +1814,10 @@ They are endowed with reason and conscience and should act towards one another i
         assert_eq!(hanging_indent_width(".. [CIT2002] "), 13);
         assert_eq!(hanging_prefix(".. [1] "), "       ");
         assert_eq!(hanging_prefix(".. [CIT2002] "), "             ");
+        assert_eq!(hanging_indent_width("[fn:1] "), 7);
+        assert_eq!(hanging_indent_width("[fn:note] "), 10);
+        assert_eq!(hanging_prefix("[fn:1] "), "       ");
+        assert_eq!(hanging_prefix("[fn:note] "), "          ");
     }
 
     #[test]
@@ -1819,6 +1828,22 @@ They are endowed with reason and conscience and should act towards one another i
             Region::Structure("\n".to_string()),
         ]);
         assert_eq!(result, "- One.\n  Two.\n");
+    }
+
+    #[test]
+    fn org_footnote_definition_hangs_second_sentence() {
+        let result = reflow_regions(vec![
+            Region::Structure("[fn:1] ".to_string()),
+            Region::Prose(
+                "This is a long footnote sentence that must stay inside the definition. Second sentence."
+                    .to_string(),
+            ),
+            Region::Structure("\n".to_string()),
+        ]);
+        assert_eq!(
+            result,
+            "[fn:1] This is a long footnote sentence that must stay inside the definition.\n       Second sentence.\n"
+        );
     }
 
     #[test]
