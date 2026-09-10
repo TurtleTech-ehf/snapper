@@ -424,13 +424,17 @@ fn parse_line_based(input: &str) -> Vec<SpannedRegion> {
         // A join_prose_gap newline after `No.` / `etc.`, an open quote,
         // or an open `(` stays in that Prose; reflow repeats the hang on
         // those continuation lines (GitHub #129, #130, #131).
+        // A hang-width line with no open Prose is also a new paragraph:
+        // after a nested directive the separator is Structure, not
+        // BlankLines, and splice would otherwise keep only the first
+        // sentence's indent (GitHub #135).
         if let Some(hang) = list_hang {
             let leading = line_text.len() - line_text.trim_start().len();
             if leading >= hang {
                 let after_blank = regions
                     .last()
                     .is_some_and(|r| matches!(r.region, Region::BlankLines(_)));
-                if after_blank {
+                if after_blank || current_prose.is_empty() {
                     flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
                     regions.push(SpannedRegion::structure(
                         input,
@@ -1405,6 +1409,85 @@ mod tests {
         assert!(
             out.contains("\n   Definition sentence."),
             "definition must keep indent, got:\n{out}"
+        );
+    }
+
+    fn pull_quote_definition_fixture() -> &'static str {
+        concat!(
+            "Loading-state race:\n",
+            "\n",
+            "   Ask this question:\n",
+            "\n",
+            "   .. pull-quote::\n",
+            "\n",
+            "      What happens?\n",
+            "\n",
+            "   First sentence.\n",
+            "   Second sentence.\n",
+        )
+    }
+
+    #[test]
+    fn definition_after_nested_directive_extracts_hang_structure() {
+        let input = pull_quote_definition_fixture();
+        let regions = RstParser.parse(input);
+        assert!(
+            regions
+                .iter()
+                .any(|r| matches!(r, Region::Structure(s) if s == "   ")),
+            "definition hang spaces must be Structure, got {regions:?}"
+        );
+        assert!(
+            regions.iter().any(|r| {
+                matches!(
+                    r,
+                    Region::Prose(s)
+                        if s.contains("First sentence.") && s.contains("Second sentence.")
+                )
+            }),
+            "definition sentences after the directive must be one Prose, got {regions:?}"
+        );
+        assert!(
+            !regions.iter().any(|r| {
+                matches!(r, Region::Prose(s) if s.contains("Second sentence.") && !s.contains("First sentence."))
+            }),
+            "second sentence must not be a column-0 Prose of its own, got {regions:?}"
+        );
+    }
+
+    #[test]
+    fn definition_after_nested_directive_keeps_three_space_indent() {
+        use crate::format::Format;
+        use crate::oracle;
+        use crate::{FormatConfig, format_text};
+
+        let cfg = FormatConfig {
+            format: Format::Rst,
+            max_width: 0,
+            ..Default::default()
+        };
+        let input = pull_quote_definition_fixture();
+        let out = format_text(input, &cfg).unwrap();
+        assert_eq!(
+            out, input,
+            "second definition sentence must keep three-space indent, got:\n{out}"
+        );
+        assert!(
+            out.contains("\n   Second sentence."),
+            "second sentence must stay inside the definition, got:\n{out}"
+        );
+        assert!(
+            !out.contains("\nSecond sentence."),
+            "second sentence must not outdent to column 0, got:\n{out}"
+        );
+        let twice = format_text(&out, &cfg).unwrap();
+        assert_eq!(
+            out, twice,
+            "hung definition after nested directive must be identity, got:\n{twice}"
+        );
+        assert!(
+            oracle::matches(Format::Rst, input, &out),
+            "oracle mismatch\n in={input:?}\n out={out:?}"
         );
     }
 
