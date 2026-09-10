@@ -1038,15 +1038,17 @@ fn setext_heading_start(lines: &[Line<'_>], last: usize, prose_span: Option<Byte
         .unwrap_or(last)
 }
 
-/// Body after a quote or list marker so a container line can be a title.
+/// Body after a quote and/or list marker so a container line can be a title.
+///
+/// A quoted list item (`> - Bar`) is still one setext title: strip the
+/// quote layer, then the leftover list marker (snapper-6g55). Nested
+/// `>>` is already one QUOTE_RE prefix.
 fn container_title_body(line: &str) -> &str {
-    if let Some(caps) = QUOTE_RE.captures(line) {
+    let after_quote = quote_body(line).unwrap_or(line);
+    if let Some(caps) = LIST_ITEM_RE.captures(after_quote) {
         return caps.get(2).unwrap().as_str();
     }
-    if let Some(caps) = LIST_ITEM_RE.captures(line) {
-        return caps.get(2).unwrap().as_str();
-    }
-    line
+    after_quote
 }
 
 fn quote_body(line: &str) -> Option<&str> {
@@ -1059,14 +1061,41 @@ fn quote_body(line: &str) -> Option<&str> {
 /// not yet called `end_paragraph`. A new `>` or list marker interrupts
 /// (CommonMark 4.3 / 5.2). Do not feed the still-open prior paragraph
 /// to `setext_heading_start`. A continuation of an already-open
-/// container — lazy quote body, hung list text, or another `>` while
-/// `in_quote` — is not an opener.
-fn is_interrupting_setext_opener(line: &str, in_quote: bool) -> bool {
-    if QUOTE_RE.is_match(line) && !in_quote {
+/// container — lazy quote body, hung list text, or another `>` at the
+/// same quote depth — is not an opener. A deeper prefix (`>` then
+/// `>>` / `> >`) is a nested blockquote and does interrupt
+/// (snapper-0772). `open_quote_depth` is 0 when no quote paragraph is
+/// open.
+fn is_interrupting_setext_opener(line: &str, open_quote_depth: usize) -> bool {
+    if quote_marker_depth(line) > open_quote_depth {
         return true;
     }
     let body = quote_body(line).unwrap_or(line);
-    LIST_ITEM_RE.is_match(body) || LIST_ITEM_RE.is_match(line)
+    LIST_ITEM_RE.is_match(body)
+}
+
+/// Quote-marker depth of the still-open paragraph, or 0 if none.
+///
+/// Used to tell a same-depth `> Bar` continuation from a nested
+/// `>> Bar` opener (snapper-0772). Falls back to the previous source
+/// line when `para_span` is missing.
+fn open_quote_depth(
+    lines: &[Line<'_>],
+    last: usize,
+    para_span: Option<ByteSpan>,
+    in_quote: bool,
+) -> usize {
+    if !in_quote {
+        return 0;
+    }
+    let start = setext_heading_start(lines, last, para_span);
+    if start < last {
+        return quote_marker_depth(lines[start].text);
+    }
+    if last > 0 {
+        return quote_marker_depth(lines[last - 1].text);
+    }
+    0
 }
 
 /// Last title line plus the following underline form a setext heading.
@@ -1079,11 +1108,14 @@ fn is_interrupting_setext_opener(line: &str, in_quote: bool) -> bool {
 /// underline that opens a new blockquote (`Foo` then `> =======`).
 /// A list item plus a column-0 underline is not inside the item.
 /// `in_quote` is true when the open paragraph started in a blockquote
-/// (lazy title lines have no `>`).
+/// (lazy title lines have no `>`). An unquoted list opener has left
+/// that quote, so it is not `heading_in_quote` (snapper-6g55): do not
+/// apply the ex. 93 unquoted-underline reject to `- Bar` / hung `=======`.
 fn is_setext_pair(title_line: &str, underline: &str, in_quote: bool) -> bool {
     let title_quoted = QUOTE_RE.is_match(title_line);
     let under_quoted = quote_body(underline).is_some();
-    let heading_in_quote = title_quoted || in_quote;
+    let unquoted_list = !title_quoted && LIST_ITEM_RE.is_match(title_line);
+    let heading_in_quote = (title_quoted || in_quote) && !unquoted_list;
     // Strip the quote marker only when the title is already in that quote.
     let under_body = if heading_in_quote && under_quoted {
         quote_body(underline).unwrap_or(underline)
@@ -1650,7 +1682,10 @@ impl FormatParser for MarkdownParser {
             // call end_paragraph.
             let in_quote = in_list_item && list_hang.is_none();
             if i + 1 < total && is_setext_pair(line_text, lines[i + 1].text, in_quote) {
-                let interrupting = is_interrupting_setext_opener(line_text, in_quote);
+                let interrupting = is_interrupting_setext_opener(
+                    line_text,
+                    open_quote_depth(&lines, i, para_span.or(prose_span), in_quote),
+                );
                 if interrupting {
                     close_list_item(
                         &mut in_list_item,
@@ -3642,6 +3677,145 @@ mod tests {
         assert!(
             out.contains("Body after setext.\nSecond body."),
             "body Prose must still split, got:\n{out}"
+        );
+    }
+
+    /// snapper-0772: a nested quote opener as the last title line
+    /// interrupts the outer quote paragraph.
+    #[test]
+    fn nested_quote_opener_setext_does_not_promote_outer_quote() {
+        let tight = concat!(
+            "> Foo is the first title line. Still title.\n",
+            ">> Bar is the second title line.\n",
+            ">> =======\n",
+            "\n",
+            "Body after setext. Second body.\n",
+        );
+        let regions = MarkdownParser.parse(tight);
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(p)
+                    if p.contains("Still title") || p.contains("Foo is the first")
+            )),
+            "nested >> interrupts: Foo must stay Prose, got: {regions:?}"
+        );
+        assert!(
+            !regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(p) if p.contains("Bar is the second")
+            )),
+            "inner quote setext title must not be Prose: {regions:?}"
+        );
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Structure(s) if s.contains("Bar is the second title line.")
+            )),
+            "Bar plus underline must be the inner quote setext, got: {regions:?}"
+        );
+        let out = crate::format_text(tight, &md_cfg()).unwrap();
+        assert!(
+            out.contains("first title line.\n> Still"),
+            "outer quote Foo must still split, got:\n{out}"
+        );
+        assert!(
+            out.contains("Body after setext.\nSecond body."),
+            "body Prose must still split, got:\n{out}"
+        );
+
+        let spaced = concat!(
+            "> Foo is the first title line. Still title.\n",
+            "> > Bar is the second title line.\n",
+            "> > =======\n",
+        );
+        let regions = MarkdownParser.parse(spaced);
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(p)
+                    if p.contains("Still title") || p.contains("Foo is the first")
+            )),
+            "spaced > > interrupts: Foo must stay Prose, got: {regions:?}"
+        );
+        assert!(
+            !regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(p) if p.contains("Bar is the second")
+            )),
+            "spaced inner quote setext must not be Prose: {regions:?}"
+        );
+    }
+
+    /// snapper-6g55: a list opener after an open quote is a new heading,
+    /// not a quote setext continuation.
+    #[test]
+    fn list_opener_after_quote_setext_does_not_promote_quote() {
+        let unquoted = concat!(
+            "> Foo is quoted. Still quoted.\n",
+            "- Bar is the title\n",
+            "  =======\n",
+            "\n",
+            "Body after setext. Second body.\n",
+        );
+        let regions = MarkdownParser.parse(unquoted);
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(p) if p.contains("Still quoted") || p.contains("Foo is quoted")
+            )),
+            "list after quote: Foo must stay Prose, got: {regions:?}"
+        );
+        assert!(
+            !regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(p) if p.contains("Bar is the title")
+            )),
+            "list setext title must not be Prose: {regions:?}"
+        );
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Structure(s) if s.contains("Bar is the title")
+            )),
+            "list item must be the setext title, got: {regions:?}"
+        );
+        let out = crate::format_text(unquoted, &md_cfg()).unwrap();
+        assert!(
+            out.contains("Foo is quoted.\n> Still quoted."),
+            "quote paragraph must still split, got:\n{out}"
+        );
+        assert!(
+            out.contains("Body after setext.\nSecond body."),
+            "body Prose must still split, got:\n{out}"
+        );
+
+        let quoted_list = concat!(
+            "> Foo is quoted. Still quoted.\n",
+            "> - Bar is the title\n",
+            ">   =======\n",
+        );
+        let regions = MarkdownParser.parse(quoted_list);
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(p) if p.contains("Still quoted") || p.contains("Foo is quoted")
+            )),
+            "quoted list opener: Foo must stay Prose, got: {regions:?}"
+        );
+        assert!(
+            !regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(p) if p.contains("Bar is the title")
+            )),
+            "quoted list setext title must not be Prose: {regions:?}"
+        );
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Structure(s) if s.contains("Bar is the title")
+            )),
+            "quoted list item must be the setext title, got: {regions:?}"
         );
     }
 

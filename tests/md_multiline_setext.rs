@@ -500,6 +500,127 @@ fn list_opener_as_last_setext_line_leaves_prior_paragraph_prose() {
     );
 }
 
+/// snapper-0772: nested quote opener interrupts the outer quote paragraph.
+#[test]
+fn nested_quote_opener_as_last_setext_line_leaves_outer_quote_prose() {
+    let tight = concat!(
+        "> Foo is the first title line. Still title.\n",
+        ">> Bar is the second title line.\n",
+        ">> =======\n",
+        "\n",
+        "Body after setext. Second body.\n",
+    );
+    let regions = MarkdownParser.parse(tight);
+    assert!(
+        regions.iter().any(|r| matches!(
+            r,
+            Region::Prose(p) if p.contains("Still title") || p.contains("Foo is the first")
+        )),
+        "nested >> interrupts: Foo must stay Prose, got: {regions:?}"
+    );
+    assert!(
+        !regions.iter().any(|r| matches!(
+            r,
+            Region::Prose(p) if p.contains("Bar is the second")
+        )),
+        "inner quote setext title must not be Prose: {regions:?}"
+    );
+    assert!(
+        regions.iter().any(|r| matches!(
+            r,
+            Region::Structure(s) if s.contains("Bar is the second title line.")
+        )),
+        "Bar plus underline must be the inner quote setext, got: {regions:?}"
+    );
+    let out = format_text(tight, &md_cfg()).unwrap();
+    assert!(
+        out.contains("first title line.\n> Still"),
+        "outer quote Foo must still split, got:\n{out}"
+    );
+    assert!(
+        out.contains("Body after setext.\nSecond body."),
+        "body Prose must still split, got:\n{out}"
+    );
+
+    let spaced = concat!(
+        "> Foo is the first title line. Still title.\n",
+        "> > Bar is the second title line.\n",
+        "> > =======\n",
+    );
+    let regions = MarkdownParser.parse(spaced);
+    assert!(
+        regions.iter().any(|r| matches!(
+            r,
+            Region::Prose(p) if p.contains("Still title") || p.contains("Foo is the first")
+        )),
+        "spaced > > interrupts: Foo must stay Prose, got: {regions:?}"
+    );
+}
+
+/// snapper-6g55: list opener after an open quote is a new heading.
+#[test]
+fn list_opener_after_quote_leaves_quote_paragraph_prose() {
+    let unquoted = concat!(
+        "> Foo is quoted. Still quoted.\n",
+        "- Bar is the title\n",
+        "  =======\n",
+        "\n",
+        "Body after setext. Second body.\n",
+    );
+    let regions = MarkdownParser.parse(unquoted);
+    assert!(
+        regions.iter().any(|r| matches!(
+            r,
+            Region::Prose(p) if p.contains("Still quoted") || p.contains("Foo is quoted")
+        )),
+        "list after quote: Foo must stay Prose, got: {regions:?}"
+    );
+    assert!(
+        !regions.iter().any(|r| matches!(
+            r,
+            Region::Prose(p) if p.contains("Bar is the title")
+        )),
+        "list setext title must not be Prose: {regions:?}"
+    );
+    assert!(
+        regions.iter().any(|r| matches!(
+            r,
+            Region::Structure(s) if s.contains("Bar is the title")
+        )),
+        "list item must be the setext title, got: {regions:?}"
+    );
+    let out = format_text(unquoted, &md_cfg()).unwrap();
+    assert!(
+        out.contains("Foo is quoted.\n> Still quoted."),
+        "quote paragraph must still split, got:\n{out}"
+    );
+    assert!(
+        out.contains("Body after setext.\nSecond body."),
+        "body Prose must still split, got:\n{out}"
+    );
+
+    let quoted_list = concat!(
+        "> Foo is quoted. Still quoted.\n",
+        "> - Bar is the title\n",
+        ">   =======\n",
+    );
+    let regions = MarkdownParser.parse(quoted_list);
+    assert!(
+        regions.iter().any(|r| matches!(
+            r,
+            Region::Prose(p) if p.contains("Still quoted") || p.contains("Foo is quoted")
+        )),
+        "quoted list opener: Foo must stay Prose, got: {regions:?}"
+    );
+    assert!(
+        !regions.iter().any(|r| matches!(
+            r,
+            Region::Prose(p) if p.contains("Bar is the title")
+        )),
+        "quoted list setext title must not be Prose: {regions:?}"
+    );
+}
+
 /// snapper-j945: hard-break flush is not a paragraph close.
 #[test]
 fn hard_break_multiline_setext_does_not_split_first_title_line() {
