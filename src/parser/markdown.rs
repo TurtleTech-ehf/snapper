@@ -592,35 +592,82 @@ fn rest_is_md_link_title(s: &str) -> bool {
     false
 }
 
+/// Text after `[label]:` on a 0–3-space leaf line, with leading spaces
+/// or tabs stripped. `Some("")` means dest is not on this line.
+fn after_link_reference_colon(line: &str) -> Option<&str> {
+    let rest = md_leaf_rest(line)?;
+    if is_footnote_definition(line) {
+        return None;
+    }
+    let after_open = rest.strip_prefix('[')?;
+    let label_len = scan_md_link_label(after_open)?;
+    let after_label = &after_open[label_len..];
+    let after_close = after_label.strip_prefix(']')?;
+    let after_colon = after_close.strip_prefix(':')?;
+    Some(after_colon.trim_start_matches([' ', '\t']))
+}
+
+/// Dest plus optional title, with nothing else on the line.
+fn rest_is_md_link_dest_and_optional_title(s: &str) -> bool {
+    let Some(dest_len) = scan_md_link_dest(s) else {
+        return false;
+    };
+    let after_dest = s[dest_len..].trim_start_matches([' ', '\t']);
+    after_dest.is_empty() || rest_is_md_link_title(after_dest)
+}
+
 /// CommonMark 0.31.2 §4.7 link-reference definition on one physical line:
 /// 0–3 spaces, `[label]:`, dest, optional title. Four-space / tab indent
-/// is indented code, not a definition.
+/// is indented code, not a definition. Dest may instead follow after one
+/// line ending; see [`link_reference_def_end`].
 fn is_link_reference_definition(line: &str) -> bool {
-    let Some(rest) = md_leaf_rest(line) else {
-        return false;
-    };
-    if is_footnote_definition(line) {
+    after_link_reference_colon(line).is_some_and(rest_is_md_link_dest_and_optional_title)
+}
+
+/// `[label]:` with only spaces or tabs after the colon (dest is next line).
+fn is_link_reference_label_colon_only(line: &str) -> bool {
+    after_link_reference_colon(line).is_some_and(|s| s.is_empty())
+}
+
+/// Dest (+ optional title) on the line after `[label]:` (CM 4.7).
+/// Indent may exceed three spaces (spec example 193).
+fn is_link_reference_dest_line(line: &str) -> bool {
+    if line.trim().is_empty() {
         return false;
     }
-    let Some(after_open) = rest.strip_prefix('[') else {
-        return false;
-    };
-    let Some(label_len) = scan_md_link_label(after_open) else {
-        return false;
-    };
-    let after_label = &after_open[label_len..];
-    let Some(after_close) = after_label.strip_prefix(']') else {
-        return false;
-    };
-    let Some(after_colon) = after_close.strip_prefix(':') else {
-        return false;
-    };
-    let after_ws = after_colon.trim_start_matches([' ', '\t']);
-    let Some(dest_len) = scan_md_link_dest(after_ws) else {
-        return false;
-    };
-    let after_dest = after_ws[dest_len..].trim_start_matches([' ', '\t']);
-    after_dest.is_empty() || rest_is_md_link_title(after_dest)
+    rest_is_md_link_dest_and_optional_title(line.trim_start_matches([' ', '\t']))
+}
+
+/// Last line of a CM 4.7 link-reference definition starting at `start`.
+/// Dest may sit on the same physical line or after one line ending.
+/// Optional title may follow dest on that dest line or the next line.
+fn link_reference_def_end(lines: &[Line<'_>], start: usize) -> Option<usize> {
+    let line = lines.get(start)?.text;
+    if is_link_reference_definition(line) {
+        let title = start + 1;
+        if title < lines.len() && is_link_title_continuation(lines[title].text) {
+            return Some(title);
+        }
+        return Some(start);
+    }
+    if !is_link_reference_label_colon_only(line) {
+        return None;
+    }
+    let dest_i = start + 1;
+    if dest_i >= lines.len() || !is_link_reference_dest_line(lines[dest_i].text) {
+        return None;
+    }
+    let dest_rest = lines[dest_i].text.trim_start_matches([' ', '\t']);
+    let dest_len = scan_md_link_dest(dest_rest)?;
+    let after_dest = dest_rest[dest_len..].trim_start_matches([' ', '\t']);
+    if rest_is_md_link_title(after_dest) {
+        return Some(dest_i);
+    }
+    let title = dest_i + 1;
+    if title < lines.len() && is_link_title_continuation(lines[title].text) {
+        return Some(title);
+    }
+    Some(dest_i)
 }
 
 /// Optional title on the line after `[label]: dest` (`"title"` / `'title'` / `(title)`).
@@ -1286,11 +1333,12 @@ impl FormatParser for MarkdownParser {
                 continue;
             }
 
-            // CommonMark 4.7 link-reference definition. The physical line is
-            // Structure so dest/title are not joined or sentence-split.
+            // CommonMark 4.7 link-reference definition. Each physical line
+            // is Structure so dest/title are not joined or sentence-split.
+            // Dest may follow after one line ending (`[foo]:` then `/url`).
             // CM: an LRD does not interrupt a paragraph — we do not insert a
             // blank, so pulldown HTML is unchanged when the line followed prose.
-            if is_link_reference_definition(line_text) {
+            if let Some(end) = link_reference_def_end(&lines, i) {
                 close_list_item(
                     &mut in_list_item,
                     &mut list_hang,
@@ -1301,12 +1349,10 @@ impl FormatParser for MarkdownParser {
                     &mut regions,
                 );
                 flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
-                regions.push(SpannedRegion::structure(input, line.span()));
-                i += 1;
-                if i < total && is_link_title_continuation(lines[i].text) {
-                    regions.push(SpannedRegion::structure(input, lines[i].span()));
-                    i += 1;
+                for row in &lines[i..=end] {
+                    regions.push(SpannedRegion::structure(input, row.span()));
                 }
+                i = end + 1;
                 continue;
             }
 
@@ -3672,6 +3718,13 @@ mod tests {
         assert!(is_link_reference_definition("[foo]: <>"));
         assert!(!is_link_reference_definition("    [foo]: /url"));
         assert!(!is_link_reference_definition("[foo]:"));
+        assert!(is_link_reference_label_colon_only("[foo]:"));
+        assert!(is_link_reference_label_colon_only("  [foo]:   "));
+        assert!(!is_link_reference_label_colon_only("[foo]: /url"));
+        assert!(is_link_reference_dest_line("/url/a.b"));
+        assert!(is_link_reference_dest_line("      /url \"title\""));
+        assert!(!is_link_reference_dest_line(""));
+        assert!(!is_link_reference_dest_line("hello world"));
         assert!(!is_link_reference_definition("See [foo]: not-a-def"));
         assert!(!is_link_reference_definition(
             "[^1]: Footnote text. Second sentence."
@@ -3714,6 +3767,69 @@ mod tests {
                 Region::Prose(p) if p.contains("See [foo].") && p.contains("Next sentence.")
             )),
             "preceding paragraph must stay Prose, got: {regions:?}"
+        );
+    }
+
+    #[test]
+    fn link_reference_dest_on_next_line_is_structure() {
+        use crate::format_text;
+
+        let input = concat!(
+            "See [foo]. Next sentence.\n",
+            "\n",
+            "[foo]:\n",
+            "/url/a.b\n",
+            "\n",
+            "After. More.\n",
+        );
+        let regions = MarkdownParser.parse(input);
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Structure(s) if s.contains("[foo]:")
+            )),
+            "[foo]: must be Structure, got: {regions:?}"
+        );
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Structure(s) if s.contains("/url/a.b")
+            )),
+            "/url/a.b must be Structure, got: {regions:?}"
+        );
+        assert!(
+            !regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(p) if p.contains("[foo]:") || p.contains("/url/a.b")
+            )),
+            "dest-on-next-line LRD must not be Prose, got: {regions:?}"
+        );
+        let out = format_text(input, &md_cfg()).unwrap();
+        assert!(
+            out.contains("See [foo].\nNext sentence."),
+            "preceding prose must still split, got:\n{out}"
+        );
+        assert!(
+            out.contains("[foo]:\n/url/a.b\n"),
+            "LRD lines must stay Structure, got:\n{out}"
+        );
+        assert!(
+            out.contains("After.\nMore."),
+            "following prose must still split, got:\n{out}"
+        );
+        assert_eq!(format_text(&out, &md_cfg()).unwrap(), out);
+    }
+
+    #[test]
+    fn link_reference_label_only_without_dest_is_not_structure() {
+        let input = "[foo]:\n\nAfter. More.\n";
+        let regions = MarkdownParser.parse(input);
+        assert!(
+            !regions.iter().any(|r| matches!(
+                r,
+                Region::Structure(s) if s.contains("[foo]:")
+            )),
+            "colon-only without dest is not an LRD, got: {regions:?}"
         );
     }
 
