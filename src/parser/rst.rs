@@ -56,7 +56,9 @@ impl FormatParser for RstParser {
 /// and quoted), doctest blocks, sections, field lists, option lists,
 /// footnotes, citations, comments, anonymous hyperlink targets, line
 /// blocks, tables, definition lists, and block-quote hang spaces as
-/// structure regions.
+/// structure regions. Docutils container directives (admonitions,
+/// figure, topic, sidebar, container) nested-parse their body: the
+/// opener and option fields stay Structure; the body hangs as Prose.
 fn parse_line_based(input: &str) -> Vec<SpannedRegion> {
     let mut regions = Vec::new();
     let mut current_prose = String::new();
@@ -246,11 +248,18 @@ fn parse_line_based(input: &str) -> Vec<SpannedRegion> {
             continue;
         }
 
-        // RST directive (.. something::)
+        // RST directive (`.. something::`). Container names nested-parse
+        // their body (docutils admonitions / figure / topic / sidebar /
+        // container): opener stays Structure; option fields and nested
+        // markup fall through. Opaque names keep the body as Structure.
         let trimmed = line_text.trim_start();
         if trimmed.starts_with(".. ") && trimmed.contains("::") {
             flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
             regions.push(SpannedRegion::structure(input, line.span()));
+            if rst_directive_name(line_text).is_some_and(is_rst_container_directive) {
+                i += 1;
+                continue;
+            }
             let leading = line_text.len() - trimmed.len();
             // Docutils accepts a two-space body; +3 is convention only.
             directive_indent = leading + 2;
@@ -630,6 +639,44 @@ pub(crate) fn rst_footnote_citation_marker_len(line: &str) -> Option<usize> {
     FOOTNOTE_CITATION_MARKER_RE
         .find(&line[indent..])
         .map(|m| indent + m.end())
+}
+
+/// Name of an RST `.. name::` directive on `line`, if this line is one.
+/// Rejects an empty name and names that contain whitespace.
+fn rst_directive_name(line: &str) -> Option<&str> {
+    let trimmed = line.trim_start();
+    if !trimmed.starts_with(".. ") || !trimmed.contains("::") {
+        return None;
+    }
+    let rest = trimmed[3..].trim_start();
+    let colon = rest.find("::")?;
+    let name = rest[..colon].trim();
+    if name.is_empty() || name.bytes().any(|b| b.is_ascii_whitespace()) {
+        return None;
+    }
+    Some(name)
+}
+
+/// Docutils directives whose body is nested-parsed as paragraphs:
+/// admonitions, figure caption, topic, sidebar, container.
+fn is_rst_container_directive(name: &str) -> bool {
+    const NAMES: &[&str] = &[
+        "note",
+        "warning",
+        "caution",
+        "danger",
+        "tip",
+        "important",
+        "hint",
+        "error",
+        "attention",
+        "admonition",
+        "figure",
+        "topic",
+        "sidebar",
+        "container",
+    ];
+    NAMES.iter().any(|n| name.eq_ignore_ascii_case(n))
 }
 
 /// True when `trimmed` is an RST comment opener, not a `.. name::`
@@ -2559,7 +2606,21 @@ mod tests {
     }
 
     #[test]
-    fn two_space_directive_option_and_body_are_structure() {
+    fn rst_directive_name_extracts_simple_names() {
+        assert_eq!(rst_directive_name(".. note::"), Some("note"));
+        assert_eq!(rst_directive_name("  .. figure:: img.png"), Some("figure"));
+        assert_eq!(
+            rst_directive_name(".. csv-table:: Title"),
+            Some("csv-table")
+        );
+        assert_eq!(rst_directive_name(".. Note::"), Some("Note"));
+        assert_eq!(rst_directive_name(".."), None);
+        assert_eq!(rst_directive_name(".. _label:"), None);
+        assert_eq!(rst_directive_name(".. ::"), None);
+    }
+
+    #[test]
+    fn container_directive_option_is_structure_body_is_prose() {
         let input = ".. note::\n  :class: test\n\n  Body.\n";
         let regions = RstParser.parse(input);
         assert!(
@@ -2577,15 +2638,171 @@ mod tests {
         assert!(
             regions
                 .iter()
-                .any(|r| matches!(r, Region::Structure(s) if s.contains("Body."))),
-            "two-space body must be Structure, got {regions:?}"
+                .any(|r| matches!(r, Region::Prose(s) if s.contains("Body."))),
+            "container body must be Prose, got {regions:?}"
         );
         assert!(
             !regions
                 .iter()
-                .any(|r| matches!(r, Region::Prose(s) if s.contains("Body."))),
-            "two-space body must not be Prose, got {regions:?}"
+                .any(|r| matches!(r, Region::Structure(s) if s.contains("Body."))),
+            "container body must not be Structure, got {regions:?}"
         );
+        assert!(
+            regions
+                .iter()
+                .any(|r| matches!(r, Region::Structure(s) if s == "  ")),
+            "container body hang must be Structure, got {regions:?}"
+        );
+    }
+
+    #[test]
+    fn opaque_directive_body_stays_structure() {
+        for opener in [".. raw:: html", ".. include:: other.rst", ".. csv-table::"] {
+            let input = format!("{opener}\n\n  Hello. World.\n");
+            let regions = RstParser.parse(&input);
+            assert!(
+                regions
+                    .iter()
+                    .any(|r| matches!(r, Region::Structure(s) if s.contains("Hello. World."))),
+                "{opener} body must stay Structure, got {regions:?}"
+            );
+            assert!(
+                !regions
+                    .iter()
+                    .any(|r| matches!(r, Region::Prose(s) if s.contains("Hello. World."))),
+                "{opener} body must not be Prose, got {regions:?}"
+            );
+        }
+    }
+
+    fn container_note_fixture() -> &'static str {
+        concat!(
+            ".. note::\n",
+            "\n",
+            "   This is a long note sentence that must reflow. Second sentence.\n",
+            "\n",
+            "After the note. Next.\n",
+        )
+    }
+
+    #[test]
+    fn container_note_body_is_hung_prose() {
+        let input = container_note_fixture();
+        let regions = RstParser.parse(input);
+        assert!(
+            regions
+                .iter()
+                .any(|r| matches!(r, Region::Structure(s) if s.contains(".. note::"))),
+            "note opener must stay Structure, got {regions:?}"
+        );
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(s)
+                    if s.contains("This is a long note sentence that must reflow.")
+                        && s.contains("Second sentence.")
+            )),
+            "note body must be hung Prose, got {regions:?}"
+        );
+        assert!(
+            !regions.iter().any(|r| matches!(
+                r,
+                Region::Structure(s) if s.contains("This is a long note sentence")
+            )),
+            "note body must not freeze as Structure, got {regions:?}"
+        );
+        assert!(
+            regions
+                .iter()
+                .any(|r| matches!(r, Region::Structure(s) if s == "   ")),
+            "note body hang must be Structure, got {regions:?}"
+        );
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(s) if s.contains("After the note.") && s.contains("Next.")
+            )),
+            "prose after the note must remain Prose, got {regions:?}"
+        );
+    }
+
+    #[test]
+    fn container_note_body_reflows() {
+        use crate::format::Format;
+        use crate::{FormatConfig, format_text};
+
+        let cfg = FormatConfig {
+            format: Format::Rst,
+            max_width: 0,
+            ..Default::default()
+        }
+        .without_safety_backstops();
+        let out = format_text(container_note_fixture(), &cfg).unwrap();
+        assert_eq!(
+            out,
+            concat!(
+                ".. note::\n",
+                "\n",
+                "   This is a long note sentence that must reflow.\n",
+                "   Second sentence.\n",
+                "\n",
+                "After the note.\n",
+                "Next.\n",
+            ),
+            "note body and following prose must hang and split, got:\n{out}"
+        );
+        assert_eq!(format_text(&out, &cfg).unwrap(), out);
+    }
+
+    #[test]
+    fn leftover_container_names_reflow_like_note() {
+        use crate::format::Format;
+        use crate::{FormatConfig, format_text};
+
+        let cfg = FormatConfig {
+            format: Format::Rst,
+            max_width: 0,
+            ..Default::default()
+        }
+        .without_safety_backstops();
+        for name in [
+            "warning",
+            "caution",
+            "danger",
+            "tip",
+            "important",
+            "hint",
+            "error",
+            "attention",
+            "admonition",
+            "figure",
+            "topic",
+            "sidebar",
+            "container",
+        ] {
+            let input = format!(
+                ".. {name}::\n\n   This is a long note sentence that must reflow. Second sentence.\n\nAfter the note. Next.\n"
+            );
+            let regions = RstParser.parse(&input);
+            assert!(
+                regions.iter().any(|r| matches!(
+                    r,
+                    Region::Prose(s)
+                        if s.contains("This is a long note sentence that must reflow.")
+                            && s.contains("Second sentence.")
+                )),
+                "{name} body must be Prose, got {regions:?}"
+            );
+            let out = format_text(&input, &cfg).unwrap();
+            assert_eq!(
+                out,
+                format!(
+                    ".. {name}::\n\n   This is a long note sentence that must reflow.\n   Second sentence.\n\nAfter the note.\nNext.\n"
+                ),
+                "{name} is the same container class as note, got:\n{out}"
+            );
+            assert_eq!(format_text(&out, &cfg).unwrap(), out);
+        }
     }
 
     #[test]

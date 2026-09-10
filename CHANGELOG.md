@@ -4,6 +4,9 @@ All notable changes to this project will be documented in this file. See [conven
 - - -
 ## Unreleased (main)
 
+#### Bug Fixes
+- (**rst**) reflow admonition, figure, topic, sidebar, and container bodies
+
 - - -
 
 ## v0.11.1 - 2026-09-09
