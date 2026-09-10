@@ -3,6 +3,8 @@ All notable changes to this project will be documented in this file. See [conven
 
 - - -
 ## Unreleased (main)
+#### Bug Fixes
+- (**rst**) admonition, figure, topic, sidebar, and container bodies hang and reflow; option fields and `raw`/`include`/`csv-table` stay structure
 
 - - -
 
