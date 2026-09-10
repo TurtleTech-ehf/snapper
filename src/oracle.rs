@@ -326,6 +326,12 @@ mod tests {
             "> One. Two.\n",
             "> One.\n> Two.\n"
         ));
+        assert!(matches(Format::Markdown, ">One. Two.\n", ">One.\n>Two.\n"));
+        assert!(matches(
+            Format::Markdown,
+            "> Three. Four.\nfive. six\n",
+            "> Three.\n> Four.\n> five. six\n"
+        ));
         assert!(matches(
             Format::Markdown,
             "> Quoted one. Quoted two.\n> > Nested one. Nested two.\n",
