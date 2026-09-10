@@ -158,9 +158,9 @@ pub fn protect_inline_tokens_with(
 ) -> (String, Vec<String>) {
     let mut placeholders: Vec<String> = Vec::new();
     let after_verb = protect_latex_verbatim(text, &mut placeholders, extra_verbatim_commands);
-    // After `\verb|` so a configured delimiter is gone. Unlisted
-    // `\Verb|a.b! c|` keeps the letter prefix, so it is not a
-    // substitution_ref (Docutils start-string; GitHub #233).
+    // After `\verb|` / `\Verb|` the delimiter is gone. A leftover
+    // letter prefix before `|` is not a Docutils start-string
+    // (GitHub #233).
     let after_rst = protect_rst_substitution_refs(&after_verb, &mut placeholders);
     // org-element inline src / babel-call before paired `=`/`~` so a body
     // like `src_python{~x~}` stays one object, not an Org code span.
@@ -408,7 +408,7 @@ fn find_unescaped_brace_close(text: &str, mut i: usize) -> Option<usize> {
 /// Docutils Inliner.substitution_ref: `|text|` plus optional `_` / `__`.
 /// Text may not begin or end with whitespace (line_block is `| `).
 /// Start-string must be at BOS or after 7-bit non-alphanumeric, so
-/// `\Verb|a.b|` is not a substitution (GitHub #233).
+/// `\foo|a.b|` is not a substitution (GitHub #233).
 fn protect_rst_substitution_refs(text: &str, placeholders: &mut Vec<String>) -> String {
     let mut out = String::with_capacity(text.len());
     let mut i = 0;
@@ -2622,20 +2622,18 @@ mod tests {
     fn rst_line_block_and_open_bar_are_not_substitution_refs() {
         // Docutils line_block is `| ` (space after opener). Unclosed
         // `|fig. 1` is not substitution_ref. Leading/trailing space
-        // inside the bars is invalid. A letter prefix (`\Verb|`) is
-        // not a start-string.
+        // inside the bars is invalid. `\Verb|...|` is a fancyvrb verb
+        // token (GitHub #243), not a substitution_ref.
         for text in [
             "| This is a line. Another sentence.",
             "See |fig. 1 in the caption. Next sentence.",
             "See | fig. 1| in the caption. Next sentence.",
             "See |fig. 1 | in the caption. Next sentence.",
-            r"Use \Verb|a.b! c| here. Next sentence.",
         ] {
             let (_, placeholders) = protect_inline_tokens(text);
             assert!(
                 !placeholders.iter().any(|p| p.contains("fig. 1")
                     || p.contains("This is a line")
-                    || p.contains("a.b!")
                     || p.starts_with("| ")),
                 "invalid / line-block `|` must not be a token, got {placeholders:?} for {text:?}"
             );
