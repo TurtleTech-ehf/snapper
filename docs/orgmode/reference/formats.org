@@ -71,7 +71,8 @@ These tokens within prose are not split across lines:
 :CUSTOM_ID: latex-structure
 :END:
 - Preamble (everything before =\begin{document}=)
-- Non-prose environments: equation, align, figure, table, tabular, tikzpicture, and their starred variants (plus other non-code envs)
+- Non-prose environments: equation, align, tabular, tikzpicture, and their starred variants (plus other non-code envs)
+- Float chrome (=\begin{figure}= / =\centering= / =\end{figure}=, and =table= / starred variants): Structure. The =\caption= long argument is Prose.
 - Extra names from =[latex].structure_envs= in =.snapperrc.toml= (for example =algorithm=)
 - Display math: =\[...\]=
 - =\iffalse= ... =\fi= (tree-sitter =block_comment=)
@@ -93,6 +94,7 @@ These tokens within prose are not split across lines:
 :CUSTOM_ID: latex-prose
 :END:
 - Body text between structural elements
+- =\caption{...}= long argument inside figure/table (tree-sitter caption curly_group)
 
 ** Markdown (=--format markdown=)
 :PROPERTIES:
