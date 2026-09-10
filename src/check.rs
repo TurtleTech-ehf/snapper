@@ -463,6 +463,38 @@ mod tests {
     }
 
     #[test]
+    fn org_caption_value_is_fused_name_attr_are_not() {
+        let input = concat!(
+            "#+NAME: First sentence. Second sentence.\n",
+            "#+ATTR_LATEX: :width 0.9 :alt First sentence. Second sentence.\n",
+            "#+CAPTION: This is a long figure caption that must reflow as prose. Second sentence.\n",
+            "[[file:plot.png]]\n",
+            "After the figure. More.\n",
+        );
+        let splitter = UnicodeSentenceSplitter::new();
+        let found =
+            collect_diagnostics(input, Format::Org, &splitter, DEFAULT_LONG_THRESHOLD, None);
+        assert_no_kind_on(
+            &found,
+            DiagnosticKind::Fused,
+            &[1, 2, 4],
+            "org NAME/ATTR/link must not be fused",
+        );
+        assert!(
+            found
+                .iter()
+                .any(|d| d.line == 3 && d.kind == DiagnosticKind::Fused),
+            "org CAPTION value should be fused prose, got {found:?}"
+        );
+        assert!(
+            found
+                .iter()
+                .any(|d| d.line == 5 && d.kind == DiagnosticKind::Fused),
+            "prose after the figure should still be fused, got {found:?}"
+        );
+    }
+
+    #[test]
     fn markdown_front_matter_and_setext_are_not_prose() {
         let input = concat!(
             "---\n",
