@@ -24,6 +24,10 @@ static LATEX_END_RE: LazyLock<Regex> =
 static EXPORT_SNIPPET_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"@@[a-zA-Z]+:[^@]*@@").unwrap());
 
+/// org-element drawer opener: `:NAME:` with NAME=`[A-Za-z_-]+`.
+static DRAWER_BEGIN_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"^:([A-Za-z_-]+):\s*$").unwrap());
+
 /// org-element / org-mode display math (`$$` or `\[`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum DisplayMathDelim {
@@ -90,15 +94,30 @@ impl OrgParser {
         Self::block_end_name(line).as_deref() == Some("SRC")
     }
 
-    /// Check if a line starts a property drawer
+    /// org-element drawer: `:NAME:` where NAME matches `[A-Za-z_-]+`.
+    /// `:END:` is only a closer. `:See also:` and `: text` are not drawers.
     fn is_drawer_begin(line: &str) -> bool {
         let trimmed = line.trim();
-        trimmed.starts_with(':') && trimmed.ends_with(':') && trimmed.len() > 2
+        DRAWER_BEGIN_RE
+            .captures(trimmed)
+            .is_some_and(|caps| !caps.get(1).unwrap().as_str().eq_ignore_ascii_case("END"))
     }
 
     /// Check if a line ends a drawer
     fn is_drawer_end(line: &str) -> bool {
         line.trim().eq_ignore_ascii_case(":END:")
+    }
+
+    /// org-element fixed-width: colon then a space, or a lone colon.
+    fn is_fixed_width(line: &str) -> bool {
+        let t = line.trim_start();
+        t == ":" || t.starts_with(": ")
+    }
+
+    /// org-element horizontal rule: five or more hyphens.
+    fn is_horizontal_rule(line: &str) -> bool {
+        let t = line.trim();
+        t.len() >= 5 && t.bytes().all(|b| b == b'-')
     }
 
     /// Check if a line is a keyword/directive (#+KEYWORD:)
@@ -289,10 +308,24 @@ impl FormatParser for OrgParser {
                 continue;
             }
 
-            // Drawer begin
+            // Drawer begin (`:NAME:` only)
             if Self::is_drawer_begin(line_text) {
                 flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
                 in_drawer = true;
+                regions.push(SpannedRegion::structure(input, line.span()));
+                continue;
+            }
+
+            // Fixed-width (`: text`) is Structure, not a drawer.
+            if Self::is_fixed_width(line_text) {
+                flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
+                regions.push(SpannedRegion::structure(input, line.span()));
+                continue;
+            }
+
+            // Horizontal rule (`-----`) is Structure and a paragraph boundary.
+            if Self::is_horizontal_rule(line_text) {
+                flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
                 regions.push(SpannedRegion::structure(input, line.span()));
                 continue;
             }
@@ -657,6 +690,12 @@ mod tests {
         assert!(matches!(&regions[0], Region::Structure(_))); // :PROPERTIES:
         assert!(matches!(&regions[1], Region::Structure(_))); // :ID:
         assert!(matches!(&regions[2], Region::Structure(_))); // :END:
+        assert!(
+            regions
+                .iter()
+                .any(|r| matches!(r, Region::Prose(p) if p.contains("Some text."))),
+            "text after :END: must stay Prose, got: {regions:?}"
+        );
     }
 
     #[test]
@@ -1054,5 +1093,150 @@ mod tests {
             );
             assert_eq!(format_text(&out, &cfg).unwrap(), out);
         }
+    }
+
+    /// GitHub #109 / snapper-gyoz reporter fixture.
+    fn gyoz_drawer_fixture() -> &'static str {
+        concat!(
+            ":See also:\n",
+            "This is a note. Second sentence.\n",
+            "After the note. More.\n",
+            "\n",
+            ": First sentence. Second sentence.\n",
+            "\n",
+            "End of section.\n",
+            "-----\n",
+            "Start of next. More.\n",
+        )
+    }
+
+    #[test]
+    fn see_also_is_not_a_drawer_and_does_not_swallow() {
+        let input = gyoz_drawer_fixture();
+        let regions = OrgParser.parse(input);
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(p) if p.contains("This is a note.") && p.contains("Second sentence.")
+            )),
+            ":See also: must not open a drawer; following sentences are Prose, got: {regions:?}"
+        );
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(p) if p.contains("After the note.")
+            )),
+            "prose after :See also: must not be swallowed, got: {regions:?}"
+        );
+        assert!(
+            !regions.iter().any(|r| matches!(
+                r,
+                Region::Structure(s) if s.contains("This is a note.")
+            )),
+            "note body must not become Structure, got: {regions:?}"
+        );
+    }
+
+    #[test]
+    fn fixed_width_line_is_structure_and_keeps_colon() {
+        use crate::format_text;
+
+        let input = ": First sentence. Second sentence.\n";
+        let regions = OrgParser.parse(input);
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Structure(s) if s.contains(": First sentence. Second sentence.")
+            )),
+            ": text must be Structure (fixed-width), got: {regions:?}"
+        );
+        assert!(
+            !regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(p) if p.contains("First sentence.")
+            )),
+            "fixed-width must not become Prose (colon would drop on wrap), got: {regions:?}"
+        );
+        let out = format_text(input, &org_cfg()).unwrap();
+        assert!(
+            out.lines()
+                .any(|l| l == ": First sentence. Second sentence."),
+            "fixed-width must keep the colon and stay one line, got:\n{out}"
+        );
+        assert_eq!(format_text(&out, &org_cfg()).unwrap(), out);
+    }
+
+    #[test]
+    fn horizontal_rule_is_structure_and_a_boundary() {
+        use crate::format_text;
+
+        let input = "End of section.\n-----\nStart of next. More.\n";
+        let regions = OrgParser.parse(input);
+        assert!(
+            regions
+                .iter()
+                .any(|r| matches!(r, Region::Structure(s) if s.trim() == "-----")),
+            "----- must be Structure (rule), got: {regions:?}"
+        );
+        assert!(
+            !regions
+                .iter()
+                .any(|r| matches!(r, Region::Prose(p) if p.contains("-----"))),
+            "----- must not join surrounding prose, got: {regions:?}"
+        );
+        let out = format_text(input, &org_cfg()).unwrap();
+        assert!(
+            out.contains("End of section.\n-----\nStart of next."),
+            "rule must stay a paragraph boundary, got:\n{out}"
+        );
+        assert!(
+            out.contains("Start of next.\nMore."),
+            "prose after the rule must still reflow, got:\n{out}"
+        );
+        assert!(
+            !out.contains("----- Start of next"),
+            "must not join the rule into the next sentence, got:\n{out}"
+        );
+        assert_eq!(format_text(&out, &org_cfg()).unwrap(), out);
+    }
+
+    #[test]
+    fn gyoz_fixture_does_not_swallow_or_drop_colon() {
+        use crate::format_text;
+
+        let input = gyoz_drawer_fixture();
+        let regions = OrgParser.parse(input);
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Structure(s) if s.contains(": First sentence. Second sentence.")
+            )),
+            "fixed-width line in the ticket fixture must be Structure, got: {regions:?}"
+        );
+        assert!(
+            regions
+                .iter()
+                .any(|r| matches!(r, Region::Structure(s) if s.trim() == "-----")),
+            "rule in the ticket fixture must be Structure, got: {regions:?}"
+        );
+        let out = format_text(input, &org_cfg()).unwrap();
+        assert!(
+            out.contains("This is a note.\nSecond sentence."),
+            ":See also: must not swallow following prose, got:\n{out}"
+        );
+        assert!(
+            out.contains("After the note.\nMore."),
+            "sentences after the note must reflow, got:\n{out}"
+        );
+        assert!(
+            out.lines()
+                .any(|l| l == ": First sentence. Second sentence."),
+            "fixed-width must keep the leading colon, got:\n{out}"
+        );
+        assert!(
+            out.contains("End of section.\n-----\nStart of next.\nMore."),
+            "rule is a boundary; following prose reflows, got:\n{out}"
+        );
+        assert_eq!(format_text(&out, &org_cfg()).unwrap(), out);
     }
 }
