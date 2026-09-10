@@ -478,8 +478,11 @@ fn parse_line_based(input: &str) -> Vec<SpannedRegion> {
             continue;
         }
 
-        // Remaining `|cell|` / `+` fragments stay full-line Structure.
-        if trimmed.starts_with('|') || trimmed.starts_with('+') {
+        // Leftover `+` fragments (not a grid_table_top) stay Structure.
+        // Leftover `|` is not a table row: Docutils Inliner
+        // substitution_ref (`|version|`) is inline; line_block is only
+        // `| ` / `|` at EOL.
+        if trimmed.starts_with('+') {
             flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
             regions.push(SpannedRegion::structure(input, line.span()));
             i += 1;
@@ -1621,6 +1624,41 @@ mod tests {
                 Region::Prose(s) if s.contains("a") || s.contains("---+---+")
             )),
             "grid table must not be Prose, got {regions:?}"
+        );
+    }
+
+    /// Leftover `|` is Inliner substitution_ref, not a table row.
+    #[test]
+    fn substitution_ref_is_prose_not_leftover_structure() {
+        let start = "|version| is the current release. Second sentence.\n";
+        let mid = "The current release is\n|version|. Next sentence.\n";
+        for input in [start, mid] {
+            let regions = RstParser.parse(input);
+            assert!(
+                regions
+                    .iter()
+                    .any(|r| matches!(r, Region::Prose(s) if s.contains("|version|"))),
+                "|version| must stay inside Prose, got {regions:?}"
+            );
+            assert!(
+                !regions.iter().any(|r| matches!(
+                    r,
+                    Region::Structure(s)
+                        if s.contains("|version|")
+                            || s.contains("current release")
+                            || s.contains("Second sentence")
+                            || s.contains("Next sentence")
+                )),
+                "substitution_ref lines must not be Structure, got {regions:?}"
+            );
+        }
+        let leftover_plus = "+not-a-grid\n";
+        let plus_regions = RstParser.parse(leftover_plus);
+        assert!(
+            plus_regions
+                .iter()
+                .any(|r| matches!(r, Region::Structure(s) if s.contains("+not-a-grid"))),
+            "leftover + fragments stay Structure, got {plus_regions:?}"
         );
     }
 
