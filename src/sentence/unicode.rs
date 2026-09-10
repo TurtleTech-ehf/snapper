@@ -19,19 +19,24 @@ static INLINE_TOKEN_RE: LazyLock<Regex> = LazyLock::new(|| {
             // org-element 5.5 citation: [cite/style:prefix;@key p. 7;suffix]
             // Must be atomic so a page locator is not a sentence boundary.
             r"\[cite(?:/[-a-zA-Z0-9_/]*)?:[^\]]*\]",
-            r"\[[^\]]+\]\([^)]+\)",    // Markdown links: [text](url)
-            r"!\[[^\]]*\]\([^)]+\)",   // Markdown images: ![alt](url)
+            // org-element-macro-parser / org-macro.el:
+            // {{{name}}} or {{{name(args)}}}. Name is
+            // [a-zA-Z][-a-zA-Z0-9_]*; args are non-greedy and may
+            // span lines. Two-brace {{...}} is not a macro (GitHub #212).
+            r"\{\{\{[a-zA-Z][-a-zA-Z0-9_]*(?:\((?:.|\n)*?\))?\}\}\}",
+            r"\[[^\]]+\]\([^)]+\)",  // Markdown links: [text](url)
+            r"!\[[^\]]*\]\([^)]+\)", // Markdown images: ![alt](url)
             // CommonMark 0.31.2 §6.3 full / collapsed reference links.
             // Optional whitespace (including a line ending) may sit between
             // the text and the label. Shortcut `[text]` is not matched: that
             // would swallow every bracket group.
             r"!\[[^\]]*\]\s*\[[^\]]*\]", // Markdown reference images: ![alt][ref]
             r"\[[^\]]+\]\s*\[[^\]]*\]",  // Markdown reference links: [text][ref]
-            r"\$\$[^$\n]+\$\$",        // Display math: $$...$$
-            r"\$[^$\n]+\$",            // Inline math: $...$
-            r"\\\([^\\\n]+\\\)",       // LaTeX inline math: \(...\)
-            r"\\\[[^\n]+?\\\]",        // Org / LaTeX display math fragment: \[...\]
-            r"\\([a-zA-Z]+)\{[^}]*\}", // LaTeX commands: \cmd{arg}
+            r"\$\$[^$\n]+\$\$",          // Display math: $$...$$
+            r"\$[^$\n]+\$",              // Inline math: $...$
+            r"\\\([^\\\n]+\\\)",         // LaTeX inline math: \(...\)
+            r"\\\[[^\n]+?\\\]",          // Org / LaTeX display math fragment: \[...\]
+            r"\\([a-zA-Z]+)\{[^}]*\}",   // LaTeX commands: \cmd{arg}
             // Org emphasis must be protected before sentence splits so a line
             // cannot begin with `*rest` (false headline) or leave markers open.
             // Org requires a non-space immediately after the opener and before
@@ -594,7 +599,7 @@ fn find_md_code_span(text: &str, open_at: usize) -> Option<usize> {
 
 /// Byte ranges of inline tokens that wrapping must not split (links, images,
 /// reference links `[text][ref]`, inline code, autolinks, math, Org `[[...]]`,
-/// Org `[cite...]`, paired spans).
+/// Org `[cite...]`, Org `{{{name}}}` / `{{{name(args)}}}`, paired spans).
 ///
 /// Ranges are half-open `[start, end)`, sorted, non-overlapping, and merged
 /// when a regex match wraps a paired span.
@@ -1452,6 +1457,96 @@ mod tests {
             split(text),
             vec![
                 "See [cite/t:see;@foo p. 7;@bar pp. 4;by foo].".to_string(),
+                "Next sentence.".to_string()
+            ]
+        );
+    }
+
+    #[test]
+    fn inline_org_macro_interior_punct_is_not_a_sentence_boundary() {
+        // GitHub #212 / snapper-aunh: org-element-macro-parser
+        // {{{name}}} / {{{name(args)}}} stay one token so an interior
+        // period is not a sentence boundary. `Next sentence.` still splits.
+        let mac = "{{{cite(Smith. 2020)}}}";
+        let text = "See {{{cite(Smith. 2020)}}} for the source. Next sentence.";
+        let (_, placeholders) = protect_inline_tokens(text);
+        assert!(
+            placeholders.iter().any(|p| p == mac),
+            "org macro must be one token, got {placeholders:?}"
+        );
+        assert!(
+            !placeholders.iter().any(|p| p == "{{cite(Smith. 2020)}}"),
+            "two-brace form is not a macro, got {placeholders:?}"
+        );
+        let spans = atomic_inline_spans(text);
+        assert!(
+            spans.iter().any(|&(s, e)| &text[s..e] == mac),
+            "macro must be an atomic wrap span, got {:?}",
+            spans.iter().map(|&(s, e)| &text[s..e]).collect::<Vec<_>>()
+        );
+        assert_eq!(
+            split(text),
+            vec![
+                "See {{{cite(Smith. 2020)}}} for the source.".to_string(),
+                "Next sentence.".to_string()
+            ]
+        );
+    }
+
+    #[test]
+    fn inline_org_macro_without_args_is_one_token() {
+        let mac = "{{{title}}}";
+        let text = "See {{{title}}} for the source. Next sentence.";
+        let (_, placeholders) = protect_inline_tokens(text);
+        assert!(
+            placeholders.iter().any(|p| p == mac),
+            "no-arg macro must be one token, got {placeholders:?}"
+        );
+        assert_eq!(
+            split(text),
+            vec![
+                "See {{{title}}} for the source.".to_string(),
+                "Next sentence.".to_string()
+            ]
+        );
+    }
+
+    #[test]
+    fn two_brace_form_is_not_an_org_macro() {
+        let text = "See {{cite(Smith. 2020)}} for the source. Next sentence.";
+        let (_, placeholders) = protect_inline_tokens(text);
+        assert!(
+            !placeholders
+                .iter()
+                .any(|p| p.contains("{{cite") || p.contains("Smith. 2020")),
+            "two-brace {{...}} must not be a macro token, got {placeholders:?}"
+        );
+    }
+
+    #[test]
+    fn unclosed_org_macro_is_not_an_inline_token() {
+        let text = "See {{{cite(Smith. 2020 for the source. Next sentence.";
+        let (_, placeholders) = protect_inline_tokens(text);
+        assert!(
+            !placeholders.iter().any(|p| p.contains("{{{cite")),
+            "unclosed macro must not swallow the sentence, got {placeholders:?}"
+        );
+    }
+
+    #[test]
+    fn inline_org_macro_args_may_span_lines() {
+        // org-element-macro-parser args are `(?:.|\n)*?`.
+        let mac = "{{{cite(Smith.\n2020)}}}";
+        let text = "See {{{cite(Smith.\n2020)}}} for the source. Next sentence.";
+        let (_, placeholders) = protect_inline_tokens(text);
+        assert!(
+            placeholders.iter().any(|p| p == mac),
+            "multiline-arg macro must be one token, got {placeholders:?}"
+        );
+        assert_eq!(
+            split(text),
+            vec![
+                "See {{{cite(Smith.\n2020)}}} for the source.".to_string(),
                 "Next sentence.".to_string()
             ]
         );
