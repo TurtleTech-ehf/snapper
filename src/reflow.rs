@@ -920,8 +920,9 @@ fn wrap_atomic_words(
 /// Repeat list/quote hang after source newlines left inside one sentence.
 ///
 /// Compact RST list joins insert a newline after sentence punct (`No.`,
-/// `etc.`); abbreviation merge then keeps that as one sentence, so splice
-/// would otherwise emit the continuation flush-left (GitHub #129).
+/// `etc.`) or inside an open quote; abbreviation/delimiter merge then
+/// keeps that as one sentence, so splice would otherwise emit the
+/// continuation flush-left (GitHub #129, #130).
 fn hang_internal_newlines(text: &str, hang: &str) -> String {
     if hang.is_empty() || !text.contains('\n') {
         return text.to_string();
@@ -1710,6 +1711,24 @@ They are endowed with reason and conscience and should act towards one another i
                 "* Uses queues, caches, etc.\n",
                 "  Another sentence.\n",
             )
+        );
+    }
+
+    #[test]
+    fn rst_open_quote_list_keeps_hang_on_internal_newline() {
+        // GitHub #130: `"First sentence.` stays one sentence, so the
+        // compact-hang newline must still get the two-space prefix.
+        let result = reflow_regions(vec![
+            Region::Structure("* ".to_string()),
+            Region::Prose("\"First sentence.\nSecond sentence.\"".to_string()),
+            Region::Structure("\n".to_string()),
+            Region::Structure("* ".to_string()),
+            Region::Prose("Next item.".to_string()),
+            Region::Structure("\n".to_string()),
+        ]);
+        assert_eq!(
+            result,
+            "* \"First sentence.\n  Second sentence.\"\n* Next item.\n"
         );
     }
 

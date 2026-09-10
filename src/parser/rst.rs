@@ -411,9 +411,9 @@ fn parse_line_based(input: &str) -> Vec<SpannedRegion> {
         // Structure so splice does not outdent them. Compact wrap
         // (no blank) is the same paragraph; join into the open Prose
         // so a reflow hang reparses as the source list item.
-        // A join_prose_gap newline after `No.` / `etc.` stays in that
-        // Prose; reflow repeats the hang on those continuation lines
-        // (GitHub #129).
+        // A join_prose_gap newline after `No.` / `etc.` or an open quote
+        // stays in that Prose; reflow repeats the hang on those
+        // continuation lines (GitHub #129, #130).
         if let Some(hang) = list_hang {
             let leading = line_text.len() - line_text.trim_start().len();
             if leading >= hang {
@@ -1483,6 +1483,67 @@ mod tests {
                 .iter()
                 .any(|r| matches!(r, Region::Structure(s) if s == "  ")),
             "compact abbrev hang must not be Structure, got {regions:?}"
+        );
+    }
+
+    #[test]
+    fn compact_quoted_list_hang_joins_into_one_prose_region() {
+        let input = "* \"First sentence.\n  Second sentence.\"\n";
+        let regions = RstParser.parse(input);
+        let prose: Vec<_> = regions
+            .iter()
+            .filter_map(|r| match r {
+                Region::Prose(s) => Some(s.as_str()),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(
+            prose,
+            ["\"First sentence.\nSecond sentence.\""],
+            "compact open-quote hang must join into one Prose, got {regions:?}"
+        );
+        assert!(
+            !regions
+                .iter()
+                .any(|r| matches!(r, Region::Structure(s) if s == "  ")),
+            "compact open-quote hang must not be Structure, got {regions:?}"
+        );
+    }
+
+    #[test]
+    fn reporter_open_quote_list_continuation_keeps_two_space_hang() {
+        use crate::format::Format;
+        use crate::oracle;
+        use crate::{FormatConfig, format_text};
+
+        let cfg = FormatConfig {
+            format: Format::Rst,
+            max_width: 0,
+            ..Default::default()
+        }
+        .without_safety_backstops();
+        let input = "* \"First sentence.\n  Second sentence.\"\n* Next item.\n";
+        let out = format_text(input, &cfg).unwrap();
+        assert_eq!(
+            out, input,
+            "open-quote list continuation must keep two-space hang, got:\n{out}"
+        );
+        assert!(
+            out.contains("\n  Second sentence.\""),
+            "continuation must stay hung, got:\n{out}"
+        );
+        assert!(
+            !out.contains("\nSecond sentence."),
+            "must not outdent inside the open quote, got:\n{out}"
+        );
+        let twice = format_text(&out, &cfg).unwrap();
+        assert_eq!(
+            out, twice,
+            "hung open-quote list must be identity, got:\n{twice}"
+        );
+        assert!(
+            oracle::matches(Format::Rst, input, &out),
+            "oracle mismatch\n in={input:?}\n out={out:?}"
         );
     }
 
