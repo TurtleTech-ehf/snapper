@@ -73,7 +73,8 @@ These tokens within prose are not split across lines:
 :END:
 - Preamble (everything before =\begin{document}=)
 - Non-prose environments: equation, align, tabular, tikzpicture, and their starred variants (plus other non-code envs)
-- Float chrome (=\begin{figure}= / =\centering= / =\end{figure}=, and =table= / starred variants): Structure. The =\caption= long argument is Prose.
+- Float chrome (=\begin{figure}= / =\centering= / =\end{figure}=, and =table= / starred variants): Structure.
+  The =\caption= long argument is Prose.
 - Extra names from =[latex].structure_envs= in =.snapperrc.toml= (for example =algorithm=)
 - Display math: =\[...\]=
 - =\iffalse= through =\fi= (tree-sitter =block_comment=)
