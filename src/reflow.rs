@@ -586,7 +586,11 @@ fn latex_opens_block(line: &str) -> bool {
     if t.starts_with('%') {
         return true;
     }
-    if t.starts_with("\\begin{") || t.starts_with("\\end{") || t.starts_with("\\[") {
+    if t.starts_with("\\begin{")
+        || t.starts_with("\\end{")
+        || t.starts_with("\\[")
+        || t.starts_with("$$")
+    {
         return true;
     }
     if let Some(after) = t.strip_prefix("\\item") {
