@@ -165,7 +165,107 @@ impl OrgParser {
             .is_some_and(|caps| caps.get(1).unwrap().as_str() == env)
     }
 
-    /// org-element latex-fragment display math: `\[` / `\]` or `$$` / `$$`.
+    /// First `\end{env}` at or after `from` (same-line close; not leftover-start).
+    fn latex_end_at(s: &str, env: &str, from: usize) -> Option<usize> {
+        let needle = format!("\\end{{{env}}}");
+        s.get(from..)?.find(&needle).map(|rel| from + rel)
+    }
+
+    fn latex_end_len(env: &str) -> usize {
+        "\\end{".len() + env.len() + 1
+    }
+
+    /// org-syntax 5.2 `\[CONTENTS\]`: unescaped `\[` / `\]`.
+    /// `\\[2ex]` is `\\` + `[`, not a fragment opener.
+    fn find_unescaped_display_bracket(s: &str, from: usize, closer: u8) -> Option<usize> {
+        let bytes = s.as_bytes();
+        let mut i = from;
+        while i + 1 < bytes.len() {
+            if bytes[i] == b'\\' && bytes[i + 1] == closer && (i == 0 || bytes[i - 1] != b'\\') {
+                return Some(i);
+            }
+            i += 1;
+        }
+        None
+    }
+
+    /// Prose slice with a trimmed rewrite span so splice keeps surrounding spaces.
+    fn emit_prose_slice(
+        input: &str,
+        abs_start: usize,
+        piece: &str,
+        term: Option<ByteSpan>,
+        regions: &mut Vec<SpannedRegion>,
+    ) {
+        let trimmed = piece.trim();
+        if trimmed.is_empty() {
+            if let Some(term) = term {
+                if !term.is_empty() {
+                    regions.push(SpannedRegion::structure(input, term));
+                }
+            }
+            return;
+        }
+        let lead = piece.len() - piece.trim_start().len();
+        let start = abs_start + lead;
+        let content_end = start + trimmed.len();
+        let span = match term {
+            Some(t) if !t.is_empty() => ByteSpan::new(start, t.end),
+            _ => ByteSpan::new(start, content_end),
+        };
+        regions.push(SpannedRegion::prose(trimmed.to_string(), span));
+    }
+
+    /// Split `text` on org-syntax `\[CONTENTS\]`. Glue space before mid-line
+    /// `\[` stays on the Structure island so reflow does not break `is \[`.
+    fn emit_bracket_math_text(
+        input: &str,
+        abs_base: usize,
+        text: &str,
+        line_end: usize,
+        term: Option<ByteSpan>,
+        regions: &mut Vec<SpannedRegion>,
+        in_display_math: &mut Option<DisplayMathDelim>,
+    ) {
+        let mut i = 0;
+        while i < text.len() {
+            let Some(open) = Self::find_unescaped_display_bracket(text, i, b'[') else {
+                Self::emit_prose_slice(input, abs_base + i, &text[i..], term, regions);
+                return;
+            };
+            let prefix = &text[i..open];
+            let struct_start = if prefix.trim().is_empty() {
+                i
+            } else {
+                let glue = prefix.len() - prefix.trim_end_matches([' ', '\t']).len();
+                let prose_end = open - glue;
+                Self::emit_prose_slice(input, abs_base + i, &text[i..prose_end], None, regions);
+                open - glue
+            };
+            if let Some(close) = Self::find_unescaped_display_bracket(text, open + 2, b']') {
+                let after = close + 2;
+                regions.push(SpannedRegion::structure(
+                    input,
+                    ByteSpan::new(abs_base + struct_start, abs_base + after),
+                ));
+                i = after;
+            } else {
+                regions.push(SpannedRegion::structure(
+                    input,
+                    ByteSpan::new(abs_base + struct_start, line_end),
+                ));
+                *in_display_math = Some(DisplayMathDelim::Bracket);
+                return;
+            }
+        }
+        if let Some(term) = term {
+            if !term.is_empty() {
+                regions.push(SpannedRegion::structure(input, term));
+            }
+        }
+    }
+
+    /// org-element latex-fragment display math: leftover-start `\[` / `\]` or `$$`.
     fn display_math_open(line: &str) -> Option<DisplayMathDelim> {
         let t = line.trim();
         if t == r"\[" {
@@ -334,7 +434,31 @@ impl FormatParser for OrgParser {
             // Inside display math \[...\] / $$...$$ -- everything is structure
             if let Some(delim) = in_display_math {
                 flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
-                if Self::is_display_math_close(line_text, delim) {
+                if delim == DisplayMathDelim::Bracket {
+                    if let Some(close) = Self::find_unescaped_display_bracket(line_text, 0, b']') {
+                        let after = close + 2;
+                        let struct_end = if line_text[after..].trim().is_empty() {
+                            line.end
+                        } else {
+                            line.start + after
+                        };
+                        regions.push(SpannedRegion::structure(
+                            input,
+                            ByteSpan::new(line.start, struct_end),
+                        ));
+                        in_display_math = None;
+                        if !line_text[after..].trim().is_empty() {
+                            Self::emit_prose_slice(
+                                input,
+                                line.start + after,
+                                &line_text[after..],
+                                Some(line.terminator_span()),
+                                &mut regions,
+                            );
+                        }
+                        continue;
+                    }
+                } else if Self::is_display_math_close(line_text, delim) {
                     in_display_math = None;
                 }
                 regions.push(SpannedRegion::structure(input, line.span()));
@@ -392,16 +516,36 @@ impl FormatParser for OrgParser {
             // LaTeX environment begin (\begin{equation} etc.)
             if let Some(env) = Self::is_latex_begin(line_text) {
                 flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
-                in_latex_env = Some(env);
-                regions.push(SpannedRegion::structure(input, line.span()));
+                let begin_at = LATEX_BEGIN_RE.find(line_text).map(|m| m.end()).unwrap_or(0);
+                if let Some(end_at) = Self::latex_end_at(line_text, &env, begin_at) {
+                    let cmd_end = end_at + Self::latex_end_len(&env);
+                    if line_text[cmd_end..].trim().is_empty() {
+                        regions.push(SpannedRegion::structure(input, line.span()));
+                    } else {
+                        regions.push(SpannedRegion::structure(
+                            input,
+                            ByteSpan::new(line.start, line.start + cmd_end),
+                        ));
+                        Self::emit_prose_slice(
+                            input,
+                            line.start + cmd_end,
+                            &line_text[cmd_end..],
+                            Some(line.terminator_span()),
+                            &mut regions,
+                        );
+                    }
+                } else {
+                    in_latex_env = Some(env);
+                    regions.push(SpannedRegion::structure(input, line.span()));
+                }
                 continue;
             }
 
-            // Display math open (\[ or $$)
-            if let Some(delim) = Self::display_math_open(line_text) {
+            // Display math: leftover-start $$ (2le9). `\[CONTENTS\]` may be mid-line.
+            if let Some(DisplayMathDelim::Dollars) = Self::display_math_open(line_text) {
                 flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
-                if !Self::display_math_is_single_line(line_text, delim) {
-                    in_display_math = Some(delim);
+                if !Self::display_math_is_single_line(line_text, DisplayMathDelim::Dollars) {
+                    in_display_math = Some(DisplayMathDelim::Dollars);
                 }
                 regions.push(SpannedRegion::structure(input, line.span()));
                 continue;
@@ -472,6 +616,18 @@ impl FormatParser for OrgParser {
                 list_item_indent = Some(marker.len());
                 let marker_span = ByteSpan::new(line.start, line.start + marker.len());
                 regions.push(SpannedRegion::structure(input, marker_span));
+                if Self::find_unescaped_display_bracket(text, 0, b'[').is_some() {
+                    Self::emit_bracket_math_text(
+                        input,
+                        line.start + marker.len(),
+                        text,
+                        line.end,
+                        Some(line.terminator_span()),
+                        &mut regions,
+                        &mut in_display_math,
+                    );
+                    continue;
+                }
                 if !text.is_empty() {
                     regions.push(SpannedRegion::prose(
                         text.to_string(),
@@ -488,7 +644,10 @@ impl FormatParser for OrgParser {
             // List item continuation: indented line following a list item
             if let Some(indent) = list_item_indent {
                 let leading = line_text.len() - line_text.trim_start().len();
-                if leading >= indent && !line_text.trim().is_empty() {
+                if leading >= indent
+                    && !line_text.trim().is_empty()
+                    && Self::find_unescaped_display_bracket(line_text, 0, b'[').is_none()
+                {
                     // Append to the previous Prose region of the list item.
                     // The last three regions are Structure(marker), Prose(text), Structure(\n)
                     // We want to extend the Prose region.
@@ -519,6 +678,21 @@ impl FormatParser for OrgParser {
                 }
                 // Not a continuation: leave list context
                 list_item_indent = None;
+            }
+
+            // org-syntax 5.2: `\[CONTENTS\]` may be mid-line (Kang: Structure).
+            if Self::find_unescaped_display_bracket(line_text, 0, b'[').is_some() {
+                flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
+                Self::emit_bracket_math_text(
+                    input,
+                    line.start,
+                    line_text,
+                    line.end,
+                    Some(line.terminator_span()),
+                    &mut regions,
+                    &mut in_display_math,
+                );
+                continue;
             }
 
             // Regular prose line -- accumulate. Verse stays line-preserving.
@@ -1544,6 +1718,165 @@ mod tests {
         assert!(
             out.contains("End of section.\n-----\nStart of next.\nMore."),
             "rule is a boundary; following prose reflows, got:\n{out}"
+        );
+        assert_eq!(format_text(&out, &org_cfg()).unwrap(), out);
+    }
+
+    /// Ticket fixture (Format::Org): same-line `\[...\]` is Structure;
+    /// same-line `\begin{NAME}...\end{NAME}` must not swallow following prose.
+    fn dvg8_fixture() -> &'static str {
+        concat!(
+            "The root is \\[ x = a.b \\] today. Next claim.\n",
+            "\n",
+            "Prose before.\n",
+            "\\begin{equation} x = 1 \\end{equation}\n",
+            "This must stay prose. Second sentence.\n",
+        )
+    }
+
+    #[test]
+    fn same_line_bracket_display_is_structure() {
+        use crate::format_text;
+
+        let input = dvg8_fixture();
+        let regions = OrgParser.parse(input);
+        assert!(
+            regions
+                .iter()
+                .any(|r| matches!(r, Region::Structure(s) if s.contains("x = a.b"))),
+            "same-line \\[ x = a.b \\] must be Structure, got: {regions:?}"
+        );
+        assert!(
+            !regions
+                .iter()
+                .any(|r| matches!(r, Region::Prose(p) if p.contains("x = a.b"))),
+            "same-line \\[ body must not be Prose, got: {regions:?}"
+        );
+        assert!(
+            regions
+                .iter()
+                .any(|r| matches!(r, Region::Prose(p) if p.contains("today"))),
+            "words before Next claim must stay Prose, got: {regions:?}"
+        );
+        assert!(
+            regions
+                .iter()
+                .any(|r| matches!(r, Region::Prose(p) if p.contains("Next claim"))),
+            "Next claim must stay Prose, got: {regions:?}"
+        );
+        let out = format_text(input, &org_cfg()).unwrap();
+        assert!(
+            out.contains("\\[ x = a.b \\]"),
+            "same-line \\[ must stay intact, got:\n{out}"
+        );
+        assert!(
+            out.contains("today.\nNext claim."),
+            "prose after same-line \\] must still reflow, got:\n{out}"
+        );
+        assert!(
+            !out.contains("x = a.b.\n"),
+            "must not split inside same-line display math, got:\n{out}"
+        );
+        assert_eq!(format_text(&out, &org_cfg()).unwrap(), out);
+    }
+
+    #[test]
+    fn same_line_bracket_period_does_not_split() {
+        use crate::format_text;
+
+        // Isolated from the ticket `a.b` so origin/main cannot pass by
+        // treating the fragment as Prose (UAX will not split `a.b`).
+        let input = "The root is \\[ x = 1. \\] today. Next claim.\n";
+        let regions = OrgParser.parse(input);
+        assert!(
+            regions
+                .iter()
+                .any(|r| matches!(r, Region::Structure(s) if s.contains("x = 1."))),
+            "same-line \\[ x = 1. \\] must be Structure, got: {regions:?}"
+        );
+        assert!(
+            !regions
+                .iter()
+                .any(|r| matches!(r, Region::Prose(p) if p.contains("x = 1."))),
+            "same-line \\[ body must not be Prose, got: {regions:?}"
+        );
+        let out = format_text(input, &org_cfg()).unwrap();
+        assert!(
+            out.contains("\\[ x = 1. \\] today.\nNext claim."),
+            "period inside same-line \\[ must not split, trailing prose reflows, got:\n{out}"
+        );
+        assert!(
+            !out.contains("\\[ x = 1.\n"),
+            "must not break after the math period, got:\n{out}"
+        );
+        assert_eq!(format_text(&out, &org_cfg()).unwrap(), out);
+    }
+
+    #[test]
+    fn same_line_latex_env_does_not_swallow() {
+        use crate::format_text;
+
+        let input = dvg8_fixture();
+        let regions = OrgParser.parse(input);
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Structure(s)
+                    if s.contains("\\begin{equation}") && s.contains("\\end{equation}")
+            )),
+            "same-line \\begin{{equation}}...\\end{{equation}} must be Structure, got: {regions:?}"
+        );
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(p)
+                    if p.contains("This must stay prose") && p.contains("Second sentence")
+            )),
+            "prose after same-line latex env must stay Prose, got: {regions:?}"
+        );
+        assert!(
+            !regions.iter().any(|r| matches!(
+                r,
+                Region::Structure(s) if s.contains("This must stay prose")
+            )),
+            "same-line latex env must not swallow following prose, got: {regions:?}"
+        );
+        let out = format_text(input, &org_cfg()).unwrap();
+        assert!(
+            out.contains("\\begin{equation} x = 1 \\end{equation}"),
+            "same-line latex env must stay one structure line, got:\n{out}"
+        );
+        assert!(
+            out.contains("This must stay prose.\nSecond sentence."),
+            "following prose must reflow, got:\n{out}"
+        );
+        assert_eq!(format_text(&out, &org_cfg()).unwrap(), out);
+    }
+
+    #[test]
+    fn leftover_start_bracket_still_structure() {
+        use crate::format_text;
+
+        let input = "\\[\nThis is a long sentence that must stay inside display math and must not reflow as prose.\n\\]\nAfter. Next.\n";
+        let regions = OrgParser.parse(input);
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Structure(s)
+                    if s.contains("This is a long sentence that must stay inside display math")
+            )),
+            "leftover-start \\[ body must stay Structure, got: {regions:?}"
+        );
+        let out = format_text(input, &org_cfg()).unwrap();
+        assert!(
+            out.contains(
+                "\\[\nThis is a long sentence that must stay inside display math and must not reflow as prose.\n\\]"
+            ),
+            "leftover-start \\[ must stay a structure block, got:\n{out}"
+        );
+        assert!(
+            out.contains("After.\nNext."),
+            "prose after leftover-start \\] must reflow, got:\n{out}"
         );
         assert_eq!(format_text(&out, &org_cfg()).unwrap(), out);
     }
