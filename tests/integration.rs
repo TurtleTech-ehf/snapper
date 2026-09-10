@@ -89,6 +89,20 @@ fn latex_format() {
 }
 
 #[test]
+fn latex_filecontents_fixture_stays_verbatim() {
+    let actual = run_format("latex", &fixture_path("filecontents.tex"));
+    let expected = fs::read_to_string(fixture_path("filecontents.tex")).unwrap();
+    pretty_assertions::assert_eq!(actual, expected);
+}
+
+#[test]
+fn latex_pycode_fixture_stays_verbatim() {
+    let actual = run_format("latex", &fixture_path("pycode.tex"));
+    let expected = fs::read_to_string(fixture_path("pycode.tex")).unwrap();
+    pretty_assertions::assert_eq!(actual, expected);
+}
+
+#[test]
 fn markdown_format() {
     let actual = run_format("markdown", &fixture_path("sample.md"));
     let expected = fs::read_to_string(fixture_path("expected.md")).unwrap();
