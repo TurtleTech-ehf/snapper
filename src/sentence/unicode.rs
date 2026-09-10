@@ -408,6 +408,13 @@ fn find_org_paired_span(text: &str, open_at: usize, marker: char) -> Option<usiz
         if ch == '\n' {
             return None;
         }
+        // Markdown code can hold `=` / `~`; those are not Org closers.
+        if ch == '`' {
+            if let Some(end) = find_md_code_span(text, j) {
+                j = end;
+                continue;
+            }
+        }
         if ch == marker && j > after_open {
             let prev = text[..j].chars().next_back()?;
             if !prev.is_whitespace() {
@@ -1918,6 +1925,47 @@ mod tests {
             !out.contains("**complex.\n"),
             "must not split before the closer, got:\n{out}"
         );
+    }
+
+    #[test]
+    fn org_equals_does_not_pair_through_markdown_code_span() {
+        // #77 keep-break puts a newline after `?`. That newline is Org PRE,
+        // so `=` would otherwise close on the `=` inside `` `=!a` ``.
+        let text = "?=\"`=!a`";
+        let (_, placeholders) = protect_inline_tokens(text);
+        assert!(
+            placeholders.iter().any(|p| p == "`=!a`"),
+            "backtick span must stay one token, got {placeholders:?}"
+        );
+        assert_eq!(split(text), vec!["?".to_string(), "=\"`=!a`".to_string()]);
+
+        let text = "?\n=\"`=!a`";
+        let (_, placeholders) = protect_inline_tokens(text);
+        assert!(
+            placeholders.iter().any(|p| p == "`=!a`"),
+            "keep-break newline must not let Org `=` steal the inner equals, got {placeholders:?}"
+        );
+        assert_eq!(split(text), vec!["?".to_string(), "=\"`=!a`".to_string()]);
+    }
+
+    #[test]
+    fn plaintext_bang_inside_code_span_stays_atomic_after_keep_break() {
+        use crate::format::Format;
+        use crate::{FormatConfig, format_text};
+
+        let input = "?=\"`=!a`\n";
+        let cfg = FormatConfig {
+            format: Format::Plaintext,
+            max_width: 0,
+            ..Default::default()
+        }
+        .without_safety_backstops();
+        let out = format_text(input, &cfg).unwrap();
+        assert!(
+            !out.contains("=!\n"),
+            "must not split inside `=!a`, got:\n{out:?}"
+        );
+        assert_eq!(format_text(&out, &cfg).unwrap(), out);
     }
 
     #[test]

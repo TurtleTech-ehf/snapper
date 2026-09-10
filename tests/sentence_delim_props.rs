@@ -33,6 +33,29 @@ fn plaintext_period_before_backticks_quote_is_span_safe() {
     );
 }
 
+/// GitHub #96 / macos proptest seed: `!` inside `` `=!a` `` is not a
+/// sentence end. The iCloud keep-break must not split that span.
+#[test]
+fn plaintext_bang_inside_backtick_span_is_idempotent() {
+    let input: String = ['?', '=', '"', '`', '=', '!', 'a', '`']
+        .into_iter()
+        .collect();
+    let out = format_plain(&input);
+    let again = format_plain(&out);
+    assert!(
+        !out.contains("=!\n"),
+        "must not split inside `=!a`\n in={input:?}\n out={out:?}"
+    );
+    assert_eq!(
+        again, out,
+        "idempotence\n in={input:?}\n out={out:?}\n again={again:?}"
+    );
+    assert!(
+        newlines_respect_delimiter_spans(&out),
+        "span newline\n in={input:?}\n out={out:?}"
+    );
+}
+
 fn format_plain(input: &str) -> String {
     let mut s = input.to_string();
     if !s.ends_with('\n') {
