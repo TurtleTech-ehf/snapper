@@ -427,7 +427,7 @@ mod tests {
     }
 
     #[test]
-    fn org_quote_comment_drawer_are_not_prose() {
+    fn org_quote_is_prose_comment_drawer_are_not() {
         let input = concat!(
             "#+BEGIN_QUOTE\n",
             "Quoted hello. Quoted world.\n",
@@ -445,8 +445,14 @@ mod tests {
         assert_no_kind_on(
             &found,
             DiagnosticKind::Fused,
-            &[2, 4, 6],
-            "org quote/comment/drawer must not be fused",
+            &[4, 6],
+            "org comment/drawer must not be fused",
+        );
+        assert!(
+            found
+                .iter()
+                .any(|d| d.line == 2 && d.kind == DiagnosticKind::Fused),
+            "org quote body should be fused prose, got {found:?}"
         );
         assert!(
             found

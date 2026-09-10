@@ -90,6 +90,22 @@ impl OrgParser {
         Self::block_end_name(line).as_deref() == Some("SRC")
     }
 
+    /// org-element quote-block / verse-block / center-block contain paragraphs.
+    /// Other greater/lesser blocks (example, export, comment, unknown) stay literal.
+    fn block_has_inner_prose(name: &str) -> bool {
+        matches!(name, "QUOTE" | "VERSE" | "CENTER")
+    }
+
+    /// True when any open block is literal, so nested quote inside example
+    /// stays frozen with the example body.
+    fn in_literal_block(stack: &[String]) -> bool {
+        stack.iter().any(|n| !Self::block_has_inner_prose(n))
+    }
+
+    fn in_verse_block(stack: &[String]) -> bool {
+        stack.last().map(String::as_str) == Some("VERSE")
+    }
+
     /// org-element drawer: `:NAME:` with NAME = `[A-Za-z_-]+`. Not `:END:`.
     fn is_drawer_begin(line: &str) -> bool {
         let trimmed = line.trim();
@@ -354,8 +370,10 @@ impl FormatParser for OrgParser {
                 continue;
             }
 
-            // Inside a non-src block -- everything is structure
-            if !block_stack.is_empty() {
+            // Inside example/export/comment (or any non-quote/verse/center
+            // block): the body is opaque structure. Nested BEGIN/END still
+            // match by NAME (zyjn); do not parse inner quote prose here.
+            if Self::in_literal_block(&block_stack) {
                 flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
                 if let Some(end_name) = Self::block_end_name(line_text) {
                     if block_stack.last() == Some(&end_name) {
@@ -366,6 +384,23 @@ impl FormatParser for OrgParser {
                 }
                 regions.push(SpannedRegion::structure(input, line.span()));
                 continue;
+            }
+
+            // Transparent quote/verse/center: #+END_NAME pops only a match.
+            // A mismatched closer stays structure so #+END_EXAMPLE cannot
+            // drop a surrounding quote fence.
+            if let Some(end_name) = Self::block_end_name(line_text) {
+                if block_stack.last() == Some(&end_name) {
+                    flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
+                    block_stack.pop();
+                    regions.push(SpannedRegion::structure(input, line.span()));
+                    continue;
+                }
+                if !block_stack.is_empty() {
+                    flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
+                    regions.push(SpannedRegion::structure(input, line.span()));
+                    continue;
+                }
             }
 
             // Inside a drawer -- everything is structure
@@ -409,7 +444,8 @@ impl FormatParser for OrgParser {
                 continue;
             }
 
-            // Other #+BEGIN_NAME: opaque structure until matching #+END_NAME
+            // #+BEGIN_NAME: fence is structure. quote/verse/center parse
+            // inner content; other names stay opaque via in_literal_block.
             if let Some(name) = Self::block_begin_name(line_text) {
                 flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
                 block_stack.push(name);
@@ -584,11 +620,17 @@ impl FormatParser for OrgParser {
                 &mut prose_span,
                 &mut regions,
             ) {
+                if Self::in_verse_block(&block_stack) {
+                    flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
+                }
                 continue;
             }
 
-            // Regular prose line -- accumulate
+            // Regular prose line -- accumulate. Verse keeps physical lines.
             push_prose_line(&mut current_prose, &mut prose_span, &line, true, true);
+            if Self::in_verse_block(&block_stack) {
+                flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
+            }
         }
 
         // Flush remaining
@@ -1122,8 +1164,8 @@ mod tests {
             "matching #+END_QUOTE must stay Structure, not prose: {regions:?}"
         );
         assert!(
-            structure.contains("Still quoted. More quoted."),
-            "post-example quote body must stay inside the quote: {regions:?}"
+            !structure.contains("Still quoted. More quoted."),
+            "post-example quote body must be Prose, not Structure: {regions:?}"
         );
         assert!(
             structure.contains("foo. bar."),
@@ -1132,9 +1174,9 @@ mod tests {
         assert!(
             !regions.iter().any(|r| matches!(
                 r,
-                Region::Prose(p) if p.contains("Still quoted") || p.contains("#+END_QUOTE")
+                Region::Prose(p) if p.contains("#+END_QUOTE")
             )),
-            "quote closer and inner quote body must not become Prose: {regions:?}"
+            "quote closer must not become Prose: {regions:?}"
         );
         let prose: Vec<_> = regions
             .iter()
@@ -1143,6 +1185,18 @@ mod tests {
                 _ => None,
             })
             .collect();
+        assert!(
+            prose
+                .iter()
+                .any(|p| p.contains("Quoted one.") && p.contains("Quoted two.")),
+            "quote body before EXAMPLE must be Prose, got: {regions:?}"
+        );
+        assert!(
+            prose
+                .iter()
+                .any(|p| p.contains("Still quoted") && p.contains("More quoted")),
+            "quote body after EXAMPLE must stay Prose inside the quote: {regions:?}"
+        );
         assert!(
             prose
                 .iter()
@@ -1164,8 +1218,8 @@ mod tests {
         .without_safety_backstops();
         let out = format_text(input, &cfg).unwrap();
         assert!(
-            out.contains("Quoted one. Quoted two."),
-            "quoted sentences must stay inside the quote fence, got:\n{out}"
+            out.contains("Quoted one.\nQuoted two."),
+            "quoted sentences must reflow inside the quote fence, got:\n{out}"
         );
         assert!(
             out.contains("foo. bar."),
@@ -1176,12 +1230,12 @@ mod tests {
             "EXAMPLE must stay literal, got:\n{out}"
         );
         assert!(
-            out.contains("Still quoted. More quoted."),
-            "text after nested EXAMPLE must stay in the quote, got:\n{out}"
+            out.contains("Still quoted.\nMore quoted."),
+            "text after nested EXAMPLE must reflow inside the quote, got:\n{out}"
         );
         assert!(
-            !out.contains("Still quoted.\nMore quoted."),
-            "inner quote body must not become prose (name-blind close), got:\n{out}"
+            !out.contains("Still quoted. More quoted."),
+            "inner quote body must become Prose, got:\n{out}"
         );
         assert!(
             out.contains("#+END_QUOTE\nAfter.\nNext.\n")
@@ -1218,6 +1272,208 @@ mod tests {
             );
             assert_eq!(format_text(&out, &cfg).unwrap(), out);
         }
+    }
+
+    /// Ticket fixture (Format::Org / GitHub #88): quote inner paragraphs reflow.
+    fn quote_inner_prose_fixture() -> &'static str {
+        concat!(
+            "#+BEGIN_QUOTE\n",
+            "Quoted one. Quoted two.\n",
+            "#+END_QUOTE\n",
+        )
+    }
+
+    fn quote_with_nested_src_fixture() -> &'static str {
+        concat!(
+            "#+BEGIN_QUOTE\n",
+            "Before.\n",
+            "\n",
+            "#+BEGIN_SRC python\n",
+            "print(\"a. b\")\n",
+            "#+END_SRC\n",
+            "\n",
+            "After quote. More.\n",
+            "#+END_QUOTE\n",
+        )
+    }
+
+    #[test]
+    fn quote_block_inner_is_prose_not_structure() {
+        let input = quote_inner_prose_fixture();
+        let regions = OrgParser.parse(input);
+        assert!(
+            regions
+                .iter()
+                .any(|r| matches!(r, Region::Structure(s) if s.contains("#+BEGIN_QUOTE"))),
+            "quote opener must stay Structure, got: {regions:?}"
+        );
+        assert!(
+            regions
+                .iter()
+                .any(|r| matches!(r, Region::Structure(s) if s.contains("#+END_QUOTE"))),
+            "quote closer must stay Structure, got: {regions:?}"
+        );
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(p) if p.contains("Quoted one.") && p.contains("Quoted two.")
+            )),
+            "quote body must be Prose, got: {regions:?}"
+        );
+        assert!(
+            !regions.iter().any(|r| matches!(
+                r,
+                Region::Structure(s) if s.contains("Quoted one.")
+            )),
+            "quote body must not freeze as Structure, got: {regions:?}"
+        );
+    }
+
+    #[test]
+    fn quote_block_inner_prose_reflows() {
+        use crate::format_text;
+
+        let input = quote_inner_prose_fixture();
+        let out = format_text(input, &org_cfg()).unwrap();
+        assert!(
+            out.contains("#+BEGIN_QUOTE\nQuoted one.\nQuoted two.\n#+END_QUOTE"),
+            "quoted sentences must reflow inside the fence, got:\n{out}"
+        );
+        assert!(
+            !out.contains("Quoted one. Quoted two."),
+            "quoted sentences must not stay fused, got:\n{out}"
+        );
+        assert_eq!(format_text(&out, &org_cfg()).unwrap(), out);
+    }
+
+    #[test]
+    fn quote_block_nested_src_closes_only_src() {
+        use crate::format_text;
+
+        let input = quote_with_nested_src_fixture();
+        let regions = OrgParser.parse(input);
+        match regions.iter().find(|r| matches!(r, Region::Code { .. })) {
+            Some(Region::Code {
+                lang,
+                header,
+                body,
+                footer,
+            }) => {
+                assert_eq!(lang.as_deref(), Some("python"));
+                assert!(header.contains("#+BEGIN_SRC python"));
+                assert_eq!(body, "print(\"a. b\")\n");
+                assert!(footer.contains("#+END_SRC"));
+            }
+            other => panic!("nested SRC must be Code, got: {other:?} in {regions:?}"),
+        }
+        assert!(
+            regions
+                .iter()
+                .any(|r| matches!(r, Region::Prose(p) if p.contains("Before."))),
+            "pre-src quote body must be Prose, got: {regions:?}"
+        );
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(p) if p.contains("After quote.") && p.contains("More.")
+            )),
+            "post-src quote body must be Prose, got: {regions:?}"
+        );
+        assert!(
+            !regions
+                .iter()
+                .any(|r| matches!(r, Region::Prose(p) if p.contains("print"))),
+            "SRC body must not leak as Prose, got: {regions:?}"
+        );
+        let out = format_text(input, &org_cfg()).unwrap();
+        assert!(
+            out.contains("print(\"a. b\")"),
+            "SRC body must not reflow, got:\n{out}"
+        );
+        assert!(
+            !out.contains("print(\"a.\nb\")"),
+            "SRC body must stay literal, got:\n{out}"
+        );
+        assert!(
+            out.contains("After quote.\nMore."),
+            "quote prose after SRC must reflow, got:\n{out}"
+        );
+        assert!(
+            out.contains("#+END_SRC\n\nAfter quote.\nMore.\n#+END_QUOTE"),
+            "END_SRC must not close the quote, got:\n{out}"
+        );
+        assert_eq!(format_text(&out, &org_cfg()).unwrap(), out);
+    }
+
+    #[test]
+    fn center_block_inner_prose_reflows() {
+        use crate::format_text;
+
+        let input = "#+BEGIN_CENTER\nCentered one. Centered two.\n#+END_CENTER\n";
+        let regions = OrgParser.parse(input);
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(p) if p.contains("Centered one.") && p.contains("Centered two.")
+            )),
+            "center body must be Prose, got: {regions:?}"
+        );
+        assert!(
+            !regions
+                .iter()
+                .any(|r| matches!(r, Region::Structure(s) if s.contains("Centered one."))),
+            "center inner must not be Structure, got: {regions:?}"
+        );
+        let out = format_text(input, &org_cfg()).unwrap();
+        assert!(
+            out.contains("#+BEGIN_CENTER\nCentered one.\nCentered two.\n#+END_CENTER"),
+            "center sentences must reflow, got:\n{out}"
+        );
+        assert_eq!(format_text(&out, &org_cfg()).unwrap(), out);
+    }
+
+    #[test]
+    fn verse_block_inner_is_line_preserving_prose() {
+        use crate::format_text;
+
+        let input = "#+BEGIN_VERSE\nAlpha line without a period\nBeta line without a period\n#+END_VERSE\nAfter. Next.\n";
+        let regions = OrgParser.parse(input);
+        let prose: Vec<_> = regions
+            .iter()
+            .filter_map(|r| match r {
+                Region::Prose(p) => Some(p.as_str()),
+                _ => None,
+            })
+            .collect();
+        assert!(
+            prose.iter().any(|p| *p == "Alpha line without a period"),
+            "verse lines must be Prose, got: {regions:?}"
+        );
+        assert!(
+            prose.iter().any(|p| *p == "Beta line without a period"),
+            "each verse line must stay its own Prose region, got: {regions:?}"
+        );
+        assert!(
+            !regions.iter().any(|r| matches!(
+                r,
+                Region::Structure(s) if s.contains("Alpha line without a period")
+            )),
+            "verse inner must not be Structure, got: {regions:?}"
+        );
+        let out = format_text(input, &org_cfg()).unwrap();
+        assert!(
+            out.contains("Alpha line without a period\nBeta line without a period"),
+            "verse must keep physical lines, got:\n{out}"
+        );
+        assert!(
+            !out.contains("Alpha line without a period Beta line"),
+            "verse must not join physical lines, got:\n{out}"
+        );
+        assert!(
+            out.contains("#+END_VERSE\nAfter.\nNext."),
+            "prose after verse must reflow, got:\n{out}"
+        );
+        assert_eq!(format_text(&out, &org_cfg()).unwrap(), out);
     }
 
     /// Ticket fixture (Format::Org): `:See also:` is not a drawer,
