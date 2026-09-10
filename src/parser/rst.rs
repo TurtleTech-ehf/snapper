@@ -507,38 +507,132 @@ pub(crate) fn rst_option_column_len(line: &str) -> Option<usize> {
 }
 
 /// Byte length of a compact RST list opener on `line`, including the
-/// trailing space: `* `, `- `, `+ ` (not a `+--+` table rule), `#. `,
-/// or `1.` / `1)`.
-fn rst_list_marker_len(line: &str) -> Option<usize> {
+/// trailing space: `* `, `- `, `+ ` (not a `+--+` table rule), or a
+/// Docutils enumerator (`1.`, `a.`, `i.`, `#.`, `1)`, `(1)`) plus the
+/// following space (GitHub #91).
+pub(crate) fn rst_list_marker_len(line: &str) -> Option<usize> {
     let indent = line.len() - line.trim_start().len();
     let t = &line[indent..];
-    let rest = if t.starts_with("* ") || t.starts_with("- ") {
-        2
-    } else if t.starts_with("#. ") {
-        3
-    } else if let Some(after) = t.strip_prefix("+ ") {
+    if t.starts_with("* ") || t.starts_with("- ") {
+        return Some(indent + 2);
+    }
+    if let Some(after) = t.strip_prefix("+ ") {
         if after.starts_with('-') || after.starts_with('+') {
             return None;
         }
-        2
-    } else {
-        let bytes = t.as_bytes();
-        let mut i = 0;
+        return Some(indent + 2);
+    }
+    rst_enumerator_marker_len(t).map(|n| indent + n)
+}
+
+/// Length of a Docutils enumerator plus trailing space, or the marker
+/// alone at EOL. Sequences: arabic, single-letter alpha, roman, `#`.
+/// Suffixes: `.`, `)`, `(n)`.
+fn rst_enumerator_marker_len(t: &str) -> Option<usize> {
+    let bytes = t.as_bytes();
+    if bytes.is_empty() {
+        return None;
+    }
+    let paren = bytes[0] == b'(';
+    let mut i = usize::from(paren);
+    let enum_start = i;
+    // Alpha/roman at EOL (`  A.`) must not steal a hung one-letter sentence.
+    // Digits and `#` keep the pre-#91 EOL form (`1.`, `#.`).
+    let mut need_space = false;
+    if i < bytes.len() && bytes[i] == b'#' {
+        i += 1;
+    } else if i < bytes.len() && bytes[i].is_ascii_digit() {
         while i < bytes.len() && bytes[i].is_ascii_digit() {
             i += 1;
         }
-        if i == 0 || !matches!(bytes.get(i), Some(b'.') | Some(b')')) {
+    } else if i < bytes.len() && bytes[i].is_ascii_alphabetic() {
+        let upper = bytes[i].is_ascii_uppercase();
+        let letter_start = i;
+        while i < bytes.len()
+            && bytes[i].is_ascii_alphabetic()
+            && bytes[i].is_ascii_uppercase() == upper
+        {
+            i += 1;
+        }
+        let seq = &t[letter_start..i];
+        if seq.len() > 1 && !is_rst_roman(seq) {
             return None;
         }
-        if matches!(bytes.get(i + 1), Some(b' ')) {
-            i + 2
-        } else if i + 1 == t.len() {
-            i + 1
-        } else {
+        need_space = true;
+    } else {
+        return None;
+    }
+    if i == enum_start {
+        return None;
+    }
+    if paren {
+        if bytes.get(i) != Some(&b')') {
             return None;
         }
-    };
-    Some(indent + rest)
+        i += 1;
+    } else if matches!(bytes.get(i), Some(b'.') | Some(b')')) {
+        i += 1;
+    } else {
+        return None;
+    }
+    if matches!(bytes.get(i), Some(b' ')) {
+        Some(i + 1)
+    } else if i == t.len() && !need_space {
+        Some(i)
+    } else {
+        None
+    }
+}
+
+/// Docutils roman enumerator: one case, subtractive 1..=3999 (`i`, `iv`, `xii`).
+fn is_rst_roman(s: &str) -> bool {
+    if s.is_empty() {
+        return false;
+    }
+    let bytes = s.as_bytes();
+    let upper = bytes[0].is_ascii_uppercase();
+    if !bytes.iter().all(|&b| {
+        b.is_ascii_alphabetic()
+            && b.is_ascii_uppercase() == upper
+            && matches!(
+                b.to_ascii_uppercase(),
+                b'I' | b'V' | b'X' | b'L' | b'C' | b'D' | b'M'
+            )
+    }) {
+        return false;
+    }
+    rst_roman_ok(&s.to_ascii_uppercase())
+}
+
+fn rst_roman_ok(u: &str) -> bool {
+    let b = u.as_bytes();
+    let mut i = 0;
+    i = take_roman_repeat(b, i, b'M', 3);
+    i = take_roman_place(b, i, b'C', b'D', b'M');
+    i = take_roman_place(b, i, b'X', b'L', b'C');
+    i = take_roman_place(b, i, b'I', b'V', b'X');
+    i == b.len()
+}
+
+fn take_roman_repeat(b: &[u8], i: usize, ch: u8, max: usize) -> usize {
+    let mut n = 0;
+    let mut j = i;
+    while j < b.len() && b[j] == ch && n < max {
+        j += 1;
+        n += 1;
+    }
+    j
+}
+
+fn take_roman_place(b: &[u8], i: usize, one: u8, five: u8, ten: u8) -> usize {
+    if i + 1 < b.len() && b[i] == one && (b[i + 1] == ten || b[i + 1] == five) {
+        return i + 2;
+    }
+    let mut j = i;
+    if j < b.len() && b[j] == five {
+        j += 1;
+    }
+    take_roman_repeat(b, j, one, 3)
 }
 
 /// Check if a line is a section underline (2+ repeated punctuation chars).
@@ -1482,6 +1576,126 @@ mod tests {
             "double-backtick literal must stay split, got:\n{out}"
         );
         assert_eq!(format_text(&out, &cfg).unwrap(), out);
+    }
+
+    #[test]
+    fn list_marker_len_matches_docutils_enumerators() {
+        assert_eq!(
+            rst_list_marker_len("a. Alpha item. Second sentence."),
+            Some(3)
+        );
+        assert_eq!(
+            rst_list_marker_len("(1) Paren arabic. Second sentence."),
+            Some(4)
+        );
+        assert_eq!(
+            rst_list_marker_len("i. Roman item. Second sentence."),
+            Some(3)
+        );
+        assert_eq!(rst_list_marker_len("iv. Fourth item."), Some(4));
+        assert_eq!(rst_list_marker_len("A) Upper alpha."), Some(3));
+        assert_eq!(rst_list_marker_len("(a) Paren alpha."), Some(4));
+        assert_eq!(rst_list_marker_len("#) Auto paren."), Some(3));
+        assert_eq!(rst_list_marker_len("(#) Surrounded auto."), Some(4));
+        assert_eq!(rst_list_marker_len("#. Auto period."), Some(3));
+        assert_eq!(rst_list_marker_len("12. Digits."), Some(4));
+        assert_eq!(rst_list_marker_len("  a. Nested."), Some(5));
+        assert_eq!(rst_list_marker_len("Hello. World."), None);
+        assert_eq!(rst_list_marker_len("mid. Not roman."), None);
+        assert_eq!(rst_list_marker_len("(see below)"), None);
+        assert_eq!(rst_list_marker_len("1.2.3 version"), None);
+        assert_eq!(rst_list_marker_len("A."), None);
+        assert_eq!(rst_list_marker_len("  A."), None);
+        assert_eq!(rst_list_marker_len("1."), Some(2));
+        assert_eq!(rst_list_marker_len("#."), Some(2));
+        assert_eq!(rst_list_marker_len("ii. Roman"), Some(4));
+        assert_eq!(rst_list_marker_len("IV. Upper roman"), Some(4));
+        assert_eq!(rst_list_marker_len("(i) Paren roman"), Some(4));
+        assert_eq!(rst_list_marker_len("See. Prose"), None);
+        assert_eq!(rst_list_marker_len("dim. Not roman"), None);
+    }
+
+    #[test]
+    fn alpha_roman_paren_enumerators_are_structure_plus_prose() {
+        let input = concat!(
+            "a. Alpha item. Second sentence.\n",
+            "(1) Paren arabic. Second sentence.\n",
+            "i. Roman item. Second sentence.\n",
+        );
+        let regions = RstParser.parse(input);
+        assert!(
+            regions
+                .iter()
+                .any(|r| matches!(r, Region::Structure(s) if s == "a. ")),
+            "alpha marker must be Structure, got {regions:?}"
+        );
+        assert!(
+            regions
+                .iter()
+                .any(|r| matches!(r, Region::Structure(s) if s == "(1) ")),
+            "paren arabic marker must be Structure, got {regions:?}"
+        );
+        assert!(
+            regions
+                .iter()
+                .any(|r| matches!(r, Region::Structure(s) if s == "i. ")),
+            "roman marker must be Structure, got {regions:?}"
+        );
+        assert!(
+            regions.iter().any(|r| {
+                matches!(r, Region::Prose(s) if s.contains("Alpha item.") && s.contains("Second sentence."))
+            }),
+            "alpha item text must be Prose, got {regions:?}"
+        );
+        assert!(
+            !regions.iter().any(|r| {
+                matches!(
+                    r,
+                    Region::Prose(s) if s.contains("a. ") || s.contains("(1) ") || s.contains("i. ")
+                )
+            }),
+            "enumerator must not be Prose, got {regions:?}"
+        );
+    }
+
+    #[test]
+    fn reporter_alpha_roman_paren_enumerators_hang_at_marker_width() {
+        use crate::format::Format;
+        use crate::oracle;
+        use crate::{FormatConfig, format_text};
+
+        let cfg = FormatConfig {
+            format: Format::Rst,
+            max_width: 0,
+            ..Default::default()
+        };
+        let input = concat!(
+            "a. Alpha item. Second sentence.\n",
+            "(1) Paren arabic. Second sentence.\n",
+            "i. Roman item. Second sentence.\n",
+        );
+        let out = format_text(input, &cfg).unwrap();
+        assert_eq!(
+            out,
+            concat!(
+                "a. Alpha item.\n",
+                "   Second sentence.\n",
+                "(1) Paren arabic.\n",
+                "    Second sentence.\n",
+                "i. Roman item.\n",
+                "   Second sentence.\n",
+            ),
+            "alpha/roman/paren enumerators must hang like 1. items, got:\n{out}"
+        );
+        let twice = format_text(&out, &cfg).unwrap();
+        assert_eq!(
+            out, twice,
+            "hung enumerators must be identity, got:\n{twice}"
+        );
+        assert!(
+            oracle::matches(Format::Rst, input, &out),
+            "oracle mismatch\n in={input:?}\n out={out:?}"
+        );
     }
 
     #[test]
