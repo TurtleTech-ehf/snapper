@@ -491,6 +491,36 @@ fn md_leaf_rest(line: &str) -> Option<&str> {
     Some(&line[i..])
 }
 
+/// pulldown `scan_definition_list_definition_marker_with_indent`
+/// (`ENABLE_DEFINITION_LIST`): 0–3 spaces, `:`, then following spaces.
+/// Five or more spaces after `:` keep only one (same padding rule as
+/// list markers). Hang width is the whole marker, including the colon.
+pub(crate) fn md_definition_list_marker_len(line: &str) -> Option<usize> {
+    let rest = md_leaf_rest(line)?;
+    let indent = line.len() - rest.len();
+    let after = rest.strip_prefix(':')?;
+    let spaces = after.bytes().take_while(|&b| b == b' ').count();
+    let consumed = if spaces >= 5 { 1 } else { spaces };
+    Some(indent + 1 + consumed)
+}
+
+/// Reclassify pending paragraph text as a definition-list title.
+fn flush_prose_as_structure(
+    prose: &mut String,
+    prose_span: &mut Option<ByteSpan>,
+    input: &str,
+    regions: &mut Vec<SpannedRegion>,
+) {
+    if prose.is_empty() {
+        return;
+    }
+    let span = prose_span.take().unwrap_or(ByteSpan::new(0, 0));
+    prose.clear();
+    if !span.is_empty() {
+        regions.push(SpannedRegion::structure(input, span));
+    }
+}
+
 /// Label length inside `[...]` (bytes after the opening `[`).
 /// CommonMark: at least one non-space, at most 999 chars, no unescaped `[`.
 fn scan_md_link_label(after_open: &str) -> Option<usize> {
@@ -1031,6 +1061,7 @@ impl FormatParser for MarkdownParser {
         let mut list_hang: Option<usize> = None;
         let mut list_after_blank = false;
         let mut list_term: Option<ByteSpan> = None;
+        let mut last_was_def_term = false;
         let mut in_display_math = false;
         let mut pragma_off = false;
 
@@ -1636,6 +1667,79 @@ impl FormatParser for MarkdownParser {
                 i += 1;
                 continue;
             }
+
+            // pulldown ENABLE_DEFINITION_LIST: a `: ` marker on the next
+            // line turns this paragraph into a definition title. The
+            // title stays Structure so interior periods do not split.
+            if i + 1 < total
+                && md_definition_list_marker_len(lines[i + 1].text).is_some()
+                && md_definition_list_marker_len(line_text).is_none()
+                && !line_text.trim().is_empty()
+                && !is_indented_code_line(line_text)
+            {
+                let hang_cont =
+                    in_list_item && list_hang.is_some_and(|hang| line_indent(line_text) >= hang);
+                if !hang_cont {
+                    close_list_item(
+                        &mut in_list_item,
+                        &mut list_hang,
+                        &mut current_prose,
+                        &mut prose_span,
+                        &mut list_term,
+                        input,
+                        &mut regions,
+                    );
+                    flush_prose_as_structure(
+                        &mut current_prose,
+                        &mut prose_span,
+                        input,
+                        &mut regions,
+                    );
+                    regions.push(SpannedRegion::structure(input, line.span()));
+                    last_was_def_term = true;
+                    i += 1;
+                    continue;
+                }
+            }
+
+            // pulldown scan_definition_list_definition_marker_with_indent:
+            // `: ` (0–3 space indent) is the definition marker. Body hangs.
+            if let Some(marker_len) = md_definition_list_marker_len(line_text) {
+                if last_was_def_term {
+                    last_was_def_term = false;
+                    close_list_item(
+                        &mut in_list_item,
+                        &mut list_hang,
+                        &mut current_prose,
+                        &mut prose_span,
+                        &mut list_term,
+                        input,
+                        &mut regions,
+                    );
+                    flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
+                    let marker_span = ByteSpan::new(line.start, line.start + marker_len);
+                    regions.push(SpannedRegion::structure(input, marker_span));
+                    in_list_item = true;
+                    list_hang = Some(marker_len);
+                    list_after_blank = false;
+                    append_piece(
+                        &mut ProseAcc {
+                            text: &mut current_prose,
+                            span: &mut prose_span,
+                            term: &mut list_term,
+                        },
+                        line,
+                        marker_len,
+                        false,
+                        false,
+                        input,
+                        &mut regions,
+                    );
+                    i += 1;
+                    continue;
+                }
+            }
+            last_was_def_term = false;
 
             // Regular prose (also serves as list-item continuation when in_list_item)
             if in_list_item {
@@ -4255,6 +4359,90 @@ mod tests {
         assert!(
             !out.contains("[^1]: Footnote text.\nSecond sentence."),
             "footnote must not leak a shorter body, got:\n{out}"
+        );
+        assert_eq!(format_text(&out, &md_cfg()).unwrap(), out);
+
+        let cfg = FormatConfig {
+            format: Format::Markdown,
+            ..Default::default()
+        };
+        let guarded = format_text(input, &cfg).unwrap();
+        assert_eq!(guarded, out, "oracle-on path must match, got:\n{guarded}");
+        assert_eq!(format_text(&guarded, &cfg).unwrap(), guarded);
+    }
+
+    /// GitHub #210 / snapper-r9tq: pulldown ENABLE_DEFINITION_LIST.
+    fn ticket_definition_list_fixture() -> &'static str {
+        "Term\n: This is a long definition sentence that must hang. Second sentence.\n"
+    }
+
+    #[test]
+    fn definition_list_marker_matches_pulldown_scan() {
+        assert_eq!(md_definition_list_marker_len(": This is"), Some(2));
+        assert_eq!(md_definition_list_marker_len("  : def"), Some(4));
+        assert_eq!(md_definition_list_marker_len("   : def"), Some(5));
+        assert_eq!(md_definition_list_marker_len(":    def"), Some(5));
+        assert_eq!(md_definition_list_marker_len(":     def"), Some(2));
+        assert_eq!(md_definition_list_marker_len(":"), Some(1));
+        assert_eq!(md_definition_list_marker_len("    : def"), None);
+        assert_eq!(md_definition_list_marker_len("Term"), None);
+        assert_eq!(md_definition_list_marker_len("[foo]: /url"), None);
+        assert_eq!(md_definition_list_marker_len("[^1]: note"), None);
+        assert_eq!(md_definition_list_marker_len("- item"), None);
+    }
+
+    #[test]
+    fn definition_list_term_and_marker_are_structure() {
+        let regions = MarkdownParser.parse(ticket_definition_list_fixture());
+        assert!(
+            regions
+                .iter()
+                .any(|r| matches!(r, Region::Structure(s) if s == "Term\n")),
+            "Term must be Structure, got {regions:?}"
+        );
+        assert!(
+            regions
+                .iter()
+                .any(|r| matches!(r, Region::Structure(s) if s == ": ")),
+            ":  marker must be Structure, got {regions:?}"
+        );
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(s)
+                    if s.contains("This is a long definition sentence that must hang.")
+                        && s.contains("Second sentence.")
+            )),
+            "definition body must be Prose, got {regions:?}"
+        );
+        assert!(
+            !regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(s) if s.contains("Term") || s.starts_with(": ")
+            )),
+            "term and : marker must not be Prose, got {regions:?}"
+        );
+    }
+
+    #[test]
+    fn definition_list_body_hangs_and_splits() {
+        use crate::format::Format;
+        use crate::{format_text, FormatConfig};
+
+        let input = ticket_definition_list_fixture();
+        let out = format_text(input, &md_cfg()).unwrap();
+        assert_eq!(
+            out,
+            concat!(
+                "Term\n",
+                ": This is a long definition sentence that must hang.\n",
+                "  Second sentence.\n",
+            ),
+            "body must hang and split, got:\n{out}"
+        );
+        assert!(
+            !out.lines().any(|l| l == "Second sentence."),
+            "must not emit a column-0 second sentence, got:\n{out}"
         );
         assert_eq!(format_text(&out, &md_cfg()).unwrap(), out);
 
