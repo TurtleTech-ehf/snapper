@@ -908,9 +908,13 @@ fn gfm_table_end(lines: &[Line<'_>], start: usize) -> Option<usize> {
 
 /// True when `line` may be the text of a setext heading (non-empty, not an ATX
 /// marker line, not a table row, not a list item, not a fence opener).
+/// CommonMark 0.31.2 §4.3: title lines allow at most three spaces of indent.
 fn is_setext_title_line(line: &str) -> bool {
     let trimmed = line.trim();
     if trimmed.is_empty() {
+        return false;
+    }
+    if is_indented_code_line(line) {
         return false;
     }
     if HEADING_RE.is_match(line) {
@@ -936,6 +940,25 @@ fn is_setext_title_line(line: &str) -> bool {
         return false;
     }
     true
+}
+
+/// Index of the setext underline that closes a heading whose first title
+/// line is `start`. pulldown `parse_setext_heading` promotes the whole
+/// open paragraph (CommonMark 0.31.2 §4.3 ex. 50–51), not only the last
+/// line before the underline.
+fn setext_heading_end(lines: &[Line<'_>], start: usize) -> Option<usize> {
+    let total = lines.len();
+    if start >= total || !is_setext_title_line(lines[start].text) {
+        return None;
+    }
+    let mut j = start;
+    while j < total && is_setext_title_line(lines[j].text) {
+        if j + 1 < total && is_setext_underline(lines[j + 1].text) {
+            return Some(j + 1);
+        }
+        j += 1;
+    }
+    None
 }
 
 /// Pandoc / academic Markdown display math: a line that starts with `$$`.
@@ -1332,13 +1355,11 @@ impl FormatParser for MarkdownParser {
                 continue;
             }
 
-            // Setext heading: title line + underline of `=` or `-`.
-            // Without this, title text is Prose and the underline is glued on
-            // (or mid-title periods reflow), collapsing the heading.
-            if i + 1 < total
-                && is_setext_title_line(line_text)
-                && is_setext_underline(lines[i + 1].text)
-            {
+            // Setext heading: one or more paragraph lines + `=` / `-`
+            // underline. pulldown parse_setext_heading promotes the whole
+            // open paragraph (CM 0.31.2 §4.3 ex. 50–51), not only the last
+            // line. Pairing i with i+1 left earlier title lines as Prose.
+            if let Some(end) = setext_heading_end(&lines, i) {
                 close_list_item(
                     &mut in_list_item,
                     &mut list_hang,
@@ -1349,9 +1370,10 @@ impl FormatParser for MarkdownParser {
                     &mut regions,
                 );
                 flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
-                regions.push(SpannedRegion::structure(input, line.span()));
-                regions.push(SpannedRegion::structure(input, lines[i + 1].span()));
-                i += 2;
+                for row in &lines[i..=end] {
+                    regions.push(SpannedRegion::structure(input, row.span()));
+                }
+                i = end + 1;
                 continue;
             }
 
@@ -2599,6 +2621,120 @@ mod tests {
             "must not glue underline onto reflowed title:\n{out}"
         );
         assert_eq!(format_text(&out, &cfg).unwrap(), out);
+    }
+
+    /// GitHub #208 / snapper-4wxk: CommonMark 4.3 ex. 50–51. The whole
+    /// open paragraph is the setext title, not only the line before the
+    /// underline.
+    fn fourwxk_fixture() -> &'static str {
+        concat!(
+            "Foo is the first title line. Still title.\n",
+            "Bar is the second title line.\n",
+            "=======\n",
+            "\n",
+            "Body after setext. Second body.\n",
+        )
+    }
+
+    #[test]
+    fn multiline_setext_title_lines_are_structure() {
+        let input = fourwxk_fixture();
+        let regions = MarkdownParser.parse(input);
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Structure(s) if s == "Foo is the first title line. Still title.\n"
+            )),
+            "first title line must be Structure, got: {regions:?}"
+        );
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Structure(s) if s == "Bar is the second title line.\n"
+            )),
+            "second title line must be Structure, got: {regions:?}"
+        );
+        assert!(
+            regions
+                .iter()
+                .any(|r| matches!(r, Region::Structure(s) if s.starts_with('='))),
+            "underline must be Structure, got: {regions:?}"
+        );
+        assert!(
+            !regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(p) if p.contains("Still title") || p.contains("second title")
+            )),
+            "title lines must not be Prose: {regions:?}"
+        );
+    }
+
+    #[test]
+    fn multiline_setext_body_still_splits() {
+        use crate::format_text;
+
+        let input = fourwxk_fixture();
+        let regions = MarkdownParser.parse(input);
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(p)
+                    if p.contains("Body after setext.") && p.contains("Second body.")
+            )),
+            "body after setext must stay Prose, got: {regions:?}"
+        );
+        let out = format_text(input, &md_cfg()).unwrap();
+        assert!(
+            out.starts_with(
+                "Foo is the first title line. Still title.\nBar is the second title line.\n=======\n"
+            ),
+            "both title lines plus underline must stay intact, got:\n{out}"
+        );
+        assert!(
+            !out.contains("Still title.\nStill") && !out.contains("title.\nFoo"),
+            "must not reflow the first title line, got:\n{out}"
+        );
+        assert!(
+            out.contains("Body after setext.\nSecond body."),
+            "body Prose must still split, got:\n{out}"
+        );
+        assert!(
+            !out.contains("Body after setext. Second body."),
+            "fused body must not survive, got:\n{out}"
+        );
+        assert_eq!(format_text(&out, &md_cfg()).unwrap(), out);
+    }
+
+    #[test]
+    fn multiline_setext_dash_underline_is_heading_not_hr() {
+        let input = concat!(
+            "Foo is the first title line. Still title.\n",
+            "Bar is the second title line.\n",
+            "-------\n",
+            "\n",
+            "Body after setext. Second body.\n",
+        );
+        let regions = MarkdownParser.parse(input);
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Structure(s) if s == "Foo is the first title line. Still title.\n"
+            )),
+            "first dash-setext title line must be Structure, got: {regions:?}"
+        );
+        assert!(
+            regions
+                .iter()
+                .any(|r| matches!(r, Region::Structure(s) if s.trim() == "-------")),
+            "dash underline must stay setext Structure, got: {regions:?}"
+        );
+        assert!(
+            !regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(p) if p.contains("Still title")
+            )),
+            "dash-setext title must not be Prose: {regions:?}"
+        );
     }
 
     #[test]
