@@ -4,6 +4,7 @@
 //! GitHub #230: alltt.sty is a standard verbatim-like env (raw line breaks).
 //! GitHub #234: listings.sty lstlisting* is the same raw scan as lstlisting.
 //! GitHub #235: spverbatim.sty env and \\spverb are the same class as verb.
+//! GitHub #244: fancyvrb Verbatim* / BVerbatim* / LVerbatim* are the same FV@Scan class.
 
 use snapper_fmt::format::Format;
 use snapper_fmt::parser::latex::LatexParser;
@@ -143,6 +144,56 @@ fn bverbatim_lverbatim_fixture_is_code_and_does_not_reflow() {
             !two_out.contains("First line.\nSecond line."),
             "{name} two-sentence body must not split, got:\n{two_out}"
         );
+    }
+}
+
+/// Ticket fixture (GitHub #244): fancyvrb Verbatim* / BVerbatim* /
+/// LVerbatim* bodies stay Code; following prose still splits.
+#[test]
+fn verbatim_star_envs_fixture_is_code_and_does_not_reflow() {
+    for name in ["Verbatim*", "BVerbatim*", "LVerbatim*"] {
+        let input = format!(
+            concat!(
+                "\\begin{{{name}}}\n",
+                "First line. Second line.\n",
+                "\\end{{{name}}}\n",
+                "After the block. Next.\n",
+            ),
+            name = name
+        );
+        let regions = LatexParser::default().parse(&input);
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Code { body, .. } if body.contains("First line. Second line.")
+            )),
+            "{name} body must be Code, got: {regions:?}"
+        );
+        assert!(
+            !regions
+                .iter()
+                .any(|r| matches!(r, Region::Prose(p) if p.contains("First line"))),
+            "{name} body must not be Prose, got: {regions:?}"
+        );
+        let out = format_text(&input, &latex_cfg()).unwrap();
+        assert!(
+            out.contains(&format!("\\begin{{{name}}}"))
+                && out.contains(&format!("\\end{{{name}}}")),
+            "{name} begin/end must stay, got:\n{out}"
+        );
+        assert!(
+            out.contains("First line. Second line."),
+            "{name} body must stay one source line, got:\n{out}"
+        );
+        assert!(
+            !out.contains("First line.\nSecond line."),
+            "{name} must not reflow as prose, got:\n{out}"
+        );
+        assert!(
+            out.contains("After the block.\nNext."),
+            "prose after {name} must still split, got:\n{out}"
+        );
+        assert_eq!(format_text(&out, &latex_cfg()).unwrap(), out);
     }
 }
 
