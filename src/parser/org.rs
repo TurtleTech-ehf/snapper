@@ -92,10 +92,11 @@ impl OrgParser {
         Self::block_end_name(line).as_deref() == Some("SRC")
     }
 
-    /// org-element quote-block / verse-block / center-block contain paragraphs.
-    /// Other greater/lesser blocks (example, export, comment, unknown) stay literal.
+    /// org-element greater blocks with paragraph contents: quote, verse,
+    /// center, and special-block (`#+BEGIN_NOTE` and any other unknown NAME).
+    /// Lesser blocks (example, export, comment) stay literal. SRC is Code.
     fn block_has_inner_prose(name: &str) -> bool {
-        matches!(name, "QUOTE" | "VERSE" | "CENTER")
+        !matches!(name, "SRC" | "EXAMPLE" | "EXPORT" | "COMMENT")
     }
 
     /// True when any open block is literal, so nested quote inside example
@@ -416,9 +417,9 @@ impl FormatParser for OrgParser {
                 continue;
             }
 
-            // Inside example/export/comment (or any non-quote/verse/center
-            // block): the body is opaque structure. Nested BEGIN/END still
-            // match by NAME (zyjn); do not parse inner quote prose here.
+            // Inside example/export/comment (literal lesser blocks): the
+            // body is opaque structure. Nested BEGIN/END still match by
+            // NAME (zyjn); do not parse inner quote/special-block prose here.
             if Self::in_literal_block(&block_stack) {
                 flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
                 if let Some(end_name) = Self::block_end_name(line_text) {
@@ -432,7 +433,7 @@ impl FormatParser for OrgParser {
                 continue;
             }
 
-            // Transparent quote/verse/center: #+END_NAME pops only a match.
+            // Transparent quote/verse/center/special-block: #+END_NAME pops only a match.
             // A mismatched closer stays structure so #+END_EXAMPLE cannot
             // drop a surrounding quote fence.
             if let Some(end_name) = Self::block_end_name(line_text) {
@@ -500,8 +501,9 @@ impl FormatParser for OrgParser {
                 continue;
             }
 
-            // #+BEGIN_NAME: fence is structure. quote/verse/center parse
-            // inner content; other names stay opaque via in_literal_block.
+            // #+BEGIN_NAME: fence is structure. quote/verse/center and
+            // special-blocks parse inner content; example/export/comment
+            // stay opaque via in_literal_block.
             if let Some(name) = Self::block_begin_name(line_text) {
                 flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
                 block_stack.push(name);
@@ -1658,6 +1660,118 @@ mod tests {
             "prose after verse must reflow, got:\n{out}"
         );
         assert_eq!(format_text(&out, &org_cfg()).unwrap(), out);
+    }
+
+    /// Ticket fixture (Format::Org / GitHub #179): special-block inner paragraphs reflow.
+    fn note_special_block_fixture() -> &'static str {
+        concat!(
+            "#+BEGIN_NOTE\n",
+            "Quoted one. Quoted two.\n",
+            "#+END_NOTE\n",
+            "After the note. More.\n",
+        )
+    }
+
+    #[test]
+    fn special_block_note_inner_is_prose_not_structure() {
+        let input = note_special_block_fixture();
+        let regions = OrgParser.parse(input);
+        assert!(
+            regions
+                .iter()
+                .any(|r| matches!(r, Region::Structure(s) if s.contains("#+BEGIN_NOTE"))),
+            "NOTE opener must stay Structure, got: {regions:?}"
+        );
+        assert!(
+            regions
+                .iter()
+                .any(|r| matches!(r, Region::Structure(s) if s.contains("#+END_NOTE"))),
+            "NOTE closer must stay Structure, got: {regions:?}"
+        );
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(p) if p.contains("Quoted one.") && p.contains("Quoted two.")
+            )),
+            "NOTE body must be Prose, got: {regions:?}"
+        );
+        assert!(
+            !regions.iter().any(|r| matches!(
+                r,
+                Region::Structure(s) if s.contains("Quoted one.")
+            )),
+            "NOTE body must not freeze as Structure, got: {regions:?}"
+        );
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(p) if p.contains("After the note.") && p.contains("More.")
+            )),
+            "prose after NOTE must remain Prose, got: {regions:?}"
+        );
+    }
+
+    #[test]
+    fn special_block_note_inner_prose_reflows() {
+        use crate::format_text;
+
+        let input = note_special_block_fixture();
+        let out = format_text(input, &org_cfg()).unwrap();
+        assert!(
+            out.contains("#+BEGIN_NOTE\nQuoted one.\nQuoted two.\n#+END_NOTE"),
+            "NOTE sentences must reflow inside the fence, got:\n{out}"
+        );
+        assert!(
+            !out.contains("Quoted one. Quoted two."),
+            "NOTE sentences must not stay fused, got:\n{out}"
+        );
+        assert!(
+            out.contains("#+END_NOTE\nAfter the note.\nMore."),
+            "prose after NOTE must still reflow, got:\n{out}"
+        );
+        assert!(
+            !out.contains("After the note. More."),
+            "fused prose after NOTE must not survive, got:\n{out}"
+        );
+        assert_eq!(format_text(&out, &org_cfg()).unwrap(), out);
+    }
+
+    #[test]
+    fn leftover_special_block_names_reflow_like_note() {
+        use crate::format_text;
+
+        for name in ["TIP", "WARNING", "ABSTRACT", "PROOF"] {
+            let input = format!(
+                "#+BEGIN_{name}\nQuoted one. Quoted two.\n#+END_{name}\nAfter the note. More.\n"
+            );
+            let regions = OrgParser.parse(&input);
+            assert!(
+                regions.iter().any(|r| matches!(
+                    r,
+                    Region::Prose(p) if p.contains("Quoted one.") && p.contains("Quoted two.")
+                )),
+                "{name} body must be Prose, got: {regions:?}"
+            );
+            assert!(
+                !regions.iter().any(|r| matches!(
+                    r,
+                    Region::Structure(s) if s.contains("Quoted one.")
+                )),
+                "{name} body must not freeze as Structure, got: {regions:?}"
+            );
+            let out = format_text(&input, &org_cfg()).unwrap();
+            assert!(
+                out.contains(&format!(
+                    "#+BEGIN_{name}\nQuoted one.\nQuoted two.\n#+END_{name}"
+                )),
+                "{name} sentences must reflow inside the fence, got:\n{out}"
+            );
+            assert!(
+                out.contains("After the note.\nMore."),
+                "prose after {name} must still reflow, got:\n{out}"
+            );
+            assert_eq!(format_text(&out, &org_cfg()).unwrap(), out);
+        }
     }
 
     /// Ticket fixture (Format::Org): `:See also:` is not a drawer,
