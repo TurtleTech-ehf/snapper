@@ -52,7 +52,7 @@ mod tests {
         assert_eq!(
             regions,
             vec![Region::Prose(
-                "Hello world. This is a test. Another line here.".to_string()
+                "Hello world. This is a test.\nAnother line here.".to_string()
             )]
         );
     }

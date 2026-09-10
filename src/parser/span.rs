@@ -200,6 +200,31 @@ pub fn iter_lines(input: &str) -> Vec<Line<'_>> {
     lines
 }
 
+/// True when `s` ends a sentence: `.!?` plus optional quotes, brackets,
+/// or markup closers.
+pub fn ends_sentence_punct(s: &str) -> bool {
+    let core = s.trim_end().trim_end_matches([
+        '"', '\'', ')', ']', '}', '*', '_', '`', '~', '/', '=', '+', '\u{201d}', '\u{2019}',
+    ]);
+    core.ends_with('.') || core.ends_with('!') || core.ends_with('?')
+}
+
+/// Insert the join between accumulated prose lines.
+///
+/// A source newline after sentence punctuation is a break. Replacing it
+/// with a space lets UAX SB8 fuse the next token when it starts lowercase
+/// (`iCloud`). Mid-sentence wraps still join with a space.
+pub fn join_prose_gap(prose: &mut String) {
+    if prose.is_empty() {
+        return;
+    }
+    if ends_sentence_punct(prose) {
+        prose.push('\n');
+    } else {
+        prose.push(' ');
+    }
+}
+
 /// Append a physical line to the running prose buffer and extend its span.
 ///
 /// `include_terminator` is true for ordinary paragraphs (the original
@@ -213,7 +238,7 @@ pub fn push_prose_line(
     include_terminator: bool,
 ) {
     if !prose.is_empty() && join_space {
-        prose.push(' ');
+        join_prose_gap(prose);
     }
     prose.push_str(line.text.trim());
     let end = if include_terminator {
@@ -270,5 +295,21 @@ mod tests {
         assert_eq!(lines[0].text, "a");
         assert_eq!(lines[0].span().slice(input), Some("a\r\n"));
         assert_eq!(lines[1].text, "b");
+    }
+
+    #[test]
+    fn join_prose_gap_keeps_break_after_sentence() {
+        let mut prose = String::from("First sentence.");
+        join_prose_gap(&mut prose);
+        prose.push_str("iCloud starts the second sentence.");
+        assert_eq!(prose, "First sentence.\niCloud starts the second sentence.");
+
+        let mut wrap = String::from("The experiment ran for several");
+        join_prose_gap(&mut wrap);
+        wrap.push_str("weeks using the usual protocol.");
+        assert_eq!(
+            wrap,
+            "The experiment ran for several weeks using the usual protocol."
+        );
     }
 }

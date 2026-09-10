@@ -2,7 +2,8 @@ use regex::Regex;
 use std::sync::LazyLock;
 
 use crate::parser::{
-    ByteSpan, FormatParser, Line, SpannedRegion, flush_prose_spanned, iter_lines, push_prose_line,
+    ByteSpan, FormatParser, Line, SpannedRegion, flush_prose_spanned, iter_lines, join_prose_gap,
+    push_prose_line,
 };
 
 static HEADING_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^(#{1,6}\s+)(.*)$").unwrap());
@@ -112,7 +113,7 @@ fn append_piece(
         let left = raw.len() - trimmed.len();
         if !trimmed.is_empty() {
             if !acc.text.is_empty() && join_space {
-                acc.text.push(' ');
+                join_prose_gap(acc.text);
             }
             acc.text.push_str(trimmed);
             let start = line.start + piece_from + left;
@@ -141,7 +142,7 @@ fn append_piece(
     }
     if !piece.is_empty() {
         if !acc.text.is_empty() && join_space {
-            acc.text.push(' ');
+            join_prose_gap(acc.text);
         }
         acc.text.push_str(piece);
         let start = line.start + piece_from;
@@ -596,7 +597,7 @@ mod tests {
         assert_eq!(
             regions,
             vec![Region::Prose(
-                "Hello world. This is a test. Another line here.".to_string()
+                "Hello world. This is a test.\nAnother line here.".to_string()
             )]
         );
     }
@@ -797,7 +798,7 @@ mod tests {
         assert_eq!(
             regions[1],
             Region::Prose(
-                "First line of item continuation text here. Another sentence.".to_string()
+                "First line of item continuation text here.\nAnother sentence.".to_string()
             )
         );
         // No trailing newline in the source, so no terminator Structure.
@@ -811,7 +812,7 @@ mod tests {
         assert_eq!(regions[0], Region::Structure("- ".to_string()));
         assert_eq!(
             regions[1],
-            Region::Prose("Item one text. continuation.".to_string())
+            Region::Prose("Item one text.\ncontinuation.".to_string())
         );
         assert_eq!(regions[2], Region::Structure("\n".to_string()));
         assert!(matches!(&regions[3], Region::BlankLines(_)));
@@ -1092,13 +1093,13 @@ mod tests {
         assert_eq!(regions[0], Region::Structure("1. ".to_string()));
         assert_eq!(
             regions[1],
-            Region::Prose("Parent one. Parent two.".to_string())
+            Region::Prose("Parent one.\nParent two.".to_string())
         );
         assert_eq!(regions[2], Region::Structure("\n".to_string()));
         assert_eq!(regions[3], Region::Structure("   - ".to_string()));
         assert_eq!(
             regions[4],
-            Region::Prose("Child one. Child two.".to_string())
+            Region::Prose("Child one.\nChild two.".to_string())
         );
         assert_eq!(regions[5], Region::Structure("\n".to_string()));
     }
