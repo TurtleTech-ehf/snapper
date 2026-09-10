@@ -35,8 +35,8 @@ impl FormatParser for RstParser {
 
 /// Line-based RST parser. Handles directives, literal blocks (indented
 /// and quoted), doctest blocks, sections, field lists, option lists,
-/// comments, tables, definition lists, and block-quote hang spaces as
-/// structure regions.
+/// comments, anonymous hyperlink targets, tables, definition lists, and
+/// block-quote hang spaces as structure regions.
 fn parse_line_based(input: &str) -> Vec<SpannedRegion> {
     let mut regions = Vec::new();
     let mut current_prose = String::new();
@@ -225,6 +225,16 @@ fn parse_line_based(input: &str) -> Vec<SpannedRegion> {
             // Any indent past the opener is body (docutils).
             comment_indent = leading + 1;
             in_comment = true;
+            i += 1;
+            continue;
+        }
+
+        // Anonymous hyperlink target. Docutils Body.anonymous is
+        // `__( +|$)`, a sibling of `..` explicit markup. The whole
+        // line is Structure so wrap cannot break the URI (GitHub #93).
+        if is_rst_anonymous_target(trimmed) {
+            flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
+            regions.push(SpannedRegion::structure(input, line.span()));
             i += 1;
             continue;
         }
@@ -484,6 +494,12 @@ fn parse_line_based(input: &str) -> Vec<SpannedRegion> {
 /// Prompt-only `>>>` and `>>> ` plus command both open a block; `>>>print` does not.
 pub(crate) fn is_rst_doctest_opener(trimmed: &str) -> bool {
     trimmed == ">>>" || trimmed.starts_with(">>> ")
+}
+
+/// Docutils `Body.patterns['anonymous']`: `__( +|$)`.
+/// Sibling of `..` explicit markup. `__https` (no space) is not a target.
+pub(crate) fn is_rst_anonymous_target(trimmed: &str) -> bool {
+    trimmed == "__" || trimmed.starts_with("__ ")
 }
 
 /// True when `trimmed` is an RST comment opener, not a `.. name::` directive.
@@ -2064,6 +2080,125 @@ mod tests {
         assert!(
             wrap_out.contains("-a            "),
             "wrap must not eat option-column spaces, got:\n{wrap_out}"
+        );
+    }
+
+    #[test]
+    fn anonymous_target_matcher_follows_docutils() {
+        assert!(is_rst_anonymous_target("__"));
+        assert!(is_rst_anonymous_target(
+            "__ https://www.python.org/some/very/long/path"
+        ));
+        assert!(is_rst_anonymous_target("__  https://example.com"));
+        assert!(!is_rst_anonymous_target("__https://example.com"));
+        assert!(!is_rst_anonymous_target("___"));
+        assert!(!is_rst_anonymous_target("Hello __ there"));
+        assert!(!is_rst_anonymous_target(".. _name: https://example.com"));
+    }
+
+    /// GitHub #93 / snapper-lhat: `__ url` is Body.anonymous, not Prose.
+    #[test]
+    fn anonymous_hyperlink_target_is_structure_not_prose() {
+        let input = concat!(
+            "__ https://www.python.org/some/very/long/path\n",
+            "\n",
+            "See the target. Next sentence.\n",
+        );
+        let regions = RstParser.parse(input);
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Structure(s)
+                    if s.contains("__ https://www.python.org/some/very/long/path")
+            )),
+            "anonymous target line must be Structure, got {regions:?}"
+        );
+        assert!(
+            !regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(s) if s.contains("__") || s.contains("python.org")
+            )),
+            "anonymous target must not be Prose, got {regions:?}"
+        );
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(s)
+                    if s.contains("See the target.") && s.contains("Next sentence.")
+            )),
+            "following paragraph must stay Prose, got {regions:?}"
+        );
+    }
+
+    #[test]
+    fn reporter_anonymous_target_is_identity_and_prose_still_splits() {
+        use crate::format::Format;
+        use crate::{FormatConfig, format_text};
+
+        let cfg = FormatConfig {
+            format: Format::Rst,
+            max_width: 0,
+            ..Default::default()
+        }
+        .without_safety_backstops();
+        let input = concat!(
+            "__ https://www.python.org/some/very/long/path\n",
+            "\n",
+            "See the target. Next sentence.\n",
+        );
+        let out = format_text(input, &cfg).unwrap();
+        assert!(
+            out.lines()
+                .any(|l| l == "__ https://www.python.org/some/very/long/path"),
+            "URI line must stay one Structure line, got:\n{out}"
+        );
+        assert_eq!(
+            out,
+            concat!(
+                "__ https://www.python.org/some/very/long/path\n",
+                "\n",
+                "See the target.\n",
+                "Next sentence.\n",
+            ),
+            "target stays; following prose still splits, got:\n{out}"
+        );
+        assert_eq!(
+            format_text(&out, &cfg).unwrap(),
+            out,
+            "anonymous target fixture must be identity, got:\n{out}"
+        );
+
+        let wrap_cfg = FormatConfig {
+            format: Format::Rst,
+            max_width: 20,
+            ..Default::default()
+        }
+        .without_safety_backstops();
+        let wrap_out = format_text(input, &wrap_cfg).unwrap();
+        assert!(
+            wrap_out
+                .lines()
+                .any(|l| l == "__ https://www.python.org/some/very/long/path"),
+            "narrow wrap must not break the URI, got:\n{wrap_out}"
+        );
+    }
+
+    #[test]
+    fn indented_anonymous_target_is_structure() {
+        let input = "   __ https://example.com/a/very/long/path\n";
+        let regions = RstParser.parse(input);
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Structure(s) if s.contains("__ https://example.com/a/very/long/path")
+            )),
+            "indented anonymous target must be Structure, got {regions:?}"
+        );
+        assert!(
+            !regions
+                .iter()
+                .any(|r| matches!(r, Region::Prose(s) if s.contains("example.com"))),
+            "indented anonymous target must not be Prose, got {regions:?}"
         );
     }
 }
