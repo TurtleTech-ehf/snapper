@@ -148,12 +148,27 @@ fn parse_line_based(input: &str) -> Vec<SpannedRegion> {
         // Inside directive body
         if in_directive {
             let leading = line_text.len() - line_text.trim_start().len();
-            if line_text.trim().is_empty() || leading >= directive_indent {
+            if line_text.trim().is_empty() {
+                // Interior blanks stay in the body. A trailing blank
+                // (next non-blank is below the body indent, or EOF)
+                // ends the directive so the following hung paragraph
+                // is a real BlankLines + hang, not a splice that
+                // outdents the second sentence (GitHub #135).
+                match next_nonblank_indent(&lines, i) {
+                    Some(n) if n >= directive_indent => {
+                        regions.push(SpannedRegion::structure(input, line.span()));
+                        i += 1;
+                        continue;
+                    }
+                    _ => in_directive = false,
+                }
+            } else if leading >= directive_indent {
                 regions.push(SpannedRegion::structure(input, line.span()));
                 i += 1;
                 continue;
+            } else {
+                in_directive = false;
             }
-            in_directive = false;
         }
 
         // Inside comment body (indented lines after `..` / `.. text`).
@@ -424,13 +439,15 @@ fn parse_line_based(input: &str) -> Vec<SpannedRegion> {
         // A join_prose_gap newline after `No.` / `etc.`, an open quote,
         // or an open `(` stays in that Prose; reflow repeats the hang on
         // those continuation lines (GitHub #129, #130, #131).
+        // Empty current_prose after a nested Structure block (directive)
+        // is a new hung paragraph, not a compact join (GitHub #135).
         if let Some(hang) = list_hang {
             let leading = line_text.len() - line_text.trim_start().len();
             if leading >= hang {
                 let after_blank = regions
                     .last()
                     .is_some_and(|r| matches!(r.region, Region::BlankLines(_)));
-                if after_blank {
+                if after_blank || current_prose.is_empty() {
                     flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
                     regions.push(SpannedRegion::structure(
                         input,
@@ -803,6 +820,17 @@ fn list_item_definition_indent(lines: &[Line<'_>], i: usize, hang: usize) -> Opt
     }
     let next_indent = next.len() - next.trim_start().len();
     (next_indent > hang).then_some(next_indent)
+}
+
+/// Indent of the next non-blank line after `i`, if any.
+fn next_nonblank_indent(lines: &[Line<'_>], i: usize) -> Option<usize> {
+    for line in lines.iter().skip(i + 1) {
+        if line.text.trim().is_empty() {
+            continue;
+        }
+        return Some(line.text.len() - line.text.trim_start().len());
+    }
+    None
 }
 
 /// True when `lines[i]` is a definition-list term: the next physical line
@@ -1442,6 +1470,52 @@ mod tests {
                 )
             }),
             "definition inside a list item must not join as Prose, got {regions:?}"
+        );
+    }
+
+    #[test]
+    fn hang_after_nested_pull_quote_is_structure() {
+        let input = concat!(
+            "Loading-state race:\n",
+            "\n",
+            "   Ask this question:\n",
+            "\n",
+            "   .. pull-quote::\n",
+            "\n",
+            "      What happens?\n",
+            "\n",
+            "   First sentence.\n",
+            "   Second sentence.\n",
+        );
+        let regions = RstParser.parse(input);
+        assert!(
+            regions
+                .iter()
+                .any(|r| matches!(r, Region::Structure(s) if s.contains(".. pull-quote::"))),
+            "nested directive must be Structure, got {regions:?}"
+        );
+        assert!(
+            regions
+                .iter()
+                .any(|r| matches!(r, Region::Structure(s) if s == "   ")),
+            "definition hang after the directive must be Structure, got {regions:?}"
+        );
+        let prose: Vec<_> = regions
+            .iter()
+            .filter_map(|r| match r {
+                Region::Prose(s) => Some(s.as_str()),
+                _ => None,
+            })
+            .collect();
+        assert!(
+            prose
+                .iter()
+                .any(|s| s.contains("First sentence.") && s.contains("Second sentence.")),
+            "definition sentences after the directive must be one Prose, got {regions:?}"
+        );
+        assert!(
+            !prose.iter().any(|s| s.contains("What happens?")),
+            "pull-quote body must not be Prose, got {regions:?}"
         );
     }
 
