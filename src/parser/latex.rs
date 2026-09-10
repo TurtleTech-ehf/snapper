@@ -83,7 +83,8 @@ static LSTLISTING_LANG_RE: LazyLock<Regex> = LazyLock::new(|| {
 /// Beyond minted/lstlisting/verbatim: latexindent `fileContentsEnvironments`
 /// (`filecontents`, `filecontents*`) and tree-sitter-latex raw trivia envs
 /// (`asy`, `asydef`, `pycode`, `luacode`, `luacode*`, `sagesilent`,
-/// `sageblock`) plus fancyvrb `verbatim*`.
+/// `sageblock`) plus fancyvrb `verbatim*` and the `comment` package env
+/// (tree-sitter `comment_environment`: raw through matching `\end{comment}`).
 fn is_builtin_code_env(name: &str) -> bool {
     matches!(
         name,
@@ -100,6 +101,7 @@ fn is_builtin_code_env(name: &str) -> bool {
             | "luacode*"
             | "sagesilent"
             | "sageblock"
+            | "comment"
     )
 }
 
@@ -399,6 +401,64 @@ fn find_matching_raw_end(line: &str, from: usize, name: &str, mut depth: usize) 
     None
 }
 
+/// TeX control sequence at `i`: `\name` or a one-character control symbol.
+fn tex_cs_at(line: &str, i: usize) -> Option<&str> {
+    let bytes = line.as_bytes();
+    if bytes.get(i) != Some(&b'\\') {
+        return None;
+    }
+    let rest = line.get(i + 1..)?;
+    let first = rest.chars().next()?;
+    if first.is_ascii_alphabetic() {
+        let n = rest.chars().take_while(|c| c.is_ascii_alphabetic()).count();
+        Some(&line[i..i + 1 + n])
+    } else {
+        Some(&line[i..i + 1 + first.len_utf8()])
+    }
+}
+
+/// Next `cs` (`\iffalse`, `\fi`, …) at or after `from`. Raw: `%` is content.
+fn find_tex_cs(line: &str, from: usize, cs: &str) -> Option<usize> {
+    let bytes = line.as_bytes();
+    let mut i = from;
+    while i < bytes.len() {
+        if bytes[i] == b'\\' {
+            if let Some(name) = tex_cs_at(line, i) {
+                if name == cs {
+                    return Some(i);
+                }
+                i += name.len();
+                continue;
+            }
+        }
+        i += 1;
+    }
+    None
+}
+
+/// `\iffalse` in ordinary TeX, skipping `\verb` / `\lstinline` spans.
+fn find_iffalse_at(line: &str, from: usize, extra_cmds: &[String]) -> Option<usize> {
+    let bytes = line.as_bytes();
+    let mut i = from;
+    while i < bytes.len() {
+        if bytes[i] == b'\\' {
+            if let Some(end) = latex_verb_span_end_with(line, i, extra_cmds) {
+                i = end;
+                continue;
+            }
+            if let Some(name) = tex_cs_at(line, i) {
+                if name == "\\iffalse" {
+                    return Some(i);
+                }
+                i += name.len();
+                continue;
+            }
+        }
+        i += 1;
+    }
+    None
+}
+
 struct ParseState<'a> {
     input: &'a str,
     parser: &'a LatexParser,
@@ -413,6 +473,7 @@ struct ParseState<'a> {
     code_header: ByteSpan,
     code_body_start: usize,
     in_display_math: Option<DisplayMathDelim>,
+    in_iffalse: bool,
     nospace_join: bool,
 }
 
@@ -493,6 +554,11 @@ impl<'a> ParseState<'a> {
     }
 
     fn consume_body_line(&mut self, line: Line<'_>) {
+        if self.in_iffalse {
+            self.consume_iffalse_line(line);
+            return;
+        }
+
         if self.in_non_prose_env.is_some() {
             self.consume_non_prose_line(line);
             return;
@@ -553,6 +619,25 @@ impl<'a> ParseState<'a> {
             self.extend_prose_to(line.end);
             self.nospace_join = false;
         }
+    }
+
+    fn consume_iffalse_line(&mut self, line: Line<'_>) {
+        // tree-sitter `_trivia_raw_fi`: first `\fi` command ends the skip.
+        if let Some(close) = find_tex_cs(line.text, 0, "\\fi") {
+            let after = close + "\\fi".len();
+            let end = thru_eol_if_blank_rest(line, after);
+            self.regions.push(SpannedRegion::structure(
+                self.input,
+                ByteSpan::new(line.start, end),
+            ));
+            self.in_iffalse = false;
+            if !line.text[after..].trim().is_empty() {
+                self.consume_body_line(rest_line(line, after));
+            }
+            return;
+        }
+        self.regions
+            .push(SpannedRegion::structure(self.input, line.span()));
     }
 
     fn consume_non_prose_line(&mut self, line: Line<'_>) {
@@ -686,6 +771,33 @@ impl<'a> ParseState<'a> {
             }
 
             let rest = &code[i..];
+            if let Some(open) = find_iffalse_at(code, i, &self.parser.extra_verbatim_commands) {
+                self.append_item_or_prose(line.start + i, &code[i..open]);
+                self.flush();
+                let after_open = open + "\\iffalse".len();
+                if let Some(close) = find_tex_cs(line.text, after_open, "\\fi") {
+                    let after = close + "\\fi".len();
+                    let end = if line.text[after..].trim().is_empty() {
+                        thru_eol_if_blank_rest(line, after)
+                    } else {
+                        line.start + after
+                    };
+                    self.regions.push(SpannedRegion::structure(
+                        self.input,
+                        ByteSpan::new(line.start + open, end),
+                    ));
+                    if !line.text[after..].trim().is_empty() {
+                        self.consume_body_line(rest_line(line, after));
+                    }
+                    return true;
+                }
+                self.in_iffalse = true;
+                self.regions.push(SpannedRegion::structure(
+                    self.input,
+                    ByteSpan::new(line.start + open, line.end),
+                ));
+                return true;
+            }
             if SECTION_CMD_RE.is_match(rest) {
                 self.push_structure(ByteSpan::new(line.start + i, line.end));
                 return false;
@@ -753,6 +865,7 @@ impl FormatParser for LatexParser {
             code_header: ByteSpan::default(),
             code_body_start: 0,
             in_display_math: None,
+            in_iffalse: false,
             nospace_join: false,
         };
         let mut in_preamble = super::latex_starts_in_preamble(input);
@@ -761,7 +874,7 @@ impl FormatParser for LatexParser {
         for line in iter_lines(input) {
             // Check for snapper:off/on pragmas; inside a code environment
             // the per-language reflow path handles pragmas instead.
-            if state.in_code_env.is_none() {
+            if state.in_code_env.is_none() && !state.in_iffalse {
                 if super::is_no_preamble_pragma(line.text) {
                     state.flush();
                     state
@@ -2191,5 +2304,159 @@ Some text.
             "inline $...$ must not open display math, got:\n{out}"
         );
         assert_eq!(format_text(&out, &latex_cfg()).unwrap(), out);
+    }
+    #[test]
+    fn alignat_and_tabularx_two_sentence_bodies_do_not_reflow() {
+        use crate::format_text;
+
+        let input = "\\begin{document}\n\\begin{alignat}{2}\nFirst sentence inside alignat. Second sentence stays put.\n\\end{alignat}\n\\begin{tabularx}{\\textwidth}{l}\nFirst sentence inside tabularx. Second sentence stays put.\n\\end{tabularx}\nAfter the tables. Next.\n\\end{document}\n";
+        let out = format_text(input, &latex_cfg()).unwrap();
+        assert!(
+            out.contains("First sentence inside alignat. Second sentence stays put."),
+            "alignat body must not reflow, got:\n{out}"
+        );
+        assert!(
+            !out.contains("First sentence inside alignat.\nSecond sentence stays put."),
+            "alignat body must stay one source line, got:\n{out}"
+        );
+        assert!(
+            out.contains("First sentence inside tabularx. Second sentence stays put."),
+            "tabularx body must not reflow, got:\n{out}"
+        );
+        assert!(
+            !out.contains("First sentence inside tabularx.\nSecond sentence stays put."),
+            "tabularx body must stay one source line, got:\n{out}"
+        );
+        assert!(
+            out.contains("After the tables.\nNext."),
+            "prose after the envs must still reflow, got:\n{out}"
+        );
+        assert_eq!(format_text(&out, &latex_cfg()).unwrap(), out);
+    }
+
+    #[test]
+    fn comment_environment_body_is_not_prose() {
+        use crate::format_text;
+
+        let input = "\\begin{document}\nBefore.\n\\begin{comment}\nThis is a long sentence that must not reflow as prose inside comment.\n\\end{comment}\nAfter the comment. Next.\n\\end{document}\n";
+        let regions = LatexParser::default().parse(input);
+        assert!(
+            regions.iter().any(|r| match r {
+                Region::Code { body, .. } => {
+                    body.contains("must not reflow as prose inside comment")
+                }
+                Region::Structure(s) => s.contains("must not reflow as prose inside comment"),
+                _ => false,
+            }),
+            "comment env body must be Code or Structure, got: {regions:?}"
+        );
+        assert!(
+            !regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(p) if p.contains("must not reflow as prose inside comment")
+            )),
+            "comment env body must not be Prose, got: {regions:?}"
+        );
+        let out = format_text(input, &latex_cfg()).unwrap();
+        assert!(
+            out.contains("This is a long sentence that must not reflow as prose inside comment."),
+            "comment body must stay one line, got:\n{out}"
+        );
+        assert!(
+            out.contains("After the comment.\nNext."),
+            "prose after comment env must still reflow, got:\n{out}"
+        );
+        assert_eq!(format_text(&out, &latex_cfg()).unwrap(), out);
+    }
+
+    #[test]
+    fn comment_environment_two_sentences_do_not_reflow() {
+        use crate::format_text;
+
+        let input = "\\begin{document}\nBefore.\n\\begin{comment}\nHidden one. Hidden two.\n\\end{comment}\nAfter the comment. Next.\n\\end{document}\n";
+        let out = format_text(input, &latex_cfg()).unwrap();
+        assert!(
+            out.contains("Hidden one. Hidden two."),
+            "comment env two sentences must not reflow, got:\n{out}"
+        );
+        assert!(
+            !out.contains("Hidden one.\nHidden two."),
+            "comment env must stay one source line, got:\n{out}"
+        );
+        assert_eq!(format_text(&out, &latex_cfg()).unwrap(), out);
+    }
+
+    #[test]
+    fn iffalse_block_is_structure_not_prose() {
+        use crate::format_text;
+
+        let input = "\\begin{document}\nBefore.\n\\iffalse\nThis is a long sentence that must not reflow as prose inside iffalse.\n\\fi\nAfter the skip. Next.\n\\end{document}\n";
+        let regions = LatexParser::default().parse(input);
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Structure(s) if s.contains("must not reflow as prose inside iffalse")
+            )),
+            "iffalse body must be Structure, got: {regions:?}"
+        );
+        assert!(
+            !regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(p) if p.contains("must not reflow as prose inside iffalse")
+            )),
+            "iffalse body must not be Prose, got: {regions:?}"
+        );
+        let out = format_text(input, &latex_cfg()).unwrap();
+        assert!(
+            out.contains("This is a long sentence that must not reflow as prose inside iffalse."),
+            "iffalse body must stay one line, got:\n{out}"
+        );
+        assert!(
+            out.contains("After the skip.\nNext."),
+            "prose after \\fi must still reflow, got:\n{out}"
+        );
+        assert_eq!(format_text(&out, &latex_cfg()).unwrap(), out);
+    }
+
+    #[test]
+    fn iffalse_two_sentences_do_not_reflow() {
+        use crate::format_text;
+
+        let input = "\\begin{document}\nBefore.\n\\iffalse\nHidden one. Hidden two.\n\\fi\nAfter the skip. Next.\n\\end{document}\n";
+        let out = format_text(input, &latex_cfg()).unwrap();
+        assert!(
+            out.contains("Hidden one. Hidden two."),
+            "iffalse two sentences must not reflow, got:\n{out}"
+        );
+        assert!(
+            !out.contains("Hidden one.\nHidden two."),
+            "iffalse must stay one source line, got:\n{out}"
+        );
+        assert_eq!(format_text(&out, &latex_cfg()).unwrap(), out);
+    }
+
+    #[test]
+    fn same_line_iffalse_is_structure() {
+        let input = "\\begin{document}\nKeep this. \\iffalse Hidden one. Hidden two. \\fi After. Next.\n\\end{document}\n";
+        let regions = LatexParser::default().parse(input);
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Structure(s) if s.contains(r"\iffalse") && s.contains("Hidden one")
+            )),
+            "same-line iffalse must be Structure, got: {regions:?}"
+        );
+        assert!(
+            !regions
+                .iter()
+                .any(|r| matches!(r, Region::Prose(p) if p.contains("Hidden one"))),
+            "iffalse payload must not be Prose, got: {regions:?}"
+        );
+        assert!(
+            regions
+                .iter()
+                .any(|r| matches!(r, Region::Prose(p) if p.contains("Keep this"))),
+            "text before iffalse stays prose, got: {regions:?}"
+        );
     }
 }
