@@ -127,6 +127,7 @@ Periods inside inline tokens never trigger sentence breaks, regardless of abbrev
 - Org macros: ={{{cite(Smith. 2020)}}}=, ={{{title}}}=
 - Org radio / angle targets: =<<<the Fourier. transform>>>=, =<<sec. intro>>=
 - Org inline footnotes: =[fn:: the Fourier. transform]=, =[fn:note: the Fourier. transform]=
+- RST substitution references: =|fig. 1|=, =|version|=, =|name|_=, =|name|__=
 - LaTeX math: =$x = 3.14$=
 - LaTeX commands: =\cite{smith.2024}=
 - Markdown links: =[Example Inc.](url)=, =[the Fourier. transform][wiki]=
