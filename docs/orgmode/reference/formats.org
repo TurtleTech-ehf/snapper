@@ -195,7 +195,9 @@ These tokens within prose are not split across lines:
 :PROPERTIES:
 :CUSTOM_ID: rst-inline
 :END:
-- Substitution references: =|fig. 1|= / =|version|= / =|name|_= / =|name|__= (Docutils Inliner.substitution_ref). Interior punctuation is not a sentence or wrap boundary. The use stays Prose, not Structure (line-block is =|= plus space or EOL)
+- Substitution references: =|fig. 1|= / =|version|= / =|name|_= / =|name|__= (Docutils Inliner.substitution_ref).
+  Interior punctuation is not a sentence or wrap boundary.
+  The use stays Prose, not Structure (line-block is =|= plus space or EOL)
 
 *** Auto-detection
 :PROPERTIES:
