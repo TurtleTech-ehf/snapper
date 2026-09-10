@@ -445,6 +445,21 @@ fn is_indented_code_line(line: &str) -> bool {
     prefix.contains('\t') || prefix.len() >= 4
 }
 
+/// List marker after any indent. `LIST_ITEM_RE` caps at 0–3 spaces so a
+/// 4-space dash is not a list opener; this still sees it as list-looking
+/// so after-blank we can close and let tupp emit Code (snapper-3hed).
+fn is_list_looking_line(line: &str) -> bool {
+    let rest = line.trim_start();
+    if rest.starts_with("- ") || rest.starts_with("* ") || rest.starts_with("+ ") {
+        return true;
+    }
+    let digits = rest.bytes().take_while(u8::is_ascii_digit).count();
+    digits > 0
+        && rest.len() > digits + 1
+        && matches!(rest.as_bytes()[digits], b'.' | b')')
+        && rest.as_bytes()[digits + 1] == b' '
+}
+
 /// Count CommonMark blockquote markers at the start of `line`.
 /// Each marker is `>` plus an optional space. Leading whitespace is skipped.
 fn quote_marker_depth(line: &str) -> usize {
@@ -700,20 +715,29 @@ impl FormatParser for MarkdownParser {
             // ends the block. Cannot interrupt a paragraph or list item.
             // Fences above still win so `    ```lang` stays a nested fence.
             //
-            // After a blank inside an open list, 4 spaces that look like a
-            // nested list are indented code, not a new list. Close the item
-            // so the document-level arm below runs (snapper-tupp).
-            if list_after_blank && is_indented_code_line(line_text) {
-                close_list_item(
-                    &mut in_list_item,
-                    &mut list_hang,
-                    &mut current_prose,
-                    &mut prose_span,
-                    &mut list_term,
-                    input,
-                    &mut regions,
-                );
-                list_after_blank = false;
+            // After a blank inside an open list, a list-looking line (even
+            // at 4 spaces) or hang+4 of indent is Code, not a nested list.
+            // Close so the document-level arm below runs (snapper-tupp).
+            // Hang-width text stays in the item: `10. ` hang is 4, so
+            // four spaces is continuation, not document-level code.
+            if list_after_blank {
+                if let Some(hang) = list_hang {
+                    if is_indented_code_line(line_text) {
+                        let leading = line_indent(line_text);
+                        if is_list_looking_line(line_text) || leading >= hang + 4 {
+                            close_list_item(
+                                &mut in_list_item,
+                                &mut list_hang,
+                                &mut current_prose,
+                                &mut prose_span,
+                                &mut list_term,
+                                input,
+                                &mut regions,
+                            );
+                            list_after_blank = false;
+                        }
+                    }
+                }
             }
             if current_prose.is_empty() && !in_list_item && is_indented_code_line(line_text) {
                 close_list_item(
@@ -1510,6 +1534,95 @@ mod tests {
                 Region::Prose(p) if p.contains("looks like a list")
             )),
             "4-space list-looking line must not be Prose, got {regions:?}"
+        );
+    }
+
+    /// snapper-cbxn: `10. ` hang is 4; blank + four spaces is the item
+    /// continuation (spec 5.2), not document-level indented code.
+    #[test]
+    fn wide_ordered_marker_blank_indent_stays_in_item() {
+        let input = "10. Item one.\n\n    Still the same item.\n";
+        let regions = MarkdownParser.parse(input);
+        assert!(
+            regions
+                .iter()
+                .any(|r| matches!(r, Region::Structure(s) if s == "10. ")),
+            "wide ordered marker must be Structure, got {regions:?}"
+        );
+        assert!(
+            regions
+                .iter()
+                .any(|r| matches!(r, Region::Structure(s) if s == "    ")),
+            "blank + hang-width indent must stay Structure, got {regions:?}"
+        );
+        assert!(
+            regions
+                .iter()
+                .any(|r| matches!(r, Region::Prose(p) if p.contains("Still the same item"))),
+            "hang-width continuation must stay Prose, got {regions:?}"
+        );
+        assert!(
+            !regions.iter().any(|r| matches!(
+                r,
+                Region::Code { body, .. } if body.contains("Still the same item")
+            )),
+            "hang-width continuation must not be Code, got {regions:?}"
+        );
+    }
+
+    #[test]
+    fn wide_ordered_marker_blank_indent_is_identity_under_format() {
+        use crate::format::Format;
+        use crate::{FormatConfig, format_text};
+
+        let input = "10. Item one.\n\n    Still the same item.\n";
+        let cfg = FormatConfig {
+            format: Format::Markdown,
+            max_width: 0,
+            ..Default::default()
+        }
+        .without_safety_backstops();
+        let out = format_text(input, &cfg).unwrap();
+        assert_eq!(
+            out, input,
+            "wide-marker hang must stay in the item, got:\n{out}"
+        );
+        assert!(
+            out.contains("\n    Still the same item.\n"),
+            "continuation must keep four-space hang, got:\n{out}"
+        );
+    }
+
+    /// `1. ` hang is 3; blank + four spaces is still the item (indent >= hang,
+    /// indent < hang+4), not Code.
+    #[test]
+    fn ordered_marker_four_space_hang_stays_in_item() {
+        let input = "1. Item one.\n\n    Still the same item.\n";
+        let regions = MarkdownParser.parse(input);
+        assert!(
+            regions
+                .iter()
+                .any(|r| matches!(r, Region::Structure(s) if s == "1. ")),
+            "ordered marker must be Structure, got {regions:?}"
+        );
+        assert!(
+            regions
+                .iter()
+                .any(|r| matches!(r, Region::Structure(s) if s == "   ")),
+            "blank + 3-space hang must stay Structure, got {regions:?}"
+        );
+        assert!(
+            regions
+                .iter()
+                .any(|r| matches!(r, Region::Prose(p) if p.contains("Still the same item"))),
+            "four-space continuation must stay Prose, got {regions:?}"
+        );
+        assert!(
+            !regions.iter().any(|r| matches!(
+                r,
+                Region::Code { body, .. } if body.contains("Still the same item")
+            )),
+            "four-space hang text must not be Code, got {regions:?}"
         );
     }
 
