@@ -38,6 +38,39 @@ pub(crate) fn org_footnote_definition_marker_len(line: &str) -> Option<usize> {
     FOOTNOTE_DEFINITION_RE.find(line).map(|m| m.end())
 }
 
+/// org-element-keyword-re / org-element--affiliated-re (case-fold):
+/// `^[ \t]*#\+CAPTION(?:\[(.*)\])?\+?:[ \t]*`.
+///
+/// `org-element-parsed-keywords` is CAPTION only, so only this opener
+/// splits: the keyword plus optional `[short]` (dual form) and trailing
+/// spaces after `:` are Structure; the value hangs as Prose.
+/// `#+NAME:` / `#+ATTR_*` stay whole-line Structure.
+pub(crate) fn org_caption_marker_len(line: &str) -> Option<usize> {
+    let lead = line.len() - line.trim_start_matches([' ', '\t']).len();
+    let rest = &line[lead..];
+    let upper = rest.to_ascii_uppercase();
+    if !upper.starts_with("#+CAPTION") {
+        return None;
+    }
+    let mut i = "#+CAPTION".len();
+    let bytes = rest.as_bytes();
+    if i < bytes.len() && bytes[i] == b'[' {
+        let close = rest[i + 1..].find(']')?;
+        i = i + 1 + close + 1;
+    }
+    if i < bytes.len() && bytes[i] == b'+' {
+        i += 1;
+    }
+    if i >= bytes.len() || bytes[i] != b':' {
+        return None;
+    }
+    i += 1;
+    while i < bytes.len() && (bytes[i] == b' ' || bytes[i] == b'\t') {
+        i += 1;
+    }
+    Some(lead + i)
+}
+
 /// org-element / org-mode display math (`$$` or `\[`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum DisplayMathDelim {
@@ -206,6 +239,14 @@ impl OrgParser {
     /// Check if a line is a table row
     fn is_table_row(line: &str) -> bool {
         line.trim_start().starts_with('|')
+    }
+
+    /// A physical line that is only an org link (`[[dest]]` / `[[dest][desc]]`).
+    /// Affiliated figures write `[[file:plot.png]]` on its own line; that
+    /// line is Structure so it does not join the following paragraph.
+    fn is_standalone_org_link(line: &str) -> bool {
+        let t = line.trim();
+        t.len() >= 4 && t.starts_with("[[") && t.ends_with("]]")
     }
 
     /// Check if a line starts a LaTeX environment (\begin{...})
@@ -591,7 +632,28 @@ impl FormatParser for OrgParser {
                 continue;
             }
 
-            // Keyword/directive
+            // Affiliated CAPTION: org-element-parsed-keywords is CAPTION
+            // only. Opener (optional [short]) is Structure; value hangs.
+            if let Some(marker_len) = org_caption_marker_len(line_text) {
+                flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
+                list_item_indent = Some(marker_len);
+                let marker_span = ByteSpan::new(line.start, line.start + marker_len);
+                regions.push(SpannedRegion::structure(input, marker_span));
+                if line_text.len() > marker_len {
+                    let text = &line_text[marker_len..];
+                    regions.push(SpannedRegion::prose(
+                        text.to_string(),
+                        ByteSpan::new(line.start + marker_len, line.start + line_text.len()),
+                    ));
+                }
+                let term = line.terminator_span();
+                if !term.is_empty() {
+                    regions.push(SpannedRegion::structure(input, term));
+                }
+                continue;
+            }
+
+            // Keyword/directive (`#+NAME:`, `#+ATTR_*`, `#+TITLE:`, …)
             if Self::is_keyword(line_text) {
                 flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
                 regions.push(SpannedRegion::structure(input, line.span()));
@@ -616,6 +678,7 @@ impl FormatParser for OrgParser {
             if line_text.trim_start().starts_with("file:")
                 || line_text.trim_start().starts_with("http://")
                 || line_text.trim_start().starts_with("https://")
+                || Self::is_standalone_org_link(line_text)
             {
                 flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
                 regions.push(SpannedRegion::structure(input, line.span()));
@@ -2859,6 +2922,195 @@ mod tests {
         assert_eq!(
             out, "[fn:note] Footnote text.\n          Second sentence.\n",
             "[fn:note] body must hang and split, got:\n{out}"
+        );
+        assert_eq!(format_text(&out, &org_cfg()).unwrap(), out);
+    }
+
+    /// Ticket fixture (Format::Org / GitHub #204): org-element-parsed-keywords
+    /// is CAPTION only. Opener is Structure; value hangs and splits.
+    fn caption_fixture() -> &'static str {
+        concat!(
+            "#+CAPTION: This is a long figure caption that must reflow as prose. Second sentence.\n",
+            "[[file:plot.png]]\n",
+            "After the figure. More.\n",
+        )
+    }
+
+    #[test]
+    fn caption_marker_follows_org_element_keyword_re() {
+        assert_eq!(org_caption_marker_len("#+CAPTION: "), Some(11));
+        assert_eq!(org_caption_marker_len("#+CAPTION:"), Some(10));
+        assert_eq!(org_caption_marker_len("#+caption: text"), Some(11));
+        assert_eq!(
+            org_caption_marker_len("#+CAPTION[Short. Title.]: "),
+            Some("#+CAPTION[Short. Title.]: ".len())
+        );
+        assert_eq!(org_caption_marker_len("  #+CAPTION: x"), Some(13));
+        assert_eq!(org_caption_marker_len("#+CAPTION+: x"), Some(12));
+        assert_eq!(org_caption_marker_len("#+NAME: fig"), None);
+        assert_eq!(org_caption_marker_len("#+ATTR_HTML: :alt x"), None);
+        assert_eq!(org_caption_marker_len("#+TITLE: x"), None);
+        assert_eq!(org_caption_marker_len("#+CAPTIONS: x"), None);
+        assert_eq!(org_caption_marker_len("#+BEGIN_SRC rust"), None);
+        assert_eq!(org_caption_marker_len("See #+CAPTION: x"), None);
+    }
+
+    #[test]
+    fn caption_opener_is_structure_value_is_hung_prose() {
+        let regions = OrgParser.parse(caption_fixture());
+        assert!(
+            regions
+                .iter()
+                .any(|r| matches!(r, Region::Structure(s) if s == "#+CAPTION: ")),
+            "#+CAPTION: must be Structure, got {regions:?}"
+        );
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(s)
+                    if s.contains("This is a long figure caption that must reflow as prose.")
+                        && s.contains("Second sentence.")
+            )),
+            "CAPTION value must be Prose, got {regions:?}"
+        );
+        assert!(
+            !regions.iter().any(|r| matches!(
+                r,
+                Region::Structure(s) if s.contains("This is a long figure caption")
+            )),
+            "CAPTION value must not stay Structure, got {regions:?}"
+        );
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Structure(s) if s.contains("[[file:plot.png]]")
+            )),
+            "figure link line must stay Structure, got {regions:?}"
+        );
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(s) if s.contains("After the figure.") && s.contains("More.")
+            )),
+            "following prose must still be Prose, got {regions:?}"
+        );
+    }
+
+    #[test]
+    fn caption_fixture_value_splits_and_hangs() {
+        use crate::format_text;
+
+        let input = caption_fixture();
+        let out = format_text(input, &org_cfg()).unwrap();
+        assert_eq!(
+            out,
+            concat!(
+                "#+CAPTION: This is a long figure caption that must reflow as prose.\n",
+                "           Second sentence.\n",
+                "[[file:plot.png]]\n",
+                "After the figure.\n",
+                "More.\n",
+            ),
+            "CAPTION opener stays; value hangs and splits, got:\n{out}"
+        );
+        assert!(
+            !out.lines().any(|l| l == "Second sentence."),
+            "must not emit a column-0 second caption sentence, got:\n{out}"
+        );
+        assert_eq!(
+            format_text(&out, &org_cfg()).unwrap(),
+            out,
+            "hung CAPTION must be identity, got:\n{out}"
+        );
+    }
+
+    #[test]
+    fn caption_dual_short_title_stays_structure() {
+        use crate::format_text;
+
+        let input = "#+CAPTION[Short. Title.]: Long caption. Second.\n";
+        let regions = OrgParser.parse(input);
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Structure(s) if s == "#+CAPTION[Short. Title.]: "
+            )),
+            "dual [short] must stay in the Structure opener, got {regions:?}"
+        );
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(s) if s.contains("Long caption.") && s.contains("Second.")
+            )),
+            "dual long value must be Prose, got {regions:?}"
+        );
+        assert!(
+            !regions.iter().any(|r| matches!(
+                r,
+                Region::Structure(s) if s.contains("Long caption.")
+            )),
+            "dual long value must not stay Structure, got {regions:?}"
+        );
+        let out = format_text(input, &org_cfg()).unwrap();
+        assert_eq!(
+            out,
+            concat!(
+                "#+CAPTION[Short. Title.]: Long caption.\n",
+                "                          Second.\n",
+            ),
+            "dual short stays; long value hangs and splits, got:\n{out}"
+        );
+        assert!(
+            out.contains("#+CAPTION[Short. Title.]:"),
+            "Short. Title. must not split, got:\n{out}"
+        );
+        assert_eq!(format_text(&out, &org_cfg()).unwrap(), out);
+    }
+
+    #[test]
+    fn name_and_attr_stay_whole_line_structure() {
+        use crate::format_text;
+
+        let input = concat!(
+            "#+NAME: fig:plot. name\n",
+            "#+ATTR_HTML: :alt First sentence. Second.\n",
+            "#+ATTR_LATEX: :width 0.9\\textwidth :float nil\n",
+            "After the figure. More.\n",
+        );
+        let regions = OrgParser.parse(input);
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Structure(s) if s.contains("#+NAME: fig:plot. name")
+            )),
+            "#+NAME: must stay whole-line Structure, got {regions:?}"
+        );
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Structure(s) if s.contains("#+ATTR_HTML: :alt First sentence. Second.")
+            )),
+            "#+ATTR_HTML: must stay whole-line Structure, got {regions:?}"
+        );
+        assert!(
+            !regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(s) if s.contains("fig:plot") || s.contains(":alt First")
+            )),
+            "NAME/ATTR values must not be Prose, got {regions:?}"
+        );
+        let out = format_text(input, &org_cfg()).unwrap();
+        assert!(
+            out.contains("#+NAME: fig:plot. name"),
+            "#+NAME: must not reflow, got:\n{out}"
+        );
+        assert!(
+            out.contains("#+ATTR_HTML: :alt First sentence. Second."),
+            "#+ATTR_HTML: must not reflow, got:\n{out}"
+        );
+        assert!(
+            out.contains("After the figure.\nMore."),
+            "following prose must still split, got:\n{out}"
         );
         assert_eq!(format_text(&out, &org_cfg()).unwrap(), out);
     }
