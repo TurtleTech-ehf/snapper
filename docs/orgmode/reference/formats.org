@@ -20,6 +20,7 @@ The classification depends on the format.
 :END:
 - Non-source =#+BEGIN_*= ...
 =#+END_*= fences, and literal bodies (example, export, comment, unknown names)
+- Dynamic blocks (=#+BEGIN: NAME= ... =#+END:=), including the generated body
 - =:PROPERTIES:= ...
 =:END:= drawers
 - =#+KEYWORD:= directives (TITLE, AUTHOR, DATE, OPTIONS, etc.)

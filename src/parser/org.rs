@@ -108,6 +108,32 @@ impl OrgParser {
         stack.last().map(String::as_str) == Some("VERSE")
     }
 
+    /// org-element-dynamic-block-open-re: `^[ \t]*#\+BEGIN:[ \t]+\S`
+    /// (`case-fold-search t`). A name is required; bare `#+BEGIN:` is a keyword.
+    fn is_dynamic_block_begin(line: &str) -> bool {
+        let t = line.trim_start_matches([' ', '\t']);
+        let upper = t.to_ascii_uppercase();
+        let Some(rest) = upper.strip_prefix("#+BEGIN:") else {
+            return false;
+        };
+        !rest.trim_start_matches([' ', '\t']).is_empty()
+    }
+
+    /// org-element-dynamic-block-parser closer: `^[ \t]*#\+END:?[ \t]*$`
+    /// (`case-fold-search t`). Does not match `#+END_NAME`.
+    fn is_dynamic_block_end(line: &str) -> bool {
+        let t = line.trim_start_matches([' ', '\t']);
+        let upper = t.to_ascii_uppercase();
+        let rest = if let Some(r) = upper.strip_prefix("#+END:") {
+            r
+        } else if let Some(r) = upper.strip_prefix("#+END") {
+            r
+        } else {
+            return false;
+        };
+        rest.trim_matches([' ', '\t']).is_empty()
+    }
+
     /// org-element drawer: `:NAME:` with NAME = `[A-Za-z_-]+`. Not `:END:`.
     fn is_drawer_begin(line: &str) -> bool {
         let trimmed = line.trim();
@@ -151,7 +177,10 @@ impl OrgParser {
     /// Check if a line is a keyword/directive (#+KEYWORD:)
     fn is_keyword(line: &str) -> bool {
         let trimmed = line.trim_start();
-        trimmed.starts_with("#+") && !Self::is_block_begin(line) && !Self::is_block_end(line)
+        trimmed.starts_with("#+")
+            && !Self::is_block_begin(line)
+            && !Self::is_block_end(line)
+            && !Self::is_dynamic_block_begin(line)
     }
 
     /// org.el `org-comment-regexp`: `^[ \t]*#(?: |$)`.
@@ -342,6 +371,7 @@ impl FormatParser for OrgParser {
         let mut src_header = ByteSpan::default();
         let mut src_body_start = 0usize;
         let mut in_drawer = false;
+        let mut in_dynamic_block = false;
         let mut in_latex_env: Option<String> = None;
         let mut in_display_math: Option<DisplayMathDelim> = None;
         let mut pragma_off = false;
@@ -450,6 +480,16 @@ impl FormatParser for OrgParser {
                 continue;
             }
 
+            // Inside a dynamic block (`#+BEGIN: NAME` … `#+END:`) -- structure.
+            if in_dynamic_block {
+                flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
+                if Self::is_dynamic_block_end(line_text) {
+                    in_dynamic_block = false;
+                }
+                regions.push(SpannedRegion::structure(input, line.span()));
+                continue;
+            }
+
             // Source block begin (#+BEGIN_SRC LANG ...)
             if let Some(lang) = Self::is_src_begin(line_text) {
                 flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
@@ -465,6 +505,15 @@ impl FormatParser for OrgParser {
             if let Some(name) = Self::block_begin_name(line_text) {
                 flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
                 block_stack.push(name);
+                regions.push(SpannedRegion::structure(input, line.span()));
+                continue;
+            }
+
+            // #+BEGIN: NAME -- org-element dynamic block. Body stays Structure
+            // until #+END: / #+END. `#+BEGIN_` greater blocks are handled above.
+            if Self::is_dynamic_block_begin(line_text) {
+                flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
+                in_dynamic_block = true;
                 regions.push(SpannedRegion::structure(input, line.span()));
                 continue;
             }
@@ -2447,6 +2496,96 @@ mod tests {
         assert!(
             out.contains("#\nAfter.\nNext."),
             "bare # stays a comment; following prose reflows, got:\n{out}"
+        );
+        assert_eq!(format_text(&out, &org_cfg()).unwrap(), out);
+    }
+
+    /// Ticket fixture (Format::Org / GitHub #178): `#+BEGIN: NAME` is a
+    /// dynamic block, not a one-line keyword. Body stays Structure.
+    fn dynamic_block_clocktable_fixture() -> &'static str {
+        concat!(
+            "#+BEGIN: clocktable :scope file\n",
+            "This is a long sentence inside a dynamic block that must stay frozen. Second sentence.\n",
+            "#+END:\n",
+            "Following paragraph. Another sentence.\n",
+        )
+    }
+
+    #[test]
+    fn dynamic_block_begin_matches_org_element_open_re() {
+        assert!(OrgParser::is_dynamic_block_begin(
+            "#+BEGIN: clocktable :scope file"
+        ));
+        assert!(OrgParser::is_dynamic_block_begin("  #+begin: columnview"));
+        assert!(OrgParser::is_dynamic_block_begin("\t#+BEGIN: clocktable"));
+        assert!(!OrgParser::is_dynamic_block_begin("#+BEGIN:"));
+        assert!(!OrgParser::is_dynamic_block_begin("#+BEGIN:   "));
+        assert!(!OrgParser::is_dynamic_block_begin("#+BEGIN_SRC rust"));
+        assert!(!OrgParser::is_dynamic_block_begin("#+BEGIN_QUOTE"));
+        assert!(!OrgParser::is_dynamic_block_begin("prose"));
+        assert!(OrgParser::is_dynamic_block_end("#+END:"));
+        assert!(OrgParser::is_dynamic_block_end("  #+end:"));
+        assert!(OrgParser::is_dynamic_block_end("#+END"));
+        assert!(!OrgParser::is_dynamic_block_end("#+END_SRC"));
+        assert!(!OrgParser::is_dynamic_block_end("#+END_QUOTE"));
+        assert!(!OrgParser::is_dynamic_block_end("#+BEGIN: clocktable"));
+    }
+
+    #[test]
+    fn dynamic_block_body_is_structure_following_prose_splits() {
+        use crate::format_text;
+
+        let input = dynamic_block_clocktable_fixture();
+        let regions = OrgParser.parse(input);
+        let structure: String = regions
+            .iter()
+            .filter_map(|r| match r {
+                Region::Structure(s) => Some(s.as_str()),
+                _ => None,
+            })
+            .collect();
+        assert!(
+            structure.contains("#+BEGIN: clocktable :scope file")
+                && structure.contains("must stay frozen. Second sentence.")
+                && structure.contains("#+END:"),
+            "dynamic block BEGIN through END must be Structure, got: {regions:?}"
+        );
+        assert!(
+            !regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(p) if p.contains("must stay frozen")
+            )),
+            "dynamic block body must not be Prose, got: {regions:?}"
+        );
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(p)
+                    if p.contains("Following paragraph.") && p.contains("Another sentence.")
+            )),
+            "following paragraph must stay Prose, got: {regions:?}"
+        );
+
+        let out = format_text(input, &org_cfg()).unwrap();
+        assert!(
+            out.contains(concat!(
+                "#+BEGIN: clocktable :scope file\n",
+                "This is a long sentence inside a dynamic block that must stay frozen. Second sentence.\n",
+                "#+END:\n",
+            )),
+            "dynamic block must stay frozen, got:\n{out}"
+        );
+        assert!(
+            !out.contains("must stay frozen.\nSecond sentence."),
+            "dynamic block body must not split, got:\n{out}"
+        );
+        assert!(
+            out.contains("#+END:\nFollowing paragraph.\nAnother sentence."),
+            "following paragraph must still split, got:\n{out}"
+        );
+        assert!(
+            !out.contains("Following paragraph. Another sentence."),
+            "following paragraph must not stay fused, got:\n{out}"
         );
         assert_eq!(format_text(&out, &org_cfg()).unwrap(), out);
     }
