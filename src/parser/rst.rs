@@ -635,9 +635,7 @@ pub(crate) fn rst_line_block_marker_len(line: &str) -> Option<usize> {
     if t == "|" {
         return Some(indent + 1);
     }
-    let Some(after) = t.strip_prefix('|') else {
-        return None;
-    };
+    let after = t.strip_prefix('|')?;
     let spaces = after.bytes().take_while(|&b| b == b' ').count();
     (spaces > 0).then_some(indent + 1 + spaces)
 }
