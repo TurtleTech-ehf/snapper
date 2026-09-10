@@ -1430,6 +1430,84 @@ mod tests {
     }
 
     #[test]
+    fn compact_paren_list_hang_joins_into_one_prose_region() {
+        let input = concat!(
+            "- Ordering (smaller indices mean higher priority.\n",
+            "  Recurse to the left side of the array)\n",
+            "- Next item.\n",
+        );
+        let regions = RstParser.parse(input);
+        assert!(
+            regions
+                .iter()
+                .any(|r| matches!(r, Region::Structure(s) if s == "- ")),
+            "marker must be Structure, got {regions:?}"
+        );
+        let prose: Vec<_> = regions
+            .iter()
+            .filter_map(|r| match r {
+                Region::Prose(s) => Some(s.as_str()),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(
+            prose,
+            [
+                "Ordering (smaller indices mean higher priority.\nRecurse to the left side of the array)",
+                "Next item.",
+            ],
+            "compact paren hang must join into one Prose, got {regions:?}"
+        );
+        assert!(
+            !regions
+                .iter()
+                .any(|r| matches!(r, Region::Structure(s) if s == "  ")),
+            "compact hang must not be Structure, got {regions:?}"
+        );
+    }
+
+    #[test]
+    fn reporter_open_paren_list_continuation_keeps_two_space_hang() {
+        use crate::format::Format;
+        use crate::oracle;
+        use crate::{FormatConfig, format_text};
+
+        let cfg = FormatConfig {
+            format: Format::Rst,
+            max_width: 0,
+            ..Default::default()
+        }
+        .without_safety_backstops();
+        let input = concat!(
+            "- Ordering (smaller indices mean higher priority.\n",
+            "  Recurse to the left side of the array)\n",
+            "- Next item.\n",
+        );
+        let out = format_text(input, &cfg).unwrap();
+        assert_eq!(
+            out, input,
+            "open-paren continuation must stay hung, got:\n{out}"
+        );
+        assert!(
+            out.contains("\n  Recurse to the left side of the array)"),
+            "continuation must keep two-space hang, got:\n{out}"
+        );
+        assert!(
+            !out.contains("\nRecurse to the left side of the array)"),
+            "continuation must not outdent to column 0, got:\n{out}"
+        );
+        let twice = format_text(&out, &cfg).unwrap();
+        assert_eq!(
+            out, twice,
+            "hung paren continuation must be identity, got:\n{twice}"
+        );
+        assert!(
+            oracle::matches(Format::Rst, input, &out),
+            "oracle mismatch\n in={input:?}\n out={out:?}"
+        );
+    }
+
+    #[test]
     fn compact_list_hang_joins_into_one_prose_region() {
         let input = "* One.\n  Two.\n";
         let regions = RstParser.parse(input);

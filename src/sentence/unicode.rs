@@ -943,6 +943,12 @@ impl DelimState {
             || self.brace_depth > 0
     }
 
+    /// True while a `(` is still unmatched. RST list hang uses this so
+    /// quote and abbreviation spans stay on their own tickets.
+    pub fn paren_is_open(&self) -> bool {
+        self.paren_depth > 0
+    }
+
     /// Feed `text` and update nesting. Used both in the splitter merge pass
     /// and in regression/property tests that assert formatted output never
     /// places a newline while still inside a span.
@@ -1686,6 +1692,24 @@ mod tests {
             split("It's fine. She said 'Go. Now.' Done."),
             vec!["It's fine.", "She said 'Go. Now.'", "Done."]
         );
+    }
+
+    #[test]
+    fn open_paren_newline_stays_one_sentence() {
+        assert_eq!(
+            split(
+                "Ordering (smaller indices mean higher priority.\nRecurse to the left side of the array)"
+            ),
+            vec![
+                "Ordering (smaller indices mean higher priority.\nRecurse to the left side of the array)"
+                    .to_string()
+            ]
+        );
+        let mut state = DelimState::default();
+        state.feed("Ordering (smaller indices mean higher priority.");
+        assert!(state.paren_is_open());
+        state.feed("\nRecurse to the left side of the array)");
+        assert!(!state.paren_is_open());
     }
 
     #[test]

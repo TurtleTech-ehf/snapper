@@ -249,12 +249,12 @@ fn reflow_prose(
                 config.format,
                 layout,
             );
-            output.push_str(&wrapped);
+            output.push_str(&hang_open_paren_continuations(&wrapped, &hang));
         } else {
             if hanging > 0 && i > 0 {
                 output.push_str(&hang);
             }
-            output.push_str(sentence);
+            output.push_str(&hang_open_paren_continuations(sentence, &hang));
         }
         if i + 1 < nsent {
             output.push('\n');
@@ -916,6 +916,28 @@ fn wrap_atomic_words(
 /// True when `s` is a list or quote marker that continuation lines hang from.
 pub(crate) fn is_hanging_marker(s: &str) -> bool {
     !hanging_prefix(s).is_empty()
+}
+
+/// Repeat list hang on later lines while a parenthesis is still open.
+/// Compact RST join keeps a newline after sentence punct; delimiter merge
+/// then leaves that newline inside one sentence (GitHub #131).
+fn hang_open_paren_continuations(sentence: &str, hang: &str) -> String {
+    if hang.is_empty() || !sentence.contains('\n') {
+        return sentence.to_string();
+    }
+    let mut state = crate::sentence::unicode::DelimState::default();
+    let mut out = String::with_capacity(sentence.len() + hang.len());
+    for (i, line) in sentence.split('\n').enumerate() {
+        if i > 0 {
+            out.push('\n');
+            if state.paren_is_open() && !line.starts_with(hang) {
+                out.push_str(hang);
+            }
+        }
+        out.push_str(line);
+        state.feed(line);
+    }
+    out
 }
 
 /// Prefix emitted on continuation lines after a list or quote marker.
@@ -1695,6 +1717,29 @@ They are endowed with reason and conscience and should act towards one another i
             Region::Structure("\n".to_string()),
         ]);
         assert_eq!(result, "  Second.\n  Third.\n");
+    }
+
+    #[test]
+    fn rst_open_paren_list_keeps_hang_on_internal_newline() {
+        let result = reflow_regions(vec![
+            Region::Structure("- ".to_string()),
+            Region::Prose(
+                "Ordering (smaller indices mean higher priority.\nRecurse to the left side of the array)"
+                    .to_string(),
+            ),
+            Region::Structure("\n".to_string()),
+            Region::Structure("- ".to_string()),
+            Region::Prose("Next item.".to_string()),
+            Region::Structure("\n".to_string()),
+        ]);
+        assert_eq!(
+            result,
+            concat!(
+                "- Ordering (smaller indices mean higher priority.\n",
+                "  Recurse to the left side of the array)\n",
+                "- Next item.\n",
+            )
+        );
     }
 
     #[test]
