@@ -27,6 +27,11 @@ static INLINE_TOKEN_RE: LazyLock<Regex> = LazyLock::new(|| {
             r"<<[^<>\n]+>>",
             r"\[[^\]]+\]\([^)]+\)",    // Markdown links: [text](url)
             r"!\[[^\]]*\]\([^)]+\)",   // Markdown images: ![alt](url)
+            // CommonMark 0.31.2 §6.3 full / collapsed reference links.
+            // The label must follow the text immediately. Shortcut `[text]`
+            // is not matched: that would swallow every bracket group.
+            r"!\[[^\]]*\]\[[^\]]*\]", // Markdown reference images: ![alt][ref]
+            r"\[[^\]]+\]\[[^\]]*\]",  // Markdown reference links: [text][ref]
             r"\$\$[^$\n]+\$\$",        // Display math: $$...$$
             r"\$[^$\n]+\$",            // Inline math: $...$
             r"\\\([^\\\n]+\\\)",       // LaTeX inline math: \(...\)
@@ -593,8 +598,8 @@ fn find_md_code_span(text: &str, open_at: usize) -> Option<usize> {
 }
 
 /// Byte ranges of inline tokens that wrapping must not split (links, images,
-/// inline code, autolinks, math, Org `[[...]]`, Org `[cite...]`,
-/// Org `<<<...>>>` / `<<...>>`, paired spans).
+/// reference links `[text][ref]`, inline code, autolinks, math, Org `[[...]]`,
+/// Org `[cite...]`, Org `<<<...>>>` / `<<...>>`, paired spans).
 ///
 /// Ranges are half-open `[start, end)`, sorted, non-overlapping, and merged
 /// when a regex match wraps a paired span.
@@ -1517,6 +1522,60 @@ mod tests {
                 "Visit [Example Inc.](https://example.com) now.",
                 "Then read more."
             ]
+        );
+    }
+
+    #[test]
+    fn inline_markdown_reference_link_interior_punct_is_not_a_sentence_boundary() {
+        // GitHub #215 / snapper-e8g6: CM 6.3 `[text][ref]` must stay one
+        // token so an interior period is not a sentence boundary.
+        let link = "[the Fourier. transform][wiki]";
+        let text = "See [the Fourier. transform][wiki] for details. Next sentence.";
+        let (_, placeholders) = protect_inline_tokens(text);
+        assert!(
+            placeholders.iter().any(|p| p == link),
+            "reference link must be one token, got {placeholders:?}"
+        );
+        let spans = atomic_inline_spans(text);
+        assert!(
+            spans.iter().any(|&(s, e)| &text[s..e] == link),
+            "reference link must be an atomic wrap span, got {:?}",
+            spans.iter().map(|&(s, e)| &text[s..e]).collect::<Vec<_>>()
+        );
+        assert_eq!(
+            split(text),
+            vec![
+                "See [the Fourier. transform][wiki] for details.".to_string(),
+                "Next sentence.".to_string()
+            ]
+        );
+    }
+
+    #[test]
+    fn inline_markdown_collapsed_reference_link_interior_punct() {
+        let link = "[the Fourier. transform][]";
+        let text = "See [the Fourier. transform][] for details. Next sentence.";
+        let (_, placeholders) = protect_inline_tokens(text);
+        assert!(
+            placeholders.iter().any(|p| p == link),
+            "collapsed reference must be one token, got {placeholders:?}"
+        );
+        assert_eq!(
+            split(text),
+            vec![
+                "See [the Fourier. transform][] for details.".to_string(),
+                "Next sentence.".to_string()
+            ]
+        );
+    }
+
+    #[test]
+    fn markdown_link_reference_definition_is_not_an_inline_token() {
+        let text = "[wiki]: https://example.org/fourier";
+        let (_, placeholders) = protect_inline_tokens(text);
+        assert!(
+            !placeholders.iter().any(|p| p.contains("[wiki]:")),
+            "LRD must not be swallowed as [text][ref], got {placeholders:?}"
         );
     }
 
