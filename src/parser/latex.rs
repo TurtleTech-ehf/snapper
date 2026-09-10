@@ -128,8 +128,9 @@ static LSTLISTING_LANG_RE: LazyLock<Regex> = LazyLock::new(|| {
 /// Beyond minted/lstlisting/verbatim: latexindent `fileContentsEnvironments`
 /// (`filecontents`, `filecontents*`) and tree-sitter-latex raw trivia envs
 /// (`asy`, `asydef`, `pycode`, `luacode`, `luacode*`, `sagesilent`,
-/// `sageblock`) plus fancyvrb `verbatim*` / `Verbatim` / `BVerbatim` /
-/// `LVerbatim` / `SaveVerbatim` / `VerbatimOut`, moreverb
+/// `sageblock`) plus latex2e `verbatim*` / fancyvrb `Verbatim` /
+/// `Verbatim*` / `BVerbatim` / `BVerbatim*` / `LVerbatim` /
+/// `LVerbatim*` / `SaveVerbatim` / `VerbatimOut`, moreverb
 /// `boxedverbatim`, tcolorbox `tcblisting` / `codeexample`, standard
 /// `alltt` (alltt.sty: macros still apply, line breaks stay raw;
 /// GitHub #230), spverbatim.sty `spverbatim` (raw body; `\spverb` is
@@ -139,9 +140,10 @@ static LSTLISTING_LANG_RE: LazyLock<Regex> = LazyLock::new(|| {
 /// Verbatim, boxedverbatim, tcblisting, codeexample. fancyvrb
 /// `BVerbatim` / `LVerbatim` are the same raw class as `Verbatim`
 /// (GitHub #209). `SaveVerbatim` / `VerbatimOut` are the same
-/// `FV@Scan` class (GitHub #213). listings.sty
-/// `\lstnewenvironment{lstlisting}` also defines `lstlisting*` (same
-/// raw body scan; GitHub #234).
+/// `FV@Scan` class (GitHub #213). fancyvrb `Verbatim*` / `BVerbatim*`
+/// / `LVerbatim*` are the starred twins (same `\FV@Scan`; GitHub
+/// #244). listings.sty `\lstnewenvironment{lstlisting}` also defines
+/// `lstlisting*` (same raw body scan; GitHub #234).
 fn is_builtin_code_env(name: &str) -> bool {
     matches!(
         name,
@@ -151,8 +153,11 @@ fn is_builtin_code_env(name: &str) -> bool {
             | "verbatim"
             | "verbatim*"
             | "Verbatim"
+            | "Verbatim*"
             | "BVerbatim"
+            | "BVerbatim*"
             | "LVerbatim"
+            | "LVerbatim*"
             | "SaveVerbatim"
             | "VerbatimOut"
             | "alltt"
@@ -2412,6 +2417,59 @@ Some text.
                 !two_out.contains("First line.\nSecond line."),
                 "{name} two-sentence body must not split, got:\n{two_out}"
             );
+        }
+    }
+
+    /// Ticket fixture (GitHub #244): fancyvrb `Verbatim*` / `BVerbatim*`
+    /// / `LVerbatim*` are the starred twins of the unstarred FV@Scan
+    /// names. Body stays Code; following prose still splits.
+    #[test]
+    fn fancyvrb_verbatim_star_envs_are_code_not_prose() {
+        use crate::format_text;
+
+        for name in ["Verbatim*", "BVerbatim*", "LVerbatim*"] {
+            let input = format!(
+                concat!(
+                    "\\begin{{{name}}}\n",
+                    "First line. Second line.\n",
+                    "\\end{{{name}}}\n",
+                    "After the block. Next.\n",
+                ),
+                name = name
+            );
+            let regions = LatexParser::default().parse(&input);
+            assert!(
+                regions.iter().any(|r| matches!(
+                    r,
+                    Region::Code { body, .. } if body.contains("First line. Second line.")
+                )),
+                "{name} body must be Code, got: {regions:?}"
+            );
+            assert!(
+                !regions
+                    .iter()
+                    .any(|r| matches!(r, Region::Prose(p) if p.contains("First line"))),
+                "{name} body must not leak into Prose, got: {regions:?}"
+            );
+            let out = format_text(&input, &latex_cfg()).unwrap();
+            assert!(
+                out.contains(&format!("\\begin{{{name}}}"))
+                    && out.contains(&format!("\\end{{{name}}}")),
+                "{name} begin/end must stay, got:\n{out}"
+            );
+            assert!(
+                out.contains("First line. Second line."),
+                "{name} body must stay one source line, got:\n{out}"
+            );
+            assert!(
+                !out.contains("First line.\nSecond line."),
+                "{name} must not reflow as prose, got:\n{out}"
+            );
+            assert!(
+                out.contains("After the block.\nNext."),
+                "prose after {name} must still split, got:\n{out}"
+            );
+            assert_eq!(format_text(&out, &latex_cfg()).unwrap(), out);
         }
     }
 
