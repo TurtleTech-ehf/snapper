@@ -4,8 +4,8 @@ use std::collections::HashMap;
 use crate::config::CodeLang;
 use crate::format::Format;
 use crate::parser::{Region, RegionOrigin, SpannedRegion};
-use crate::sentence::SentenceSplitter;
 use crate::sentence::unicode::atomic_inline_spans;
+use crate::sentence::SentenceSplitter;
 
 /// Configuration for the reflow engine.
 pub struct ReflowConfig<'a> {
@@ -1138,8 +1138,12 @@ fn is_latex_item_core(core: &str) -> bool {
     rest.starts_with('[') && rest.ends_with(']') && !rest[1..rest.len() - 1].contains(['[', ']'])
 }
 
-/// Markdown hard break payloads: two or more spaces plus newline, or `\\\n`.
+/// Hard-break Structure payloads: Markdown two-or-more spaces plus
+/// newline, Markdown `\\\n`, or Org `\\\\[ \t]*$` plus the terminator.
 fn is_hard_break_structure(s: &str) -> bool {
+    if crate::parser::org::is_org_line_break_structure(s) {
+        return true;
+    }
     let Some(body) = s.strip_suffix('\n') else {
         return false;
     };
