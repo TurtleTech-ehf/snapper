@@ -345,8 +345,10 @@ impl OrgParser {
     }
 
     /// org-element quote-block / verse-block / center-block contain paragraphs.
+    /// org-element special-block (NOTE, ABSTRACT, WARNING, ...) contains
+    /// paragraphs. Only lesser/literal names stay opaque (GitHub #179).
     fn is_container_block_name(name: &str) -> bool {
-        matches!(name, "QUOTE" | "VERSE" | "CENTER")
+        !matches!(name, "SRC" | "EXAMPLE" | "EXPORT" | "COMMENT")
     }
 
     fn greater_kind(name: &str) -> GreaterKind {
