@@ -54,9 +54,9 @@ impl FormatParser for RstParser {
 
 /// Line-based RST parser. Handles directives, literal blocks (indented
 /// and quoted), doctest blocks, sections, field lists, option lists,
-/// footnotes, citations, comments, anonymous hyperlink targets, line
-/// blocks, tables, definition lists, and block-quote hang spaces as
-/// structure regions.
+/// footnotes, citations, comments, anonymous hyperlink targets, Jinja
+/// statements (`{% ... %}`), line blocks, tables, definition lists, and
+/// block-quote hang spaces as structure regions.
 fn parse_line_based(input: &str) -> Vec<SpannedRegion> {
     let mut regions = Vec::new();
     let mut current_prose = String::new();
@@ -286,6 +286,17 @@ fn parse_line_based(input: &str) -> Vec<SpannedRegion> {
             // Any indent past the opener is body (docutils).
             comment_indent = leading + 1;
             in_comment = true;
+            i += 1;
+            continue;
+        }
+
+        // Jinja statement (`{% ... %}`). sphinx-jinja / Jinja2 block
+        // delimiters. Consecutive statements stay unjoined; they are
+        // not RST prose (GitHub #196).
+        if is_rst_jinja_statement(trimmed) {
+            flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
+            list_hang = None;
+            regions.push(SpannedRegion::structure(input, line.span()));
             i += 1;
             continue;
         }
@@ -620,6 +631,17 @@ pub(crate) fn is_rst_doctest_opener(trimmed: &str) -> bool {
 /// Sibling of `..` explicit markup. `__https` (no space) is not a target.
 pub(crate) fn is_rst_anonymous_target(trimmed: &str) -> bool {
     trimmed == "__" || trimmed.starts_with("__ ")
+}
+
+/// Whole-line Jinja statement: `{%` … `%}` with optional whitespace-control
+/// `-`/`+` on either brace (`{%-`, `{%+`, `-%}`, `+%}`).
+///
+/// Kanged from Jinja2 / sphinx-jinja block delimiters (`block_start_string`
+/// / `block_end_string`), not a pandoc RST parse (GitHub #196).
+pub(crate) fn is_rst_jinja_statement(trimmed: &str) -> bool {
+    let s = trimmed.trim_end();
+    // `{%-` / `{%+` / `-%}` / `+%}` still start with `{%` and end with `%}`.
+    s.starts_with("{%") && s.ends_with("%}")
 }
 
 /// Byte length of a Docutils footnote or citation opener on `line`,
@@ -3313,6 +3335,84 @@ mod tests {
         assert!(
             wrap_out.contains("-a            "),
             "wrap must not eat option-column spaces, got:\n{wrap_out}"
+        );
+    }
+
+    #[test]
+    fn jinja_statement_matcher_follows_jinja2_block_delimiters() {
+        assert!(is_rst_jinja_statement(r#"{% set foo = "foo" %}"#));
+        assert!(is_rst_jinja_statement(r#"{% set bar = "bar" %}"#));
+        assert!(is_rst_jinja_statement("{%- set foo = \"foo\" %}"));
+        assert!(is_rst_jinja_statement("{% set foo = \"foo\" -%}"));
+        assert!(is_rst_jinja_statement("{%+ set foo = \"foo\" +%}"));
+        assert!(is_rst_jinja_statement("{% set foo = \"foo\" %}  "));
+        assert!(is_rst_jinja_statement("{% for k, v in topics.items() %}"));
+        assert!(is_rst_jinja_statement("{% endfor %}"));
+        assert!(!is_rst_jinja_statement("{{ foo }}"));
+        assert!(!is_rst_jinja_statement("{# comment #}"));
+        assert!(!is_rst_jinja_statement(r#"The tag {% set x = 1 %}"#));
+        assert!(!is_rst_jinja_statement("{% set foo = \"foo\""));
+        assert!(!is_rst_jinja_statement("set foo = \"foo\" %}"));
+        assert!(!is_rst_jinja_statement("Hello world."));
+        assert!(!is_rst_jinja_statement(".. code-block:: python"));
+    }
+
+    /// GitHub #196 / snapper-79b2: consecutive `{% ... %}` lines stay Structure.
+    #[test]
+    fn consecutive_jinja_statements_are_structure_not_prose() {
+        let input = concat!(
+            "         {% set foo = \"foo\" %}\n",
+            "         {% set bar = \"bar\" %}\n",
+            "\n",
+            "         .. code-block:: python\n",
+            "\n",
+            "            pass\n",
+        );
+        let regions = RstParser.parse(input);
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Structure(s) if s.contains(r#"{% set foo = "foo" %}"#)
+            )),
+            "first Jinja statement must be Structure, got {regions:?}"
+        );
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Structure(s) if s.contains(r#"{% set bar = "bar" %}"#)
+            )),
+            "second Jinja statement must be Structure, got {regions:?}"
+        );
+        assert!(
+            !regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(s)
+                    if s.contains("{% set foo") || s.contains("{% set bar")
+            )),
+            "Jinja statements must not be Prose, got {regions:?}"
+        );
+        assert!(
+            !regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(s) if s.contains("set foo") && s.contains("set bar")
+            )),
+            "Jinja statements must not join into one Prose region, got {regions:?}"
+        );
+        let code = regions.iter().find_map(|r| match r {
+            Region::Code {
+                lang, header, body, ..
+            } => Some((lang.clone(), header.clone(), body.clone())),
+            _ => None,
+        });
+        let (lang, header, body) = code.expect("expected .. code-block:: as Region::Code");
+        assert_eq!(lang.as_deref(), Some("python"));
+        assert!(
+            header.contains(".. code-block:: python"),
+            "code-block header must stay structure/code, got {header:?}"
+        );
+        assert!(
+            body.contains("pass"),
+            "code-block body must stay, got {body:?}"
         );
     }
 
