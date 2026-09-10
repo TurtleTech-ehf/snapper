@@ -6,6 +6,7 @@
 //! by copying the gaps between rewrite ranges.
 
 use crate::parser::Region;
+use crate::sentence::unicode::line_ends_sentence;
 
 /// Half-open byte range `[start, end)` into the parser input.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
@@ -200,6 +201,18 @@ pub fn iter_lines(input: &str) -> Vec<Line<'_>> {
     lines
 }
 
+/// Append the join mark before another prose line.
+///
+/// Keep a newline after sentence punctuation so a following lowercase
+/// token (`iCloud`) is not glued on. Mid-sentence wraps still use a space.
+pub fn push_prose_sep(prose: &mut String) {
+    if line_ends_sentence(prose) {
+        prose.push('\n');
+    } else {
+        prose.push(' ');
+    }
+}
+
 /// Append a physical line to the running prose buffer and extend its span.
 ///
 /// `include_terminator` is true for ordinary paragraphs (the original
@@ -213,7 +226,7 @@ pub fn push_prose_line(
     include_terminator: bool,
 ) {
     if !prose.is_empty() && join_space {
-        prose.push(' ');
+        push_prose_sep(prose);
     }
     prose.push_str(line.text.trim());
     let end = if include_terminator {

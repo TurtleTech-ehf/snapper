@@ -648,12 +648,61 @@ pub fn restore_inline_tokens(segments: Vec<String>, placeholders: &[String]) -> 
         .collect()
 }
 
+/// Rejoin wrap newlines; keep a break after sentence punctuation.
+///
+/// Adjacent prose lines keep a newline after `.!?`. UAX #29 SB8 will
+/// not break before a lowercase token (`iCloud`), so that newline is
+/// the sentence break. Mid-sentence wraps stay one sentence.
+pub(crate) fn rejoin_wrap_newlines(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    for line in text.lines() {
+        let t = line.trim();
+        if t.is_empty() {
+            continue;
+        }
+        if !out.is_empty() {
+            if line_ends_sentence(&out) {
+                out.push('\n');
+            } else {
+                out.push(' ');
+            }
+        }
+        out.push_str(t);
+    }
+    out
+}
+
+pub(crate) fn line_ends_sentence(s: &str) -> bool {
+    let t = s.trim_end();
+    let core = t.trim_end_matches(|c: char| {
+        matches!(
+            c,
+            '"' | '\''
+                | ')'
+                | ']'
+                | '}'
+                | '*'
+                | '_'
+                | '`'
+                | '~'
+                | '\u{201d}'
+                | '\u{2019}'
+                | '\u{201c}'
+                | '\u{00bb}'
+                | '\u{00ab}'
+        )
+    });
+    matches!(core.chars().last(), Some('.' | '!' | '?'))
+}
+
 impl SentenceSplitter for UnicodeSentenceSplitter {
     fn split(&self, text: &str) -> Vec<String> {
         let text = text.trim();
         if text.is_empty() {
             return vec![];
         }
+        let rejoined = rejoin_wrap_newlines(text);
+        let text = rejoined.as_str();
 
         let (protected, placeholders) =
             protect_inline_tokens_with(text, &self.extra_verbatim_commands);
@@ -1896,5 +1945,44 @@ mod tests {
             !out.contains("**complex.\n"),
             "must not split before the closer, got:\n{out}"
         );
+    }
+
+    #[test]
+    fn newline_before_lowercase_proper_noun_is_a_sentence_break() {
+        assert_eq!(
+            split("First sentence.\niCloud starts the second sentence."),
+            vec![
+                "First sentence.".to_string(),
+                "iCloud starts the second sentence.".to_string()
+            ]
+        );
+    }
+
+    #[test]
+    fn wrap_newline_before_lowercase_stays_one_sentence() {
+        assert_eq!(
+            split("This is a long sentence that\nwraps onto the next line."),
+            vec!["This is a long sentence that wraps onto the next line.".to_string()]
+        );
+    }
+
+    #[test]
+    fn newline_before_lowercase_proper_noun_stays_a_sentence_break() {
+        use crate::format::Format;
+        use crate::{FormatConfig, format_text};
+
+        let input = "First sentence.\niCloud starts the second sentence.\n";
+        for format in [Format::Markdown, Format::Plaintext] {
+            let cfg = FormatConfig {
+                format,
+                max_width: 0,
+                ..Default::default()
+            };
+            let out = format_text(input, &cfg).unwrap();
+            assert_eq!(
+                out, input,
+                "{format:?} must keep the sentence break, got:\n{out}"
+            );
+        }
     }
 }

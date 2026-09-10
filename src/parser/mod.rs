@@ -9,7 +9,7 @@ pub mod span;
 
 pub use span::{
     ByteSpan, CodeSpans, Line, RegionOrigin, SpannedRegion, flush_prose_spanned, iter_lines,
-    push_prose_line,
+    push_prose_line, push_prose_sep,
 };
 
 /// A region of text classified by a format parser.

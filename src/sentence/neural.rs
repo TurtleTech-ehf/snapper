@@ -4,8 +4,8 @@ use nnsplit::NNSplit;
 
 use super::SentenceSplitter;
 use super::unicode::{
-    UnicodeSentenceSplitter, protect_inline_tokens_with, restore_inline_tokens,
-    split_after_markup_sentence_end,
+    UnicodeSentenceSplitter, protect_inline_tokens_with, rejoin_wrap_newlines,
+    restore_inline_tokens, split_after_markup_sentence_end,
 };
 
 /// nnsplit downloads models to `~/.cache/nnsplit/` on first use; concurrent
@@ -81,6 +81,8 @@ impl SentenceSplitter for NeuralSentenceSplitter {
         if text.is_empty() {
             return vec![];
         }
+        let rejoined = rejoin_wrap_newlines(text);
+        let text = rejoined.as_str();
 
         let (protected, placeholders) =
             protect_inline_tokens_with(text, self.post.verbatim_commands());
