@@ -489,8 +489,10 @@ fn parse_line_based(input: &str) -> Vec<SpannedRegion> {
             continue;
         }
 
-        // Remaining `|cell|` / `+` fragments stay full-line Structure.
-        if trimmed.starts_with('|') || trimmed.starts_with('+') {
+        // Leftover `+` fragments (not a grid_table_top) stay Structure.
+        // Leftover `|` is not a table: Docutils Inliner substitution_ref
+        // (`|version|`) is inline, so those lines stay Prose (snapper-t0th).
+        if trimmed.starts_with('+') {
             flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
             regions.push(SpannedRegion::structure(input, line.span()));
             i += 1;
@@ -1582,6 +1584,11 @@ mod tests {
         assert_eq!(rst_line_block_marker_len("  | hung."), Some(4));
         assert_eq!(rst_line_block_marker_len("|"), Some(1));
         assert_eq!(rst_line_block_marker_len("|cell"), None);
+        assert_eq!(
+            rst_line_block_marker_len("|version| is the current release."),
+            None
+        );
+        assert_eq!(rst_line_block_marker_len("|version|."), None);
         assert_eq!(rst_line_block_marker_len("+---+---+"), None);
     }
 
@@ -1643,6 +1650,65 @@ mod tests {
                 Region::Prose(s) if s.contains("a") || s.contains("---+---+")
             )),
             "grid table must not be Prose, got {regions:?}"
+        );
+    }
+
+    /// snapper-t0th: Inliner substitution_ref is inline prose, not a table.
+    fn substitution_ref_fixture() -> &'static str {
+        concat!(
+            "|version| is the current release. Second sentence.\n",
+            "\n",
+            "The current release is\n",
+            "|version|. Next sentence.\n",
+        )
+    }
+
+    #[test]
+    fn substitution_ref_is_prose_not_structure() {
+        let regions = RstParser.parse(substitution_ref_fixture());
+        assert!(
+            !regions.iter().any(|r| matches!(
+                r,
+                Region::Structure(s) if s.contains("|version|")
+            )),
+            "|version| must not be leftover Structure, got {regions:?}"
+        );
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(s)
+                    if s.contains("|version| is the current release.")
+                        && s.contains("Second sentence.")
+            )),
+            "lead |version| sentence must stay Prose, got {regions:?}"
+        );
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(s)
+                    if s.contains("The current release is")
+                        && s.contains("|version|.")
+                        && s.contains("Next sentence.")
+            )),
+            "mid-paragraph |version| must stay Prose, got {regions:?}"
+        );
+    }
+
+    #[test]
+    fn leftover_plus_fragment_stays_structure() {
+        let input = "+===+===+\n";
+        let regions = RstParser.parse(input);
+        assert!(
+            regions
+                .iter()
+                .any(|r| matches!(r, Region::Structure(s) if s.contains("+===+===+"))),
+            "leftover + fragment must stay Structure, got {regions:?}"
+        );
+        assert!(
+            !regions
+                .iter()
+                .any(|r| matches!(r, Region::Prose(s) if s.contains('+'))),
+            "leftover + fragment must not be Prose, got {regions:?}"
         );
     }
 
