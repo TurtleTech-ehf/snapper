@@ -708,6 +708,100 @@ fn hard_break_multiline_setext_does_not_split_first_title_line() {
     );
 }
 
+/// snapper-3y8u: empty quote line closes the paragraph (CM 5.1 ex. 237).
+#[test]
+fn empty_quote_then_setext_keeps_foo_prose() {
+    let input = concat!(
+        "> Foo is the first title line. Still title.\n",
+        ">\n",
+        "> Bar is the second title line.\n",
+        "> =======\n",
+        "\n",
+        "Body after setext. Second body.\n",
+    );
+    let regions = MarkdownParser.parse(input);
+    assert!(
+        regions.iter().any(|r| matches!(
+            r,
+            Region::Prose(p) if p.contains("Still title") || p.contains("Foo is the first")
+        )),
+        "empty quote must keep Foo as Prose, got: {regions:?}"
+    );
+    assert!(
+        !regions.iter().any(|r| matches!(
+            r,
+            Region::Prose(p) if p.contains("Bar is the second")
+        )),
+        "Bar after empty quote must be Structure, got: {regions:?}"
+    );
+    let out = format_text(input, &md_cfg()).unwrap();
+    assert!(
+        out.contains("first title line.\n"),
+        "Foo must still split, got:\n{out}"
+    );
+    assert!(
+        out.contains("Body after setext.\nSecond body."),
+        "body Prose must still split, got:\n{out}"
+    );
+}
+
+/// snapper-5aef / snapper-l3rg: deeper `>` on the underline is a nested quote.
+#[test]
+fn deeper_quote_underline_is_not_setext() {
+    let input = concat!(
+        "> Foo is the first title line. Still title.\n",
+        ">> =======\n",
+        "\n",
+        "Body after setext. Second body.\n",
+    );
+    let regions = MarkdownParser.parse(input);
+    assert!(
+        regions.iter().any(|r| matches!(
+            r,
+            Region::Prose(p) if p.contains("Still title") || p.contains("Foo is the first")
+        )),
+        "> Foo then >> ======= must stay Prose, got: {regions:?}"
+    );
+    let out = format_text(input, &md_cfg()).unwrap();
+    assert!(
+        out.contains("first title line.\n"),
+        "Foo must still split, got:\n{out}"
+    );
+    assert!(
+        out.contains("Body after setext.\nSecond body."),
+        "body Prose must still split, got:\n{out}"
+    );
+}
+
+/// snapper-p70e / snapper-l3rg: shallower `>` on the underline is lazy.
+#[test]
+fn shallower_quote_underline_is_not_setext() {
+    let input = concat!(
+        ">> Foo is the first title line. Still title.\n",
+        ">> Bar is the second title line.\n",
+        "> =======\n",
+        "\n",
+        "Body after setext. Second body.\n",
+    );
+    let regions = MarkdownParser.parse(input);
+    assert!(
+        regions.iter().any(|r| matches!(
+            r,
+            Region::Prose(p) if p.contains("Still title") || p.contains("Foo is the first")
+        )),
+        ">> Foo then > ======= must stay Prose, got: {regions:?}"
+    );
+    let out = format_text(input, &md_cfg()).unwrap();
+    assert!(
+        out.contains("first title line.\n"),
+        "Foo must still split, got:\n{out}"
+    );
+    assert!(
+        out.contains("Body after setext.\nSecond body."),
+        "body Prose must still split, got:\n{out}"
+    );
+}
+
 /// snapper-0dnt: hard-break flush must not let indented code steal a
 /// setext title continuation.
 #[test]
