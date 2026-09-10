@@ -6,7 +6,10 @@ use crate::parser::{
     push_prose_line,
 };
 
-static HEADING_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^(#{1,6}\s+)(.*)$").unwrap());
+/// CommonMark 0.31.2 §4.2 ATX heading: 0–3 spaces of indent, then 1–6
+/// `#`, then whitespace. Four spaces is indented code, not a heading.
+static HEADING_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"^ {0,3}#{1,6}\s+(.*)$").unwrap());
 
 static FENCED_CODE_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^(`{3,}|~{3,})").unwrap());
 
@@ -1002,6 +1005,7 @@ impl FormatParser for MarkdownParser {
             //   ### 1.
             //   `cargo binstall` (preferred binary install)
             // CommonMark ATX headings are single-line; do not reflow them.
+            // 0–3 space indent is still a heading (CM 0.31.2 §4.2).
             if HEADING_RE.is_match(line_text) {
                 close_list_item(
                     &mut in_list_item,
@@ -1981,6 +1985,76 @@ mod tests {
                 regions,
                 vec![Region::Structure(line.clone())],
                 "level {hashes}"
+            );
+        }
+    }
+
+    /// snapper-zogf / GitHub #171: 0–3 space indent is still ATX.
+    fn zogf_fixture() -> &'static str {
+        concat!(
+            "   # Title. Still the title.\n",
+            "\n",
+            "Body sentence one. Body sentence two.\n",
+        )
+    }
+
+    #[test]
+    fn indented_atx_heading_is_structure_not_prose() {
+        let regions = MarkdownParser.parse(zogf_fixture());
+        assert!(
+            matches!(
+                &regions[0],
+                Region::Structure(s) if s == "   # Title. Still the title.\n"
+            ),
+            "three-space ATX line must be Structure including indent, got: {:?}",
+            regions[0]
+        );
+        assert!(
+            !regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(p) if p.contains("Title") || p.contains('#')
+            )),
+            "indented ATX title must not be Prose: {regions:?}"
+        );
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(p) if p.contains("Body sentence one")
+                    && p.contains("Body sentence two")
+            )),
+            "body must stay Prose so it can split, got: {regions:?}"
+        );
+    }
+
+    #[test]
+    fn indented_atx_heading_body_still_splits() {
+        use crate::format_text;
+
+        let out = format_text(zogf_fixture(), &md_cfg()).unwrap();
+        assert!(
+            out.starts_with("   # Title. Still the title.\n"),
+            "indented ATX must stay one Structure line, got:\n{out}"
+        );
+        assert!(
+            out.contains("Body sentence one.\nBody sentence two."),
+            "body Prose must still split, got:\n{out}"
+        );
+        assert!(
+            !out.contains("# Title.\n"),
+            "must not reflow the ATX title, got:\n{out}"
+        );
+        assert_eq!(format_text(&out, &md_cfg()).unwrap(), out);
+    }
+
+    #[test]
+    fn atx_heading_indent_zero_to_three_is_heading() {
+        for n in 0..=3 {
+            let pad = " ".repeat(n);
+            let line = format!("{pad}# Title. Still the title.");
+            let regions = MarkdownParser.parse(&line);
+            assert!(
+                matches!(&regions[0], Region::Structure(s) if s == &line),
+                "{n}-space ATX must be Structure, got: {regions:?}"
             );
         }
     }
