@@ -2735,5 +2735,4 @@ Some text.
         );
         assert_eq!(format_text(&out, &latex_cfg()).unwrap(), out);
     }
-
 }
