@@ -26,9 +26,11 @@ static LIST_ITEM_RE: LazyLock<Regex> =
 static LIST_LOOKING_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"^[\t ]*(?:[-*+]|\d+[.)]) ").unwrap());
 
-/// Markdown blockquote prefix: optional indent plus one or more `> `.
-/// Nested `> > text` keeps the full prefix so reflow can repeat it.
-static QUOTE_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^(\s*(?:> )+)(.*)$").unwrap());
+/// Markdown blockquote prefix: optional indent plus one or more `>`
+/// each followed by an optional space (CommonMark 0.31.2 ex. 229).
+/// Nested `>>text` / `> > text` keeps the full prefix so reflow can
+/// repeat it.
+static QUOTE_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^(\s*(?:> ?)+)(.*)$").unwrap());
 
 /// Match a markdown table row: line whose trimmed form starts and ends with `|`.
 /// Also matches separator rows like `|---|---|`.
@@ -1153,11 +1155,14 @@ impl FormatParser for MarkdownParser {
                 }
             }
 
-            // Blockquote: emit the full `> ` / `> > ` prefix as Structure.
-            // Checked before list items so nested `> >` is not flattened.
+            // Blockquote: emit the full `>` / `> ` / `>>` / `> > ` prefix
+            // as Structure. Space after each `>` is optional (ex. 229).
+            // Checked before list items so nested `>>` is not flattened.
             // Each source quote line is its own item so splice ranges stay
             // contiguous. A hard break is Structure; the next line supplies
-            // its own `>` (no pre-emitted resume marker).
+            // its own `>` (no pre-emitted resume marker). Lazy lines
+            // without `>` stay in the open item (`in_list_item`) so
+            // hanging_prefix repeats the marker (ex. 228).
             if let Some(caps) = QUOTE_RE.captures(line_text) {
                 close_list_item(
                     &mut in_list_item,
@@ -3233,5 +3238,114 @@ mod tests {
             );
             assert_eq!(format_text(&out, &md_cfg()).unwrap(), out);
         }
+    }
+
+    /// Ticket fixture (Format::Markdown): `>One` is a quote (CM 0.31.2
+    /// ex. 229); lazy `five. six` stays in the quote (ex. 228).
+    fn fbmn_fixture() -> &'static str {
+        concat!(">One. Two.\n", "\n", "> Three. Four.\n", "five. six\n",)
+    }
+
+    #[test]
+    fn quote_marker_space_is_optional() {
+        let regions = MarkdownParser.parse(">One. Two.");
+        assert_eq!(regions[0], Region::Structure(">".to_string()));
+        assert_eq!(regions[1], Region::Prose("One. Two.".to_string()));
+        assert!(
+            !regions
+                .iter()
+                .any(|r| matches!(r, Region::Prose(p) if p.contains('>'))),
+            "bare `>` must not leak into Prose: {regions:?}"
+        );
+    }
+
+    #[test]
+    fn nested_quote_without_spaces_is_quote() {
+        let regions = MarkdownParser.parse(">>nested one. nested two.");
+        assert_eq!(regions[0], Region::Structure(">>".to_string()));
+        assert_eq!(
+            regions[1],
+            Region::Prose("nested one. nested two.".to_string())
+        );
+        assert!(
+            !regions
+                .iter()
+                .any(|r| matches!(r, Region::Prose(p) if p.contains('>'))),
+            "bare `>>` must not leak into Prose: {regions:?}"
+        );
+    }
+
+    #[test]
+    fn lazy_continuation_stays_in_quote() {
+        use crate::format_text;
+
+        let input = "> Three. Four.\nfive. six\n";
+        let regions = MarkdownParser.parse(input);
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(p) if p.contains("Three. Four.") && p.contains("five. six")
+            )),
+            "lazy line must join quote prose, got: {regions:?}"
+        );
+        let out = format_text(input, &md_cfg()).unwrap();
+        // "six" is lowercase, so it is not a new sentence; it must still
+        // stay inside the quote (the `>` is repeated).
+        assert_eq!(out, "> Three.\n> Four.\n> five. six\n");
+        assert_eq!(format_text(&out, &md_cfg()).unwrap(), out);
+
+        let caps = format_text("> Three. Four.\nFive. Six.\n", &md_cfg()).unwrap();
+        assert_eq!(caps, "> Three.\n> Four.\n> Five.\n> Six.\n");
+        assert_eq!(format_text(&caps, &md_cfg()).unwrap(), caps);
+    }
+
+    #[test]
+    fn fbmn_fixture_optional_space_and_lazy_continuation() {
+        use crate::format_text;
+
+        let input = fbmn_fixture();
+        let regions = MarkdownParser.parse(input);
+        assert!(
+            regions
+                .iter()
+                .any(|r| matches!(r, Region::Structure(s) if s == ">")),
+            ">One must emit Structure(`>`), got: {regions:?}"
+        );
+        assert!(
+            regions
+                .iter()
+                .any(|r| matches!(r, Region::Prose(p) if p.contains("One. Two."))),
+            ">One body must be Prose, got: {regions:?}"
+        );
+        assert!(
+            !regions
+                .iter()
+                .any(|r| matches!(r, Region::Prose(p) if p.contains('>'))),
+            "quote markers must not leak into Prose: {regions:?}"
+        );
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(p) if p.contains("Three. Four.") && p.contains("five. six")
+            )),
+            "lazy five. six must stay in the quote, got: {regions:?}"
+        );
+
+        let out = format_text(input, &md_cfg()).unwrap();
+        assert_eq!(out, ">One.\n>Two.\n\n> Three.\n> Four.\n> five. six\n");
+        assert_eq!(format_text(&out, &md_cfg()).unwrap(), out);
+    }
+
+    #[test]
+    fn nospace_quote_reflow_repeats_bare_marker() {
+        use crate::format_text;
+
+        let out = format_text(">One. Two.\n", &md_cfg()).unwrap();
+        assert_eq!(out, ">One.\n>Two.\n");
+        assert_eq!(format_text(&out, &md_cfg()).unwrap(), out);
+
+        let nested = format_text(">>Nested one. Nested two.\n", &md_cfg()).unwrap();
+        assert_eq!(nested, ">>Nested one.\n>>Nested two.\n");
+        assert_eq!(format_text(&nested, &md_cfg()).unwrap(), nested);
     }
 }
