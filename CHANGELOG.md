@@ -3,6 +3,8 @@ All notable changes to this project will be documented in this file. See [conven
 
 - - -
 ## Unreleased (main)
+#### Bug Fixes
+- (**sentence**) Markdown reference links (`[text][ref]`, `[text][]`) stay one token so interior punctuation is not a sentence or wrap boundary (#215)
 
 - - -
 

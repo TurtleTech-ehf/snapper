@@ -19,12 +19,18 @@ static INLINE_TOKEN_RE: LazyLock<Regex> = LazyLock::new(|| {
             // org-element 5.5 citation: [cite/style:prefix;@key p. 7;suffix]
             // Must be atomic so a page locator is not a sentence boundary.
             r"\[cite(?:/[-a-zA-Z0-9_/]*)?:[^\]]*\]",
-            r"\[[^\]]+\]\([^)]+\)",    // Markdown links: [text](url)
-            r"!\[[^\]]*\]\([^)]+\)",   // Markdown images: ![alt](url)
-            r"\$\$[^$\n]+\$\$",        // Display math: $$...$$
-            r"\$[^$\n]+\$",            // Inline math: $...$
-            r"\\\([^\\\n]+\\\)",       // LaTeX inline math: \(...\)
-            r"\\\[[^\n]+?\\\]",        // Org / LaTeX display math fragment: \[...\]
+            r"\[[^\]]+\]\([^)]+\)",  // Markdown links: [text](url)
+            r"!\[[^\]]*\]\([^)]+\)", // Markdown images: ![alt](url)
+            // CommonMark 0.31.2 §6.3 full / collapsed reference links.
+            // The label must follow the text immediately: no spaces, tabs,
+            // or line endings (examples 542-543). Shortcut `[text]` is not
+            // matched: that would swallow every bracket group.
+            r"!\[[^\]]*\]\[[^\]]*\]", // Markdown reference images: ![alt][ref]
+            r"\[[^\]]+\]\[[^\]]*\]",  // Markdown reference links: [text][ref]
+            r"\$\$[^$\n]+\$\$",       // Display math: $$...$$
+            r"\$[^$\n]+\$",           // Inline math: $...$
+            r"\\\([^\\\n]+\\\)",      // LaTeX inline math: \(...\)
+            r"\\\[[^\n]+?\\\]",       // Org / LaTeX display math fragment: \[...\]
             r"\\([a-zA-Z]+)\{[^}]*\}", // LaTeX commands: \cmd{arg}
             // Org emphasis must be protected before sentence splits so a line
             // cannot begin with `*rest` (false headline) or leave markers open.
@@ -587,7 +593,8 @@ fn find_md_code_span(text: &str, open_at: usize) -> Option<usize> {
 }
 
 /// Byte ranges of inline tokens that wrapping must not split (links, images,
-/// inline code, autolinks, math, Org `[[...]]`, Org `[cite...]`, paired spans).
+/// reference links `[text][ref]`, inline code, autolinks, math, Org `[[...]]`,
+/// Org `[cite...]`, paired spans).
 ///
 /// Ranges are half-open `[start, end)`, sorted, non-overlapping, and merged
 /// when a regex match wraps a paired span.
@@ -1451,6 +1458,126 @@ mod tests {
             vec![
                 "Visit [Example Inc.](https://example.com) now.",
                 "Then read more."
+            ]
+        );
+    }
+
+    #[test]
+    fn inline_markdown_reference_link_interior_punct_is_not_a_sentence_boundary() {
+        // GitHub #215 / snapper-e8g6: CM 6.3 `[text][ref]` must stay one
+        // token so an interior period is not a sentence boundary.
+        let link = "[the Fourier. transform][wiki]";
+        let text = "See [the Fourier. transform][wiki] for details. Next sentence.";
+        let (_, placeholders) = protect_inline_tokens(text);
+        assert!(
+            placeholders.iter().any(|p| p == link),
+            "reference link must be one token, got {placeholders:?}"
+        );
+        let spans = atomic_inline_spans(text);
+        assert!(
+            spans.iter().any(|&(s, e)| &text[s..e] == link),
+            "reference link must be an atomic wrap span, got {:?}",
+            spans.iter().map(|&(s, e)| &text[s..e]).collect::<Vec<_>>()
+        );
+        assert_eq!(
+            split(text),
+            vec![
+                "See [the Fourier. transform][wiki] for details.".to_string(),
+                "Next sentence.".to_string()
+            ]
+        );
+    }
+
+    #[test]
+    fn inline_markdown_collapsed_reference_link_interior_punct() {
+        let link = "[the Fourier. transform][]";
+        let text = "See [the Fourier. transform][] for details. Next sentence.";
+        let (_, placeholders) = protect_inline_tokens(text);
+        assert!(
+            placeholders.iter().any(|p| p == link),
+            "collapsed reference must be one token, got {placeholders:?}"
+        );
+        assert_eq!(
+            split(text),
+            vec![
+                "See [the Fourier. transform][] for details.".to_string(),
+                "Next sentence.".to_string()
+            ]
+        );
+    }
+
+    #[test]
+    fn markdown_link_reference_definition_is_not_an_inline_token() {
+        let text = "[wiki]: https://example.org/fourier";
+        let (_, placeholders) = protect_inline_tokens(text);
+        assert!(
+            !placeholders.iter().any(|p| p.contains("[wiki]:")),
+            "LRD must not be swallowed as [text][ref], got {placeholders:?}"
+        );
+    }
+
+    #[test]
+    fn markdown_spaced_shortcut_references_are_not_one_placeholder() {
+        // CM 0.31.2 §6.3 examples 542-543: a gap makes two shortcuts, not
+        // one full reference. snapper-9xjl: `\s*` must not glue them.
+        for text in ["[foo] [bar]", "[foo]\n[bar]", "[foo]\t[bar]"] {
+            let (_, placeholders) = protect_inline_tokens(text);
+            assert!(
+                !placeholders
+                    .iter()
+                    .any(|p| p.contains("[foo]") && p.contains("[bar]")),
+                "spaced shortcuts must stay two tokens, got {placeholders:?} for {text:?}"
+            );
+            assert!(
+                !placeholders.iter().any(|p| p == "[foo]" || p == "[bar]"),
+                "shortcut [text] must stay unmatched, got {placeholders:?} for {text:?}"
+            );
+            let spans = atomic_inline_spans(text);
+            assert!(
+                !spans.iter().any(|&(s, e)| {
+                    let tok = &text[s..e];
+                    tok.contains("[foo]") && tok.contains("[bar]")
+                }),
+                "wrap must not treat spaced shortcuts as one span, got {:?}",
+                spans.iter().map(|&(s, e)| &text[s..e]).collect::<Vec<_>>()
+            );
+        }
+    }
+
+    #[test]
+    fn markdown_shortcut_then_full_reference_across_newline_is_not_glued() {
+        let text = "[important]\n[See also][ref]";
+        let (_, placeholders) = protect_inline_tokens(text);
+        assert!(
+            placeholders.iter().any(|p| p == "[See also][ref]"),
+            "full reference must stay one token, got {placeholders:?}"
+        );
+        assert!(
+            !placeholders
+                .iter()
+                .any(|p| p.contains("[important]") && p.contains("[See also]")),
+            "newline must not glue a shortcut onto the next full reference, got {placeholders:?}"
+        );
+        assert!(
+            !placeholders.iter().any(|p| p == "[important]"),
+            "leading shortcut must stay unmatched, got {placeholders:?}"
+        );
+    }
+
+    #[test]
+    fn inline_markdown_reference_image_interior_punct() {
+        let img = "![Fourier. alt][fig]";
+        let text = "See ![Fourier. alt][fig] now. Next sentence.";
+        let (_, placeholders) = protect_inline_tokens(text);
+        assert!(
+            placeholders.iter().any(|p| p == img),
+            "reference image must be one token, got {placeholders:?}"
+        );
+        assert_eq!(
+            split(text),
+            vec![
+                "See ![Fourier. alt][fig] now.".to_string(),
+                "Next sentence.".to_string()
             ]
         );
     }
