@@ -71,13 +71,14 @@ These tokens within prose are not split across lines:
 :END:
 - Preamble (everything before =\begin{document}=)
 - Non-prose environments: equation, align, figure, table, tabular, tikzpicture, and their starred variants (plus other non-code envs)
-- Extra names from =[latex].structure_envs= in =.snapperrc.toml= (for example =algorithm=, =comment=)
+- Extra names from =[latex].structure_envs= in =.snapperrc.toml= (for example =algorithm=)
 - Display math: =\[...\]=
+- =\iffalse= through =\fi= (tree-sitter =block_comment=)
 - Comment lines (starting with =%=)
 - =\end{document}=
 - Full sectioning command lines (=\section{...}=, =\subsection{...}=, and friends, including title text)
 
-*** Code regions (=minted=, =lstlisting=, =verbatim=)
+*** Code regions (=minted=, =lstlisting=, =verbatim=, =comment=)
 :PROPERTIES:
 :CUSTOM_ID: latex-code
 :END:
