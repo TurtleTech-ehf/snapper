@@ -173,8 +173,9 @@ Adding =Verbatim= (fancyvrb) stops reflow of that environment.
 :CUSTOM_ID: field-structure-envs
 :END:
 
-String array of environment names treated like =equation= / =figure= (=Region::Structure=, no reflow).
-Built-in: the =NON_PROSE_ENVS= list (equation, align, figure, table, tabular, tikzpicture, and starred variants, plus the built-in code envs).
+String array of environment names treated like =equation= (=Region::Structure=, no reflow).
+Built-in: the =NON_PROSE_ENVS= list (equation, align, tabular, tikzpicture, and starred variants, plus the built-in code envs).
+Figure/table chrome stays Structure; the =\caption= long argument is Prose.
 Adding =algorithm= stops reflow of that environment.
 
 ** verbatim_commands (latex)

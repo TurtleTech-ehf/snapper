@@ -6,12 +6,16 @@ use crate::parser::{
 };
 use crate::sentence::unicode::latex_verb_span_end_with;
 
-// Environments whose content is NOT prose (math, code, figures, tables).
+// Environments whose content is NOT prose (math, code, tables, pictures).
 // Extra names are tree-sitter-latex `math_environment` plus latexindent
 // `lookForAlignDelims` (amsmath / mathtools / tabularray), not a GPL copy.
 // Overleaf `equationEnvNames` includes `tikzcd`; pgfplots `axis` /
 // `pgfpicture` are the same class (and starred variants). Not every
 // pgfplots name.
+//
+// `figure` / `table` (and stars) are not here: Overleaf FigureEnvironment
+// is Content<Text>, tree-sitter caption curly_group is text. Float chrome
+// stays Structure; the caption long argument is Prose (snapper-t4lj / #95).
 static NON_PROSE_ENVS: &[&str] = &[
     "equation",
     "equation*",
@@ -38,10 +42,6 @@ static NON_PROSE_ENVS: &[&str] = &[
     "displaymath",
     "displaymath*",
     "math",
-    "figure",
-    "figure*",
-    "table",
-    "table*",
     "tabular",
     "tabular*",
     "tabularx",
@@ -77,6 +77,11 @@ static NON_PROSE_ENVS: &[&str] = &[
     "drcases",
     "drcases*",
 ];
+
+/// Float environments: chrome is Structure; `\caption` long arg is Prose.
+fn is_float_env(name: &str) -> bool {
+    matches!(name, "figure" | "figure*" | "table" | "table*")
+}
 
 /// `\begin{minted}{LANG}` -- the language is the brace argument after the env.
 static MINTED_LANG_RE: LazyLock<Regex> =
@@ -363,6 +368,117 @@ fn skip_optional_brackets(line: &str, open_at: usize, stop: usize) -> Option<usi
     None
 }
 
+/// Byte offset of `\caption` / `\caption*` at or after `from`.
+/// `\captionof` / `\captionsetup` are different control words.
+fn find_caption_at(line: &str, from: usize, extra_cmds: &[String]) -> Option<usize> {
+    let bytes = line.as_bytes();
+    let mut i = from;
+    let stop = unescaped_percent_with(line, extra_cmds).unwrap_or(line.len());
+    while i < stop {
+        if bytes[i] == b'\\' {
+            if let Some(end) = latex_verb_span_end_with(line, i, extra_cmds) {
+                i = end;
+                continue;
+            }
+            if let Some(name) = tex_cs_at(line, i) {
+                if name == "\\caption" {
+                    return Some(i);
+                }
+                i += name.len();
+                continue;
+            }
+        }
+        i += 1;
+    }
+    None
+}
+
+/// End of `\caption` or `\caption*` starting at `start`.
+fn caption_cmd_end(line: &str, start: usize) -> usize {
+    let after = start + "\\caption".len();
+    if line.get(after..).is_some_and(|r| r.starts_with('*')) {
+        after + 1
+    } else {
+        after
+    }
+}
+
+/// After `\caption`/`\caption*`: optional `[short title]`, then the `{` of
+/// the long argument (tree-sitter caption curly_group). None if `{` is
+/// not on this slice.
+fn caption_open_brace(line: &str, cmd_end: usize, stop: usize) -> Option<usize> {
+    let mut j = cmd_end;
+    while j < stop && matches!(line.as_bytes()[j], b' ' | b'\t') {
+        j += 1;
+    }
+    if let Some(br) = skip_optional_brackets(line, j, stop) {
+        j = br;
+        while j < stop && matches!(line.as_bytes()[j], b' ' | b'\t') {
+            j += 1;
+        }
+    }
+    (line.as_bytes().get(j) == Some(&b'{')).then_some(j)
+}
+
+/// Matching `}` for the `{` at `open_at`, skipping `\{` / `\}` and `\verb`.
+fn find_matching_curly(s: &str, open_at: usize, extra_cmds: &[String]) -> Option<usize> {
+    let bytes = s.as_bytes();
+    let mut depth = 0;
+    let mut i = open_at;
+    let stop = unescaped_percent_with(s, extra_cmds).unwrap_or(s.len());
+    while i < stop {
+        if bytes[i] == b'\\' {
+            if let Some(end) = latex_verb_span_end_with(s, i, extra_cmds) {
+                i = end;
+                continue;
+            }
+            if i + 1 < stop {
+                i += 2;
+                continue;
+            }
+        }
+        match bytes[i] {
+            b'{' => depth += 1,
+            b'}' => {
+                depth -= 1;
+                if depth == 0 {
+                    return Some(i);
+                }
+            }
+            _ => {}
+        }
+        i += 1;
+    }
+    None
+}
+
+/// Brace depth remaining at `stop` after walking from `{` at `open_at`.
+fn curly_depth_at(s: &str, open_at: usize, stop: usize, extra_cmds: &[String]) -> usize {
+    let bytes = s.as_bytes();
+    let mut depth = 0;
+    let mut i = open_at;
+    let stop = stop.min(s.len());
+    while i < stop {
+        if bytes[i] == b'\\' {
+            if let Some(end) = latex_verb_span_end_with(s, i, extra_cmds) {
+                i = end.min(stop);
+                continue;
+            }
+            if i + 1 < stop {
+                i += 2;
+                continue;
+            }
+        }
+        match bytes[i] {
+            b'{' => depth += 1,
+            b'}' if depth > 0 => depth -= 1,
+            _ => {}
+        }
+        i += 1;
+    }
+    depth
+}
+
 fn find_matching_end(
     line: &str,
     from: usize,
@@ -511,6 +627,11 @@ struct ParseState<'a> {
     prose_span: Option<ByteSpan>,
     in_non_prose_env: Option<String>,
     non_prose_depth: usize,
+    in_float_env: Option<String>,
+    float_depth: usize,
+    in_caption: bool,
+    caption_depth: usize,
+    await_caption_brace: bool,
     in_code_env: Option<String>,
     code_depth: usize,
     code_lang: Option<String>,
@@ -603,8 +724,18 @@ impl<'a> ParseState<'a> {
             return;
         }
 
+        if self.in_caption || self.await_caption_brace {
+            self.consume_caption_line(line);
+            return;
+        }
+
         if self.in_non_prose_env.is_some() {
             self.consume_non_prose_line(line);
+            return;
+        }
+
+        if self.in_float_env.is_some() {
+            self.consume_float_line(line);
             return;
         }
 
@@ -654,7 +785,13 @@ impl<'a> ParseState<'a> {
 
         if !code.trim().is_empty() {
             let line_done = self.consume_code_span(code, line);
-            if line_done || self.in_code_env.is_some() || self.in_non_prose_env.is_some() {
+            if line_done
+                || self.in_code_env.is_some()
+                || self.in_non_prose_env.is_some()
+                || self.in_float_env.is_some()
+                || self.in_caption
+                || self.await_caption_brace
+            {
                 return;
             }
         }
@@ -671,7 +808,10 @@ impl<'a> ParseState<'a> {
             } else {
                 self.extend_prose_to(line.end);
             }
-        } else if self.in_code_env.is_none() && self.in_non_prose_env.is_none() {
+        } else if self.in_code_env.is_none()
+            && self.in_non_prose_env.is_none()
+            && self.in_float_env.is_none()
+        {
             self.extend_prose_to(line.end);
             self.nospace_join = false;
         }
@@ -730,6 +870,291 @@ impl<'a> ParseState<'a> {
         }
         self.regions
             .push(SpannedRegion::structure(self.input, line.span()));
+    }
+
+    /// Float chrome is Structure. `\caption` long curly_group is Prose.
+    fn consume_float_line(&mut self, line: Line<'_>) {
+        if self.in_caption || self.await_caption_brace {
+            self.consume_caption_line(line);
+            return;
+        }
+        let name = self
+            .in_float_env
+            .as_deref()
+            .expect("consume_float_line only when inside")
+            .to_string();
+        let extra = &self.parser.extra_verbatim_commands;
+
+        if line.text.trim().is_empty() {
+            self.flush();
+            self.regions
+                .push(SpannedRegion::blank(self.input, line.span()));
+            return;
+        }
+        if LatexParser::is_comment(line.text) {
+            self.flush();
+            self.regions
+                .push(SpannedRegion::structure(self.input, line.span()));
+            return;
+        }
+
+        let mut i = 0;
+        while i < line.text.len() {
+            let env = find_env_at(line.text, i, extra);
+            let cap = find_caption_at(line.text, i, extra);
+            let env_first = match (env.as_ref(), cap) {
+                (Some(hit), Some(c)) => hit.start <= c,
+                (Some(_), None) => true,
+                _ => false,
+            };
+            if env_first {
+                let hit = env.expect("env_first implies find_env_at");
+                if hit.start > i {
+                    self.push_structure(ByteSpan::new(line.start + i, line.start + hit.start));
+                }
+                if hit.name == name {
+                    if hit.is_begin {
+                        self.float_depth += 1;
+                        self.push_structure(ByteSpan::new(
+                            line.start + hit.start,
+                            line.start + hit.end,
+                        ));
+                        i = hit.end;
+                        continue;
+                    }
+                    self.float_depth -= 1;
+                    if self.float_depth == 0 {
+                        let end = thru_eol_if_blank_rest(line, hit.end);
+                        self.push_structure(ByteSpan::new(line.start + hit.start, end));
+                        self.in_float_env = None;
+                        if !line.text[hit.end..].trim().is_empty() {
+                            self.consume_body_line(rest_line(line, hit.end));
+                        }
+                        return;
+                    }
+                    self.push_structure(ByteSpan::new(
+                        line.start + hit.start,
+                        line.start + hit.end,
+                    ));
+                    i = hit.end;
+                    continue;
+                }
+                if hit.is_begin && self.parser.is_non_prose_env(&hit.name) {
+                    if let Some(end_at) = find_matching_end(line.text, hit.end, &hit.name, 1, extra)
+                    {
+                        self.push_structure(ByteSpan::new(
+                            line.start + hit.start,
+                            line.start + end_at,
+                        ));
+                        i = end_at;
+                        continue;
+                    }
+                    self.in_non_prose_env = Some(hit.name);
+                    self.non_prose_depth = 1;
+                    self.push_structure(ByteSpan::new(line.start + hit.start, line.end));
+                    return;
+                }
+                if hit.is_begin && self.parser.is_code_env(&hit.name) {
+                    if let Some(end_at) = find_matching_raw_end(line.text, hit.end, &hit.name, 1) {
+                        let header = ByteSpan::new(line.start + hit.start, line.start + end_at);
+                        let empty = ByteSpan::new(line.start + end_at, line.start + end_at);
+                        self.flush();
+                        self.regions
+                            .push(SpannedRegion::code(self.input, None, header, empty, empty));
+                        i = end_at;
+                        continue;
+                    }
+                    self.enter_code(&hit.name, line, hit.start);
+                    return;
+                }
+                self.push_structure(ByteSpan::new(line.start + hit.start, line.start + hit.end));
+                i = hit.end;
+                continue;
+            }
+            if let Some(c) = cap {
+                if c > i {
+                    self.push_structure(ByteSpan::new(line.start + i, line.start + c));
+                }
+                self.consume_caption_at(line, c);
+                return;
+            }
+            self.push_structure(ByteSpan::new(line.start + i, line.end));
+            return;
+        }
+    }
+
+    fn consume_caption_at(&mut self, line: Line<'_>, cap_start: usize) {
+        let extra = &self.parser.extra_verbatim_commands;
+        let stop = unescaped_percent_with(line.text, extra).unwrap_or(line.text.len());
+        let cmd_end = caption_cmd_end(line.text, cap_start);
+        if let Some(open) = caption_open_brace(line.text, cmd_end, stop) {
+            self.push_structure(ByteSpan::new(line.start + cap_start, line.start + open + 1));
+            self.emit_caption_group(line, open);
+            return;
+        }
+        self.push_structure(ByteSpan::new(line.start + cap_start, line.start + cmd_end));
+        let mut j = cmd_end;
+        while j < stop && matches!(line.text.as_bytes()[j], b' ' | b'\t') {
+            j += 1;
+        }
+        if let Some(br) = skip_optional_brackets(line.text, j, stop) {
+            self.push_structure(ByteSpan::new(line.start + cmd_end, line.start + br));
+            j = br;
+        }
+        if j < stop && !line.text[j..stop].trim().is_empty() {
+            self.push_structure(ByteSpan::new(line.start + j, line.start + stop));
+        }
+        if let Some(pct) = unescaped_percent_with(line.text, extra) {
+            self.push_structure(ByteSpan::new(line.start + pct, line.end));
+        } else if j < line.text.len() && line.text[j..].trim().is_empty() {
+            self.push_structure(ByteSpan::new(line.start + j, line.end));
+        }
+        self.await_caption_brace = true;
+    }
+
+    fn emit_caption_group(&mut self, line: Line<'_>, open_at: usize) {
+        let extra = &self.parser.extra_verbatim_commands;
+        if let Some(close) = find_matching_curly(line.text, open_at, extra) {
+            let inner_start = open_at + 1;
+            if close > inner_start {
+                self.append_prose_slice(line.start + inner_start, &line.text[inner_start..close]);
+            }
+            let after = close + 1;
+            if line.text[after..].trim().is_empty() {
+                self.push_structure(ByteSpan::new(line.start + close, line.end));
+            } else {
+                self.push_structure(ByteSpan::new(line.start + close, line.start + after));
+                if self.in_float_env.is_some() {
+                    self.consume_float_line(rest_line(line, after));
+                } else {
+                    self.consume_body_line(rest_line(line, after));
+                }
+            }
+            return;
+        }
+        let stop = unescaped_percent_with(line.text, extra).unwrap_or(line.text.len());
+        let inner_start = open_at + 1;
+        if stop > inner_start {
+            self.append_prose_slice(line.start + inner_start, &line.text[inner_start..stop]);
+        }
+        self.in_caption = true;
+        self.caption_depth = curly_depth_at(line.text, open_at, stop, extra);
+        if let Some(pct) = unescaped_percent_with(line.text, extra) {
+            self.flush();
+            self.regions.push(SpannedRegion::structure(
+                self.input,
+                ByteSpan::new(line.start + pct, line.end),
+            ));
+        } else {
+            self.extend_prose_to(line.end);
+        }
+    }
+
+    fn consume_caption_line(&mut self, line: Line<'_>) {
+        let extra = &self.parser.extra_verbatim_commands;
+        if self.await_caption_brace {
+            if line.text.trim().is_empty() {
+                self.flush();
+                self.regions
+                    .push(SpannedRegion::blank(self.input, line.span()));
+                return;
+            }
+            if LatexParser::is_comment(line.text) {
+                self.flush();
+                self.regions
+                    .push(SpannedRegion::structure(self.input, line.span()));
+                return;
+            }
+            let stop = unescaped_percent_with(line.text, extra).unwrap_or(line.text.len());
+            let mut j = 0;
+            while j < stop && matches!(line.text.as_bytes()[j], b' ' | b'\t') {
+                j += 1;
+            }
+            if line.text.as_bytes().get(j) == Some(&b'{') {
+                self.await_caption_brace = false;
+                if j > 0 {
+                    self.push_structure(ByteSpan::new(line.start, line.start + j + 1));
+                } else {
+                    self.push_structure(ByteSpan::new(line.start, line.start + 1));
+                }
+                self.emit_caption_group(line, j);
+                return;
+            }
+            self.push_structure(line.span());
+            return;
+        }
+
+        if line.text.trim().is_empty() {
+            if let Some(end) = self.prose_span.as_ref().map(|s| s.end) {
+                self.extend_prose_to(end);
+            }
+            self.append_prose_slice(line.start, "");
+            self.flush();
+            self.regions
+                .push(SpannedRegion::blank(self.input, line.span()));
+            return;
+        }
+
+        let stop = unescaped_percent_with(line.text, extra).unwrap_or(line.text.len());
+        let bytes = line.text.as_bytes();
+        let mut i = 0;
+        let mut depth = self.caption_depth;
+        while i < stop {
+            if bytes[i] == b'\\' {
+                if let Some(end) = latex_verb_span_end_with(line.text, i, extra) {
+                    i = end;
+                    continue;
+                }
+                if i + 1 < stop {
+                    i += 2;
+                    continue;
+                }
+            }
+            match bytes[i] {
+                b'{' => depth += 1,
+                b'}' => {
+                    if depth == 0 {
+                        i += 1;
+                        continue;
+                    }
+                    depth -= 1;
+                    if depth == 0 {
+                        if i > 0 {
+                            self.append_prose_slice(line.start, &line.text[..i]);
+                        }
+                        self.in_caption = false;
+                        self.caption_depth = 0;
+                        let after = i + 1;
+                        if line.text[after..].trim().is_empty() {
+                            self.push_structure(ByteSpan::new(line.start + i, line.end));
+                        } else {
+                            self.push_structure(ByteSpan::new(line.start + i, line.start + after));
+                            if self.in_float_env.is_some() {
+                                self.consume_float_line(rest_line(line, after));
+                            } else {
+                                self.consume_body_line(rest_line(line, after));
+                            }
+                        }
+                        return;
+                    }
+                }
+                _ => {}
+            }
+            i += 1;
+        }
+        if stop > 0 {
+            self.append_prose_slice(line.start, &line.text[..stop]);
+        }
+        self.caption_depth = depth;
+        if let Some(pct) = unescaped_percent_with(line.text, extra) {
+            self.flush();
+            self.regions.push(SpannedRegion::structure(
+                self.input,
+                ByteSpan::new(line.start + pct, line.end),
+            ));
+        } else {
+            self.extend_prose_to(line.end);
+        }
     }
 
     fn consume_code_env_line(&mut self, line: Line<'_>) {
@@ -800,6 +1225,17 @@ impl<'a> ParseState<'a> {
                         return true;
                     }
                     self.enter_code(&hit.name, line, hit.start);
+                    return true;
+                }
+                if hit.is_begin && is_float_env(&hit.name) {
+                    self.flush();
+                    let begin_end = thru_eol_if_blank_rest(line, hit.end);
+                    self.push_structure(ByteSpan::new(line.start + hit.start, begin_end));
+                    self.in_float_env = Some(hit.name);
+                    self.float_depth = 1;
+                    if !line.text[hit.end..].trim().is_empty() {
+                        self.consume_float_line(rest_line(line, hit.end));
+                    }
                     return true;
                 }
                 if hit.is_begin && self.parser.is_non_prose_env(&hit.name) {
@@ -967,6 +1403,11 @@ impl FormatParser for LatexParser {
             prose_span: None,
             in_non_prose_env: None,
             non_prose_depth: 0,
+            in_float_env: None,
+            float_depth: 0,
+            in_caption: false,
+            caption_depth: 0,
+            await_caption_brace: false,
             in_code_env: None,
             code_depth: 0,
             code_lang: None,
