@@ -19,6 +19,13 @@ static INLINE_TOKEN_RE: LazyLock<Regex> = LazyLock::new(|| {
             // org-element 5.5 citation: [cite/style:prefix;@key p. 7;suffix]
             // Must be atomic so a page locator is not a sentence boundary.
             r"\[cite(?:/[-a-zA-Z0-9_/]*)?:[^\]]*\]",
+            // org-element-footnote-reference-parser / org-footnote-re:
+            // [fn:: def] anonymous and [fn:LABEL: def] inline. Label is
+            // [-_[:word:]]+. Interior punct is not a sentence boundary
+            // (GitHub #231). Standard [fn:LABEL] has no interior punct;
+            // column-0 definitions are snapper-s5la. Nested [[link]]
+            // closers are handled by org_footnote_reference_span_end.
+            r"\[fn:(?:[-_\w]+)?:[^\]]*\]",
             // org-element-radio-target-parser / org-radio-target-regexp:
             // <<<contents>>> with no <, >, or newline. Must precede <<...>>
             // so the triple-angle form stays one token (GitHub #211).
@@ -156,6 +163,8 @@ pub fn protect_inline_tokens_with(
     let after_verb = protect_latex_verbatim(text, &mut placeholders, extra_verbatim_commands);
     // org-element inline src / babel-call before paired `=`/`~` so a body
     // like `src_python{~x~}` stays one object, not an Org code span.
+    // Footnote references run in the same walk so a nested `[[link]]`
+    // closer does not end `[fn:: …]` early.
     let after_org = protect_org_inline_src_and_call(&after_verb, &mut placeholders);
     let after_spans = protect_paired_spans(&after_org, &mut placeholders);
     let protected = INLINE_TOKEN_RE.replace_all(&after_spans, |caps: &regex::Captures| {
@@ -344,7 +353,9 @@ fn protect_org_inline_src_and_call(text: &str, placeholders: &mut Vec<String>) -
     let mut out = String::with_capacity(text.len());
     let mut i = 0;
     while i < text.len() {
-        if let Some(end) = org_inline_src_or_call_span_end(text, i) {
+        if let Some(end) = org_inline_src_or_call_span_end(text, i)
+            .or_else(|| org_footnote_reference_span_end(text, i))
+        {
             push_placeholder(&mut out, placeholders, &text[i..end]);
             i = end;
             continue;
@@ -358,6 +369,34 @@ fn protect_org_inline_src_and_call(text: &str, placeholders: &mut Vec<String>) -
 
 fn org_inline_src_or_call_span_end(text: &str, at: usize) -> Option<usize> {
     org_inline_src_span_end(text, at).or_else(|| org_inline_call_span_end(text, at))
+}
+
+/// org-element-footnote-reference-parser / org-footnote-re.
+///
+/// Only `[fn::def]` (anonymous) and `[fn:LABEL:def]` (inline). Label is
+/// `[-_[:word:]]+`. Standard `[fn:LABEL]` is left in the surrounding
+/// sentence so `See the claim.[fn:1]` stays one line (column-0
+/// definitions are snapper-s5la). Inline and anonymous definitions
+/// scan balanced `[]` so a nested `[[link]]` does not close the footnote
+/// at the first `]` (GitHub #231). Unmatched opener is not an object.
+fn org_footnote_reference_span_end(text: &str, at: usize) -> Option<usize> {
+    let rest = text.get(at..)?;
+    if !rest.starts_with("[fn:") {
+        return None;
+    }
+    let mut i = at + 4;
+    while i < text.len() {
+        let ch = text[i..].chars().next()?;
+        if ch == '_' || ch == '-' || ch.is_alphanumeric() {
+            i += ch.len_utf8();
+        } else {
+            break;
+        }
+    }
+    if i < text.len() && text.as_bytes()[i] == b':' {
+        return org_scan_lists(text, at, b'[', b']');
+    }
+    None
 }
 
 /// `\<` in `org-element-inline-src-block-regexp`: start of text or a
@@ -727,7 +766,8 @@ fn find_md_code_span(text: &str, open_at: usize) -> Option<usize> {
 /// Byte ranges of inline tokens that wrapping must not split (links, images,
 /// reference links `[text][ref]`, inline code, autolinks, math, Org `[[...]]`,
 /// Org `[cite...]`, Org `<<<...>>>` / `<<...>>`, Org `{{{name}}}` /
-/// `{{{name(args)}}}`, Org `src_lang{...}` / `call_name(...)`, paired spans).
+/// `{{{name(args)}}}`, Org `src_lang{...}` / `call_name(...)`,
+/// Org `[fn::…]` / `[fn:name:…]`, paired spans).
 ///
 /// Ranges are half-open `[start, end)`, sorted, non-overlapping, and merged
 /// when a regex match wraps a paired span.
@@ -736,7 +776,9 @@ pub fn atomic_inline_spans(text: &str) -> Vec<(usize, usize)> {
     let bytes = text.as_bytes();
     let mut i = 0;
     while i < text.len() {
-        if let Some(end) = org_inline_src_or_call_span_end(text, i) {
+        if let Some(end) = org_inline_src_or_call_span_end(text, i)
+            .or_else(|| org_footnote_reference_span_end(text, i))
+        {
             spans.push((i, end));
             i = end;
             continue;
@@ -1843,6 +1885,114 @@ mod tests {
                 "src_ must not match inside an identifier, got {placeholders:?} for {text:?}"
             );
         }
+    }
+
+    #[test]
+    fn inline_org_footnote_interior_punct_is_not_a_sentence_boundary() {
+        // GitHub #231 / snapper-gjkj: org-element-footnote-reference-parser
+        // `[fn:: …]` stays one token. `Next sentence.` still splits.
+        let note = "[fn:: the Fourier. transform]";
+        let text = "See [fn:: the Fourier. transform] in the notes. Next sentence.";
+        let (_, placeholders) = protect_inline_tokens(text);
+        assert!(
+            placeholders.iter().any(|p| p == note),
+            "anonymous inline footnote must be one token, got {placeholders:?}"
+        );
+        let spans = atomic_inline_spans(text);
+        assert!(
+            spans.iter().any(|&(s, e)| &text[s..e] == note),
+            "anonymous inline footnote must be an atomic wrap span, got {:?}",
+            spans.iter().map(|&(s, e)| &text[s..e]).collect::<Vec<_>>()
+        );
+        assert_eq!(
+            split(text),
+            vec![
+                "See [fn:: the Fourier. transform] in the notes.".to_string(),
+                "Next sentence.".to_string()
+            ]
+        );
+    }
+
+    #[test]
+    fn named_inline_org_footnote_interior_punct_is_not_a_sentence_boundary() {
+        // Same class: `[fn:note: …]` / `[fn:foo-bar: …]`.
+        let note = "[fn:note: the Fourier. transform]";
+        let text = "See [fn:note: the Fourier. transform] in the notes. Next sentence.";
+        let (_, placeholders) = protect_inline_tokens(text);
+        assert!(
+            placeholders.iter().any(|p| p == note),
+            "named inline footnote must be one token, got {placeholders:?}"
+        );
+        assert_eq!(
+            split(text),
+            vec![
+                "See [fn:note: the Fourier. transform] in the notes.".to_string(),
+                "Next sentence.".to_string()
+            ]
+        );
+        let hyphen = "[fn:foo-bar: the Fourier. transform]";
+        let hyphen_text = "See [fn:foo-bar: the Fourier. transform] in the notes. Next sentence.";
+        let (_, placeholders) = protect_inline_tokens(hyphen_text);
+        assert!(
+            placeholders.iter().any(|p| p == hyphen),
+            "hyphen label must stay one token, got {placeholders:?}"
+        );
+        assert_eq!(
+            split(hyphen_text),
+            vec![
+                "See [fn:foo-bar: the Fourier. transform] in the notes.".to_string(),
+                "Next sentence.".to_string()
+            ]
+        );
+    }
+
+    #[test]
+    fn inline_org_footnote_nested_link_stays_one_token() {
+        // org-element scans balanced [] so the first ] of [[link]] is
+        // not the footnote closer.
+        let note = "[fn:: see [[https://ex.com][ex. site]]]";
+        let text = "See [fn:: see [[https://ex.com][ex. site]]] in the notes. Next sentence.";
+        let (_, placeholders) = protect_inline_tokens(text);
+        assert!(
+            placeholders.iter().any(|p| p == note),
+            "nested [[link]] must stay inside the footnote, got {placeholders:?}"
+        );
+        assert_eq!(
+            split(text),
+            vec![
+                "See [fn:: see [[https://ex.com][ex. site]]] in the notes.".to_string(),
+                "Next sentence.".to_string()
+            ]
+        );
+    }
+
+    #[test]
+    fn standard_org_footnote_ref_stays_attached_to_sentence() {
+        // `[fn:1]` is a reference, not an inline definition. Tokenizing
+        // it would split `See the claim.[fn:1]` (snapper-s5la fixture).
+        let text = "See the claim.[fn:1] Next sentence.";
+        let (_, placeholders) = protect_inline_tokens(text);
+        assert!(
+            !placeholders.iter().any(|p| p == "[fn:1]"),
+            "standard [fn:1] is not an inline definition token, got {placeholders:?}"
+        );
+        let parts = split(text);
+        assert!(
+            parts.iter().any(|p| p.contains("See the claim.[fn:1]")),
+            "standard ref must stay on the preceding sentence, got {parts:?}"
+        );
+    }
+
+    #[test]
+    fn unclosed_inline_org_footnote_is_not_an_inline_token() {
+        // Unmatched `[` still participates in delimiter-span merge; the
+        // object itself must not become a placeholder.
+        let text = "See [fn:: the Fourier. transform in the notes. Next sentence.";
+        let (_, placeholders) = protect_inline_tokens(text);
+        assert!(
+            !placeholders.iter().any(|p| p.contains("[fn::")),
+            "unclosed footnote must not swallow the sentence, got {placeholders:?}"
+        );
     }
 
     #[test]
