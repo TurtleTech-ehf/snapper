@@ -1140,7 +1140,9 @@ mod tests {
     #[test]
     fn hanging_prefix_quote_repeats_marker_list_uses_spaces() {
         assert_eq!(hanging_prefix("> "), "> ");
+        assert_eq!(hanging_prefix(">"), ">");
         assert_eq!(hanging_prefix(">> "), ">> ");
+        assert_eq!(hanging_prefix(">>"), ">>");
         assert_eq!(hanging_prefix("  > "), "  > ");
         assert_eq!(hanging_prefix("- "), "  ");
         assert_eq!(hanging_indent_width("- - "), 4);
@@ -1599,7 +1601,9 @@ They are endowed with reason and conscience and should act towards one another i
         assert_eq!(hanging_indent_width("> "), 0);
         assert_eq!(hanging_indent_width("> > "), 0);
         assert_eq!(hanging_prefix("> "), "> ");
+        assert_eq!(hanging_prefix(">"), ">");
         assert_eq!(hanging_prefix("> > "), "> > ");
+        assert_eq!(hanging_prefix(">>"), ">>");
         assert_eq!(hanging_prefix("  > "), "  > ");
         assert_eq!(hanging_prefix("- "), "  ");
         assert_eq!(hanging_indent_width("- - "), 4);
