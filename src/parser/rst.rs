@@ -354,6 +354,17 @@ fn parse_line_based(input: &str) -> Vec<SpannedRegion> {
             continue;
         }
 
+        // Jinja statement (`{% set foo = "foo" %}`). sphinx-jinja
+        // embeds these in RST; they are not prose. Full-line Structure
+        // so SemBr cannot join adjacent statements (GitHub #196).
+        if is_jinja_statement_line(trimmed) {
+            flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
+            list_hang = None;
+            regions.push(SpannedRegion::structure(input, line.span()));
+            i += 1;
+            continue;
+        }
+
         // Literal block intro (line ending with ::)
         if trimmed.ends_with("::") {
             flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
@@ -681,6 +692,85 @@ pub(crate) fn is_rst_field_list_line(trimmed: &str) -> bool {
     }
     let after = name_end + 2;
     after < trimmed.len() && trimmed.as_bytes()[after].is_ascii_whitespace()
+}
+
+/// True when `trimmed` is one or more complete Jinja statements and
+/// nothing else. Kang from Jinja `block_start_string` / `block_end_string`
+/// (`{%` / `%}`) plus optional whitespace-control `-`/`+`
+/// (`{%-` / `-%}` / `{%+` / `+%}`). Strings inside the block are
+/// skipped so `{% set x = "%}" %}` is still a statement (GitHub #196).
+pub(crate) fn is_jinja_statement_line(trimmed: &str) -> bool {
+    if trimmed.is_empty() {
+        return false;
+    }
+    let bytes = trimmed.as_bytes();
+    let mut i = 0;
+    let mut found = false;
+    while i < bytes.len() {
+        while i < bytes.len() && bytes[i].is_ascii_whitespace() {
+            i += 1;
+        }
+        if i >= bytes.len() {
+            break;
+        }
+        match jinja_statement_end(trimmed, i) {
+            Some(end) => {
+                found = true;
+                i = end;
+            }
+            None => return false,
+        }
+    }
+    found
+}
+
+/// Byte end of a Jinja `{% ... %}` statement starting at `start`.
+fn jinja_statement_end(s: &str, start: usize) -> Option<usize> {
+    let bytes = s.as_bytes();
+    if start + 2 > bytes.len() || &bytes[start..start + 2] != b"{%" {
+        return None;
+    }
+    let mut i = start + 2;
+    if i < bytes.len() && (bytes[i] == b'-' || bytes[i] == b'+') {
+        i += 1;
+    }
+    while i < bytes.len() {
+        if bytes[i] == b'\'' || bytes[i] == b'"' {
+            i = skip_jinja_string(bytes, i)?;
+            continue;
+        }
+        if (bytes[i] == b'-' || bytes[i] == b'+')
+            && i + 2 < bytes.len()
+            && bytes[i + 1] == b'%'
+            && bytes[i + 2] == b'}'
+        {
+            return Some(i + 3);
+        }
+        if bytes[i] == b'%' && i + 1 < bytes.len() && bytes[i + 1] == b'}' {
+            return Some(i + 2);
+        }
+        i += 1;
+    }
+    None
+}
+
+/// Byte after a Jinja string literal starting at `start`, or `None`
+/// when the quote is never closed. Backslash escapes match Jinja
+/// `string_re`.
+fn skip_jinja_string(bytes: &[u8], start: usize) -> Option<usize> {
+    let quote = bytes[start];
+    let mut i = start + 1;
+    while i < bytes.len() {
+        if bytes[i] == b'\\' {
+            i = i.checked_add(2)?;
+            continue;
+        }
+        if bytes[i] == quote {
+            return Some(i + 1);
+        }
+        i += 1;
+    }
+    None
 }
 
 /// Byte length of a Docutils line-block opener on `line`, including
@@ -3314,6 +3404,26 @@ mod tests {
             wrap_out.contains("-a            "),
             "wrap must not eat option-column spaces, got:\n{wrap_out}"
         );
+    }
+
+    #[test]
+    fn jinja_statement_line_follows_jinja_block_syntax() {
+        assert!(is_jinja_statement_line(r#"{% set foo = "foo" %}"#));
+        assert!(is_jinja_statement_line(r#"{% set bar = "bar" %}"#));
+        assert!(is_jinja_statement_line(r#"{%- set foo = "foo" -%}"#));
+        assert!(is_jinja_statement_line(r#"{%+ set foo = "foo" +%}"#));
+        assert!(is_jinja_statement_line(r#"{% set x = "%}" %}"#));
+        assert!(is_jinja_statement_line(r#"{% set x = '%}' %}"#));
+        assert!(is_jinja_statement_line(
+            r#"{% set foo = "foo" %} {% set bar = "bar" %}"#
+        ));
+        assert!(!is_jinja_statement_line(""));
+        assert!(!is_jinja_statement_line("Hello {% set foo = \"foo\" %}"));
+        assert!(!is_jinja_statement_line("{% set foo = \"foo\" %} trailing"));
+        assert!(!is_jinja_statement_line("{% set foo = \"foo\""));
+        assert!(!is_jinja_statement_line("{{ foo }}"));
+        assert!(!is_jinja_statement_line("{# comment #}"));
+        assert!(!is_jinja_statement_line(".. code-block:: python"));
     }
 
     #[test]
