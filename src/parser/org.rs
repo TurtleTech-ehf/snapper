@@ -138,6 +138,16 @@ impl OrgParser {
         t.len() >= 5 && t.bytes().all(|b| b == b'-')
     }
 
+    /// org-element planning (`DEADLINE:`/`SCHEDULED:`/`CLOSED:`) or clock (`CLOCK:`).
+    /// Leading space/tab is allowed; keywords are the default org strings.
+    fn is_planning_or_clock(line: &str) -> bool {
+        let t = line.trim_start_matches([' ', '\t']);
+        t.starts_with("DEADLINE:")
+            || t.starts_with("SCHEDULED:")
+            || t.starts_with("CLOSED:")
+            || t.starts_with("CLOCK:")
+    }
+
     /// Check if a line is a keyword/directive (#+KEYWORD:)
     fn is_keyword(line: &str) -> bool {
         let trimmed = line.trim_start();
@@ -553,6 +563,13 @@ impl FormatParser for OrgParser {
             // titles and left continuation lines without stars (orphan body).
             // Org headlines are single-line; do not reflow them.
             if HEADLINE_RE.is_match(line_text) {
+                flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
+                regions.push(SpannedRegion::structure(input, line.span()));
+                continue;
+            }
+
+            // Planning / clock stay Structure so they do not join the next paragraph.
+            if Self::is_planning_or_clock(line_text) {
                 flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
                 regions.push(SpannedRegion::structure(input, line.span()));
                 continue;
@@ -2014,5 +2031,234 @@ mod tests {
             "prose after leftover-start \\[ must still reflow, got:\n{after_out}"
         );
         assert_eq!(format_text(&after_out, &org_cfg()).unwrap(), after_out);
+    }
+
+    /// Ticket fixture (Format::Org): planning and clock stay Structure
+    /// (snapper-fcvd / GitHub #111).
+    fn fcvd_fixture() -> &'static str {
+        concat!(
+            "* TODO Task\n",
+            "DEADLINE: <2026-01-01 Wed>\n",
+            "Body starts here. Second sentence.\n",
+            "CLOCK: [2026-01-01 Thu 10:00]--[2026-01-01 Thu 11:00] =>  1:00\n",
+            "Notes after clock. More notes.\n",
+        )
+    }
+
+    #[test]
+    fn deadline_line_is_structure_not_joined_prose() {
+        use crate::format_text;
+
+        let input = "* TODO Task\nDEADLINE: <2026-01-01 Wed>\nBody starts here. Second sentence.\n";
+        let regions = OrgParser.parse(input);
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Structure(s) if s.contains("DEADLINE: <2026-01-01 Wed>")
+            )),
+            "DEADLINE: must be Structure, got: {regions:?}"
+        );
+        assert!(
+            !regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(p) if p.contains("DEADLINE:")
+            )),
+            "DEADLINE: must not join the following paragraph, got: {regions:?}"
+        );
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(p) if p.contains("Body starts here.") && p.contains("Second sentence.")
+            )),
+            "prose after DEADLINE: must stay Prose, got: {regions:?}"
+        );
+        let out = format_text(input, &org_cfg()).unwrap();
+        assert!(
+            out.contains("DEADLINE: <2026-01-01 Wed>\nBody starts here."),
+            "DEADLINE: must stay its own line, got:\n{out}"
+        );
+        assert!(
+            !out.contains("DEADLINE: <2026-01-01 Wed> Body starts here."),
+            "DEADLINE: must not glue onto the next paragraph, got:\n{out}"
+        );
+        assert!(
+            out.contains("Body starts here.\nSecond sentence."),
+            "prose after DEADLINE: must still reflow, got:\n{out}"
+        );
+        assert_eq!(format_text(&out, &org_cfg()).unwrap(), out);
+    }
+
+    #[test]
+    fn clock_line_is_structure_not_joined_prose() {
+        use crate::format_text;
+
+        let input = concat!(
+            "CLOCK: [2026-01-01 Thu 10:00]--[2026-01-01 Thu 11:00] =>  1:00\n",
+            "Notes after clock. More notes.\n",
+        );
+        let regions = OrgParser.parse(input);
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Structure(s) if s.contains("CLOCK:") && s.contains("=>  1:00")
+            )),
+            "CLOCK: must be Structure, got: {regions:?}"
+        );
+        assert!(
+            !regions
+                .iter()
+                .any(|r| matches!(r, Region::Prose(p) if p.contains("CLOCK:"))),
+            "CLOCK: must not join the following paragraph, got: {regions:?}"
+        );
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(p) if p.contains("Notes after clock.") && p.contains("More notes.")
+            )),
+            "prose after CLOCK: must stay Prose, got: {regions:?}"
+        );
+        let out = format_text(input, &org_cfg()).unwrap();
+        assert!(
+            out.contains(
+                "CLOCK: [2026-01-01 Thu 10:00]--[2026-01-01 Thu 11:00] =>  1:00\nNotes after clock."
+            ),
+            "CLOCK: must stay its own line, got:\n{out}"
+        );
+        assert!(
+            !out.contains("=>  1:00 Notes after clock."),
+            "CLOCK: must not glue onto the next paragraph, got:\n{out}"
+        );
+        assert!(
+            out.contains("Notes after clock.\nMore notes."),
+            "prose after CLOCK: must still reflow, got:\n{out}"
+        );
+        assert_eq!(format_text(&out, &org_cfg()).unwrap(), out);
+    }
+
+    #[test]
+    fn scheduled_and_closed_lines_are_structure() {
+        use crate::format_text;
+
+        let input = concat!(
+            "* TODO Task\n",
+            "SCHEDULED: <2026-01-02 Thu>\n",
+            "CLOSED: [2026-01-01 Wed 09:00]\n",
+            "Body starts here. Second sentence.\n",
+        );
+        let regions = OrgParser.parse(input);
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Structure(s) if s.contains("SCHEDULED: <2026-01-02 Thu>")
+            )),
+            "SCHEDULED: must be Structure, got: {regions:?}"
+        );
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Structure(s) if s.contains("CLOSED: [2026-01-01 Wed 09:00]")
+            )),
+            "CLOSED: must be Structure, got: {regions:?}"
+        );
+        assert!(
+            !regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(p) if p.contains("SCHEDULED:") || p.contains("CLOSED:")
+            )),
+            "planning keywords must not join prose, got: {regions:?}"
+        );
+        let out = format_text(input, &org_cfg()).unwrap();
+        assert!(
+            out.contains(
+                "SCHEDULED: <2026-01-02 Thu>\nCLOSED: [2026-01-01 Wed 09:00]\nBody starts here."
+            ),
+            "planning lines must stay their own lines, got:\n{out}"
+        );
+        assert!(
+            out.contains("Body starts here.\nSecond sentence."),
+            "prose after planning must still reflow, got:\n{out}"
+        );
+        assert_eq!(format_text(&out, &org_cfg()).unwrap(), out);
+    }
+
+    #[test]
+    fn fcvd_fixture_planning_and_clock_do_not_join_following_paragraph() {
+        use crate::format_text;
+
+        let input = fcvd_fixture();
+        let regions = OrgParser.parse(input);
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Structure(s) if s.contains("* TODO Task")
+            )),
+            "headline must stay Structure, got: {regions:?}"
+        );
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Structure(s) if s.contains("DEADLINE: <2026-01-01 Wed>")
+            )),
+            "fixture DEADLINE: must be Structure, got: {regions:?}"
+        );
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Structure(s)
+                    if s.contains("CLOCK:")
+                        && s.contains("[2026-01-01 Thu 10:00]--[2026-01-01 Thu 11:00]")
+            )),
+            "fixture CLOCK: must be Structure, got: {regions:?}"
+        );
+        assert!(
+            !regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(p) if p.contains("DEADLINE:") || p.contains("CLOCK:")
+            )),
+            "planning/clock must not be Prose, got: {regions:?}"
+        );
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(p) if p.contains("Body starts here.") && p.contains("Second sentence.")
+            )),
+            "body after DEADLINE: must stay Prose, got: {regions:?}"
+        );
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(p) if p.contains("Notes after clock.") && p.contains("More notes.")
+            )),
+            "notes after CLOCK: must stay Prose, got: {regions:?}"
+        );
+
+        let out = format_text(input, &org_cfg()).unwrap();
+        assert!(
+            out.contains("* TODO Task\nDEADLINE: <2026-01-01 Wed>\nBody starts here."),
+            "DEADLINE: must remain the line after the headline, got:\n{out}"
+        );
+        assert!(
+            !out.contains("DEADLINE: <2026-01-01 Wed> Body starts here."),
+            "DEADLINE: must not glue onto the body, got:\n{out}"
+        );
+        assert!(
+            out.contains("Body starts here.\nSecond sentence."),
+            "body after DEADLINE: must reflow, got:\n{out}"
+        );
+        assert!(
+            out.contains(
+                "CLOCK: [2026-01-01 Thu 10:00]--[2026-01-01 Thu 11:00] =>  1:00\nNotes after clock."
+            ),
+            "CLOCK: must stay its own line, got:\n{out}"
+        );
+        assert!(
+            !out.contains("=>  1:00 Notes after clock."),
+            "CLOCK: must not glue onto the notes, got:\n{out}"
+        );
+        assert!(
+            out.contains("Notes after clock.\nMore notes."),
+            "notes after CLOCK: must reflow, got:\n{out}"
+        );
+        assert_eq!(format_text(&out, &org_cfg()).unwrap(), out);
     }
 }
