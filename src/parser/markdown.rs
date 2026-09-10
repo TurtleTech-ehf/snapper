@@ -758,6 +758,23 @@ fn strip_quote_markers(line: &str, depth: usize) -> Option<&str> {
     Some(rest)
 }
 
+/// GitHub GFM alert type marker (pulldown `ENABLE_GFM` / `BlockQuoteKind`).
+/// After the quote prefix, the rest of the line (trimmed) is exactly
+/// `[!NOTE]`, `[!TIP]`, `[!IMPORTANT]`, `[!WARNING]`, or `[!CAUTION]`.
+/// Case-insensitive; trailing whitespace is allowed. Extra title text
+/// is not an alert (GitHub requires a line break after the type marker).
+fn is_gfm_alert(text: &str) -> bool {
+    let t = text.trim();
+    let Some(inner) = t.strip_prefix("[!").and_then(|s| s.strip_suffix(']')) else {
+        return false;
+    };
+    inner.eq_ignore_ascii_case("NOTE")
+        || inner.eq_ignore_ascii_case("TIP")
+        || inner.eq_ignore_ascii_case("IMPORTANT")
+        || inner.eq_ignore_ascii_case("WARNING")
+        || inner.eq_ignore_ascii_case("CAUTION")
+}
+
 /// Closing fence: same marker char, length at least the opener, indent at
 /// most `max(3, opener_indent)`. CommonMark allows 0–3 spaces on a closer;
 /// list-nested openers keep their own indent so a matching 4-space closer
@@ -1535,6 +1552,7 @@ impl FormatParser for MarkdownParser {
                     || is_thematic_break(text)
                     || is_footnote_definition(text)
                     || is_link_reference_definition(text)
+                    || is_gfm_alert(text)
                 {
                     regions.push(SpannedRegion::structure(input, line.span()));
                     i += 1;
@@ -2678,6 +2696,45 @@ mod tests {
             "> Quoted one.\n> Quoted two.\n> > Nested one.\n> > Nested two.\n"
         );
         assert_eq!(format_text(&out, &cfg).unwrap(), out);
+    }
+
+    #[test]
+    fn gfm_alert_type_is_structure() {
+        assert!(is_gfm_alert("[!NOTE]"));
+        assert!(is_gfm_alert("[!TIP]"));
+        assert!(is_gfm_alert("[!WARNING]"));
+        assert!(is_gfm_alert("[!CAUTION]"));
+        assert!(is_gfm_alert("[!IMPORTANT]"));
+        assert!(is_gfm_alert("  [!note]  "));
+        assert!(!is_gfm_alert("[!NOTE] extra"));
+        assert!(!is_gfm_alert("[!FIXME]"));
+        assert!(!is_gfm_alert("[!NOTE"));
+
+        let input =
+            "> [!NOTE]\n> This is a long alert sentence that must reflow. Second sentence.\n";
+        let regions = MarkdownParser.parse(input);
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Structure(s) if s.contains("[!NOTE]")
+            )),
+            "[!NOTE] must stay Structure, got: {regions:?}"
+        );
+        assert!(
+            !regions
+                .iter()
+                .any(|r| matches!(r, Region::Prose(p) if p.contains("[!NOTE]"))),
+            "[!NOTE] must not join quote Prose, got: {regions:?}"
+        );
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(p)
+                    if p.contains("This is a long alert sentence that must reflow.")
+                        && p.contains("Second sentence.")
+            )),
+            "alert body must stay Prose, got: {regions:?}"
+        );
     }
 
     #[test]
