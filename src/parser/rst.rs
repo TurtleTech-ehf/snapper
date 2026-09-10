@@ -42,6 +42,11 @@ fn parse_line_based(input: &str) -> Vec<SpannedRegion> {
     let mut prose_span: Option<ByteSpan> = None;
     let mut in_literal_block = false;
     let mut literal_indent: usize = 0;
+    // Docutils quoted literal: same non-alphanumeric graphic on each line.
+    // `literal_quote_started` is false across the blank after `::` so that
+    // blank does not close the block before the first quoted line.
+    let mut literal_quote: Option<u8> = None;
+    let mut literal_quote_started = false;
     let mut in_directive = false;
     let mut directive_indent: usize = 0;
     let mut in_definition = false;
@@ -133,15 +138,32 @@ fn parse_line_based(input: &str) -> Vec<SpannedRegion> {
             // Fall through to reprocess this line as normal.
         }
 
-        // Inside literal block
+        // Inside literal block (indented, or line-prefix-quoted after ::).
         if in_literal_block {
-            let leading = line_text.len() - line_text.trim_start().len();
-            if line_text.trim().is_empty() || leading >= literal_indent {
-                regions.push(SpannedRegion::structure(input, line.span()));
-                i += 1;
-                continue;
+            if let Some(quote) = literal_quote {
+                // Quoted form is unindented and contiguous. A blank after
+                // the first quoted line ends the block (Docutils). The
+                // separator blank after `::` must not close it early.
+                if !line_text.trim().is_empty() && line_text.as_bytes().first() == Some(&quote) {
+                    literal_quote_started = true;
+                    regions.push(SpannedRegion::structure(input, line.span()));
+                    i += 1;
+                    continue;
+                }
+                if !line_text.trim().is_empty() || literal_quote_started {
+                    in_literal_block = false;
+                    literal_quote = None;
+                    literal_quote_started = false;
+                }
+            } else {
+                let leading = line_text.len() - line_text.trim_start().len();
+                if line_text.trim().is_empty() || leading >= literal_indent {
+                    regions.push(SpannedRegion::structure(input, line.span()));
+                    i += 1;
+                    continue;
+                }
+                in_literal_block = false;
             }
-            in_literal_block = false;
         }
 
         // Inside directive body
@@ -299,6 +321,13 @@ fn parse_line_based(input: &str) -> Vec<SpannedRegion> {
                 let next_indent = next.len() - next.trim_start().len();
                 if next_indent > 0 {
                     literal_indent = next_indent;
+                    literal_quote = None;
+                    literal_quote_started = false;
+                    in_literal_block = true;
+                } else if let Some(quote) = rst_quoted_literal_prefix(next) {
+                    // Flush `>` / `|` / ... quoted form (GitHub #92).
+                    literal_quote = Some(quote);
+                    literal_quote_started = false;
                     in_literal_block = true;
                 }
             }
@@ -467,6 +496,14 @@ fn parse_line_based(input: &str) -> Vec<SpannedRegion> {
 /// Prompt-only `>>>` and `>>> ` plus command both open a block; `>>>print` does not.
 pub(crate) fn is_rst_doctest_opener(trimmed: &str) -> bool {
     trimmed == ">>>" || trimmed.starts_with(">>> ")
+}
+
+/// Docutils quoted-literal prefix: first byte is a non-alphanumeric
+/// printable 7-bit ASCII character (same set as section adornments).
+/// The line must be flush; a leading space is not a quoted opener.
+fn rst_quoted_literal_prefix(line: &str) -> Option<u8> {
+    let b = *line.as_bytes().first()?;
+    (b.is_ascii_graphic() && !b.is_ascii_alphanumeric()).then_some(b)
 }
 
 /// True when `trimmed` is an RST comment opener, not a `.. name::` directive.
@@ -827,6 +864,121 @@ mod tests {
             .filter(|r| matches!(r, Region::Structure(_)))
             .count();
         assert!(structure_count >= 3);
+    }
+
+    #[test]
+    fn quoted_literal_prefix_is_flush_non_alnum_graphic() {
+        assert_eq!(rst_quoted_literal_prefix("> if literal_block:"), Some(b'>'));
+        assert_eq!(rst_quoted_literal_prefix("| quoted"), Some(b'|'));
+        assert_eq!(rst_quoted_literal_prefix("$ cmd"), Some(b'$'));
+        assert_eq!(rst_quoted_literal_prefix("if literal_block:"), None);
+        assert_eq!(rst_quoted_literal_prefix(" > indented"), None);
+        assert_eq!(rst_quoted_literal_prefix(""), None);
+    }
+
+    #[test]
+    fn quoted_literal_block_after_double_colon_is_structure() {
+        let input = concat!(
+            "Take it literally::\n",
+            "\n",
+            "> if literal_block:\n",
+            ">     text = 'is left as-is'\n",
+            ">     markup_processing = None\n",
+        );
+        let regions = RstParser.parse(input);
+        for needle in [
+            "> if literal_block:",
+            ">     text = 'is left as-is'",
+            ">     markup_processing = None",
+        ] {
+            assert!(
+                regions
+                    .iter()
+                    .any(|r| matches!(r, Region::Structure(s) if s.contains(needle))),
+                "quoted literal line {needle:?} must be Structure, got {regions:?}"
+            );
+            assert!(
+                !regions
+                    .iter()
+                    .any(|r| matches!(r, Region::Prose(s) if s.contains(needle))),
+                "quoted literal line {needle:?} must not be Prose, got {regions:?}"
+            );
+        }
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Structure(s) if s.contains("Take it literally::")
+            )),
+            ":: intro must stay Structure, got {regions:?}"
+        );
+    }
+
+    #[test]
+    fn quoted_literal_block_is_identity_under_format() {
+        use crate::format::Format;
+        use crate::{FormatConfig, format_text};
+
+        let cfg = FormatConfig {
+            format: Format::Rst,
+            max_width: 0,
+            ..Default::default()
+        };
+        let input = concat!(
+            "Take it literally::\n",
+            "\n",
+            "> if literal_block:\n",
+            ">     text = 'is left as-is'\n",
+            ">     markup_processing = None\n",
+        );
+        let out = format_text(input, &cfg).unwrap();
+        assert_eq!(
+            out, input,
+            "quoted literal must stay identity under format, got:\n{out}"
+        );
+        assert!(
+            !out.contains("> if literal_block: >     text"),
+            "SemBr must not join quoted literal lines, got:\n{out}"
+        );
+        assert_eq!(
+            format_text(&out, &cfg).unwrap(),
+            out,
+            "quoted literal identity must survive a second pass"
+        );
+    }
+
+    #[test]
+    fn surrounding_prose_still_reflows_around_quoted_literal() {
+        use crate::format::Format;
+        use crate::{FormatConfig, format_text};
+
+        let cfg = FormatConfig {
+            format: Format::Rst,
+            max_width: 0,
+            ..Default::default()
+        };
+        let input = concat!(
+            "Before. More before.\n\n",
+            "Take it literally::\n",
+            "\n",
+            "> if literal_block:\n",
+            ">     text = 'is left as-is'\n",
+            ">     markup_processing = None\n",
+            "\n",
+            "After. More after.\n",
+        );
+        let out = format_text(input, &cfg).unwrap();
+        assert!(
+            out.contains("Before.\nMore before."),
+            "leading paragraph must still reflow, got:\n{out}"
+        );
+        assert!(
+            out.contains("> if literal_block:\n>     text = 'is left as-is'\n>     markup_processing = None\n"),
+            "quoted literal lines must stay unjoined, got:\n{out}"
+        );
+        assert!(
+            out.contains("After.\nMore after."),
+            "trailing paragraph must still reflow, got:\n{out}"
+        );
     }
 
     #[test]
