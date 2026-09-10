@@ -6,6 +6,7 @@
 //! GitHub #235: spverbatim.sty env and \\spverb are the same class as verb.
 //! GitHub #244: fancyvrb Verbatim* / BVerbatim* / LVerbatim* are the same FV@Scan class.
 //! GitHub #245: minted.sty \\mintinline / \\mint take {lang} then a FancyVerb body.
+//! GitHub #246: tcolorbox listings tcblisting* is the starred twin of tcblisting.
 
 use snapper_fmt::format::Format;
 use snapper_fmt::parser::latex::LatexParser;
@@ -196,6 +197,69 @@ fn verbatim_star_envs_fixture_is_code_and_does_not_reflow() {
         );
         assert_eq!(format_text(&out, &latex_cfg()).unwrap(), out);
     }
+}
+
+/// Ticket fixture (GitHub #246): tcolorbox listings `tcblisting*` body
+/// stays Code; required `{listing only}` stays on begin; following
+/// prose still splits.
+#[test]
+fn tcblisting_star_fixture_is_code_and_does_not_reflow() {
+    let input = concat!(
+        "\\begin{tcblisting*}{listing only}\n",
+        "First line. Second line.\n",
+        "\\end{tcblisting*}\n",
+        "After the block. Next.\n",
+    );
+    let regions = LatexParser::default().parse(input);
+    let code = regions.iter().find_map(|r| match r {
+        Region::Code {
+            header,
+            body,
+            footer,
+            ..
+        } => Some((header.as_str(), body.as_str(), footer.as_str())),
+        _ => None,
+    });
+    let Some((header, body, footer)) = code else {
+        panic!("tcblisting* must be Code, got: {regions:?}");
+    };
+    assert!(
+        header.contains(r"\begin{tcblisting*}{listing only}"),
+        "tcblisting* required arg must stay on the begin header, got header={header:?}"
+    );
+    assert!(
+        body.contains("First line. Second line."),
+        "tcblisting* body must keep both sentences, got body={body:?}"
+    );
+    assert!(
+        footer.contains(r"\end{tcblisting*}"),
+        "tcblisting* footer must be \\end{{tcblisting*}}, got footer={footer:?}"
+    );
+    assert!(
+        !regions
+            .iter()
+            .any(|r| matches!(r, Region::Prose(p) if p.contains("First line"))),
+        "tcblisting* body must not be Prose, got: {regions:?}"
+    );
+    let out = format_text(input, &latex_cfg()).unwrap();
+    assert!(
+        out.contains(r"\begin{tcblisting*}{listing only}")
+            && out.contains(r"\end{tcblisting*}"),
+        "tcblisting* begin/end must stay, got:\n{out}"
+    );
+    assert!(
+        out.contains("First line. Second line."),
+        "tcblisting* body must stay one source line, got:\n{out}"
+    );
+    assert!(
+        !out.contains("First line.\nSecond line."),
+        "tcblisting* must not reflow as prose, got:\n{out}"
+    );
+    assert!(
+        out.contains("After the block.\nNext."),
+        "prose after tcblisting* must still split, got:\n{out}"
+    );
+    assert_eq!(format_text(&out, &latex_cfg()).unwrap(), out);
 }
 
 /// Ticket fixture (GitHub #213): fancyvrb SaveVerbatim and VerbatimOut
