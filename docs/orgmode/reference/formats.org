@@ -66,6 +66,7 @@ These tokens within prose are not split across lines:
 - Inline export snippets: =@@backend:value@@=
 - Radio targets: =<<<contents>>>= (org-element-radio-target-parser)
 - Angle targets: =<<contents>>= (org-element-target-parser)
+- Macros: ={{{name}}}= / ={{{name(args)}}}= (org-element-macro-parser)
 - URLs: =https://...= (trailing sentence punctuation not swallowed)
 
 ** LaTeX (=--format latex=)
