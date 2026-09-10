@@ -697,9 +697,10 @@ fn rst_quoted_literal_continues(line: &str, quote: u8) -> bool {
 }
 
 /// Check if a line is a section underline (2+ repeated punctuation chars).
-/// Includes `' . _ < >` in addition to the common `= - ~ ^ " # * +` set.
-/// Docutils Body.doctest wins over Body.line: prompt-only `>>>` / `>>> `
-/// are not `>` adornments. `>>>>>` (and `>>` / `>>>>`) stay underlines.
+/// Docutils `Body.patterns['line']` / `pats.nonalphanum7bit`: any printable
+/// 7-bit ASCII except alphanumerics (same set as quoted-literal quotes).
+/// Body.doctest wins over Body.line: prompt-only `>>>` / `>>> ` are not
+/// `>` adornments. `>>>>>` (and `>>` / `>>>>`) stay underlines.
 fn is_underline(line: &str) -> bool {
     let trimmed = line.trim();
     if trimmed.len() < 2 {
@@ -709,10 +710,7 @@ fn is_underline(line: &str) -> bool {
         return false;
     }
     let first = trimmed.as_bytes()[0];
-    matches!(
-        first,
-        b'=' | b'-' | b'~' | b'^' | b'"' | b'#' | b'*' | b'+' | b'\'' | b'.' | b'_' | b'<' | b'>'
-    ) && trimmed.bytes().all(|b| b == first)
+    is_rst_quote_char(first) && trimmed.bytes().all(|b| b == first)
 }
 
 /// RST simple-table border: `=` column groups separated by spaces
@@ -878,7 +876,17 @@ mod tests {
             max_width: 0,
             ..Default::default()
         };
-        for (adornment, n) in [('\'', 5), ('\'', 2), ('.', 5), ('_', 5), ('<', 5), ('>', 5)] {
+        for (adornment, n) in [
+            ('\'', 5),
+            ('\'', 2),
+            ('.', 5),
+            ('_', 5),
+            ('<', 5),
+            ('>', 5),
+            (':', 5),
+            ('%', 5),
+            ('@', 5),
+        ] {
             let rule = adornment.to_string().repeat(n);
             let input = format!("Input\n{rule}\n");
             let out = format_text(&input, &cfg).unwrap();
@@ -891,6 +899,101 @@ mod tests {
                 "must not glue {adornment:?} adornment onto title, got:\n{out}"
             );
         }
+    }
+
+    /// GitHub #100 / snapper-j0ig: `:` is Docutils nonalphanum7bit.
+    #[test]
+    fn colon_section_adornment_is_structure() {
+        let input = "Title\n:::::\n\nNext paragraph. Second sentence.\n";
+        let regions = RstParser.parse(input);
+        assert!(
+            regions
+                .iter()
+                .any(|r| matches!(r, Region::Structure(s) if s.contains("Title"))),
+            "title must be Structure, got {regions:?}"
+        );
+        assert!(
+            regions
+                .iter()
+                .any(|r| matches!(r, Region::Structure(s) if s.contains(":::::"))),
+            "colon underline must be Structure, got {regions:?}"
+        );
+        assert!(
+            !regions.iter().any(
+                |r| matches!(r, Region::Prose(s) if s.contains("Title") || s.contains(":::::"))
+            ),
+            "colon section must not be Prose, got {regions:?}"
+        );
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(s)
+                    if s.contains("Next paragraph.") && s.contains("Second sentence.")
+            )),
+            "following paragraph must stay Prose, got {regions:?}"
+        );
+    }
+
+    #[test]
+    fn colon_section_fixture_is_identity_and_prose_still_splits() {
+        use crate::format::Format;
+        use crate::{FormatConfig, format_text};
+
+        let cfg = FormatConfig {
+            format: Format::Rst,
+            max_width: 0,
+            ..Default::default()
+        };
+        let input = "Title\n:::::\n\nNext paragraph. Second sentence.\n";
+        let out = format_text(input, &cfg).unwrap();
+        assert_eq!(
+            out, "Title\n:::::\n\nNext paragraph.\nSecond sentence.\n",
+            "colon adornment stays; following prose still splits, got:\n{out}"
+        );
+        assert!(
+            !out.contains("Title :::::"),
+            "must not glue ::::: onto the title, got:\n{out}"
+        );
+        assert_eq!(
+            format_text(&out, &cfg).unwrap(),
+            out,
+            "colon section fixture must be identity, got:\n{out}"
+        );
+
+        let titled = "Title one. Title two.\n:::::\n\nNext paragraph. Second sentence.\n";
+        let titled_out = format_text(titled, &cfg).unwrap();
+        assert_eq!(
+            titled_out, "Title one. Title two.\n:::::\n\nNext paragraph.\nSecond sentence.\n",
+            "multi-sentence title above ::::: must stay one line, got:\n{titled_out}"
+        );
+    }
+
+    #[test]
+    fn is_underline_accepts_docutils_nonalphanum7bit() {
+        assert!(is_underline(":::::"));
+        assert!(is_underline("::::: "));
+        assert!(is_underline("%%%%%"));
+        assert!(is_underline("@@@@@"));
+        assert!(is_underline("$$$$$"));
+        assert!(is_underline("!!!!!"));
+        assert!(is_underline("?????"));
+        assert!(is_underline(";;;;;"));
+        assert!(is_underline("/////"));
+        assert!(is_underline(&"\\".repeat(5)));
+        assert!(is_underline("{{{{{"));
+        assert!(is_underline("}}}}}"));
+        assert!(is_underline("[[[[["));
+        assert!(is_underline("]]]]]"));
+        assert!(is_underline("|||||"));
+        assert!(is_underline("&&&&&"));
+        assert!(is_underline("((((("));
+        assert!(is_underline(")))))"));
+        assert!(is_underline(",,,,,"));
+        assert!(is_underline("`````"));
+        assert!(!is_underline("aaaaa"));
+        assert!(!is_underline("11111"));
+        assert!(!is_underline(":"));
+        assert!(!is_underline(":::-"));
     }
 
     #[test]
@@ -1670,6 +1773,7 @@ mod tests {
         assert!(is_underline(">>>>"));
         assert!(is_underline(">>>>>"));
         assert!(is_underline("===== "));
+        assert!(is_underline(":::::"));
     }
 
     #[test]
