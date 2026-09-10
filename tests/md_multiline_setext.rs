@@ -342,9 +342,10 @@ fn list_then_column0_underline_is_not_setext() {
     );
 }
 
-/// snapper-awpt: quote setext (lazy and fully marked) promotes every title line.
+/// snapper-wu2v / CommonMark 4.3 ex. 93: lazy unquoted `=======` after
+/// a quote is still the quote paragraph, not a setext heading.
 #[test]
-fn quote_multiline_setext_does_not_split_first_title_line() {
+fn lazy_quote_equals_underline_is_not_setext() {
     let lazy = concat!(
         "> Foo is the first title line. Still title.\n",
         "Bar is the second title line.\n",
@@ -354,16 +355,20 @@ fn quote_multiline_setext_does_not_split_first_title_line() {
     );
     let regions = MarkdownParser.parse(lazy);
     assert!(
-        !regions.iter().any(|r| matches!(
+        regions.iter().any(|r| matches!(
             r,
             Region::Prose(p) if p.contains("Still title") || p.contains("Foo is the first")
         )),
-        "lazy quote setext first title line must not be Prose: {regions:?}"
+        "lazy quote ======= must stay quote Prose, got: {regions:?}"
     );
     let out = format_text(lazy, &md_cfg()).unwrap();
     assert!(
-        !out.contains("first title line.\nStill"),
-        "must not sentence-split a lazy quote setext, got:\n{out}"
+        out.contains("first title line.\n"),
+        "first quote sentence must still split, got:\n{out}"
+    );
+    assert!(
+        out.contains("Body after setext.\nSecond body."),
+        "body Prose must still split, got:\n{out}"
     );
 
     let marked = concat!(
@@ -378,6 +383,34 @@ fn quote_multiline_setext_does_not_split_first_title_line() {
             Region::Prose(p) if p.contains("Still title") || p.contains("Bar is the second")
         )),
         "fully marked quote setext must not be Prose: {regions:?}"
+    );
+}
+
+/// `Foo` then `> =======` is a new blockquote, not a setext closer.
+#[test]
+fn unquoted_title_then_quoted_underline_is_not_setext() {
+    let input = concat!(
+        "Foo is the first title line. Still title.\n",
+        "> =======\n",
+        "\n",
+        "Body after setext. Second body.\n",
+    );
+    let regions = MarkdownParser.parse(input);
+    assert!(
+        regions.iter().any(|r| matches!(
+            r,
+            Region::Prose(p) if p.contains("Still title") || p.contains("Foo is the first")
+        )),
+        "Foo then > ======= must stay Prose, got: {regions:?}"
+    );
+    let out = format_text(input, &md_cfg()).unwrap();
+    assert!(
+        out.contains("first title line.\nStill"),
+        "unquoted title must still split, got:\n{out}"
+    );
+    assert!(
+        out.contains("Body after setext.\nSecond body."),
+        "body Prose must still split, got:\n{out}"
     );
 }
 
@@ -421,5 +454,50 @@ fn hard_break_multiline_setext_does_not_split_first_title_line() {
             Region::Prose(p) if p.contains("Still title") || p.contains("Foo is the first")
         )),
         "backslash hard-break setext must not leak Prose: {regions:?}"
+    );
+}
+
+/// snapper-0dnt: hard-break flush must not let indented code steal a
+/// setext title continuation.
+#[test]
+fn hard_break_then_indented_setext_does_not_split_first_title_line() {
+    let input = concat!(
+        "Foo is the first title line. Still title.  \n",
+        "    Bar is a lazy title line.\n",
+        "=======\n",
+        "\n",
+        "Body after setext. Second body.\n",
+    );
+    let regions = MarkdownParser.parse(input);
+    assert!(
+        !regions.iter().any(|r| matches!(
+            r,
+            Region::Prose(p) if p.contains("Still title") || p.contains("Foo is the first")
+        )),
+        "hard-break title must not stay Prose, got: {regions:?}"
+    );
+    assert!(
+        regions.iter().any(|r| matches!(
+            r,
+            Region::Structure(s) if s == "    Bar is a lazy title line.\n"
+        )),
+        "4-space continuation after hard break must stay title, got: {regions:?}"
+    );
+    assert!(
+        !regions.iter().any(|r| matches!(r, Region::Code { .. })),
+        "4-space title continuation must not become Code: {regions:?}"
+    );
+    let out = format_text(input, &md_cfg()).unwrap();
+    assert!(
+        !out.contains("first title line.\nStill"),
+        "must not sentence-split a hard-break+indent setext, got:\n{out}"
+    );
+    assert!(
+        out.contains("    Bar is a lazy title line.\n======="),
+        "lazy indent plus underline must stay intact, got:\n{out}"
+    );
+    assert!(
+        out.contains("Body after setext.\nSecond body."),
+        "body Prose must still split, got:\n{out}"
     );
 }
