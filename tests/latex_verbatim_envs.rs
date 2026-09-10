@@ -2,6 +2,7 @@
 //! GitHub #209: fancyvrb BVerbatim / LVerbatim are the same.
 //! GitHub #213: fancyvrb SaveVerbatim / VerbatimOut are the same FV@Scan class.
 //! GitHub #230: alltt.sty is a standard verbatim-like env (raw line breaks).
+//! GitHub #234: listings.sty lstlisting* is the same raw scan as lstlisting.
 
 use snapper_fmt::format::Format;
 use snapper_fmt::parser::latex::LatexParser;
@@ -278,4 +279,48 @@ fn alltt_fixture_is_code_and_does_not_reflow() {
         "prose after alltt must still split, got:\n{two_out}"
     );
     assert_eq!(format_text(&two_out, &latex_cfg()).unwrap(), two_out);
+}
+
+/// Ticket fixture (GitHub #234): listings.sty lstlisting* bodies stay
+/// Code; following prose still splits.
+#[test]
+fn lstlisting_star_fixture_is_code_and_does_not_reflow() {
+    let input = concat!(
+        "\\begin{lstlisting*}\n",
+        "First line. Second line.\n",
+        "\\end{lstlisting*}\n",
+        "After the block. Next.\n",
+    );
+    let regions = LatexParser::default().parse(input);
+    assert!(
+        regions.iter().any(|r| matches!(
+            r,
+            Region::Code { body, .. } if body.contains("First line. Second line.")
+        )),
+        "lstlisting* body must be Code, got: {regions:?}"
+    );
+    assert!(
+        !regions
+            .iter()
+            .any(|r| matches!(r, Region::Prose(p) if p.contains("First line"))),
+        "lstlisting* body must not be Prose, got: {regions:?}"
+    );
+    let out = format_text(input, &latex_cfg()).unwrap();
+    assert!(
+        out.contains("\\begin{lstlisting*}") && out.contains("\\end{lstlisting*}"),
+        "lstlisting* begin/end must stay, got:\n{out}"
+    );
+    assert!(
+        out.contains("First line. Second line."),
+        "lstlisting* body must stay one source line, got:\n{out}"
+    );
+    assert!(
+        !out.contains("First line.\nSecond line."),
+        "lstlisting* must not reflow as prose, got:\n{out}"
+    );
+    assert!(
+        out.contains("After the block.\nNext."),
+        "prose after lstlisting* must still split, got:\n{out}"
+    );
+    assert_eq!(format_text(&out, &latex_cfg()).unwrap(), out);
 }
