@@ -932,6 +932,68 @@ fn is_display_math_close(line: &str) -> bool {
     line.trim_end().ends_with("$$")
 }
 
+/// Exactly three `ch` then only spaces (pulldown `scan_closing_metadata_block`).
+fn is_metadata_fence_line(line: &str, ch: u8) -> bool {
+    let bytes = line.as_bytes();
+    bytes.len() >= 3
+        && bytes[0] == ch
+        && bytes[1] == ch
+        && bytes[2] == ch
+        && bytes[3..].iter().all(|&b| b == b' ')
+}
+
+/// Opener allows trailing ASCII whitespace, including tabs
+/// (pulldown `scan_metadata_block` after the three delimiter bytes).
+fn is_metadata_opener_line(line: &str, ch: u8) -> bool {
+    let bytes = line.as_bytes();
+    bytes.len() >= 3
+        && bytes[0] == ch
+        && bytes[1] == ch
+        && bytes[2] == ch
+        && bytes[3..].iter().all(|&b| b.is_ascii_whitespace())
+}
+
+/// YAML closer is `---` or `...` (pulldown `scan_closing_metadata_block`).
+fn is_yaml_metadata_closer(line: &str) -> bool {
+    is_metadata_fence_line(line, b'-') || is_metadata_fence_line(line, b'.')
+}
+
+fn metadata_opener_kind(line: &str) -> Option<u8> {
+    if is_metadata_opener_line(line, b'-') {
+        Some(b'-')
+    } else if is_metadata_opener_line(line, b'+') {
+        Some(b'+')
+    } else {
+        None
+    }
+}
+
+fn is_metadata_closer(line: &str, fence: u8) -> bool {
+    match fence {
+        b'-' => is_yaml_metadata_closer(line),
+        b'+' => is_metadata_fence_line(line, b'+'),
+        _ => false,
+    }
+}
+
+/// pulldown `scan_metadata_block`: `---` / `+++` at file start opens only
+/// when the next line is neither blank nor the closer, and a closer exists
+/// later. YAML closer is `---` or `...`. Blank after `---` is a thematic
+/// break, not unclosed front matter.
+fn front_matter_end(lines: &[Line<'_>]) -> Option<usize> {
+    let first = lines.first()?;
+    let fence = metadata_opener_kind(first.text)?;
+    let next = lines.get(1)?;
+    if next.text.trim().is_empty() || is_metadata_closer(next.text, fence) {
+        return None;
+    }
+    lines
+        .iter()
+        .enumerate()
+        .skip(2)
+        .find_map(|(idx, line)| is_metadata_closer(line.text, fence).then_some(idx))
+}
+
 impl FormatParser for MarkdownParser {
     fn parse_full(&self, input: &str) -> Vec<SpannedRegion> {
         let mut regions: Vec<SpannedRegion> = Vec::new();
@@ -944,8 +1006,6 @@ impl FormatParser for MarkdownParser {
         let mut code_header = ByteSpan::default();
         let mut code_body_start = 0usize;
         let mut code_lang: Option<String> = None;
-        let mut in_frontmatter = false;
-        let mut frontmatter_fence = String::new();
         let mut in_list_item = false;
         let mut list_hang: Option<usize> = None;
         let mut list_after_blank = false;
@@ -960,7 +1020,6 @@ impl FormatParser for MarkdownParser {
         while i < total {
             let line: &Line<'_> = &lines[i];
             let line_text = line.text;
-            let line_number = i + 1;
 
             // Check for snapper:off/on pragmas. Inside a fenced code block,
             // the markdown parser does NOT short-circuit on pragmas; the
@@ -1002,22 +1061,17 @@ impl FormatParser for MarkdownParser {
                 }
             }
 
-            // Front matter detection (only at start of file)
-            if line_number == 1 && (line_text.trim() == "---" || line_text.trim() == "+++") {
-                in_frontmatter = true;
-                frontmatter_fence = line_text.trim().to_string();
-                regions.push(SpannedRegion::structure(input, line.span()));
-                i += 1;
-                continue;
-            }
-
-            if in_frontmatter {
-                if line_text.trim() == frontmatter_fence {
-                    in_frontmatter = false;
+            // YAML/TOML front matter at file start. pulldown scan_metadata_block:
+            // --- / +++ opens only when the next line is neither blank nor the
+            // closer; YAML closer is --- or ...; no closer is not front matter.
+            if i == 0 {
+                if let Some(end) = front_matter_end(&lines) {
+                    for row in &lines[0..=end] {
+                        regions.push(SpannedRegion::structure(input, row.span()));
+                    }
+                    i = end + 1;
+                    continue;
                 }
-                regions.push(SpannedRegion::structure(input, line.span()));
-                i += 1;
-                continue;
             }
 
             // Inside fenced code block
@@ -1795,6 +1849,117 @@ mod tests {
         assert!(matches!(&regions[1], Region::Structure(_)));
         assert!(matches!(&regions[2], Region::Structure(_)));
         assert!(matches!(&regions[3], Region::Structure(_)));
+    }
+
+    #[test]
+    fn yaml_front_matter_closes_on_ellipsis() {
+        let input = concat!(
+            "---\n",
+            "title: Hello. World.\n",
+            "...\n",
+            "\n",
+            "Body after yaml. Second sentence.\n",
+        );
+        let regions = MarkdownParser.parse(input);
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Structure(s) if s == "title: Hello. World.\n"
+            )),
+            "YAML body must stay Structure, got: {regions:?}"
+        );
+        assert!(
+            regions
+                .iter()
+                .any(|r| matches!(r, Region::Structure(s) if s == "...\n")),
+            "... must close YAML, got: {regions:?}"
+        );
+        assert!(
+            !regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(p) if p.contains("Hello. World.")
+            )),
+            "YAML title must not be Prose, got: {regions:?}"
+        );
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(p) if p.contains("Body after yaml.")
+            )),
+            "body after ... must stay Prose, got: {regions:?}"
+        );
+    }
+
+    #[test]
+    fn yaml_front_matter_blank_after_dashes_is_thematic_break() {
+        let input = "---\n\nBody after yaml. Second sentence.\n";
+        let regions = MarkdownParser.parse(input);
+        assert!(
+            regions
+                .iter()
+                .any(|r| matches!(r, Region::Structure(s) if s.trim() == "---")),
+            "--- then blank must be a thematic break, got: {regions:?}"
+        );
+        assert!(
+            !regions.iter().any(|r| matches!(
+                r,
+                Region::Structure(s) if s.contains("Body after yaml.")
+            )),
+            "body must not be swallowed as unclosed YAML, got: {regions:?}"
+        );
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(p) if p.contains("Body after yaml.") && p.contains("Second sentence.")
+            )),
+            "body after thematic --- must stay Prose, got: {regions:?}"
+        );
+    }
+
+    #[test]
+    fn yaml_front_matter_empty_block_is_not_front_matter() {
+        let input = "---\n---\n\nBody after yaml. Second sentence.\n";
+        let regions = MarkdownParser.parse(input);
+        assert!(
+            !regions.iter().any(|r| matches!(
+                r,
+                Region::Structure(s) if s.contains("Body after yaml.")
+            )),
+            "empty ---/--- must not swallow the body, got: {regions:?}"
+        );
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(p) if p.contains("Body after yaml.")
+            )),
+            "body after empty ---/--- must stay Prose, got: {regions:?}"
+        );
+    }
+
+    #[test]
+    fn toml_front_matter_still_closes_on_plus() {
+        let input = "+++\ntitle = \"Hello. World.\"\n+++\n\nBody after toml. Second sentence.\n";
+        let regions = MarkdownParser.parse(input);
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Structure(s) if s.contains("title =")
+            )),
+            "TOML body must stay Structure, got: {regions:?}"
+        );
+        assert!(
+            !regions
+                .iter()
+                .any(|r| matches!(r, Region::Prose(p) if p.contains("title ="))),
+            "TOML body must not be Prose, got: {regions:?}"
+        );
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(p) if p.contains("Body after toml.")
+            )),
+            "body after +++ must stay Prose, got: {regions:?}"
+        );
     }
 
     #[test]
