@@ -4,6 +4,7 @@ All notable changes to this project will be documented in this file. See [conven
 - - -
 ## Unreleased (main)
 #### Bug Fixes
+- (**latex**) treat fancyvrb `SaveVerbatim` and `VerbatimOut` as code so listing bodies do not reflow as prose (#213)
 - (**latex**) treat fancyvrb `BVerbatim` and `LVerbatim` as code so listing bodies do not reflow as prose (#209)
 - (**markdown**) GFM alert type markers (`[!NOTE]` / `[!TIP]` / `[!WARNING]` / `[!CAUTION]` / `[!IMPORTANT]`) stay structure; the body hangs and splits
 - (**org**) reflow `#+CAPTION:` values as hung prose; `#+NAME:` and `#+ATTR_*` stay structure (#204)
