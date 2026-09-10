@@ -4,8 +4,8 @@ use std::collections::HashMap;
 use crate::config::CodeLang;
 use crate::format::Format;
 use crate::parser::{Region, RegionOrigin, SpannedRegion};
-use crate::sentence::SentenceSplitter;
 use crate::sentence::unicode::atomic_inline_spans;
+use crate::sentence::SentenceSplitter;
 
 /// Configuration for the reflow engine.
 pub struct ReflowConfig<'a> {
@@ -1061,7 +1061,15 @@ fn is_quote_marker(s: &str) -> bool {
 /// Column width of a list marker that continuation lines hang at with
 /// spaces. Zero for quotes and non-markers.
 fn hanging_indent_width(s: &str) -> usize {
-    if s.is_empty() || s.contains('\n') || !s.ends_with(' ') {
+    if s.is_empty() || s.contains('\n') {
+        return 0;
+    }
+    // pulldown ENABLE_DEFINITION_LIST: `: ` / `  : ` hang at marker
+    // width so the definition body stays a hung paragraph (GitHub #210).
+    if crate::parser::markdown::md_definition_list_marker_len(s) == Some(s.len()) {
+        return s.chars().count();
+    }
+    if !s.ends_with(' ') {
         return 0;
     }
     let trimmed = s.trim_start();
@@ -1253,6 +1261,10 @@ mod tests {
         assert_eq!(hanging_prefix(">>"), ">>");
         assert_eq!(hanging_prefix("  > "), "  > ");
         assert_eq!(hanging_prefix("- "), "  ");
+        assert_eq!(hanging_prefix(": "), "  ");
+        assert_eq!(hanging_prefix("  : "), "    ");
+        assert_eq!(hanging_indent_width(": "), 2);
+        assert_eq!(hanging_indent_width("  : "), 4);
         assert_eq!(hanging_indent_width("- - "), 4);
         assert_eq!(hanging_prefix("- - "), "    ");
         assert_eq!(hanging_indent_width("*  "), 3);
@@ -1785,6 +1797,10 @@ They are endowed with reason and conscience and should act towards one another i
         assert_eq!(hanging_prefix(">>"), ">>");
         assert_eq!(hanging_prefix("  > "), "  > ");
         assert_eq!(hanging_prefix("- "), "  ");
+        assert_eq!(hanging_prefix(": "), "  ");
+        assert_eq!(hanging_prefix("  : "), "    ");
+        assert_eq!(hanging_indent_width(": "), 2);
+        assert_eq!(hanging_indent_width("  : "), 4);
         assert_eq!(hanging_indent_width("- - "), 4);
         assert_eq!(hanging_prefix("- - "), "    ");
         assert_eq!(hanging_prefix("1. "), "   ");
@@ -1846,6 +1862,26 @@ They are endowed with reason and conscience and should act towards one another i
             Region::Structure("\n".to_string()),
         ]);
         assert_eq!(result, "- One.\n  Two.\n");
+    }
+
+    #[test]
+    fn markdown_definition_list_hangs_second_sentence() {
+        let result = reflow_regions(vec![
+            Region::Structure("Term\n".to_string()),
+            Region::Structure(": ".to_string()),
+            Region::Prose(
+                "This is a long definition sentence that must hang. Second sentence.".to_string(),
+            ),
+            Region::Structure("\n".to_string()),
+        ]);
+        assert_eq!(
+            result,
+            concat!(
+                "Term\n",
+                ": This is a long definition sentence that must hang.\n",
+                "  Second sentence.\n",
+            )
+        );
     }
 
     #[test]
