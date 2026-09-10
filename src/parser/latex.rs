@@ -42,8 +42,26 @@ static LSTLISTING_LANG_RE: LazyLock<Regex> = LazyLock::new(|| {
 });
 
 /// Built-in source-code environments whose body is `Region::Code`.
+///
+/// `filecontents` / `filecontents*` are latexindent `fileContentsEnvironments`.
+/// `asy` `asydef` `pycode` `luacode` `sagesilent` `sageblock` are
+/// tree-sitter-latex raw trivia; `verbatim*` is the starred verbatim env.
 fn is_builtin_code_env(name: &str) -> bool {
-    matches!(name, "minted" | "lstlisting" | "verbatim")
+    matches!(
+        name,
+        "minted"
+            | "lstlisting"
+            | "verbatim"
+            | "verbatim*"
+            | "filecontents"
+            | "filecontents*"
+            | "asy"
+            | "asydef"
+            | "pycode"
+            | "luacode"
+            | "sagesilent"
+            | "sageblock"
+    )
 }
 
 static DISPLAY_MATH_OPEN: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^\s*\\\[").unwrap());
@@ -1546,5 +1564,109 @@ Some text.
             "\\Verbatim must remain in the source, got:\n{out}"
         );
         assert_eq!(format_text(&out, &cfg).unwrap(), out);
+    }
+
+    #[test]
+    fn filecontents_and_pycode_are_code_and_do_not_reflow() {
+        use crate::format_text;
+
+        let input = "\\begin{document}\n\\begin{filecontents}{x.tex}\nThis is a long sentence that must not reflow as prose inside filecontents.\n\\end{filecontents}\n\\begin{pycode}\nThis is a long sentence that must not reflow as prose inside pycode.\n\\end{pycode}\nAfter the blocks. Next.\n\\end{document}\n";
+        let regions = LatexParser::default().parse(input);
+        let filecontents_code = regions.iter().any(|r| {
+            matches!(
+                r,
+                Region::Code { body, .. }
+                    if body.contains("This is a long sentence that must not reflow as prose inside filecontents.")
+            )
+        });
+        let pycode_code = regions.iter().any(|r| {
+            matches!(
+                r,
+                Region::Code { body, .. }
+                    if body.contains("This is a long sentence that must not reflow as prose inside pycode.")
+            )
+        });
+        assert!(
+            filecontents_code,
+            "filecontents body must be Code, got: {regions:?}"
+        );
+        assert!(pycode_code, "pycode body must be Code, got: {regions:?}");
+        assert!(
+            !regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(p)
+                    if p.contains("inside filecontents") || p.contains("inside pycode")
+            )),
+            "filecontents/pycode bodies must not leak into prose, got: {regions:?}"
+        );
+        let out = format_text(input, &latex_cfg()).unwrap();
+        assert!(
+            out.contains("\\begin{filecontents}{x.tex}\nThis is a long sentence that must not reflow as prose inside filecontents.\n\\end{filecontents}"),
+            "filecontents body must stay verbatim, got:\n{out}"
+        );
+        assert!(
+            out.contains("\\begin{pycode}\nThis is a long sentence that must not reflow as prose inside pycode.\n\\end{pycode}"),
+            "pycode body must stay verbatim, got:\n{out}"
+        );
+        assert!(
+            out.contains("After the blocks.\nNext."),
+            "prose after filecontents/pycode must still reflow, got:\n{out}"
+        );
+        assert_eq!(format_text(&out, &latex_cfg()).unwrap(), out);
+    }
+
+    #[test]
+    fn filecontents_star_and_treesitter_trivia_envs_are_code() {
+        use crate::format_text;
+
+        // latexindent filecontents* plus tree-sitter trivia and verbatim*.
+        let names = [
+            "filecontents*",
+            "asy",
+            "asydef",
+            "luacode",
+            "sagesilent",
+            "sageblock",
+            "verbatim*",
+        ];
+        for name in names {
+            let begin = if name.starts_with("filecontents") {
+                format!("\\begin{{{name}}}{{x.tex}}")
+            } else {
+                format!("\\begin{{{name}}}")
+            };
+            let input = format!(
+                "\\begin{{document}}\n{begin}\nFirst line. Second line.\n\\end{{{name}}}\nAfter the listing. Next.\n\\end{{document}}\n"
+            );
+            let regions = LatexParser::default().parse(&input);
+            assert!(
+                regions.iter().any(|r| matches!(
+                    r,
+                    Region::Code { body, .. } if body.contains("First line. Second line.")
+                )),
+                "{name} body must be Code, got: {regions:?}"
+            );
+            assert!(
+                !regions.iter().any(|r| matches!(
+                    r,
+                    Region::Prose(p) if p.contains("First line")
+                )),
+                "{name} body must not be prose, got: {regions:?}"
+            );
+            let out = format_text(&input, &latex_cfg()).unwrap();
+            assert!(
+                out.contains("First line. Second line."),
+                "{name} body must not reflow, got:\n{out}"
+            );
+            assert!(
+                !out.contains("First line.\nSecond line."),
+                "{name} must stay verbatim, got:\n{out}"
+            );
+            assert!(
+                out.contains("After the listing.\nNext."),
+                "prose after {name} must still reflow, got:\n{out}"
+            );
+            assert_eq!(format_text(&out, &latex_cfg()).unwrap(), out);
+        }
     }
 }
