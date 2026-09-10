@@ -6,7 +6,10 @@ use crate::parser::{
     push_prose_line,
 };
 
-static HEADING_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^(#{1,6}\s+)(.*)$").unwrap());
+/// CommonMark 0.31.2 §4.2 ATX heading: 0–3 spaces, then 1–6 `#`, then
+/// whitespace. Four spaces is indented code (ex. 80), not a heading.
+static HEADING_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"^( {0,3}#{1,6}\s+)(.*)$").unwrap());
 
 static FENCED_CODE_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^(`{3,}|~{3,})").unwrap());
 
@@ -1201,6 +1204,7 @@ impl FormatParser for MarkdownParser {
             //   ### 1.
             //   `cargo binstall` (preferred binary install)
             // CommonMark ATX headings are single-line; do not reflow them.
+            // 0–3 space indent is still a heading (CM 0.31.2 §4.2).
             if HEADING_RE.is_match(line_text) {
                 close_list_item(
                     &mut in_list_item,
@@ -2197,6 +2201,38 @@ mod tests {
         let regions = MarkdownParser.parse(input);
         assert_eq!(regions.len(), 1);
         assert_eq!(regions[0], Region::Structure("## My Heading".to_string()));
+    }
+
+    #[test]
+    fn three_space_atx_heading_is_structure() {
+        // snapper-zogf / GitHub #171 — CommonMark 0.31.2 §4.2 ex. 79.
+        let input = "   # Title. Still the title.\n\nBody sentence one. Body sentence two.\n";
+        let regions = MarkdownParser.parse(input);
+        assert!(
+            matches!(
+                &regions[0],
+                Region::Structure(s) if s == "   # Title. Still the title.\n"
+            ),
+            "indented ATX line including three spaces must be Structure, got: {:?}",
+            regions[0]
+        );
+        assert!(
+            !regions
+                .iter()
+                .any(|r| matches!(r, Region::Prose(p) if p.contains("Still the title"))),
+            "heading title must not be Prose: {regions:?}"
+        );
+        let prose: Vec<_> = regions
+            .iter()
+            .filter_map(|r| match r {
+                Region::Prose(p) => Some(p.as_str()),
+                _ => None,
+            })
+            .collect();
+        assert!(
+            prose.iter().any(|p| p.contains("Body sentence one")),
+            "body must stay Prose: {regions:?}"
+        );
     }
 
     #[test]
