@@ -128,12 +128,14 @@ static LSTLISTING_LANG_RE: LazyLock<Regex> = LazyLock::new(|| {
 /// (`filecontents`, `filecontents*`) and tree-sitter-latex raw trivia envs
 /// (`asy`, `asydef`, `pycode`, `luacode`, `luacode*`, `sagesilent`,
 /// `sageblock`) plus fancyvrb `verbatim*` / `Verbatim` / `BVerbatim` /
-/// `LVerbatim`, moreverb `boxedverbatim`, tcolorbox `tcblisting` /
-/// `codeexample`, and the `comment` package env (tree-sitter
-/// `comment_environment`: raw through matching `\end{comment}`).
-/// Overleaf `verbatimEnvNames` is Verbatim, boxedverbatim, tcblisting,
-/// codeexample. fancyvrb `BVerbatim` / `LVerbatim` are the same raw
-/// class as `Verbatim` (GitHub #209).
+/// `LVerbatim` / `SaveVerbatim` / `VerbatimOut`, moreverb
+/// `boxedverbatim`, tcolorbox `tcblisting` / `codeexample`, and the
+/// `comment` package env (tree-sitter `comment_environment`: raw
+/// through matching `\end{comment}`). Overleaf `verbatimEnvNames` is
+/// Verbatim, boxedverbatim, tcblisting, codeexample. fancyvrb
+/// `BVerbatim` / `LVerbatim` are the same raw class as `Verbatim`
+/// (GitHub #209). `SaveVerbatim` / `VerbatimOut` are the same
+/// `FV@Scan` class (GitHub #213).
 fn is_builtin_code_env(name: &str) -> bool {
     matches!(
         name,
@@ -144,6 +146,8 @@ fn is_builtin_code_env(name: &str) -> bool {
             | "Verbatim"
             | "BVerbatim"
             | "LVerbatim"
+            | "SaveVerbatim"
+            | "VerbatimOut"
             | "boxedverbatim"
             | "tcblisting"
             | "codeexample"
@@ -2399,6 +2403,76 @@ Some text.
                 !two_out.contains("First line.\nSecond line."),
                 "{name} two-sentence body must not split, got:\n{two_out}"
             );
+        }
+    }
+
+    /// Ticket fixture (GitHub #213): fancyvrb SaveVerbatim and
+    /// VerbatimOut are the same FV@Scan class as Verbatim. The required
+    /// `{name}` / `{file}` argument stays on the begin header.
+    #[test]
+    fn fancyvrb_saveverbatim_verbatimout_are_code_not_prose() {
+        use crate::format_text;
+
+        for name in ["SaveVerbatim", "VerbatimOut"] {
+            let input = format!(
+                concat!(
+                    "\\begin{{{name}}}{{foo}}\n",
+                    "First line. Second line.\n",
+                    "\\end{{{name}}}\n",
+                    "After the block. Next.\n",
+                ),
+                name = name
+            );
+            let regions = LatexParser::default().parse(&input);
+            let code = regions.iter().find_map(|r| match r {
+                Region::Code {
+                    header,
+                    body,
+                    footer,
+                    ..
+                } => Some((header.as_str(), body.as_str(), footer.as_str())),
+                _ => None,
+            });
+            let Some((header, body, footer)) = code else {
+                panic!("{name} must be Code, got: {regions:?}");
+            };
+            assert!(
+                header.contains(&format!("\\begin{{{name}}}{{foo}}")),
+                "{name} required arg must stay on the begin header, got header={header:?}"
+            );
+            assert!(
+                body.contains("First line. Second line."),
+                "{name} body must keep both sentences, got body={body:?}"
+            );
+            assert!(
+                footer.contains(&format!("\\end{{{name}}}")),
+                "{name} footer must be \\end{{{name}}}, got footer={footer:?}"
+            );
+            assert!(
+                !regions
+                    .iter()
+                    .any(|r| matches!(r, Region::Prose(p) if p.contains("First line"))),
+                "{name} body must not leak into Prose, got: {regions:?}"
+            );
+            let out = format_text(&input, &latex_cfg()).unwrap();
+            assert!(
+                out.contains(&format!("\\begin{{{name}}}{{foo}}"))
+                    && out.contains(&format!("\\end{{{name}}}")),
+                "{name} begin/end must stay, got:\n{out}"
+            );
+            assert!(
+                out.contains("First line. Second line."),
+                "{name} body must stay one source line, got:\n{out}"
+            );
+            assert!(
+                !out.contains("First line.\nSecond line."),
+                "{name} must not reflow as prose, got:\n{out}"
+            );
+            assert!(
+                out.contains("After the block.\nNext."),
+                "prose after {name} must still split, got:\n{out}"
+            );
+            assert_eq!(format_text(&out, &latex_cfg()).unwrap(), out);
         }
     }
 
