@@ -2368,6 +2368,20 @@ They are endowed with reason and conscience and should act towards one another i
     }
 
     #[test]
+    fn max_width_keeps_org_inline_footnote_atomic() {
+        let token = "[fn:: the Fourier. transform]";
+        let sentence = "See [fn:: the Fourier. transform] in the notes. Next sentence.";
+        for clause in [false, true] {
+            let wrapped = wrap_sentence(sentence, 28, clause);
+            assert_atomic_token(&wrapped, token);
+            assert!(
+                !wrapped.contains("Fourier.\ntransform"),
+                "must not wrap on the interior period, got:\n{wrapped}"
+            );
+        }
+    }
+
+    #[test]
     fn max_width_keeps_org_inline_src_atomic() {
         let token = "src_python{print(1. 2)}";
         let sentence = "Use src_python{print(1. 2)} today. Next sentence.";
