@@ -34,8 +34,9 @@ impl FormatParser for RstParser {
 }
 
 /// Line-based RST parser. Handles directives, literal blocks, doctest
-/// blocks, sections, field lists, option lists, comments, tables,
-/// definition lists, and block-quote hang spaces as structure regions.
+/// blocks, sections, field lists, option lists, comments, anonymous
+/// hyperlink targets, tables, definition lists, and block-quote hang
+/// spaces as structure regions.
 fn parse_line_based(input: &str) -> Vec<SpannedRegion> {
     let mut regions = Vec::new();
     let mut current_prose = String::new();
@@ -224,6 +225,16 @@ fn parse_line_based(input: &str) -> Vec<SpannedRegion> {
             // Any indent past the opener is body (docutils).
             comment_indent = leading + 1;
             in_comment = true;
+            i += 1;
+            continue;
+        }
+
+        // Anonymous hyperlink target: Docutils Body.anonymous `__( +|$)`,
+        // sibling of `..` explicit markup. The whole line is Structure
+        // so wrap cannot split `__` from the URI (GitHub #93).
+        if is_rst_anonymous_target(trimmed) {
+            flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
+            regions.push(SpannedRegion::structure(input, line.span()));
             i += 1;
             continue;
         }
@@ -476,6 +487,12 @@ pub(crate) fn is_rst_comment_opener(trimmed: &str) -> bool {
         return false;
     }
     trimmed == ".." || trimmed.starts_with(".. ") || trimmed.starts_with("..\t")
+}
+
+/// Docutils `Body.patterns['anonymous']`: `__( +|$)`.
+/// Sibling of `..` explicit markup. `__url` without a space is not a target.
+pub(crate) fn is_rst_anonymous_target(trimmed: &str) -> bool {
+    trimmed == "__" || trimmed.starts_with("__ ")
 }
 
 /// Comment openers pandoc's RST reader drops (zero blocks). Hyperlink
@@ -1198,6 +1215,91 @@ mod tests {
         assert!(!is_rst_comment_opener(".. note::"));
         assert!(!is_rst_comment_opener("..."));
         assert!(!is_rst_comment_opener("Hello"));
+    }
+
+    #[test]
+    fn anonymous_target_matches_docutils_pattern() {
+        assert!(is_rst_anonymous_target("__"));
+        assert!(is_rst_anonymous_target("__ "));
+        assert!(is_rst_anonymous_target(
+            "__ https://www.python.org/some/very/long/path"
+        ));
+        assert!(!is_rst_anonymous_target("__https://example.com"));
+        assert!(!is_rst_anonymous_target("___"));
+        assert!(!is_rst_anonymous_target("____"));
+        assert!(!is_rst_anonymous_target("_ _ url"));
+        assert!(!is_rst_anonymous_target("See the site__"));
+    }
+
+    #[test]
+    fn anonymous_target_line_is_structure_not_prose() {
+        let input = concat!(
+            "__ https://www.python.org/some/very/long/path\n",
+            "\n",
+            "See the target. Next sentence.\n",
+        );
+        let regions = RstParser.parse(input);
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Structure(s)
+                    if s.contains("__ https://www.python.org/some/very/long/path")
+            )),
+            "anonymous target line must be Structure, got {regions:?}"
+        );
+        assert!(
+            !regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(s) if s.contains("__") || s.contains("https://www.python.org")
+            )),
+            "anonymous target line must not be Prose, got {regions:?}"
+        );
+    }
+
+    #[test]
+    fn anonymous_target_is_identity_and_surrounding_prose_reflows() {
+        use crate::format::Format;
+        use crate::{FormatConfig, format_text};
+
+        let cfg = FormatConfig {
+            format: Format::Rst,
+            max_width: 0,
+            ..Default::default()
+        };
+        let input = concat!(
+            "__ https://www.python.org/some/very/long/path\n",
+            "\n",
+            "See the target. Next sentence.\n",
+        );
+        let out = format_text(input, &cfg).unwrap();
+        assert!(
+            out.contains("__ https://www.python.org/some/very/long/path\n"),
+            "anonymous target URI must stay on the __ line, got:\n{out}"
+        );
+        assert!(
+            out.contains("See the target.\nNext sentence.\n"),
+            "surrounding prose must still reflow, got:\n{out}"
+        );
+        assert_eq!(
+            format_text(&out, &cfg).unwrap(),
+            out,
+            "anonymous target identity must survive a second pass"
+        );
+
+        let wrap_cfg = FormatConfig {
+            format: Format::Rst,
+            max_width: 40,
+            ..Default::default()
+        };
+        let wrap_out = format_text(input, &wrap_cfg).unwrap();
+        assert!(
+            wrap_out.contains("__ https://www.python.org/some/very/long/path\n"),
+            "wrap must not split __ from the URI, got:\n{wrap_out}"
+        );
+        assert!(
+            !wrap_out.contains("__\nhttps://"),
+            "wrap must not break the anonymous target onto two lines, got:\n{wrap_out}"
+        );
     }
 
     #[test]

@@ -663,6 +663,9 @@ fn rst_opens_block(line: &str) -> bool {
     if t == ".." || t.starts_with(".. ") || t.starts_with("..\t") {
         return true;
     }
+    if crate::parser::rst::is_rst_anonymous_target(t) {
+        return true;
+    }
     if crate::parser::rst::rst_list_marker_len(line).is_some() {
         return true;
     }
