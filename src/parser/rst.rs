@@ -573,23 +573,40 @@ pub(crate) fn rst_option_column_len(line: &str) -> Option<usize> {
     OPTION_MARKER_RE.find(t).map(|m| indent + m.end())
 }
 
-/// Byte length of a compact RST list opener on `line`, including the
-/// trailing space: `* `, `- `, `+ ` (not a `+--+` table rule), or a
-/// Docutils enumerator (`1.`, `a.`, `i.`, `#.`, `1)`, `(1)`) plus the
-/// following space (GitHub #91).
-pub(crate) fn rst_list_marker_len(line: &str) -> Option<usize> {
-    let indent = line.len() - line.trim_start().len();
-    let t = &line[indent..];
+/// Byte length of one compact RST list opener at the start of `t`
+/// (no leading indent): `* `, `- `, `+ ` (not a `+--+` table rule), or a
+/// Docutils enumerator plus the following space.
+fn rst_one_list_marker_len(t: &str) -> Option<usize> {
     if t.starts_with("* ") || t.starts_with("- ") {
-        return Some(indent + 2);
+        return Some(2);
     }
     if let Some(after) = t.strip_prefix("+ ") {
         if after.starts_with('-') || after.starts_with('+') {
             return None;
         }
-        return Some(indent + 2);
+        return Some(2);
     }
-    rst_enumerator_marker_len(t).map(|n| indent + n)
+    rst_enumerator_marker_len(t)
+}
+
+/// Byte length of a compact RST list opener on `line`, including the
+/// trailing space: `* `, `- `, `+ ` (not a `+--+` table rule), or a
+/// Docutils enumerator (`1.`, `a.`, `i.`, `#.`, `1)`, `(1)`) plus the
+/// following space (GitHub #91).
+///
+/// Same-line nested markers (`- - item`, `- 1. item`) are consumed so
+/// the hang is the inner item width. A two-space continuation after
+/// `- - ` is a sibling; four spaces stay inside the inner item
+/// (GitHub #125).
+pub(crate) fn rst_list_marker_len(line: &str) -> Option<usize> {
+    let indent = line.len() - line.trim_start().len();
+    let mut pos = indent;
+    let mut found = false;
+    while let Some(n) = rst_one_list_marker_len(&line[pos..]) {
+        pos += n;
+        found = true;
+    }
+    found.then_some(pos)
 }
 
 /// Length of a Docutils enumerator plus trailing space, or the marker
@@ -1674,6 +1691,31 @@ mod tests {
     }
 
     #[test]
+    fn nested_same_line_list_marker_is_inner_hang_structure() {
+        let input =
+            "- - Document typed fixture exports.\n    The package already includes ``py.typed``.\n";
+        let regions = RstParser.parse(input);
+        assert!(
+            regions
+                .iter()
+                .any(|r| matches!(r, Region::Structure(s) if s == "- - ")),
+            "inner hang must be one Structure of width 4, got {regions:?}"
+        );
+        let prose: Vec<_> = regions
+            .iter()
+            .filter_map(|r| match r {
+                Region::Prose(s) => Some(s.as_str()),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(
+            prose,
+            ["Document typed fixture exports.\nThe package already includes ``py.typed``."],
+            "four-space continuation must join the inner item, got {regions:?}"
+        );
+    }
+
+    #[test]
     fn comment_opener_and_body_are_structure() {
         let input = "..\n   First sentence.\n   Second sentence.\n";
         let regions = RstParser.parse(input);
@@ -2296,6 +2338,14 @@ mod tests {
         assert_eq!(rst_list_marker_len("(i) Paren roman"), Some(4));
         assert_eq!(rst_list_marker_len("See. Prose"), None);
         assert_eq!(rst_list_marker_len("dim. Not roman"), None);
+        assert_eq!(
+            rst_list_marker_len("- - Document typed fixture exports."),
+            Some(4)
+        );
+        assert_eq!(rst_list_marker_len("- - "), Some(4));
+        assert_eq!(rst_list_marker_len("  - - nested."), Some(6));
+        assert_eq!(rst_list_marker_len("- 1. inner."), Some(5));
+        assert_eq!(rst_list_marker_len("- --not-nested"), Some(2));
     }
 
     #[test]

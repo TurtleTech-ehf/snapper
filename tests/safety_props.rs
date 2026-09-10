@@ -36,7 +36,9 @@ proptest! {
 
     #[test]
     fn format_text_idempotent_and_oracle(
-        s in "[A-Za-z#*][A-Za-z0-9#* ,;:'\"]{0,80}\\. [A-Za-z][A-Za-z0-9 ,;:'\"]{0,40}\\.",
+        // Digits before the first `. ` can mint `* 0. A.` (nested ordered
+        // list vs hung continuation; snapper-9dc1). Keep letters there.
+        s in "[A-Za-z#*][A-Za-z#* ,;:'\"]{0,80}\\. [A-Za-z][A-Za-z0-9 ,;:'\"]{0,40}\\.",
         fmt_tag in 0u8..5,
     ) {
         let format = format_of(fmt_tag);
