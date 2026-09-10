@@ -435,7 +435,9 @@ fn is_ordered_list_marker(word: &str) -> bool {
     if delim != b'.' && delim != b')' {
         return false;
     }
-    bytes[..bytes.len() - 1].iter().all(|b| b.is_ascii_digit())
+    let digits = &bytes[..bytes.len() - 1];
+    // CommonMark 0.31.2 §5.2 / pulldown: at most nine digits.
+    (1..=9).contains(&digits.len()) && digits.iter().all(|b| b.is_ascii_digit())
 }
 
 fn ordered_list_start(text: &str) -> bool {
@@ -444,7 +446,7 @@ fn ordered_list_start(text: &str) -> bool {
     while i < bytes.len() && bytes[i].is_ascii_digit() {
         i += 1;
     }
-    if i == 0 {
+    if i == 0 || i > 9 {
         return false;
     }
     matches!(bytes.get(i), Some(b'.') | Some(b')')) && matches!(bytes.get(i + 1), Some(b' ') | None)
@@ -823,7 +825,7 @@ fn md_same_line_ol_opener(text: &str) -> bool {
     while i < bytes.len() && bytes[i].is_ascii_digit() {
         i += 1;
     }
-    if i == 0 {
+    if i == 0 || i > 9 {
         return false;
     }
     if !matches!(bytes.get(i), Some(b'.') | Some(b')')) {
@@ -1068,9 +1070,10 @@ fn hanging_indent_width(s: &str) -> usize {
     let core = &trimmed[..trimmed.len() - 1];
     let is_bullet = matches!(core, "-" | "*" | "+");
     let is_rst_autoenum = core == "#.";
+    let digits = &core[..core.len() - 1];
     let is_ordered = (core.ends_with('.') || core.ends_with(')'))
-        && core.len() > 1
-        && core[..core.len() - 1].bytes().all(|b| b.is_ascii_digit());
+        && (1..=9).contains(&digits.len())
+        && digits.bytes().all(|b| b.is_ascii_digit());
     // LaTeX `\item` / `\item[label]` (not `\itemize`).
     if is_bullet || is_ordered || is_rst_autoenum || is_latex_item_core(core) {
         s.chars().count()
@@ -1235,9 +1238,11 @@ mod tests {
     fn md_same_line_ol_opener_detects_compact_not_hung() {
         assert!(md_same_line_ol_opener("0. A."));
         assert!(md_same_line_ol_opener("1) Next."));
+        assert!(md_same_line_ol_opener("123456789. A."));
         assert!(!md_same_line_ol_opener("0.\nA."));
         assert!(!md_same_line_ol_opener("0."));
         assert!(!md_same_line_ol_opener("Hello. 0. A."));
+        assert!(!md_same_line_ol_opener("1234567890. A."));
     }
 
     #[test]

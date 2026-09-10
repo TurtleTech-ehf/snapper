@@ -6,7 +6,10 @@ use crate::parser::{
     push_prose_line,
 };
 
-static HEADING_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^(#{1,6}\s+)(.*)$").unwrap());
+/// CommonMark 0.31.2 §4.2 ATX heading: 0–3 spaces, then 1–6 `#`, then
+/// whitespace. Four spaces is indented code (ex. 80), not a heading.
+static HEADING_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"^( {0,3}#{1,6}\s+)(.*)$").unwrap());
 
 static FENCED_CODE_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^(`{3,}|~{3,})").unwrap());
 
@@ -15,16 +18,19 @@ static FENCED_CODE_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^(`{3,}|~
 static FENCED_LANG_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"^(?:`{3,}|~{3,})\s*([A-Za-z0-9_+.\-]+)").unwrap());
 
-/// CommonMark list marker: 0–3 spaces, then `-`/`*`/`+` or `1.`/`1)`, then a space.
+/// CommonMark list marker: 0–3 spaces, then `-`/`*`/`+` or 1–9 digits
+/// plus `.`/`)`, then a space. Ten or more digits is a paragraph
+/// (spec 0.31.2 §5.2; pulldown `ix-start < 10`).
 /// Four or more spaces is indented code, not a list (spec 0.31.2 ex. 289).
 static LIST_ITEM_RE: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"^( {0,3}(?:[-*+]|\d+[.)]) )(.*)$").unwrap());
+    LazyLock::new(|| Regex::new(r"^( {0,3}(?:[-*+]|\d{1,9}[.)]) )(.*)$").unwrap());
 
 /// List-looking line at any indent (including 4+ spaces). LIST_ITEM_RE is
 /// 0–3 only; a 4-space dash is indented code, but after a blank we still
 /// need the shape so hang-relative close can hand it to snapper-tupp.
+/// Ordered markers use the same 1–9 digit cap as LIST_ITEM_RE.
 static LIST_LOOKING_RE: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"^[\t ]*(?:[-*+]|\d+[.)]) ").unwrap());
+    LazyLock::new(|| Regex::new(r"^[\t ]*(?:[-*+]|\d{1,9}[.)]) ").unwrap());
 
 /// Markdown blockquote prefix: optional indent plus one or more `>`
 /// each followed by an optional space (CommonMark 0.31.2 ex. 229).
@@ -1201,6 +1207,7 @@ impl FormatParser for MarkdownParser {
             //   ### 1.
             //   `cargo binstall` (preferred binary install)
             // CommonMark ATX headings are single-line; do not reflow them.
+            // 0–3 space indent is still a heading (CM 0.31.2 §4.2).
             if HEADING_RE.is_match(line_text) {
                 close_list_item(
                     &mut in_list_item,
@@ -1922,6 +1929,102 @@ mod tests {
         assert_eq!(regions.len(), 5);
     }
 
+    /// GitHub #172 / snapper-sp7k: CommonMark 0.31.2 §5.2 and pulldown
+    /// `ix-start < 10` reject 10+ digit ordered markers.
+    fn ten_digit_ol_fixture() -> &'static str {
+        "1234567890. This is a long sentence. Another sentence."
+    }
+
+    #[test]
+    fn ten_digit_ordered_marker_is_prose_not_list() {
+        let regions = MarkdownParser.parse(ten_digit_ol_fixture());
+        assert!(
+            regions.iter().all(|r| matches!(r, Region::Prose(_))),
+            "10-digit marker must be Prose only, got {regions:?}"
+        );
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(p) if p.contains("1234567890.") && p.contains("Another sentence.")
+            )),
+            "fixture must stay one Prose region, got {regions:?}"
+        );
+        assert!(
+            !regions.iter().any(|r| matches!(
+                r,
+                Region::Structure(s) if s.contains("1234567890.")
+            )),
+            "must not invent a 10-digit list Structure, got {regions:?}"
+        );
+    }
+
+    #[test]
+    fn ten_digit_paren_marker_is_prose_not_list() {
+        let regions =
+            MarkdownParser.parse("1234567890) This is a long sentence. Another sentence.");
+        assert!(
+            regions.iter().all(|r| matches!(r, Region::Prose(_))),
+            "10-digit paren marker must be Prose only, got {regions:?}"
+        );
+        assert!(
+            !regions.iter().any(|r| matches!(
+                r,
+                Region::Structure(s) if s.contains("1234567890)")
+            )),
+            "must not invent a 10-digit ) Structure, got {regions:?}"
+        );
+    }
+
+    #[test]
+    fn nine_digit_ordered_marker_is_still_a_list() {
+        let regions = MarkdownParser.parse("123456789. This is a long sentence. Another sentence.");
+        assert!(
+            regions
+                .iter()
+                .any(|r| matches!(r, Region::Structure(s) if s == "123456789. ")),
+            "9-digit marker must stay a list, got {regions:?}"
+        );
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(p) if p.contains("This is a long sentence.")
+            )),
+            "9-digit item body must stay Prose, got {regions:?}"
+        );
+    }
+
+    #[test]
+    fn ten_digit_ordered_marker_reflows_as_prose() {
+        use crate::format::Format;
+        use crate::{FormatConfig, format_text};
+
+        let input = ten_digit_ol_fixture();
+        let cfg = FormatConfig {
+            format: Format::Markdown,
+            max_width: 0,
+            ..Default::default()
+        }
+        .without_safety_backstops();
+        let out = format_text(input, &cfg).unwrap();
+        assert!(
+            out.contains("1234567890.\nThis is a long sentence.\nAnother sentence."),
+            "10-digit opener must sembr as prose, got:\n{out}"
+        );
+        assert!(
+            !out.contains("            Another sentence."),
+            "10-digit opener must not hang as a list, got:\n{out}"
+        );
+        assert!(
+            crate::oracle::matches(Format::Markdown, input, &out),
+            "oracle must stay one paragraph\n in={input:?}\n out={out:?}"
+        );
+        assert_eq!(
+            format_text(&out, &cfg).unwrap(),
+            out,
+            "10-digit prose must be identity on a second pass, got:\n{out}"
+        );
+    }
+
     #[test]
     fn list_blank_indent_continuation_is_identity_under_format() {
         use crate::format::Format;
@@ -2197,6 +2300,38 @@ mod tests {
         let regions = MarkdownParser.parse(input);
         assert_eq!(regions.len(), 1);
         assert_eq!(regions[0], Region::Structure("## My Heading".to_string()));
+    }
+
+    #[test]
+    fn three_space_atx_heading_is_structure() {
+        // snapper-zogf / GitHub #171 — CommonMark 0.31.2 §4.2 ex. 79.
+        let input = "   # Title. Still the title.\n\nBody sentence one. Body sentence two.\n";
+        let regions = MarkdownParser.parse(input);
+        assert!(
+            matches!(
+                &regions[0],
+                Region::Structure(s) if s == "   # Title. Still the title.\n"
+            ),
+            "indented ATX line including three spaces must be Structure, got: {:?}",
+            regions[0]
+        );
+        assert!(
+            !regions
+                .iter()
+                .any(|r| matches!(r, Region::Prose(p) if p.contains("Still the title"))),
+            "heading title must not be Prose: {regions:?}"
+        );
+        let prose: Vec<_> = regions
+            .iter()
+            .filter_map(|r| match r {
+                Region::Prose(p) => Some(p.as_str()),
+                _ => None,
+            })
+            .collect();
+        assert!(
+            prose.iter().any(|p| p.contains("Body sentence one")),
+            "body must stay Prose: {regions:?}"
+        );
     }
 
     #[test]
