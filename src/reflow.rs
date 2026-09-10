@@ -862,7 +862,9 @@ fn hanging_indent_width(s: &str) -> usize {
     let is_ordered = (core.ends_with('.') || core.ends_with(')'))
         && core.len() > 1
         && core[..core.len() - 1].bytes().all(|b| b.is_ascii_digit());
-    if is_bullet || is_ordered {
+    // LaTeX `\item ` (enumerate/itemize). Not RST `#.` (snapper-2bhx).
+    let is_latex_item = core == "\\item";
+    if is_bullet || is_ordered || is_latex_item {
         s.chars().count()
     } else {
         0
@@ -1412,6 +1414,10 @@ They are endowed with reason and conscience and should act towards one another i
         assert_eq!(hanging_indent_width("10. "), 4);
         assert_eq!(hanging_indent_width("1) "), 3);
         assert_eq!(hanging_indent_width("   - "), 5);
+        assert_eq!(hanging_indent_width("\\item "), 6);
+        assert_eq!(hanging_indent_width("  \\item "), 8);
+        assert_eq!(hanging_prefix("\\item "), "      ");
+        assert_eq!(hanging_indent_width("#. "), 0);
         // Quotes are a prefix hang, not a space-hang bullet.
         assert_eq!(hanging_indent_width("> "), 0);
         assert_eq!(hanging_indent_width("> > "), 0);
@@ -1457,6 +1463,16 @@ They are endowed with reason and conscience and should act towards one another i
             Region::Structure("\n".to_string()),
         ]);
         assert_eq!(result, "1. One.\n   Two.\n");
+    }
+
+    #[test]
+    fn latex_item_hanging_indent() {
+        let result = reflow_regions(vec![
+            Region::Structure("\\item ".to_string()),
+            Region::Prose("First sentence. Second sentence.".to_string()),
+            Region::Structure("\n".to_string()),
+        ]);
+        assert_eq!(result, "\\item First sentence.\n      Second sentence.\n");
     }
 
     #[test]

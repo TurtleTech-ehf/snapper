@@ -143,6 +143,19 @@ fn rest_line(line: Line<'_>, rel: usize) -> Line<'_> {
     }
 }
 
+/// Byte length of a compact `\item ` opener, including leading indent
+/// and the trailing space. Rejects `\itemize` and `\item[`.
+fn latex_item_marker_len(s: &str) -> Option<usize> {
+    let indent = s.len() - s.trim_start_matches([' ', '\t']).len();
+    let rest = &s[indent..];
+    let after = rest.strip_prefix("\\item")?;
+    if after.starts_with(' ') {
+        Some(indent + "\\item".len() + 1)
+    } else {
+        None
+    }
+}
+
 /// Through EOL when `rel..` is only whitespace; otherwise just `rel`.
 fn thru_eol_if_blank_rest(line: Line<'_>, rel: usize) -> usize {
     if line.text[rel..].trim().is_empty() {
@@ -351,6 +364,15 @@ impl<'a> ParseState<'a> {
         }
     }
 
+    fn emit_item_or_prose(&mut self, abs_start: usize, piece: &str) {
+        if let Some(marker_len) = latex_item_marker_len(piece) {
+            self.push_structure(ByteSpan::new(abs_start, abs_start + marker_len));
+            self.append_prose_slice(abs_start + marker_len, &piece[marker_len..]);
+        } else {
+            self.append_prose_slice(abs_start, piece);
+        }
+    }
+
     fn append_prose_slice(&mut self, abs_start: usize, piece: &str) {
         let trimmed = piece.trim();
         if trimmed.is_empty() {
@@ -532,7 +554,7 @@ impl<'a> ParseState<'a> {
         let mut i = 0;
         while i < code.len() {
             if let Some(hit) = find_env_at(code, i, &self.parser.extra_verbatim_commands) {
-                self.append_prose_slice(line.start + i, &code[i..hit.start]);
+                self.emit_item_or_prose(line.start + i, &code[i..hit.start]);
                 if hit.is_begin && self.parser.is_code_env(&hit.name) {
                     self.flush();
                     if let Some(end_at) = find_matching_raw_end(line.text, hit.end, &hit.name, 1) {
@@ -599,7 +621,7 @@ impl<'a> ParseState<'a> {
                 ));
                 return false;
             }
-            self.append_prose_slice(line.start + i, rest);
+            self.emit_item_or_prose(line.start + i, rest);
             return false;
         }
         false
@@ -695,6 +717,64 @@ impl FormatParser for LatexParser {
 mod tests {
     use super::*;
     use crate::parser::Region;
+
+    #[test]
+    fn enumerate_item_is_structure_marker() {
+        let input =
+            "\\begin{enumerate}\n\\item First sentence. Second sentence.\n\\end{enumerate}\n";
+        let regions = LatexParser::default().parse(input);
+        assert!(
+            regions
+                .iter()
+                .any(|r| matches!(r, Region::Structure(s) if s == "\\item ")),
+            "\\item must be its own Structure marker, got: {regions:?}"
+        );
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(p) if p.contains("First sentence.") && p.contains("Second sentence.")
+            )),
+            "item body must be Prose, got: {regions:?}"
+        );
+        assert!(
+            !regions
+                .iter()
+                .any(|r| matches!(r, Region::Prose(p) if p.contains("\\item"))),
+            "\\item must not stay inside Prose: {regions:?}"
+        );
+    }
+
+    #[test]
+    fn enumerate_item_multi_sentence_hangs() {
+        use crate::format::Format;
+        use crate::{FormatConfig, format_text};
+
+        let input =
+            "\\begin{enumerate}\n\\item First sentence. Second sentence.\n\\end{enumerate}\n";
+        let cfg = FormatConfig {
+            format: Format::Latex,
+            ..Default::default()
+        };
+        let out = format_text(input, &cfg).unwrap();
+        assert_eq!(
+            out,
+            "\\begin{enumerate}\n\\item First sentence.\n      Second sentence.\n\\end{enumerate}\n"
+        );
+        let lines: Vec<_> = out.lines().collect();
+        assert_eq!(lines[0], "\\begin{enumerate}");
+        assert_eq!(lines[1], "\\item First sentence.");
+        assert_eq!(lines[2], "      Second sentence.");
+        assert_eq!(lines[3], "\\end{enumerate}");
+        assert!(
+            lines[2].starts_with("      ") && !lines[2].starts_with("       "),
+            "second sentence must hang at \\\\item width (6 spaces), got: {lines:?}"
+        );
+        assert_eq!(format_text(&out, &cfg).unwrap(), out);
+        assert!(
+            crate::oracle::matches(Format::Latex, input, &out),
+            "hung enumerate must stay render-safe"
+        );
+    }
 
     #[test]
     fn section_command_title_is_structure_not_prose() {
