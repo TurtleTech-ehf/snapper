@@ -2249,6 +2249,34 @@ They are endowed with reason and conscience and should act towards one another i
     }
 
     #[test]
+    fn max_width_keeps_org_radio_target_atomic() {
+        let token = "<<<the Fourier. transform>>>";
+        let sentence = "See <<<the Fourier. transform>>> in the text. Next sentence.";
+        for clause in [false, true] {
+            let wrapped = wrap_sentence(sentence, 28, clause);
+            assert_atomic_token(&wrapped, token);
+            assert!(
+                !wrapped.contains("Fourier.\ntransform"),
+                "must not wrap on the interior period, got:\n{wrapped}"
+            );
+        }
+    }
+
+    #[test]
+    fn max_width_keeps_org_angle_target_atomic() {
+        let token = "<<sec. intro>>";
+        let sentence = "See <<sec. intro>> in the text. Next sentence.";
+        for clause in [false, true] {
+            let wrapped = wrap_sentence(sentence, 20, clause);
+            assert_atomic_token(&wrapped, token);
+            assert!(
+                !wrapped.contains("sec.\nintro"),
+                "must not wrap on the interior period, got:\n{wrapped}"
+            );
+        }
+    }
+
+    #[test]
     fn max_width_keeps_math_atomic() {
         let token = "$E = m c^{2}$";
         let sentence = "The identity $E = m c^{2}$ holds in this frame.";

@@ -2456,6 +2456,88 @@ mod tests {
         assert_eq!(format_text(&wrapped, &wrap_cfg).unwrap(), wrapped);
     }
 
+    /// Ticket fixture (Format::Org / GitHub #211): org-element radio
+    /// targets stay one token so an interior period is not a sentence
+    /// boundary. `Next sentence.` still splits.
+    fn radio_target_fixture() -> &'static str {
+        "See <<<the Fourier. transform>>> in the text. Next sentence.\n"
+    }
+
+    #[test]
+    fn org_radio_target_interior_punct_is_not_a_sentence_boundary() {
+        use crate::format_text;
+
+        let radio = "<<<the Fourier. transform>>>";
+        let input = radio_target_fixture();
+        let regions = OrgParser.parse(input);
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(p)
+                    if p.contains(radio) && p.contains("Next sentence.")
+            )),
+            "radio target stays inline Prose, got: {regions:?}"
+        );
+        let out = format_text(input, &org_cfg()).unwrap();
+        assert!(
+            out.contains("See <<<the Fourier. transform>>> in the text.\nNext sentence."),
+            "sentence after the radio target must reflow, got:\n{out}"
+        );
+        assert!(
+            !out.contains("Fourier.\n") && !out.contains("<<<the Fourier.\ntransform>>>"),
+            "must not split inside the radio target, got:\n{out}"
+        );
+        assert_eq!(format_text(&out, &org_cfg()).unwrap(), out);
+
+        let wrap_cfg = crate::FormatConfig {
+            format: crate::format::Format::Org,
+            max_width: 28,
+            ..Default::default()
+        }
+        .without_safety_backstops();
+        let wrapped = format_text(input, &wrap_cfg).unwrap();
+        assert!(
+            wrapped.lines().any(|l| l.contains(radio)),
+            "wrap must not cut inside the radio target, got:\n{wrapped}"
+        );
+        assert!(
+            !wrapped.contains("Fourier.\ntransform"),
+            "must not wrap on the interior period, got:\n{wrapped}"
+        );
+        assert!(
+            wrapped.contains("Next sentence."),
+            "sentence after the radio target must still reflow, got:\n{wrapped}"
+        );
+        assert_eq!(format_text(&wrapped, &wrap_cfg).unwrap(), wrapped);
+    }
+
+    #[test]
+    fn org_angle_target_interior_punct_is_not_a_sentence_boundary() {
+        use crate::format_text;
+
+        let target = "<<sec. intro>>";
+        let input = "See <<sec. intro>> in the text. Next sentence.\n";
+        let regions = OrgParser.parse(input);
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(p)
+                    if p.contains(target) && p.contains("Next sentence.")
+            )),
+            "angle target stays inline Prose, got: {regions:?}"
+        );
+        let out = format_text(input, &org_cfg()).unwrap();
+        assert!(
+            out.contains("See <<sec. intro>> in the text.\nNext sentence."),
+            "sentence after the angle target must reflow, got:\n{out}"
+        );
+        assert!(
+            !out.contains("sec.\nintro"),
+            "must not split inside the angle target, got:\n{out}"
+        );
+        assert_eq!(format_text(&out, &org_cfg()).unwrap(), out);
+    }
+
     /// Ticket fixture (Format::Org / GitHub #177): org-comment-regexp
     /// requires space or EOL after `#`. `#foo` is prose.
     fn hash_comment_space_or_eol_fixture() -> &'static str {
