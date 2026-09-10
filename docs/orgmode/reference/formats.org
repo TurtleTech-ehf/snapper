@@ -67,6 +67,7 @@ These tokens within prose are not split across lines:
 - Radio targets: =<<<contents>>>= (org-element-radio-target-parser)
 - Angle targets: =<<contents>>= (org-element-target-parser)
 - Macros: ={{{name}}}= / ={{{name(args)}}}= (org-element-macro-parser)
+- Inline footnotes: =[fn:: def]= / =[fn:name: def]= (org-element-footnote-reference-parser)
 - URLs: =https://...= (trailing sentence punctuation not swallowed)
 
 ** LaTeX (=--format latex=)
