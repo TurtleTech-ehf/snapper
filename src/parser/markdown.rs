@@ -437,6 +437,37 @@ fn is_setext_underline(line: &str) -> bool {
     SETEXT_UNDERLINE_RE.is_match(trimmed)
 }
 
+/// CommonMark 0.31.2 §4.1 thematic break: 0–3 spaces of indentation,
+/// then three or more matching `-` / `*` / `_`, each optionally followed
+/// by spaces or tabs. A leading tab is indent ≥ 4, so not a break.
+fn is_thematic_break(line: &str) -> bool {
+    let bytes = line.as_bytes();
+    let mut i = 0;
+    while i < bytes.len() && i < 3 && bytes[i] == b' ' {
+        i += 1;
+    }
+    if i >= bytes.len() {
+        return false;
+    }
+    let marker = bytes[i];
+    if !matches!(marker, b'-' | b'*' | b'_') {
+        return false;
+    }
+    let mut count = 0;
+    while i < bytes.len() {
+        let b = bytes[i];
+        if b == marker {
+            count += 1;
+            i += 1;
+        } else if b == b' ' || b == b'\t' {
+            i += 1;
+        } else {
+            return false;
+        }
+    }
+    count >= 3
+}
+
 /// Leading whitespace width in bytes (`trim_start` prefix).
 fn line_indent(line: &str) -> usize {
     line.len() - line.trim_start().len()
@@ -633,6 +664,9 @@ fn is_setext_title_line(line: &str) -> bool {
         return false;
     }
     if LIST_ITEM_RE.is_match(line) || QUOTE_RE.is_match(line) {
+        return false;
+    }
+    if is_thematic_break(line) {
         return false;
     }
     if FENCED_CODE_RE.is_match(line.trim_start()) {
@@ -1007,6 +1041,25 @@ impl FormatParser for MarkdownParser {
                 continue;
             }
 
+            // CommonMark 4.1 thematic break. After setext so Foo\n--- stays
+            // a heading; Foo\n\n--- is paragraph + HR. Before LIST_ITEM_RE
+            // so `* * *` / `- - -` are not lists.
+            if is_thematic_break(line_text) {
+                close_list_item(
+                    &mut in_list_item,
+                    &mut list_hang,
+                    &mut current_prose,
+                    &mut prose_span,
+                    &mut list_term,
+                    input,
+                    &mut regions,
+                );
+                flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
+                regions.push(SpannedRegion::structure(input, line.span()));
+                i += 1;
+                continue;
+            }
+
             // GFM table: header + delimiter (leading/trailing pipes optional).
             // Pipe-less rows are Structure only when a separator is present.
             if i + 1 < total {
@@ -1126,6 +1179,7 @@ impl FormatParser for MarkdownParser {
                 if HEADING_RE.is_match(text)
                     || TABLE_ROW_RE.is_match(text)
                     || FENCED_CODE_RE.is_match(text.trim_start())
+                    || is_thematic_break(text)
                 {
                     regions.push(SpannedRegion::structure(input, line.span()));
                     i += 1;
@@ -2919,5 +2973,265 @@ mod tests {
             "inline $...$ must not open display math, got:\n{out}"
         );
         assert_eq!(format_text(&out, &md_cfg()).unwrap(), out);
+    }
+
+    /// Ticket fixture (Format::Markdown): blank then `---` is HR, not
+    /// joined prose; `***` after a paragraph interrupts (snapper-ojf8).
+    fn ojf8_fixture() -> &'static str {
+        concat!(
+            "Hello world. Next sentence.\n",
+            "\n",
+            "---\n",
+            "Still going. More text.\n",
+            "\n",
+            "Intro. Text.\n",
+            "***\n",
+        )
+    }
+
+    #[test]
+    fn thematic_break_predicate_matches_commonmark_4_1() {
+        assert!(is_thematic_break("***"));
+        assert!(is_thematic_break("---"));
+        assert!(is_thematic_break("___"));
+        assert!(is_thematic_break("* * *"));
+        assert!(is_thematic_break("- - -"));
+        assert!(is_thematic_break("_ _ _"));
+        assert!(is_thematic_break(" ***"));
+        assert!(is_thematic_break("  ***"));
+        assert!(is_thematic_break("   ***"));
+        assert!(!is_thematic_break("    ***"));
+        assert!(!is_thematic_break("**"));
+        assert!(!is_thematic_break("--"));
+        assert!(!is_thematic_break("==="));
+        assert!(!is_thematic_break("*-*"));
+        assert!(!is_thematic_break("+++"));
+    }
+
+    #[test]
+    fn blank_then_dashes_is_thematic_break_not_joined_prose() {
+        use crate::format_text;
+
+        let input = "Hello world. Next sentence.\n\n---\nStill going. More text.\n";
+        let regions = MarkdownParser.parse(input);
+        assert!(
+            regions
+                .iter()
+                .any(|r| matches!(r, Region::Structure(s) if s.trim() == "---")),
+            "--- after a blank must be Structure, got: {regions:?}"
+        );
+        assert!(
+            !regions
+                .iter()
+                .any(|r| matches!(r, Region::Prose(p) if p.contains("---"))),
+            "--- must not join surrounding prose, got: {regions:?}"
+        );
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(p) if p.contains("Hello world.") && p.contains("Next sentence.")
+            )),
+            "prose before the break must stay Prose, got: {regions:?}"
+        );
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(p) if p.contains("Still going.") && p.contains("More text.")
+            )),
+            "prose after the break must stay Prose, got: {regions:?}"
+        );
+        let out = format_text(input, &md_cfg()).unwrap();
+        assert!(
+            out.contains("Hello world.\nNext sentence.\n\n---\nStill going."),
+            "--- must stay a break between paragraphs, got:\n{out}"
+        );
+        assert!(
+            !out.contains("--- Still going.") && !out.contains("Next sentence. ---"),
+            "--- must not join either paragraph, got:\n{out}"
+        );
+        assert!(
+            out.contains("Still going.\nMore text."),
+            "prose after --- must still reflow, got:\n{out}"
+        );
+        assert_eq!(format_text(&out, &md_cfg()).unwrap(), out);
+    }
+
+    #[test]
+    fn starred_thematic_break_interrupts_paragraph() {
+        use crate::format_text;
+
+        let input = "Intro. Text.\n***\n";
+        let regions = MarkdownParser.parse(input);
+        assert!(
+            regions
+                .iter()
+                .any(|r| matches!(r, Region::Structure(s) if s.trim() == "***")),
+            "*** must be Structure, got: {regions:?}"
+        );
+        assert!(
+            !regions
+                .iter()
+                .any(|r| matches!(r, Region::Prose(p) if p.contains("***"))),
+            "*** must not join the preceding paragraph, got: {regions:?}"
+        );
+        let out = format_text(input, &md_cfg()).unwrap();
+        assert!(
+            out.contains("Intro.\nText.\n***"),
+            "*** must interrupt the paragraph, got:\n{out}"
+        );
+        assert!(
+            !out.contains("Text. ***") && !out.contains("Text.\n*** Text"),
+            "*** must not glue onto prose, got:\n{out}"
+        );
+        assert_eq!(format_text(&out, &md_cfg()).unwrap(), out);
+    }
+
+    #[test]
+    fn spaced_star_thematic_break_is_not_a_list() {
+        use crate::format_text;
+
+        // Isolated so origin/main cannot pass via LIST_ITEM_RE (`* ` + `* *`).
+        let input = "Intro. Text.\n* * *\nAfter. More.\n";
+        let regions = MarkdownParser.parse(input);
+        assert!(
+            regions
+                .iter()
+                .any(|r| matches!(r, Region::Structure(s) if s.trim() == "* * *")),
+            "* * * must be a Structure break, got: {regions:?}"
+        );
+        assert!(
+            !regions
+                .iter()
+                .any(|r| matches!(r, Region::Structure(s) if s == "* ")),
+            "* * * must not be a list marker, got: {regions:?}"
+        );
+        assert!(
+            !regions
+                .iter()
+                .any(|r| matches!(r, Region::Prose(p) if p.contains("* *"))),
+            "* * * must not leak into Prose, got: {regions:?}"
+        );
+        let out = format_text(input, &md_cfg()).unwrap();
+        assert!(
+            out.contains("Intro.\nText.\n* * *\nAfter."),
+            "* * * must stay a break, not a list hang, got:\n{out}"
+        );
+        assert!(
+            !out.contains("* * * After.") && !out.contains("\n  After."),
+            "* * * must not reflow as a list, got:\n{out}"
+        );
+        assert!(
+            out.contains("After.\nMore."),
+            "prose after * * * must still reflow, got:\n{out}"
+        );
+        assert_eq!(format_text(&out, &md_cfg()).unwrap(), out);
+    }
+
+    #[test]
+    fn setext_dash_underline_stays_heading_not_hr() {
+        use crate::format_text;
+
+        let input = "Foo title. Still title\n---\nBody after. More.\n";
+        let regions = MarkdownParser.parse(input);
+        assert!(
+            matches!(&regions[0], Region::Structure(s) if s == "Foo title. Still title\n"),
+            "Foo\\n--- must stay setext title, got: {regions:?}"
+        );
+        assert!(
+            matches!(&regions[1], Region::Structure(s) if s.trim() == "---"),
+            "setext underline must stay Structure, got: {regions:?}"
+        );
+        assert!(
+            !regions
+                .iter()
+                .any(|r| matches!(r, Region::Prose(p) if p.contains("Still title"))),
+            "setext title must not become Prose, got: {regions:?}"
+        );
+        let out = format_text(input, &md_cfg()).unwrap();
+        assert!(
+            out.starts_with("Foo title. Still title\n---\n"),
+            "Foo\\n--- must stay setext, not paragraph + HR, got:\n{out}"
+        );
+        assert!(
+            out.contains("Body after.\nMore."),
+            "prose after setext must still reflow, got:\n{out}"
+        );
+        assert_eq!(format_text(&out, &md_cfg()).unwrap(), out);
+    }
+
+    #[test]
+    fn ojf8_fixture_thematic_breaks_stay_structure() {
+        use crate::format_text;
+
+        let input = ojf8_fixture();
+        let regions = MarkdownParser.parse(input);
+        assert!(
+            regions
+                .iter()
+                .any(|r| matches!(r, Region::Structure(s) if s.trim() == "---")),
+            "ticket --- must be Structure, got: {regions:?}"
+        );
+        assert!(
+            regions
+                .iter()
+                .any(|r| matches!(r, Region::Structure(s) if s.trim() == "***")),
+            "ticket *** must be Structure, got: {regions:?}"
+        );
+        assert!(
+            !regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(p) if p.contains("---") || p.contains("***")
+            )),
+            "ticket breaks must not be Prose, got: {regions:?}"
+        );
+        let out = format_text(input, &md_cfg()).unwrap();
+        assert!(
+            out.contains("Hello world.\nNext sentence.\n\n---\nStill going.\nMore text."),
+            "ticket --- fixture must not join, got:\n{out}"
+        );
+        assert!(
+            out.contains("Intro.\nText.\n***"),
+            "ticket *** fixture must interrupt, got:\n{out}"
+        );
+        assert_eq!(format_text(&out, &md_cfg()).unwrap(), out);
+    }
+
+    #[test]
+    fn underscore_and_spaced_dash_breaks_are_structure() {
+        use crate::format_text;
+
+        for marker in ["___", "_ _ _", "- - -", "   ---"] {
+            // Blank before dashes so setext cannot claim the line (Kang).
+            let input = format!("Before. Text.\n\n{marker}\nAfter. More.\n");
+            let regions = MarkdownParser.parse(&input);
+            assert!(
+                regions
+                    .iter()
+                    .any(|r| matches!(r, Region::Structure(s) if s.trim() == marker.trim())),
+                "{marker:?} must be Structure, got: {regions:?}"
+            );
+            assert!(
+                !regions
+                    .iter()
+                    .any(|r| matches!(r, Region::Prose(p) if p.contains(marker.trim()))),
+                "{marker:?} must not join prose, got: {regions:?}"
+            );
+            assert!(
+                !regions
+                    .iter()
+                    .any(|r| matches!(r, Region::Structure(s) if s == "- " || s == "* ")),
+                "{marker:?} must not be a list marker, got: {regions:?}"
+            );
+            let out = format_text(&input, &md_cfg()).unwrap();
+            assert!(
+                out.contains(&format!("Before.\nText.\n\n{marker}\nAfter.")),
+                "{marker:?} must stay a break, got:\n{out}"
+            );
+            assert!(
+                out.contains("After.\nMore."),
+                "prose after {marker:?} must still reflow, got:\n{out}"
+            );
+            assert_eq!(format_text(&out, &md_cfg()).unwrap(), out);
+        }
     }
 }
