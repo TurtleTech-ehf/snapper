@@ -920,9 +920,10 @@ fn wrap_atomic_words(
 /// Repeat list/quote hang after source newlines left inside one sentence.
 ///
 /// Compact RST list joins insert a newline after sentence punct (`No.`,
-/// `etc.`) or inside an open quote or `()`; abbreviation/delimiter merge
-/// then keeps that as one sentence, so splice would otherwise emit the
-/// continuation flush-left (GitHub #129, #130, #131).
+/// `etc.`), inside an open quote or `()`, or inside an open ``inline
+/// literal``; abbreviation/delimiter merge then keeps that as one
+/// sentence, so splice would otherwise emit the continuation flush-left
+/// (GitHub #129, #130, #131, #143).
 fn hang_internal_newlines(text: &str, hang: &str) -> String {
     if hang.is_empty() || !text.contains('\n') {
         return text.to_string();
@@ -1753,6 +1754,29 @@ They are endowed with reason and conscience and should act towards one another i
                 "- Ordering (smaller indices mean higher priority.\n",
                 "  Recurse to the left side of the array)\n",
                 "- Next item.\n",
+            )
+        );
+    }
+
+    #[test]
+    fn rst_open_inline_literal_list_keeps_hang_on_internal_newline() {
+        // GitHub #143: ``not valid.`` stays one sentence while the
+        // literal is open, and the following sentence hangs at marker
+        // width. Compact-hang newlines must still get the two-space prefix.
+        let result = reflow_regions(vec![
+            Region::Structure("- ".to_string()),
+            Region::Prose(
+                "The error is ``not valid.\nChoose from: one, two`` and continue.\nA separate sentence."
+                    .to_string(),
+            ),
+            Region::Structure("\n".to_string()),
+        ]);
+        assert_eq!(
+            result,
+            concat!(
+                "- The error is ``not valid.\n",
+                "  Choose from: one, two`` and continue.\n",
+                "  A separate sentence.\n",
             )
         );
     }
