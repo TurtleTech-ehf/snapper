@@ -273,7 +273,8 @@ impl LatexParser {
     }
 
     /// Byte offset of the first `%` that is not escaped as `\%` and is not
-    /// inside `\verb` / `\lstinline` / `\spverb` / configured verbatim commands.
+    /// inside `\verb` / `\lstinline` / `\spverb` / `\mintinline` / `\mint` /
+    /// configured verbatim commands.
     fn unescaped_percent(&self, line: &str) -> Option<usize> {
         unescaped_percent_with(line, &self.extra_verbatim_commands)
     }
@@ -644,7 +645,8 @@ fn find_tex_cs(line: &str, from: usize, cs: &str) -> Option<usize> {
     None
 }
 
-/// `\iffalse` in ordinary TeX, skipping `\verb` / `\lstinline` / `\spverb` spans.
+/// `\iffalse` in ordinary TeX, skipping `\verb` / `\lstinline` / `\spverb` /
+/// `\mintinline` / `\mint` spans.
 fn find_iffalse_at(line: &str, from: usize, extra_cmds: &[String]) -> Option<usize> {
     let bytes = line.as_bytes();
     let mut i = from;
@@ -1953,6 +1955,76 @@ Some text.
             "prose after lstinline must remain, got:\n{out}"
         );
         assert_eq!(format_text(&out, &latex_cfg()).unwrap(), out);
+    }
+
+    /// Ticket fixture (GitHub #245): minted.sty `\mintinline` / `\mint`
+    /// take `{lang}` then a FancyVerb body. Inner `.!?%` must not split
+    /// or comment; following `Next sentence.` still splits.
+    #[test]
+    fn mintinline_and_mint_stay_atomic() {
+        use crate::format_text;
+
+        let input = "\\begin{document}\nUse \\mintinline{python}|a.b! c| here. Next sentence.\n\\end{document}\n";
+        let out = format_text(input, &latex_cfg()).unwrap();
+        assert!(
+            out.contains(r"\mintinline{python}|a.b! c|"),
+            "mintinline delim span must stay one token, got:\n{out}"
+        );
+        assert!(
+            !out.contains("\\mintinline{python}|a.\n")
+                && !out.contains("\\mintinline{python}|a.b!\n"),
+            "inner .!? must not split mintinline, got:\n{out}"
+        );
+        assert!(
+            out.contains("Use \\mintinline{python}|a.b! c| here.\nNext sentence."),
+            "Next sentence. must still split after mintinline, got:\n{out}"
+        );
+        assert_eq!(format_text(&out, &latex_cfg()).unwrap(), out);
+
+        let braces = "\\begin{document}\nUse \\mintinline{python}{a.b! c} here. Next sentence.\n\\end{document}\n";
+        let braces_out = format_text(braces, &latex_cfg()).unwrap();
+        assert!(
+            braces_out.contains(r"\mintinline{python}{a.b! c}"),
+            "mintinline {{lang}}{{body}} must stay one token, got:\n{braces_out}"
+        );
+        assert!(
+            braces_out.contains("Use \\mintinline{python}{a.b! c} here.\nNext sentence."),
+            "Next sentence. must still split after mintinline brace body, got:\n{braces_out}"
+        );
+
+        let mint =
+            "\\begin{document}\nUse \\mint{python}|a.b! c| here. Next sentence.\n\\end{document}\n";
+        let mint_out = format_text(mint, &latex_cfg()).unwrap();
+        assert!(
+            mint_out.contains(r"\mint{python}|a.b! c|"),
+            "mint delim span must stay one token, got:\n{mint_out}"
+        );
+        assert!(
+            mint_out.contains("Use \\mint{python}|a.b! c| here.\nNext sentence."),
+            "Next sentence. must still split after mint, got:\n{mint_out}"
+        );
+
+        let percent = "\\begin{document}\nCode \\mintinline{python}|a%b| here. Next sentence.\n\\end{document}\n";
+        let percent_out = format_text(percent, &latex_cfg()).unwrap();
+        assert!(
+            percent_out.contains(r"\mintinline{python}|a%b|"),
+            "mintinline with inner % must stay intact, got:\n{percent_out}"
+        );
+        assert!(
+            percent_out.contains("here."),
+            "text after mintinline must not be commented out, got:\n{percent_out}"
+        );
+        let regions = LatexParser::default().parse(percent);
+        assert!(
+            !regions.iter().any(
+                |r| matches!(r, Region::Structure(s) if s.contains("%b|") || s.trim() == "%b|\n")
+            ),
+            "inner % of mintinline must not be a comment, got: {regions:?}"
+        );
+        assert_eq!(
+            format_text(&percent_out, &latex_cfg()).unwrap(),
+            percent_out
+        );
     }
 
     #[test]

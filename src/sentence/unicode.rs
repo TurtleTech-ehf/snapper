@@ -176,7 +176,8 @@ pub fn protect_inline_tokens_with(
     (protected.into_owned(), placeholders)
 }
 
-/// `\verb|...|` / `\lstinline[...]!...!` / `\spverb|...|` so inner `.!?%` cannot split or comment.
+/// `\verb|...|` / `\lstinline[...]!...!` / `\spverb|...|` /
+/// `\mintinline{lang}|...|` / `\mint{lang}|...|` so inner `.!?%` cannot split or comment.
 fn protect_latex_verbatim(
     text: &str,
     placeholders: &mut Vec<String>,
@@ -200,13 +201,28 @@ fn protect_latex_verbatim(
     out
 }
 
-/// Byte end of a `\verb` / `\lstinline` / `\spverb` / extra-name span starting at `at`.
+/// Argument form of a built-in or extra LaTeX verbatim command.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum VerbForm {
+    /// `\verb` / `\spverb` / extras: next character is the delimiter.
+    Delim,
+    /// `\lstinline`: optional `[...]` then delimiter or `{...}`.
+    Lstinline,
+    /// `\mintinline` / `\mint`: optional `[...]`, `{lang}`, then delimiter or `{...}`.
+    Mint,
+}
+
+/// Byte end of a `\verb` / `\lstinline` / `\spverb` / `\mintinline` /
+/// `\mint` / extra-name span starting at `at`.
 ///
 /// `\verb` / `\verb*` / `\spverb` / `\spverb*`: next character is the
 /// delimiter; content runs to the same character. `\lstinline` /
 /// `\lstinline*` may take optional `[...]` before a delimiter or a
-/// `{...}` brace body. Extra names are tokenized like `\verb`. With no
-/// closer, the span runs to end of line so an inner `%` is not a comment.
+/// `{...}` brace body. `\mintinline` / `\mint` (and starred twins) take
+/// optional `[...]`, a required `{lang}`, then a delimiter or `{...}`
+/// body (minted.sty / `\FVExtraReadVArg`). Extra names are tokenized
+/// like `\verb`. With no closer, the span runs to end of line so an
+/// inner `%` is not a comment.
 pub(crate) fn latex_verb_span_end_with(
     text: &str,
     at: usize,
@@ -218,31 +234,41 @@ pub(crate) fn latex_verb_span_end_with(
     }
     let after_bs = at + 1;
     let tail = text.get(after_bs..)?;
-    let (mut i, is_lst) = if let Some(stripped) = tail.strip_prefix("lstinline") {
+    let (mut i, form) = if let Some(stripped) = tail.strip_prefix("mintinline") {
         if stripped.starts_with(|c: char| c.is_ascii_alphabetic()) {
             return None;
         }
-        (after_bs + "lstinline".len(), true)
+        (after_bs + "mintinline".len(), VerbForm::Mint)
+    } else if let Some(stripped) = tail.strip_prefix("mint") {
+        if stripped.starts_with(|c: char| c.is_ascii_alphabetic()) {
+            return None;
+        }
+        (after_bs + "mint".len(), VerbForm::Mint)
+    } else if let Some(stripped) = tail.strip_prefix("lstinline") {
+        if stripped.starts_with(|c: char| c.is_ascii_alphabetic()) {
+            return None;
+        }
+        (after_bs + "lstinline".len(), VerbForm::Lstinline)
     } else if let Some(stripped) = tail.strip_prefix("spverb") {
         if stripped.starts_with(|c: char| c.is_ascii_alphabetic()) {
             return None;
         }
-        (after_bs + "spverb".len(), false)
+        (after_bs + "spverb".len(), VerbForm::Delim)
     } else if let Some(stripped) = tail.strip_prefix("verb") {
         if stripped.starts_with(|c: char| c.is_ascii_alphabetic()) {
             return None;
         }
-        (after_bs + "verb".len(), false)
+        (after_bs + "verb".len(), VerbForm::Delim)
     } else {
         let name = match_extra_verb_command(tail, extra_verbatim_commands)?;
-        (after_bs + name.len(), false)
+        (after_bs + name.len(), VerbForm::Delim)
     };
 
     if text.get(i..)?.starts_with('*') {
         i += 1;
     }
 
-    if is_lst {
+    if matches!(form, VerbForm::Lstinline | VerbForm::Mint) {
         i = skip_ascii_ws(text, i);
         if text.get(i..).is_some_and(|s| s.starts_with('[')) {
             match skip_bracket_group(text, i) {
@@ -252,13 +278,23 @@ pub(crate) fn latex_verb_span_end_with(
         }
     }
 
+    if form == VerbForm::Mint {
+        if !text.get(i..).is_some_and(|s| s.starts_with('{')) {
+            return None;
+        }
+        match find_unescaped_brace_close(text, i + 1) {
+            Some(end) => i = skip_ascii_ws(text, end),
+            None => return Some(line_end(text, i)),
+        }
+    }
+
     let delim = text.get(i..).and_then(|s| s.chars().next())?;
     if delim == '\n' {
         return None;
     }
     i += delim.len_utf8();
 
-    if is_lst && delim == '{' {
+    if matches!(form, VerbForm::Lstinline | VerbForm::Mint) && delim == '{' {
         return Some(find_unescaped_brace_close(text, i).unwrap_or_else(|| line_end(text, i)));
     }
 
@@ -287,7 +323,13 @@ fn line_end(text: &str, from: usize) -> usize {
 fn match_extra_verb_command<'a>(tail: &'a str, extras: &'a [String]) -> Option<&'a str> {
     let mut best: Option<&str> = None;
     for name in extras {
-        if name.is_empty() || name == "verb" || name == "lstinline" || name == "spverb" {
+        if name.is_empty()
+            || name == "verb"
+            || name == "lstinline"
+            || name == "spverb"
+            || name == "mintinline"
+            || name == "mint"
+        {
             continue;
         }
         let Some(stripped) = tail.strip_prefix(name.as_str()) else {
@@ -1688,6 +1730,120 @@ mod tests {
                 r"See \lstinline[language=TeX]!a.b%! please.".to_string(),
                 "Next.".to_string()
             ]
+        );
+    }
+
+    #[test]
+    fn latex_mintinline_delim_stays_atomic() {
+        let text = r"Use \mintinline{python}|a.b! c| here. Next sentence.";
+        let (_, placeholders) = protect_inline_tokens(text);
+        assert!(
+            placeholders
+                .iter()
+                .any(|p| p == r"\mintinline{python}|a.b! c|"),
+            "mintinline delim span must be one token, got {placeholders:?}"
+        );
+        assert_eq!(
+            latex_verb_span_end_with(r"\mintinline{python}|a.b! c|", 0, &[]),
+            Some(r"\mintinline{python}|a.b! c|".len())
+        );
+        assert_eq!(
+            split(text),
+            vec![
+                r"Use \mintinline{python}|a.b! c| here.".to_string(),
+                "Next sentence.".to_string()
+            ]
+        );
+    }
+
+    #[test]
+    fn latex_mintinline_brace_body_stays_atomic() {
+        let text = r"Use \mintinline{python}{a.b! c} here. Next sentence.";
+        let (_, placeholders) = protect_inline_tokens(text);
+        assert!(
+            placeholders
+                .iter()
+                .any(|p| p == r"\mintinline{python}{a.b! c}"),
+            "mintinline brace body must be one token, got {placeholders:?}"
+        );
+        assert_eq!(
+            split(text),
+            vec![
+                r"Use \mintinline{python}{a.b! c} here.".to_string(),
+                "Next sentence.".to_string()
+            ]
+        );
+    }
+
+    #[test]
+    fn latex_mint_delim_and_brace_stay_atomic() {
+        let delim = r"Use \mint{python}|a.b! c| here. Next sentence.";
+        let (_, placeholders) = protect_inline_tokens(delim);
+        assert!(
+            placeholders.iter().any(|p| p == r"\mint{python}|a.b! c|"),
+            "mint delim span must be one token, got {placeholders:?}"
+        );
+        assert_eq!(
+            split(delim),
+            vec![
+                r"Use \mint{python}|a.b! c| here.".to_string(),
+                "Next sentence.".to_string()
+            ]
+        );
+        let braces = r"Use \mint{python}{a.b! c} here. Next sentence.";
+        let (_, placeholders) = protect_inline_tokens(braces);
+        assert!(
+            placeholders.iter().any(|p| p == r"\mint{python}{a.b! c}"),
+            "mint brace body must be one token, got {placeholders:?}"
+        );
+        assert_eq!(
+            split(braces),
+            vec![
+                r"Use \mint{python}{a.b! c} here.".to_string(),
+                "Next sentence.".to_string()
+            ]
+        );
+    }
+
+    #[test]
+    fn latex_mintinline_optional_args_stay_atomic() {
+        let text = r"See \mintinline[breaklines]{python}|a.b%| please. Next.";
+        let (_, placeholders) = protect_inline_tokens(text);
+        assert!(
+            placeholders
+                .iter()
+                .any(|p| p == r"\mintinline[breaklines]{python}|a.b%|"),
+            "mintinline optional args must stay on the token, got {placeholders:?}"
+        );
+        assert_eq!(
+            split(text),
+            vec![
+                r"See \mintinline[breaklines]{python}|a.b%| please.".to_string(),
+                "Next.".to_string()
+            ]
+        );
+    }
+
+    #[test]
+    fn latex_mint_does_not_steal_minted() {
+        assert_eq!(
+            latex_verb_span_end_with(r"\minted{python}|x.y|", 0, &[]),
+            None,
+            "mint must not match as a prefix of minted"
+        );
+        assert_eq!(
+            latex_verb_span_end_with(r"\mintinline{python}|x.y|", 0, &[]),
+            Some(r"\mintinline{python}|x.y|".len())
+        );
+        assert_eq!(
+            latex_verb_span_end_with(r"\mint{python}|x.y|", 0, &[]),
+            Some(r"\mint{python}|x.y|".len())
+        );
+        let text = r"Use \minted{python}|x.y| here. Next.";
+        let (_, placeholders) = protect_inline_tokens(text);
+        assert!(
+            placeholders.iter().all(|p| p != r"\minted{python}|x.y|"),
+            "minted env opener must not become a verb span, got {placeholders:?}"
         );
     }
 
