@@ -983,6 +983,11 @@ fn hanging_indent_width(s: &str) -> usize {
     if trimmed.len() < 2 {
         return 0;
     }
+    // RST footnote/citation (`.. [1] `, `.. [CIT2002] `): hang at
+    // marker width so the body stays a hung paragraph (GitHub #175).
+    if crate::parser::rst::rst_footnote_citation_marker_len(s) == Some(s.len()) {
+        return s.chars().count();
+    }
     // RST option column (`-a            `, `--long        `): hang at
     // the full column so the description stays aligned (GitHub #89).
     if crate::parser::rst::rst_option_column_len(s) == Some(s.len()) {
@@ -1624,6 +1629,12 @@ They are endowed with reason and conscience and should act towards one another i
         assert_eq!(hanging_indent_width("--long        "), 14);
         assert_eq!(hanging_prefix("-a            "), "              ");
         assert_eq!(hanging_prefix("--long        "), "              ");
+        assert_eq!(hanging_indent_width(".. [1] "), 7);
+        assert_eq!(hanging_indent_width(".. [#] "), 7);
+        assert_eq!(hanging_indent_width(".. [*] "), 7);
+        assert_eq!(hanging_indent_width(".. [CIT2002] "), 13);
+        assert_eq!(hanging_prefix(".. [1] "), "       ");
+        assert_eq!(hanging_prefix(".. [CIT2002] "), "             ");
     }
 
     #[test]
