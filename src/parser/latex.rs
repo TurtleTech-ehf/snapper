@@ -714,11 +714,50 @@ impl<'a> ParseState<'a> {
         }
     }
 
+    /// Structure from `\iffalse` at `open` through the first `\fi` (or EOL).
+    /// Returns true: the physical line is fully consumed (rest is recursed).
+    fn consume_iffalse_from(&mut self, line: Line<'_>, open: usize) -> bool {
+        self.flush();
+        let after_open = open + "\\iffalse".len();
+        if let Some(close) = find_tex_cs(line.text, after_open, "\\fi") {
+            let after = close + "\\fi".len();
+            let end = if line.text[after..].trim().is_empty() {
+                thru_eol_if_blank_rest(line, after)
+            } else {
+                line.start + after
+            };
+            self.regions.push(SpannedRegion::structure(
+                self.input,
+                ByteSpan::new(line.start + open, end),
+            ));
+            if !line.text[after..].trim().is_empty() {
+                self.consume_body_line(rest_line(line, after));
+            }
+            return true;
+        }
+        self.in_iffalse = true;
+        self.regions.push(SpannedRegion::structure(
+            self.input,
+            ByteSpan::new(line.start + open, line.end),
+        ));
+        true
+    }
+
     /// Returns true when the physical `line` is fully consumed.
     fn consume_code_span(&mut self, code: &str, line: Line<'_>) -> bool {
         let mut i = 0;
         while i < code.len() {
-            if let Some(hit) = find_env_at(code, i, &self.parser.extra_verbatim_commands) {
+            let env = find_env_at(code, i, &self.parser.extra_verbatim_commands);
+            let iffalse = find_iffalse_at(code, i, &self.parser.extra_verbatim_commands);
+            // A later `\begin`/`\end` on the same physical line must not
+            // steal an earlier `\iffalse` (tree-sitter `block_comment`).
+            if let Some(open) =
+                iffalse.filter(|&open| env.as_ref().is_none_or(|hit| open < hit.start))
+            {
+                self.append_item_or_prose(line.start + i, &code[i..open]);
+                return self.consume_iffalse_from(line, open);
+            }
+            if let Some(hit) = env {
                 self.append_item_or_prose(line.start + i, &code[i..hit.start]);
                 if hit.is_begin && self.parser.is_code_env(&hit.name) {
                     self.flush();
@@ -771,33 +810,6 @@ impl<'a> ParseState<'a> {
             }
 
             let rest = &code[i..];
-            if let Some(open) = find_iffalse_at(code, i, &self.parser.extra_verbatim_commands) {
-                self.append_item_or_prose(line.start + i, &code[i..open]);
-                self.flush();
-                let after_open = open + "\\iffalse".len();
-                if let Some(close) = find_tex_cs(line.text, after_open, "\\fi") {
-                    let after = close + "\\fi".len();
-                    let end = if line.text[after..].trim().is_empty() {
-                        thru_eol_if_blank_rest(line, after)
-                    } else {
-                        line.start + after
-                    };
-                    self.regions.push(SpannedRegion::structure(
-                        self.input,
-                        ByteSpan::new(line.start + open, end),
-                    ));
-                    if !line.text[after..].trim().is_empty() {
-                        self.consume_body_line(rest_line(line, after));
-                    }
-                    return true;
-                }
-                self.in_iffalse = true;
-                self.regions.push(SpannedRegion::structure(
-                    self.input,
-                    ByteSpan::new(line.start + open, line.end),
-                ));
-                return true;
-            }
             if SECTION_CMD_RE.is_match(rest) {
                 self.push_structure(ByteSpan::new(line.start + i, line.end));
                 return false;
@@ -2432,5 +2444,77 @@ Some text.
                 .any(|r| matches!(r, Region::Prose(p) if p.contains("Keep this"))),
             "text before iffalse stays prose, got: {regions:?}"
         );
+    }
+
+    #[test]
+    fn same_line_iffalse_before_end_document_is_not_prose() {
+        use crate::format_text;
+
+        let input = "\\begin{document}\nKeep this. \\iffalse Hidden one. Hidden two. \\fi After. \\end{document}\n";
+        let regions = LatexParser::default().parse(input);
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Structure(s) if s.contains(r"\iffalse") && s.contains("Hidden one")
+            )),
+            "iffalse before \\end{{document}} must be Structure, got: {regions:?}"
+        );
+        assert!(
+            !regions
+                .iter()
+                .any(|r| matches!(r, Region::Prose(p) if p.contains("Hidden one"))),
+            "iffalse payload before \\end{{document}} must not be Prose, got: {regions:?}"
+        );
+        assert!(
+            regions
+                .iter()
+                .any(|r| matches!(r, Region::Prose(p) if p.contains("Keep this"))),
+            "text before iffalse stays prose, got: {regions:?}"
+        );
+        let out = format_text(input, &latex_cfg()).unwrap();
+        assert!(
+            out.contains("Hidden one. Hidden two."),
+            "iffalse two sentences must not reflow, got:\n{out}"
+        );
+        assert!(
+            !out.contains("Hidden one.\nHidden two."),
+            "iffalse must stay one source line, got:\n{out}"
+        );
+        assert_eq!(format_text(&out, &latex_cfg()).unwrap(), out);
+    }
+
+    #[test]
+    fn same_line_iffalse_before_begin_equation_is_not_prose() {
+        use crate::format_text;
+
+        let input = "\\begin{document}\n\\iffalse Hidden one. Hidden two. \\fi \\begin{equation}x=1\\end{equation}\nAfter. Next.\n\\end{document}\n";
+        let regions = LatexParser::default().parse(input);
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Structure(s) if s.contains(r"\iffalse") && s.contains("Hidden one")
+            )),
+            "iffalse before \\begin{{equation}} must be Structure, got: {regions:?}"
+        );
+        assert!(
+            !regions
+                .iter()
+                .any(|r| matches!(r, Region::Prose(p) if p.contains("Hidden one"))),
+            "iffalse payload before \\begin{{equation}} must not be Prose, got: {regions:?}"
+        );
+        let out = format_text(input, &latex_cfg()).unwrap();
+        assert!(
+            out.contains("Hidden one. Hidden two."),
+            "iffalse before begin must not reflow, got:\n{out}"
+        );
+        assert!(
+            !out.contains("Hidden one.\nHidden two."),
+            "iffalse must stay one source line, got:\n{out}"
+        );
+        assert!(
+            out.contains("After.\nNext."),
+            "prose after the line must still reflow, got:\n{out}"
+        );
+        assert_eq!(format_text(&out, &latex_cfg()).unwrap(), out);
     }
 }
