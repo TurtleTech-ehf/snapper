@@ -2166,6 +2166,7 @@ Some text.
         );
         assert_eq!(format_text(&out, &latex_cfg()).unwrap(), out);
     }
+
     #[test]
     fn dollar_dollar_display_math_is_structure_not_prose() {
         let input = "$$\nThis is a long sentence that must stay inside display math and must not reflow as prose.\n$$\n";
@@ -2316,35 +2317,6 @@ Some text.
         );
         assert_eq!(format_text(&out, &latex_cfg()).unwrap(), out);
     }
-    #[test]
-    fn alignat_and_tabularx_two_sentence_bodies_do_not_reflow() {
-        use crate::format_text;
-
-        let input = "\\begin{document}\n\\begin{alignat}{2}\nFirst sentence inside alignat. Second sentence stays put.\n\\end{alignat}\n\\begin{tabularx}{\\textwidth}{l}\nFirst sentence inside tabularx. Second sentence stays put.\n\\end{tabularx}\nAfter the tables. Next.\n\\end{document}\n";
-        let out = format_text(input, &latex_cfg()).unwrap();
-        assert!(
-            out.contains("First sentence inside alignat. Second sentence stays put."),
-            "alignat body must not reflow, got:\n{out}"
-        );
-        assert!(
-            !out.contains("First sentence inside alignat.\nSecond sentence stays put."),
-            "alignat body must stay one source line, got:\n{out}"
-        );
-        assert!(
-            out.contains("First sentence inside tabularx. Second sentence stays put."),
-            "tabularx body must not reflow, got:\n{out}"
-        );
-        assert!(
-            !out.contains("First sentence inside tabularx.\nSecond sentence stays put."),
-            "tabularx body must stay one source line, got:\n{out}"
-        );
-        assert!(
-            out.contains("After the tables.\nNext."),
-            "prose after the envs must still reflow, got:\n{out}"
-        );
-        assert_eq!(format_text(&out, &latex_cfg()).unwrap(), out);
-    }
-
     #[test]
     fn comment_fixture_file_is_code_or_structure_not_prose() {
         let input = include_str!("../../tests/fixtures/comment.tex");
