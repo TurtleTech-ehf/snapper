@@ -578,6 +578,9 @@ fn org_opens_block(line: &str) -> bool {
     if t.starts_with("- ") || t.starts_with("+ ") {
         return true;
     }
+    if t.starts_with("$$") {
+        return true;
+    }
     ordered_list_start(t)
 }
 
