@@ -2593,6 +2593,88 @@ mod tests {
         assert_eq!(format_text(&wrapped, &wrap_cfg).unwrap(), wrapped);
     }
 
+    /// Ticket fixture (Format::Org / GitHub #231): org-element inline
+    /// footnote references stay one token so an interior period is not
+    /// a sentence boundary. `Next sentence.` still splits.
+    fn inline_footnote_fixture() -> &'static str {
+        "See [fn:: the Fourier. transform] in the notes. Next sentence.\n"
+    }
+
+    #[test]
+    fn org_inline_footnote_interior_punct_is_not_a_sentence_boundary() {
+        use crate::format_text;
+
+        let note = "[fn:: the Fourier. transform]";
+        let input = inline_footnote_fixture();
+        let regions = OrgParser.parse(input);
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(p)
+                    if p.contains(note) && p.contains("Next sentence.")
+            )),
+            "inline footnote stays inline Prose, got: {regions:?}"
+        );
+        let out = format_text(input, &org_cfg()).unwrap();
+        assert!(
+            out.contains("See [fn:: the Fourier. transform] in the notes.\nNext sentence."),
+            "sentence after the inline footnote must reflow, got:\n{out}"
+        );
+        assert!(
+            !out.contains("Fourier.\n") && !out.contains("[fn:: the Fourier.\ntransform]"),
+            "must not split inside the inline footnote, got:\n{out}"
+        );
+        assert_eq!(format_text(&out, &org_cfg()).unwrap(), out);
+
+        let wrap_cfg = crate::FormatConfig {
+            format: crate::format::Format::Org,
+            max_width: 28,
+            ..Default::default()
+        }
+        .without_safety_backstops();
+        let wrapped = format_text(input, &wrap_cfg).unwrap();
+        assert!(
+            wrapped.lines().any(|l| l.contains(note)),
+            "wrap must not cut inside the inline footnote, got:\n{wrapped}"
+        );
+        assert!(
+            !wrapped.contains("Fourier.\ntransform"),
+            "must not wrap on the interior period, got:\n{wrapped}"
+        );
+        assert!(
+            wrapped.contains("Next sentence."),
+            "sentence after the inline footnote must still reflow, got:\n{wrapped}"
+        );
+        assert_eq!(format_text(&wrapped, &wrap_cfg).unwrap(), wrapped);
+    }
+
+    #[test]
+    fn named_inline_footnote_interior_punct_is_not_a_sentence_boundary() {
+        use crate::format_text;
+
+        let note = "[fn:note: the Fourier. transform]";
+        let input = "See [fn:note: the Fourier. transform] in the notes. Next sentence.\n";
+        let regions = OrgParser.parse(input);
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(p)
+                    if p.contains(note) && p.contains("Next sentence.")
+            )),
+            "named inline footnote stays inline Prose, got: {regions:?}"
+        );
+        let out = format_text(input, &org_cfg()).unwrap();
+        assert!(
+            out.contains("See [fn:note: the Fourier. transform] in the notes.\nNext sentence."),
+            "sentence after the named inline footnote must reflow, got:\n{out}"
+        );
+        assert!(
+            !out.contains("Fourier.\n") && !out.contains("[fn:note: the Fourier.\ntransform]"),
+            "must not split inside the named inline footnote, got:\n{out}"
+        );
+        assert_eq!(format_text(&out, &org_cfg()).unwrap(), out);
+    }
+
     /// Ticket fixture (Format::Org / GitHub #177): org-comment-regexp
     /// requires space or EOL after `#`. `#foo` is prose.
     fn hash_comment_space_or_eol_fixture() -> &'static str {
