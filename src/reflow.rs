@@ -660,7 +660,7 @@ fn rst_opens_block(line: &str) -> bool {
     if t == ".." || t.starts_with(".. ") || t.starts_with("..\t") {
         return true;
     }
-    if t.starts_with("- ") || t.starts_with("* ") || t.starts_with("+ ") {
+    if crate::parser::rst::rst_list_marker_len(t).is_some() {
         return true;
     }
     if t.starts_with(':') && t[1..].contains(':') {
@@ -669,7 +669,7 @@ fn rst_opens_block(line: &str) -> bool {
     if crate::parser::rst::rst_option_column_len(t).is_some() {
         return true;
     }
-    ordered_list_start(t)
+    false
 }
 
 /// Markdown backslash-escape for the first word of a wrap-created line.
@@ -906,6 +906,10 @@ fn hanging_indent_width(s: &str) -> usize {
     if crate::parser::rst::rst_option_column_len(s) == Some(s.len()) {
         return s.chars().count();
     }
+    // RST bullets and Docutils enumerators (`a.`, `(1)`, `i.`, `#)`).
+    if crate::parser::rst::rst_list_marker_len(s) == Some(s.len()) {
+        return s.chars().count();
+    }
     // Parser markers are `core` plus one trailing space; leading indent is
     // part of the hang so nested `   - ` continues at column 5. RST `#.`
     // is an auto-enumerator (GitHub #60); digits-only would miss it.
@@ -1054,6 +1058,9 @@ mod tests {
         assert_eq!(hanging_prefix("- "), "  ");
         assert_eq!(hanging_prefix("1. "), "   ");
         assert_eq!(hanging_prefix("#. "), "   ");
+        assert_eq!(hanging_prefix("a. "), "   ");
+        assert_eq!(hanging_prefix("(1) "), "    ");
+        assert_eq!(hanging_prefix("i. "), "   ");
         assert_eq!(hanging_prefix("\\item "), "      ");
         assert_eq!(hanging_prefix("  "), "  ");
         assert_eq!(hanging_indent_width("  "), 0);
@@ -1489,6 +1496,9 @@ They are endowed with reason and conscience and should act towards one another i
         assert_eq!(hanging_indent_width("10. "), 4);
         assert_eq!(hanging_indent_width("1) "), 3);
         assert_eq!(hanging_indent_width("#. "), 3);
+        assert_eq!(hanging_indent_width("a. "), 3);
+        assert_eq!(hanging_indent_width("(1) "), 4);
+        assert_eq!(hanging_indent_width("i. "), 3);
         assert_eq!(hanging_indent_width("   - "), 5);
         // Quotes are a prefix hang, not a space-hang bullet.
         assert_eq!(hanging_indent_width("> "), 0);
@@ -1499,6 +1509,9 @@ They are endowed with reason and conscience and should act towards one another i
         assert_eq!(hanging_prefix("- "), "  ");
         assert_eq!(hanging_prefix("1. "), "   ");
         assert_eq!(hanging_prefix("#. "), "   ");
+        assert_eq!(hanging_prefix("a. "), "   ");
+        assert_eq!(hanging_prefix("(1) "), "    ");
+        assert_eq!(hanging_prefix("i. "), "   ");
         assert_eq!(hanging_prefix("\\item "), "      ");
         assert_eq!(hanging_prefix("  "), "  ");
         assert_eq!(hanging_indent_width("  "), 0);
