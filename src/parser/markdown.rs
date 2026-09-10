@@ -32,6 +32,8 @@ static QUOTE_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^(\s*(?:> )+)(.
 
 /// Match a markdown table row: line whose trimmed form starts and ends with `|`.
 /// Also matches separator rows like `|---|---|`.
+/// GFM 4.10 also allows rows without flanking pipes when a delimiter row
+/// follows; those are recognized by `is_gfm_table_start`, not this regex.
 static TABLE_ROW_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^\s*\|.*\|\s*$").unwrap());
 
 /// CommonMark setext underline: one or more `=` (level 1) or `-` (level 2),
@@ -433,6 +435,117 @@ fn is_setext_underline(line: &str) -> bool {
         return false;
     }
     SETEXT_UNDERLINE_RE.is_match(trimmed)
+}
+
+/// CommonMark 0–3 space indent. Four spaces is indented code, not a table.
+fn gfm_table_rest(line: &str) -> Option<&str> {
+    let bytes = line.as_bytes();
+    let mut i = 0;
+    while i < bytes.len() && i < 3 && bytes[i] == b' ' {
+        i += 1;
+    }
+    if i < bytes.len() && bytes[i] == b' ' {
+        return None;
+    }
+    Some(&line[i..])
+}
+
+/// GFM table cells. A leading or trailing empty cell from a flanking `|`
+/// is dropped. `\|` does not split. Needs at least one unescaped pipe.
+fn gfm_table_cells(line: &str) -> Option<Vec<&str>> {
+    let rest = gfm_table_rest(line)?.trim_end();
+    if rest.is_empty() {
+        return None;
+    }
+    let bytes = rest.as_bytes();
+    let mut cells = Vec::new();
+    let mut start = 0;
+    let mut i = 0;
+    let mut escaped = false;
+    let mut saw_pipe = false;
+    while i < bytes.len() {
+        if escaped {
+            escaped = false;
+            i += 1;
+            continue;
+        }
+        if bytes[i] == b'\\' {
+            escaped = true;
+            i += 1;
+            continue;
+        }
+        if bytes[i] == b'|' {
+            saw_pipe = true;
+            cells.push(&rest[start..i]);
+            start = i + 1;
+        }
+        i += 1;
+    }
+    cells.push(&rest[start..]);
+    if !saw_pipe {
+        return None;
+    }
+    if cells.first().is_some_and(|c| c.trim().is_empty()) {
+        cells.remove(0);
+    }
+    if cells.last().is_some_and(|c| c.trim().is_empty()) {
+        cells.pop();
+    }
+    if cells.is_empty() {
+        return None;
+    }
+    Some(cells)
+}
+
+/// Delimiter cell: optional `:`, one or more `-`, optional `:`.
+fn is_gfm_delimiter_cell(cell: &str) -> bool {
+    let t = cell.trim();
+    if t.is_empty() {
+        return false;
+    }
+    let bytes = t.as_bytes();
+    let mut i = 0;
+    if bytes[i] == b':' {
+        i += 1;
+    }
+    let hyphens = i;
+    while i < bytes.len() && bytes[i] == b'-' {
+        i += 1;
+    }
+    if i == hyphens {
+        return false;
+    }
+    if i < bytes.len() && bytes[i] == b':' {
+        i += 1;
+    }
+    i == bytes.len()
+}
+
+/// Header plus delimiter with the same cell count (GFM 4.10).
+/// Leading and trailing pipes are optional (ex. 199).
+fn is_gfm_table_start(header: &str, delim: &str) -> bool {
+    let Some(h) = gfm_table_cells(header) else {
+        return false;
+    };
+    let Some(d) = gfm_table_cells(delim) else {
+        return false;
+    };
+    h.len() == d.len() && d.iter().all(|c| is_gfm_delimiter_cell(c))
+}
+
+/// A subsequent GFM table row: has an unescaped pipe and is not another leaf.
+fn is_gfm_table_data_row(line: &str) -> bool {
+    if HEADING_RE.is_match(line)
+        || FENCED_CODE_RE.is_match(line.trim_start())
+        || LIST_ITEM_RE.is_match(line)
+        || QUOTE_RE.is_match(line)
+        || line.trim().starts_with("$$")
+        || starts_html_comment(line)
+        || html_block_kind(line).is_some()
+    {
+        return false;
+    }
+    gfm_table_cells(line).is_some()
 }
 
 /// Leading whitespace width in bytes (`trim_start` prefix).
@@ -880,6 +993,33 @@ impl FormatParser for MarkdownParser {
                 continue;
             }
 
+            // GFM 4.10 / pulldown ENABLE_TABLES: header + delimiter.
+            // Leading and trailing pipes are optional (ex. 199).
+            if i + 1 < total && is_gfm_table_start(line_text, lines[i + 1].text) {
+                close_list_item(
+                    &mut in_list_item,
+                    &mut list_hang,
+                    &mut current_prose,
+                    &mut prose_span,
+                    &mut list_term,
+                    input,
+                    &mut regions,
+                );
+                flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
+                regions.push(SpannedRegion::structure(input, line.span()));
+                regions.push(SpannedRegion::structure(input, lines[i + 1].span()));
+                i += 2;
+                while i < total {
+                    let nxt = lines[i].text;
+                    if nxt.trim().is_empty() || !is_gfm_table_data_row(nxt) {
+                        break;
+                    }
+                    regions.push(SpannedRegion::structure(input, lines[i].span()));
+                    i += 1;
+                }
+                continue;
+            }
+
             // Table row (pipe-delimited)
             if TABLE_ROW_RE.is_match(line_text) {
                 close_list_item(
@@ -1306,6 +1446,100 @@ mod tests {
             .count();
         assert_eq!(prose_count, 2);
         assert_eq!(structure_count, 3);
+    }
+
+    /// GitHub #103 / snapper-36vt: GFM tables without flanking pipes.
+    fn ticket_gfm_table_fixture() -> &'static str {
+        concat!("Name | Note\n", "--- | ---\n", "Foo | Bar. Baz\n")
+    }
+
+    #[test]
+    fn gfm_table_without_flanking_pipes_is_structure() {
+        let input = ticket_gfm_table_fixture();
+        let regions = MarkdownParser.parse(input);
+        assert!(
+            regions.iter().all(|r| matches!(r, Region::Structure(_))),
+            "pipe-less GFM table rows must be Structure, got: {regions:?}"
+        );
+        assert_eq!(regions.len(), 3, "header, delimiter, data: {regions:?}");
+        assert!(
+            !regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(p) if p.contains("Name") || p.contains("Bar")
+            )),
+            "pipe-less table must not be Prose: {regions:?}"
+        );
+        match &regions[..] {
+            [
+                Region::Structure(h),
+                Region::Structure(d),
+                Region::Structure(row),
+            ] => {
+                assert!(h.contains("Name | Note"), "{h}");
+                assert!(d.contains("--- | ---"), "{d}");
+                assert!(row.contains("Foo | Bar. Baz"), "{row}");
+            }
+            other => panic!("expected three Structure rows, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn gfm_table_without_flanking_pipes_does_not_reflow() {
+        use crate::format::Format;
+        use crate::{FormatConfig, format_text};
+
+        let input = ticket_gfm_table_fixture();
+        let cfg = FormatConfig {
+            format: Format::Markdown,
+            ..Default::default()
+        };
+        let out = format_text(input, &cfg).unwrap();
+        assert!(
+            out.contains("Name | Note\n--- | ---\nFoo | Bar. Baz"),
+            "pipe-less GFM table must stay raw, got:\n{out}"
+        );
+        assert!(
+            !out.contains("Bar.\nBaz"),
+            "table cell must not sentence-split, got:\n{out}"
+        );
+        assert_eq!(format_text(&out, &cfg).unwrap(), out);
+
+        let raw = cfg.without_safety_backstops();
+        let raw_out = format_text(input, &raw).unwrap();
+        assert_eq!(
+            raw_out, out,
+            "oracle-silent path must match, got:\n{raw_out}"
+        );
+        assert_eq!(format_text(&raw_out, &raw).unwrap(), raw_out);
+    }
+
+    #[test]
+    fn gfm_pipe_less_row_without_separator_stays_prose() {
+        let input = "Name | Note\nFoo | Bar. Baz\n";
+        let regions = MarkdownParser.parse(input);
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(p) if p.contains("Name") && p.contains("Bar")
+            )),
+            "pipe-less rows without a delimiter stay Prose, got: {regions:?}"
+        );
+        assert!(
+            !regions.iter().any(|r| matches!(r, Region::Structure(_))),
+            "no table without a separator row: {regions:?}"
+        );
+    }
+
+    #[test]
+    fn gfm_table_mixed_flanking_pipes_is_structure() {
+        // GFM 4.10 example 199: leading/trailing pipes need not be consistent.
+        let input = "| abc | defghi |\n:-: | -----------:\nbar | baz\n";
+        let regions = MarkdownParser.parse(input);
+        assert!(
+            regions.iter().all(|r| matches!(r, Region::Structure(_))),
+            "mixed-pipe GFM table must be Structure, got: {regions:?}"
+        );
+        assert_eq!(regions.len(), 3, "header, delimiter, data: {regions:?}");
     }
 
     #[test]
