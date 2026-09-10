@@ -1504,6 +1504,8 @@ They are endowed with reason and conscience and should act towards one another i
         assert_eq!(hanging_indent_width("(1) "), 4);
         assert_eq!(hanging_indent_width("i. "), 3);
         assert_eq!(hanging_indent_width("   - "), 5);
+        assert_eq!(hanging_indent_width("  * "), 4);
+        assert_eq!(hanging_prefix("  * "), "    ");
         // Quotes are a prefix hang, not a space-hang bullet.
         assert_eq!(hanging_indent_width("> "), 0);
         assert_eq!(hanging_indent_width("> > "), 0);
@@ -1665,6 +1667,22 @@ They are endowed with reason and conscience and should act towards one another i
         assert!(
             result.contains("\n   - Child one."),
             "nested marker must stay its own item: {result:?}"
+        );
+    }
+
+    #[test]
+    fn org_indented_star_list_hangs_child_prose() {
+        let result = reflow_regions(vec![
+            Region::Structure("- ".to_string()),
+            Region::Prose("Parent one. Parent two.".to_string()),
+            Region::Structure("\n".to_string()),
+            Region::Structure("  * ".to_string()),
+            Region::Prose("Child one. Child two.".to_string()),
+            Region::Structure("\n".to_string()),
+        ]);
+        assert_eq!(
+            result,
+            "- Parent one.\n  Parent two.\n  * Child one.\n    Child two.\n"
         );
     }
 
