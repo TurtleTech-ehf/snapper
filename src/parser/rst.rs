@@ -1225,4 +1225,28 @@ mod tests {
             "quoted sentences must reflow with hang, got:\n{out}"
         );
     }
+
+    #[test]
+    fn rst_role_closer_keeps_two_sentence_lines() {
+        use crate::format::Format;
+        use crate::{FormatConfig, format_text};
+
+        let cfg = FormatConfig {
+            format: Format::Rst,
+            max_width: 0,
+            ..Default::default()
+        };
+        let input = "The task is in :file:`README.md`.\nUse this section for questions.\n";
+        let out = format_text(input, &cfg).unwrap();
+        assert_eq!(out, input, "role closer must stay two lines, got:\n{out}");
+        assert_eq!(format_text(&out, &cfg).unwrap(), out);
+
+        let literal = "The task is in ``README.md``.\nUse this section for questions.\n";
+        let out = format_text(literal, &cfg).unwrap();
+        assert_eq!(
+            out, literal,
+            "double-backtick literal must stay split, got:\n{out}"
+        );
+        assert_eq!(format_text(&out, &cfg).unwrap(), out);
+    }
 }
