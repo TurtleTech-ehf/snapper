@@ -248,7 +248,8 @@ impl OrgParser {
             };
             // Prose span must stop before the glue space; splice copies
             // Structure from source and overlapping ranges drop the space.
-            if prefix.len() > lead_glue {
+            // Whitespace-only leftover-start indent is not prose (snapper-8dwd).
+            if !prefix.trim().is_empty() && prefix.len() > lead_glue {
                 let lead = Line {
                     start: line.start + rel,
                     end: line.start + open_abs - lead_glue,
@@ -1571,6 +1572,44 @@ mod tests {
                 "\\begin{equation} x = 1 \\end{equation}\nThis must stay prose.\nSecond sentence."
             ),
             "fixture env must close; following prose reflows, got:\n{out}"
+        );
+        assert_eq!(format_text(&out, &org_cfg()).unwrap(), out);
+    }
+
+    #[test]
+    fn leftover_start_same_line_bracket_does_not_splice_drop() {
+        use crate::format_text;
+
+        // snapper-8dwd / snapper-dvg8: leftover-start indent stays on the
+        // Structure island so splice cannot delete the math line.
+        let input = "  \\[ x = a.b \\]\nThis must stay prose. Second sentence.\n";
+        let regions = OrgParser.parse(input);
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Structure(s)
+                    if s.contains("\\[ x = a.b \\]") && s.starts_with("  \\[")
+            )),
+            "indented same-line \\[...\\] must be Structure with indent on the island, got: {regions:?}"
+        );
+        assert!(
+            !regions
+                .iter()
+                .any(|r| matches!(r, Region::Prose(p) if p.contains("x = a.b"))),
+            "leftover-start math must not be Prose, got: {regions:?}"
+        );
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(p)
+                    if p.contains("This must stay prose") && p.contains("Second sentence")
+            )),
+            "following sentences must stay Prose, got: {regions:?}"
+        );
+        let out = format_text(input, &org_cfg()).unwrap();
+        assert!(
+            out.contains("  \\[ x = a.b \\]\nThis must stay prose.\nSecond sentence."),
+            "math line must remain; following prose reflows, got:\n{out}"
         );
         assert_eq!(format_text(&out, &org_cfg()).unwrap(), out);
     }
