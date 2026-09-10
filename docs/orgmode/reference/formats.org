@@ -52,7 +52,8 @@ The classification depends on the format.
 - Paragraph text
 - List item text (after the marker); continuation sentences hang at the marker width so Org rejoins the item
 - Quote, verse, center, and special-block inner text (verse stays line-preserving)
-- =#+CAPTION:= value (org-element-parsed-keywords); continuation sentences hang at the opener width. Dual =#+CAPTION[short]:= keeps the short title on the opener
+- =#+CAPTION:= value (org-element-parsed-keywords); continuation sentences hang at the opener width.
+  Dual =#+CAPTION[short]:= keeps the short title on the opener
 
 *** Inline tokens (kept atomic)
 :PROPERTIES:
