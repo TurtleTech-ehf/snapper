@@ -31,6 +31,98 @@ static TABLE_ROW_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^\s*\|.*\|\
 static SETEXT_UNDERLINE_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"^ {0,3}(?:=+|-+)\s*$").unwrap());
 
+/// Type 1 open: `<pre` / `<script` / `<style` / `<textarea` then space, tab, `>`, or EOL.
+static HTML_TYPE1_OPEN_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"(?i)^<(?:pre|script|style|textarea)(?:[ \t>]|$)").unwrap());
+
+/// Type 1 close: any of the type-1 end tags; need not match the opener.
+static HTML_TYPE1_CLOSE_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"(?i)</(?:pre|script|style|textarea)>").unwrap());
+
+/// Type 7: a complete open or closing tag, then only whitespace.
+static HTML_TYPE7_RE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(
+        r#"(?x)^
+        (?:
+          </[A-Za-z][A-Za-z0-9-]* \s*>
+          |
+          <[A-Za-z][A-Za-z0-9-]*
+            (?:\s+[A-Za-z_:][A-Za-z0-9_.:-]*
+              (?:\s*=\s*(?:[^\s"'=<>`]+|'[^']*'|"[^"]*"))?
+            )*
+            \s*/?>
+        )
+        \s*$"#,
+    )
+    .unwrap()
+});
+
+/// CommonMark type-6 block tags (case-insensitive).
+static HTML_BLOCK_TAGS: &[&str] = &[
+    "address",
+    "article",
+    "aside",
+    "base",
+    "basefont",
+    "blockquote",
+    "body",
+    "caption",
+    "center",
+    "col",
+    "colgroup",
+    "dd",
+    "details",
+    "dialog",
+    "dir",
+    "div",
+    "dl",
+    "dt",
+    "fieldset",
+    "figcaption",
+    "figure",
+    "footer",
+    "form",
+    "frame",
+    "frameset",
+    "h1",
+    "h2",
+    "h3",
+    "h4",
+    "h5",
+    "h6",
+    "head",
+    "header",
+    "hr",
+    "html",
+    "iframe",
+    "legend",
+    "li",
+    "link",
+    "main",
+    "menu",
+    "menuitem",
+    "nav",
+    "noframes",
+    "ol",
+    "optgroup",
+    "option",
+    "p",
+    "param",
+    "search",
+    "section",
+    "summary",
+    "table",
+    "tbody",
+    "td",
+    "tfoot",
+    "th",
+    "thead",
+    "title",
+    "tr",
+    "track",
+    "ul",
+];
+
 pub struct MarkdownParser;
 
 /// Close an open list item: flush accumulated prose and emit the trailing newline.
@@ -62,6 +154,167 @@ fn html_comment_closed(text: &str) -> bool {
         Some(i) => text[i + 4..].contains("-->"),
         None => text.contains("-->"),
     }
+}
+
+/// CommonMark 4.6 HTML block types 1 and 3–7 (type 2 is `<!--`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum HtmlBlock {
+    /// `<pre` / `<script` / `<style` / `<textarea` until the matching end tag.
+    /// Emitted as Code so the body is not sentence-split.
+    Type1,
+    /// `<?` until `?>`.
+    Type3,
+    /// `<!` + ASCII letter until `>`.
+    Type4,
+    /// `<![CDATA[` until `]]>`.
+    Type5,
+    /// Block tag (`<div`, `</p`, …) until a following blank line. May interrupt.
+    Type6,
+    /// Complete open/close tag until a following blank line. Must not interrupt.
+    Type7,
+}
+
+impl HtmlBlock {
+    fn can_interrupt(self) -> bool {
+        !matches!(self, HtmlBlock::Type7)
+    }
+}
+
+/// Strip at most three leading spaces (CommonMark HTML-block indent).
+fn html_block_rest(line: &str) -> &str {
+    let bytes = line.as_bytes();
+    let mut i = 0;
+    while i < bytes.len() && i < 3 && bytes[i] == b' ' {
+        i += 1;
+    }
+    &line[i..]
+}
+
+fn is_html_block_tag(name: &str) -> bool {
+    HTML_BLOCK_TAGS.iter().any(|t| name.eq_ignore_ascii_case(t))
+}
+
+fn type6_start(rest: &str) -> bool {
+    let after = if let Some(a) = rest.strip_prefix("</") {
+        a
+    } else if let Some(a) = rest.strip_prefix('<') {
+        a
+    } else {
+        return false;
+    };
+    let tag_len = after
+        .find(|c: char| !c.is_ascii_alphanumeric())
+        .unwrap_or(after.len());
+    if tag_len == 0 || !is_html_block_tag(&after[..tag_len]) {
+        return false;
+    }
+    let after_tag = &after[tag_len..];
+    after_tag.is_empty()
+        || after_tag.starts_with(' ')
+        || after_tag.starts_with('\t')
+        || after_tag.starts_with('>')
+        || after_tag.starts_with("/>")
+}
+
+fn type7_start(rest: &str) -> bool {
+    if !HTML_TYPE7_RE.is_match(rest) {
+        return false;
+    }
+    let name = rest
+        .trim_start_matches('<')
+        .trim_start_matches('/')
+        .split(|c: char| !c.is_ascii_alphanumeric() && c != '-')
+        .next()
+        .unwrap_or("");
+    !name.eq_ignore_ascii_case("script")
+        && !name.eq_ignore_ascii_case("style")
+        && !name.eq_ignore_ascii_case("pre")
+        && !name.eq_ignore_ascii_case("textarea")
+}
+
+fn html_block_kind(line: &str) -> Option<HtmlBlock> {
+    let rest = html_block_rest(line);
+    if HTML_TYPE1_OPEN_RE.is_match(rest) {
+        return Some(HtmlBlock::Type1);
+    }
+    if rest.starts_with("<?") {
+        return Some(HtmlBlock::Type3);
+    }
+    if rest.starts_with("<![CDATA[") {
+        return Some(HtmlBlock::Type5);
+    }
+    if rest.starts_with("<!") && rest.len() > 2 && rest.as_bytes()[2].is_ascii_alphabetic() {
+        return Some(HtmlBlock::Type4);
+    }
+    if type6_start(rest) {
+        return Some(HtmlBlock::Type6);
+    }
+    if type7_start(rest) {
+        return Some(HtmlBlock::Type7);
+    }
+    None
+}
+
+fn html_block_line_ends(line: &str, kind: HtmlBlock) -> bool {
+    match kind {
+        HtmlBlock::Type1 => HTML_TYPE1_CLOSE_RE.is_match(line),
+        HtmlBlock::Type3 => line.contains("?>"),
+        HtmlBlock::Type4 => line.contains('>'),
+        HtmlBlock::Type5 => line.contains("]]>"),
+        HtmlBlock::Type6 | HtmlBlock::Type7 => false,
+    }
+}
+
+fn html_block_end_idx(kind: HtmlBlock, lines: &[Line<'_>], start_idx: usize) -> usize {
+    match kind {
+        HtmlBlock::Type6 | HtmlBlock::Type7 => {
+            let mut j = start_idx;
+            while j + 1 < lines.len() && !lines[j + 1].text.trim().is_empty() {
+                j += 1;
+            }
+            j
+        }
+        _ => {
+            if html_block_line_ends(lines[start_idx].text, kind) {
+                return start_idx;
+            }
+            let mut j = start_idx + 1;
+            while j < lines.len() {
+                if html_block_line_ends(lines[j].text, kind) {
+                    return j;
+                }
+                j += 1;
+            }
+            lines.len().saturating_sub(1)
+        }
+    }
+}
+
+/// Consume a CommonMark HTML block starting at `start_idx`. Returns the next index.
+fn emit_html_block(
+    kind: HtmlBlock,
+    lines: &[Line<'_>],
+    start_idx: usize,
+    input: &str,
+    regions: &mut Vec<SpannedRegion>,
+) -> usize {
+    let end_idx = html_block_end_idx(kind, lines, start_idx);
+    if kind == HtmlBlock::Type1 {
+        let header = lines[start_idx].span();
+        if end_idx == start_idx {
+            let empty = ByteSpan::new(lines[start_idx].end, lines[start_idx].end);
+            regions.push(SpannedRegion::code(input, None, header, empty, empty));
+        } else {
+            let body = ByteSpan::new(lines[start_idx].end, lines[end_idx].start);
+            let footer = lines[end_idx].span();
+            regions.push(SpannedRegion::code(input, None, header, body, footer));
+        }
+    } else {
+        let start = lines[start_idx].start;
+        let end = lines[end_idx].end;
+        regions.push(SpannedRegion::structure(input, ByteSpan::new(start, end)));
+    }
+    end_idx + 1
 }
 
 /// Two or more trailing spaces, or an unescaped trailing backslash.
@@ -545,6 +798,25 @@ impl FormatParser for MarkdownParser {
                     .unwrap_or(input.len());
                 regions.push(SpannedRegion::structure(input, ByteSpan::new(start, end)));
                 continue;
+            }
+
+            // CommonMark 4.6 HTML blocks types 1 and 3–7. Type 2 is above.
+            // Type 7 cannot interrupt a paragraph (open prose / list item).
+            if let Some(kind) = html_block_kind(line_text) {
+                let in_paragraph = !current_prose.is_empty() || in_list_item;
+                if kind.can_interrupt() || !in_paragraph {
+                    close_list_item(
+                        &mut in_list_item,
+                        &mut current_prose,
+                        &mut prose_span,
+                        &mut list_term,
+                        input,
+                        &mut regions,
+                    );
+                    flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
+                    i = emit_html_block(kind, &lines, i, input, &mut regions);
+                    continue;
+                }
             }
 
             // Blockquote: emit the full `> ` / `> > ` prefix as Structure.
@@ -1645,5 +1917,201 @@ mod tests {
             )),
             "unblanked indent stays Prose: {regions:?}"
         );
+    }
+
+    /// GitHub #87 / snapper-e6ig: CommonMark HTML blocks must not reflow as prose.
+    fn ticket_html_blocks_fixture() -> &'static str {
+        concat!(
+            "Intro. More.\n",
+            "\n",
+            "<div class=\"note\">\n",
+            "<p>Hello. World.</p>\n",
+            "</div>\n",
+            "\n",
+            "<script>\n",
+            "x = 1. Next = 2.\n",
+            "</script>\n",
+        )
+    }
+
+    #[test]
+    fn html_div_block_is_structure() {
+        let regions = MarkdownParser.parse(ticket_html_blocks_fixture());
+        let div = regions.iter().find_map(|r| match r {
+            Region::Structure(s) if s.contains("<div") => Some(s.as_str()),
+            _ => None,
+        });
+        let div = div.expect(&format!("div block must be Structure, got {regions:?}"));
+        assert!(div.contains("<div class=\"note\">"), "{div}");
+        assert!(div.contains("<p>Hello. World.</p>"), "{div}");
+        assert!(div.contains("</div>"), "{div}");
+        assert!(
+            !regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(p) if p.contains("Hello") || p.contains("<div")
+            )),
+            "div body must not be Prose: {regions:?}"
+        );
+    }
+
+    #[test]
+    fn html_script_block_is_code() {
+        let regions = MarkdownParser.parse(ticket_html_blocks_fixture());
+        match regions.iter().find(|r| matches!(r, Region::Code { .. })) {
+            Some(Region::Code {
+                header,
+                body,
+                footer,
+                ..
+            }) => {
+                assert!(header.contains("<script>"), "{header:?}");
+                assert!(
+                    body.contains("x = 1. Next = 2."),
+                    "script body must stay literal: {body:?}"
+                );
+                assert!(footer.contains("</script>"), "{footer:?}");
+            }
+            other => panic!("script block must be Code, got {other:?} / {regions:?}"),
+        }
+        assert!(
+            !regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(p) if p.contains("Next = 2") || p.contains("<script")
+            )),
+            "script body must not be Prose: {regions:?}"
+        );
+    }
+
+    #[test]
+    fn html_pre_block_is_code() {
+        let input = "<pre>\nfoo. bar\n</pre>\n";
+        let regions = MarkdownParser.parse(input);
+        match regions.iter().find(|r| matches!(r, Region::Code { .. })) {
+            Some(Region::Code {
+                header,
+                body,
+                footer,
+                ..
+            }) => {
+                assert!(header.contains("<pre>"), "{header:?}");
+                assert!(body.contains("foo. bar"), "{body:?}");
+                assert!(footer.contains("</pre>"), "{footer:?}");
+            }
+            other => panic!("pre block must be Code, got {other:?} / {regions:?}"),
+        }
+        assert!(
+            !regions
+                .iter()
+                .any(|r| matches!(r, Region::Prose(p) if p.contains("foo"))),
+            "pre body must not be Prose: {regions:?}"
+        );
+    }
+
+    #[test]
+    fn html_pi_declaration_and_cdata_are_structure() {
+        let input = concat!(
+            "<?php echo \"Hi. There\"; ?>\n",
+            "<!DOCTYPE html something. else>\n",
+            "<![CDATA[\n",
+            "Hello. World.\n",
+            "]]>\n",
+        );
+        let regions = MarkdownParser.parse(input);
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Structure(s) if s.contains("<?php") && s.contains("Hi. There")
+            )),
+            "processing instruction must be Structure: {regions:?}"
+        );
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Structure(s) if s.contains("<!DOCTYPE") && s.contains("something. else")
+            )),
+            "declaration must be Structure: {regions:?}"
+        );
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Structure(s) if s.contains("<![CDATA[") && s.contains("Hello. World.")
+            )),
+            "CDATA must be Structure: {regions:?}"
+        );
+        assert!(
+            !regions.iter().any(|r| matches!(r, Region::Prose(_))),
+            "types 3–5 must not be Prose: {regions:?}"
+        );
+    }
+
+    #[test]
+    fn html_type7_complete_tag_is_structure() {
+        let input = "<span class=\"note\">\n\nAfter. Text.\n";
+        let regions = MarkdownParser.parse(input);
+        assert!(
+            matches!(&regions[0], Region::Structure(s) if s.contains("<span class=\"note\">")),
+            "type 7 opener must be Structure, got: {regions:?}"
+        );
+        assert!(
+            !regions
+                .iter()
+                .any(|r| matches!(r, Region::Prose(p) if p.contains("<span"))),
+            "type 7 tag must not be Prose: {regions:?}"
+        );
+    }
+
+    #[test]
+    fn html_type7_does_not_interrupt_paragraph() {
+        let input = "Intro. More.\n<span class=\"x\">\n";
+        let regions = MarkdownParser.parse(input);
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(p) if p.contains("Intro") && p.contains("<span")
+            )),
+            "type 7 must stay in the paragraph, got: {regions:?}"
+        );
+    }
+
+    #[test]
+    fn html_blocks_ticket_fixture_does_not_reflow() {
+        use crate::format::Format;
+        use crate::{FormatConfig, format_text};
+
+        let input = ticket_html_blocks_fixture();
+        let cfg = FormatConfig {
+            format: Format::Markdown,
+            ..Default::default()
+        };
+        let out = format_text(input, &cfg).unwrap();
+        assert!(
+            out.contains("Intro.\nMore."),
+            "surrounding prose must still reflow, got:\n{out}"
+        );
+        assert!(
+            out.contains("<div class=\"note\">\n<p>Hello. World.</p>\n</div>\n"),
+            "div HTML block must stay raw, got:\n{out}"
+        );
+        assert!(
+            out.contains("<script>\nx = 1. Next = 2.\n</script>\n"),
+            "script HTML block must stay raw, got:\n{out}"
+        );
+        assert!(
+            !out.contains("<p>Hello.\nWorld.</p>") && !out.contains("x = 1.\nNext = 2."),
+            "HTML block interiors must not sentence-split, got:\n{out}"
+        );
+        assert_eq!(format_text(&out, &cfg).unwrap(), out);
+
+        let raw = FormatConfig {
+            format: Format::Markdown,
+            ..Default::default()
+        }
+        .without_safety_backstops();
+        let raw_out = format_text(input, &raw).unwrap();
+        assert_eq!(
+            raw_out, out,
+            "oracle-silent path must match, got:\n{raw_out}"
+        );
+        assert_eq!(format_text(&raw_out, &raw).unwrap(), raw_out);
     }
 }
