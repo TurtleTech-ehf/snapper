@@ -435,7 +435,9 @@ fn is_ordered_list_marker(word: &str) -> bool {
     if delim != b'.' && delim != b')' {
         return false;
     }
-    bytes[..bytes.len() - 1].iter().all(|b| b.is_ascii_digit())
+    let digits = &bytes[..bytes.len() - 1];
+    // Markdown-only caller. CommonMark 0.31.2 sec 5.2: 1–9 arabic digits.
+    (1..=9).contains(&digits.len()) && digits.iter().all(|b| b.is_ascii_digit())
 }
 
 fn ordered_list_start(text: &str) -> bool {
@@ -510,7 +512,21 @@ fn md_list_start(text: &str) -> bool {
     text.starts_with("- ")
         || text.starts_with("* ")
         || text.starts_with("+ ")
-        || ordered_list_start(text)
+        || md_ordered_list_start(text)
+}
+
+/// CommonMark 0.31.2 sec 5.2: 1–9 arabic digits, then `.`/`)`.
+/// Ten or more digits is prose, so wrap must not escape it as a marker.
+fn md_ordered_list_start(text: &str) -> bool {
+    let bytes = text.as_bytes();
+    let mut i = 0;
+    while i < bytes.len() && bytes[i].is_ascii_digit() {
+        i += 1;
+    }
+    if i == 0 || i > 9 {
+        return false;
+    }
+    matches!(bytes.get(i), Some(b'.') | Some(b')')) && matches!(bytes.get(i + 1), Some(b' ') | None)
 }
 
 fn md_link_ref_def(text: &str) -> bool {
@@ -823,7 +839,7 @@ fn md_same_line_ol_opener(text: &str) -> bool {
     while i < bytes.len() && bytes[i].is_ascii_digit() {
         i += 1;
     }
-    if i == 0 {
+    if i == 0 || i > 9 {
         return false;
     }
     if !matches!(bytes.get(i), Some(b'.') | Some(b')')) {
@@ -1235,9 +1251,15 @@ mod tests {
     fn md_same_line_ol_opener_detects_compact_not_hung() {
         assert!(md_same_line_ol_opener("0. A."));
         assert!(md_same_line_ol_opener("1) Next."));
+        assert!(md_same_line_ol_opener("123456789. A."));
+        assert!(!md_same_line_ol_opener("1234567890. A."));
         assert!(!md_same_line_ol_opener("0.\nA."));
         assert!(!md_same_line_ol_opener("0."));
         assert!(!md_same_line_ol_opener("Hello. 0. A."));
+        assert!(md_ordered_list_start("123456789. "));
+        assert!(!md_ordered_list_start("1234567890. "));
+        assert!(is_ordered_list_marker("123456789."));
+        assert!(!is_ordered_list_marker("1234567890."));
     }
 
     #[test]
@@ -2301,6 +2323,31 @@ They are endowed with reason and conscience and should act towards one another i
                 "wrap must not invent a block:\n{result}"
             );
         }
+    }
+
+    #[test]
+    fn wrap_created_ten_digit_opener_is_not_escaped() {
+        let config = crate::FormatConfig {
+            format: crate::format::Format::Markdown,
+            max_width: 23,
+            ..Default::default()
+        };
+        let nine = crate::format_text("The options are apples 123456789. oranges extra.", &config)
+            .unwrap();
+        assert!(
+            nine.lines().any(|l| l.starts_with("123456789\\. ")),
+            "9-digit wrap-created opener must escape:\n{nine}"
+        );
+        let ten = crate::format_text("The options are apples 1234567890. oranges extra.", &config)
+            .unwrap();
+        assert!(
+            !ten.contains('\\'),
+            "10-digit wrap-created opener is prose, not a list:\n{ten}"
+        );
+        assert!(
+            ten.lines().any(|l| l.starts_with("1234567890. ")),
+            "10-digit number may start a wrap line:\n{ten}"
+        );
     }
 
     #[test]
