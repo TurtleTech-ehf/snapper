@@ -697,9 +697,10 @@ fn rst_quoted_literal_continues(line: &str, quote: u8) -> bool {
 }
 
 /// Check if a line is a section underline (2+ repeated punctuation chars).
-/// Includes `' . _ < >` in addition to the common `= - ~ ^ " # * +` set.
-/// Docutils Body.doctest wins over Body.line: prompt-only `>>>` / `>>> `
-/// are not `>` adornments. `>>>>>` (and `>>` / `>>>>`) stay underlines.
+/// Docutils `Body.line` / `nonalphanum7bit`: any non-alphanumeric printable
+/// 7-bit ASCII (same set as `is_rst_quote_char`). Body.doctest wins over
+/// Body.line: prompt-only `>>>` / `>>> ` are not `>` adornments.
+/// `>>>>>` (and `>>` / `>>>>`) stay underlines.
 fn is_underline(line: &str) -> bool {
     let trimmed = line.trim();
     if trimmed.len() < 2 {
@@ -709,10 +710,7 @@ fn is_underline(line: &str) -> bool {
         return false;
     }
     let first = trimmed.as_bytes()[0];
-    matches!(
-        first,
-        b'=' | b'-' | b'~' | b'^' | b'"' | b'#' | b'*' | b'+' | b'\'' | b'.' | b'_' | b'<' | b'>'
-    ) && trimmed.bytes().all(|b| b == first)
+    is_rst_quote_char(first) && trimmed.bytes().all(|b| b == first)
 }
 
 /// RST simple-table border: `=` column groups separated by spaces
@@ -878,7 +876,18 @@ mod tests {
             max_width: 0,
             ..Default::default()
         };
-        for (adornment, n) in [('\'', 5), ('\'', 2), ('.', 5), ('_', 5), ('<', 5), ('>', 5)] {
+        for (adornment, n) in [
+            ('\'', 5),
+            ('\'', 2),
+            ('.', 5),
+            ('_', 5),
+            ('<', 5),
+            ('>', 5),
+            (':', 5),
+            ('`', 5),
+            ('!', 5),
+            ('$', 5),
+        ] {
             let rule = adornment.to_string().repeat(n);
             let input = format!("Input\n{rule}\n");
             let out = format_text(&input, &cfg).unwrap();
@@ -891,6 +900,84 @@ mod tests {
                 "must not glue {adornment:?} adornment onto title, got:\n{out}"
             );
         }
+    }
+
+    /// GitHub #100 / snapper-j0ig: `:` is Docutils `nonalphanum7bit`.
+    #[test]
+    fn colon_underline_is_section_adornment() {
+        assert!(is_underline(":::::"));
+        assert!(is_underline("::::: "));
+        assert!(is_underline("::"));
+        assert!(is_underline("$$$$$"));
+        assert!(is_underline("!!!!!"));
+        assert!(is_underline("`````"));
+        assert!(!is_underline(":"));
+        assert!(!is_underline("::::x"));
+        assert!(!is_underline("Title"));
+    }
+
+    /// Ticket fixture: `Title` / `:::::` must be Structure, not Prose.
+    #[test]
+    fn colon_section_adornment_is_structure() {
+        let input = "Title\n:::::\n\nNext paragraph. Second sentence.\n";
+        let regions = RstParser.parse(input);
+        assert!(
+            regions
+                .iter()
+                .any(|r| matches!(r, Region::Structure(s) if s.trim() == "Title")),
+            "title must be Structure, got {regions:?}"
+        );
+        assert!(
+            regions
+                .iter()
+                .any(|r| matches!(r, Region::Structure(s) if s.trim() == ":::::")),
+            "colon underline must be Structure, got {regions:?}"
+        );
+        assert!(
+            !regions.iter().any(
+                |r| matches!(r, Region::Prose(s) if s.contains("Title") || s.contains(":::::"))
+            ),
+            "colon section must not be Prose, got {regions:?}"
+        );
+        assert!(
+            regions
+                .iter()
+                .any(|r| matches!(r, Region::Prose(s) if s.contains("Next paragraph."))),
+            "following paragraph must stay Prose, got {regions:?}"
+        );
+    }
+
+    /// Ticket fixture under Format::Rst: no `Title :::::` splice; body reflows.
+    #[test]
+    fn colon_section_fixture_is_identity_under_format() {
+        use crate::format::Format;
+        use crate::{FormatConfig, format_text};
+
+        let cfg = FormatConfig {
+            format: Format::Rst,
+            max_width: 0,
+            ..Default::default()
+        }
+        .without_safety_backstops();
+        let input = "Title\n:::::\n\nNext paragraph. Second sentence.\n";
+        let out = format_text(input, &cfg).unwrap();
+        assert!(
+            out.contains("Title\n:::::\n"),
+            "title and colon underline must stay two lines, got:\n{out}"
+        );
+        assert!(
+            !out.contains("Title :::::"),
+            "must not glue ::::: onto the title, got:\n{out}"
+        );
+        assert!(
+            out.contains("Next paragraph.\nSecond sentence."),
+            "following prose must still reflow, got:\n{out}"
+        );
+        assert_eq!(
+            format_text(&out, &cfg).unwrap(),
+            out,
+            "colon section fixture must survive a second pass, got:\n{out}"
+        );
     }
 
     #[test]
