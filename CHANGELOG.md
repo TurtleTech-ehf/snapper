@@ -3,6 +3,8 @@ All notable changes to this project will be documented in this file. See [conven
 
 - - -
 ## Unreleased (main)
+#### Bug Fixes
+- (**latex**) treat fancyvrb `BVerbatim` and `LVerbatim` as code so listing bodies do not reflow as prose (#209)
 
 - - -
 
