@@ -154,10 +154,11 @@ impl OrgParser {
         trimmed.starts_with("#+") && !Self::is_block_begin(line) && !Self::is_block_end(line)
     }
 
-    /// Check if a line is a comment (starts with #, but not #+)
+    /// org.el `org-comment-regexp`: `^[ \t]*#(?: |$)`.
+    /// `#foo` is prose; `#` and `# comment` are comments. `#+` is a keyword.
     fn is_comment(line: &str) -> bool {
-        let trimmed = line.trim_start();
-        trimmed.starts_with('#') && !trimmed.starts_with("#+")
+        let trimmed = line.trim_start_matches([' ', '\t']);
+        trimmed == "#" || trimmed.starts_with("# ")
     }
 
     /// Check if a line is a table row
@@ -2338,6 +2339,115 @@ mod tests {
         let bang = "See file:/tmp/foo!\nNext sentence.\n";
         let out = format_text("See file:/tmp/foo! Next sentence.\n", &org_cfg()).unwrap();
         assert_eq!(out, bang, "same-line file: bang must split, got:\n{out}");
+        assert_eq!(format_text(&out, &org_cfg()).unwrap(), out);
+    }
+
+    /// Ticket fixture (Format::Org / GitHub #177): org-comment-regexp
+    /// requires space or EOL after `#`. `#foo` is prose.
+    fn hash_comment_space_or_eol_fixture() -> &'static str {
+        concat!(
+            "#not-a-comment This is a long sentence that must reflow as prose. Second sentence.\n",
+            "# This is a real comment and must stay frozen.\n",
+        )
+    }
+
+    #[test]
+    fn hash_without_space_is_not_a_comment() {
+        assert!(!OrgParser::is_comment(
+            "#not-a-comment This is a long sentence that must reflow as prose."
+        ));
+        assert!(!OrgParser::is_comment("#foo"));
+        assert!(!OrgParser::is_comment("#+TITLE: x"));
+        assert!(!OrgParser::is_comment("prose"));
+        assert!(OrgParser::is_comment("# This is a real comment"));
+        assert!(OrgParser::is_comment("#"));
+        assert!(OrgParser::is_comment("  # indented comment"));
+        assert!(OrgParser::is_comment("\t# tab-indented comment"));
+    }
+
+    #[test]
+    fn hash_without_space_is_prose_and_splits() {
+        use crate::format_text;
+
+        let input = hash_comment_space_or_eol_fixture();
+        let regions = OrgParser.parse(input);
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(p)
+                    if p.contains("#not-a-comment")
+                        && p.contains("must reflow as prose.")
+                        && p.contains("Second sentence.")
+            )),
+            "#not-a-comment line must be Prose, got: {regions:?}"
+        );
+        assert!(
+            !regions.iter().any(|r| matches!(
+                r,
+                Region::Structure(s) if s.contains("#not-a-comment")
+            )),
+            "#not-a-comment must not freeze as Structure, got: {regions:?}"
+        );
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Structure(s)
+                    if s.contains("# This is a real comment and must stay frozen.")
+            )),
+            "#<space> comment must stay Structure, got: {regions:?}"
+        );
+        assert!(
+            !regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(p) if p.contains("# This is a real comment")
+            )),
+            "#<space> comment must not be Prose, got: {regions:?}"
+        );
+
+        let out = format_text(input, &org_cfg()).unwrap();
+        assert!(
+            out.contains(
+                "#not-a-comment This is a long sentence that must reflow as prose.\nSecond sentence."
+            ),
+            "#not-a-comment prose must split, got:\n{out}"
+        );
+        assert!(
+            !out.contains(
+                "#not-a-comment This is a long sentence that must reflow as prose. Second sentence."
+            ),
+            "#not-a-comment must not stay fused, got:\n{out}"
+        );
+        assert!(
+            out.lines()
+                .any(|l| l == "# This is a real comment and must stay frozen."),
+            "real comment must stay frozen, got:\n{out}"
+        );
+        assert_eq!(format_text(&out, &org_cfg()).unwrap(), out);
+    }
+
+    #[test]
+    fn bare_hash_eol_is_a_comment() {
+        use crate::format_text;
+
+        let input = "#\nAfter. Next.\n";
+        let regions = OrgParser.parse(input);
+        assert!(
+            regions
+                .iter()
+                .any(|r| matches!(r, Region::Structure(s) if s.trim() == "#")),
+            "bare # must be Structure, got: {regions:?}"
+        );
+        assert!(
+            !regions
+                .iter()
+                .any(|r| matches!(r, Region::Prose(p) if p.contains('#'))),
+            "bare # must not be Prose, got: {regions:?}"
+        );
+        let out = format_text(input, &org_cfg()).unwrap();
+        assert!(
+            out.contains("#\nAfter.\nNext."),
+            "bare # stays a comment; following prose reflows, got:\n{out}"
+        );
         assert_eq!(format_text(&out, &org_cfg()).unwrap(), out);
     }
 }
