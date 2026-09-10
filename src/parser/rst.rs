@@ -615,6 +615,11 @@ fn rst_one_list_marker_len(t: &str) -> Option<usize> {
 /// the hang is the inner item width. A two-space continuation after
 /// `- - ` is a sibling; four spaces stay inside the inner item
 /// (GitHub #125).
+///
+/// Extra spaces after that compact opener (`*  Candidate:`) stay in the
+/// hang. Shrinking only the marker to `* Candidate:` leaves a
+/// three-space body and child, which Docutils treats as a block quote
+/// (GitHub #133).
 pub(crate) fn rst_list_marker_len(line: &str) -> Option<usize> {
     let indent = line.len() - line.trim_start().len();
     let mut pos = indent;
@@ -622,6 +627,11 @@ pub(crate) fn rst_list_marker_len(line: &str) -> Option<usize> {
     while let Some(n) = rst_one_list_marker_len(&line[pos..]) {
         pos += n;
         found = true;
+    }
+    if found {
+        while pos < line.len() && line.as_bytes()[pos] == b' ' {
+            pos += 1;
+        }
     }
     found.then_some(pos)
 }
@@ -1860,6 +1870,42 @@ mod tests {
     }
 
     #[test]
+    fn two_space_bullet_marker_is_width_three_structure() {
+        let input = concat!(
+            "*  Candidate:\n",
+            "\n",
+            "   Search API.\n",
+            "\n",
+            "   * Child item.\n",
+        );
+        let regions = RstParser.parse(input);
+        assert!(
+            regions
+                .iter()
+                .any(|r| matches!(r, Region::Structure(s) if s == "*  ")),
+            "two-space bullet must be Structure of width 3, got {regions:?}"
+        );
+        assert!(
+            !regions
+                .iter()
+                .any(|r| matches!(r, Region::Structure(s) if s == "* ")),
+            "must not shrink the marker to one space, got {regions:?}"
+        );
+        assert!(
+            regions
+                .iter()
+                .any(|r| matches!(r, Region::Prose(s) if s.contains("Candidate:"))),
+            "item text must be Prose, got {regions:?}"
+        );
+        assert!(
+            regions
+                .iter()
+                .any(|r| matches!(r, Region::Structure(s) if s == "   * ")),
+            "child bullet must keep three-space indent, got {regions:?}"
+        );
+    }
+
+    #[test]
     fn comment_opener_and_body_are_structure() {
         let input = "..\n   First sentence.\n   Second sentence.\n";
         let regions = RstParser.parse(input);
@@ -2490,6 +2536,10 @@ mod tests {
         assert_eq!(rst_list_marker_len("  - - nested."), Some(6));
         assert_eq!(rst_list_marker_len("- 1. inner."), Some(5));
         assert_eq!(rst_list_marker_len("- --not-nested"), Some(2));
+        assert_eq!(rst_list_marker_len("*  Candidate:"), Some(3));
+        assert_eq!(rst_list_marker_len("*  "), Some(3));
+        assert_eq!(rst_list_marker_len("-  Term"), Some(3));
+        assert_eq!(rst_list_marker_len("  *  Nested"), Some(5));
     }
 
     #[test]

@@ -995,9 +995,11 @@ fn hanging_indent_width(s: &str) -> usize {
     if crate::parser::rst::rst_list_marker_len(s) == Some(s.len()) {
         return s.chars().count();
     }
-    // Parser markers are `core` plus one trailing space; leading indent is
-    // part of the hang so nested `   - ` continues at column 5. RST `#.`
-    // is an auto-enumerator (GitHub #60); digits-only would miss it.
+    // Parser markers are `core` plus one or more trailing spaces; leading
+    // indent is part of the hang so nested `   - ` continues at column 5.
+    // Extra spaces after `*` (`*  Candidate:`) stay in the hang so a
+    // three-space body is not a Docutils block quote (GitHub #133).
+    // RST `#.` is an auto-enumerator (GitHub #60); digits-only would miss it.
     let core = &trimmed[..trimmed.len() - 1];
     let is_bullet = matches!(core, "-" | "*" | "+");
     let is_rst_autoenum = core == "#.";
@@ -1143,6 +1145,8 @@ mod tests {
         assert_eq!(hanging_prefix("- "), "  ");
         assert_eq!(hanging_indent_width("- - "), 4);
         assert_eq!(hanging_prefix("- - "), "    ");
+        assert_eq!(hanging_indent_width("*  "), 3);
+        assert_eq!(hanging_prefix("*  "), "   ");
         assert_eq!(hanging_prefix("1. "), "   ");
         assert_eq!(hanging_prefix("#. "), "   ");
         assert_eq!(hanging_prefix("a. "), "   ");
@@ -1589,6 +1593,8 @@ They are endowed with reason and conscience and should act towards one another i
         assert_eq!(hanging_indent_width("   - "), 5);
         assert_eq!(hanging_indent_width("  * "), 4);
         assert_eq!(hanging_prefix("  * "), "    ");
+        assert_eq!(hanging_indent_width("*  "), 3);
+        assert_eq!(hanging_prefix("*  "), "   ");
         // Quotes are a prefix hang, not a space-hang bullet.
         assert_eq!(hanging_indent_width("> "), 0);
         assert_eq!(hanging_indent_width("> > "), 0);
