@@ -169,6 +169,17 @@ fn line_indent(line: &str) -> usize {
     line.len() - line.trim_start().len()
 }
 
+/// CommonMark 4.4 indented-code line: a tab, or at least four spaces, then
+/// non-whitespace. Blank lines are not openers; they end or continue a block.
+fn is_indented_code_line(line: &str) -> bool {
+    let trimmed = line.trim_start();
+    if trimmed.is_empty() {
+        return false;
+    }
+    let prefix = &line[..line.len() - trimmed.len()];
+    prefix.contains('\t') || prefix.len() >= 4
+}
+
 /// Count CommonMark blockquote markers at the start of `line`.
 /// Each marker is `>` plus an optional space. Leading whitespace is skipped.
 fn quote_marker_depth(line: &str) -> usize {
@@ -370,6 +381,60 @@ impl FormatParser for MarkdownParser {
                 code_header = line.span();
                 code_body_start = line.end;
                 i += 1;
+                continue;
+            }
+
+            // CommonMark 4.4 indented code: after a blank (or any flush
+            // boundary), 4 spaces or a tab is Code through the blank that
+            // ends the block. Cannot interrupt a paragraph or list item.
+            // Fences above still win so `    ```lang` stays a nested fence.
+            if current_prose.is_empty() && !in_list_item && is_indented_code_line(line_text) {
+                close_list_item(
+                    &mut in_list_item,
+                    &mut current_prose,
+                    &mut prose_span,
+                    &mut list_term,
+                    input,
+                    &mut regions,
+                );
+                flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
+                let header = ByteSpan::new(line.start, line.start);
+                let body_start = line.start;
+                let mut body_end = line.end;
+                let mut footer = ByteSpan::new(line.end, line.end);
+                i += 1;
+                while i < total {
+                    let nxt = &lines[i];
+                    if is_indented_code_line(nxt.text) {
+                        body_end = nxt.end;
+                        footer = ByteSpan::new(nxt.end, nxt.end);
+                        i += 1;
+                        continue;
+                    }
+                    if nxt.text.trim().is_empty() {
+                        let mut j = i + 1;
+                        while j < total && lines[j].text.trim().is_empty() {
+                            j += 1;
+                        }
+                        if j < total && is_indented_code_line(lines[j].text) {
+                            body_end = nxt.end;
+                            footer = ByteSpan::new(nxt.end, nxt.end);
+                            i += 1;
+                            continue;
+                        }
+                        footer = nxt.span();
+                        i += 1;
+                        break;
+                    }
+                    break;
+                }
+                regions.push(SpannedRegion::code(
+                    input,
+                    None,
+                    header,
+                    ByteSpan::new(body_start, body_end),
+                    footer,
+                ));
                 continue;
             }
 
@@ -1451,6 +1516,134 @@ mod tests {
                 .iter()
                 .any(|r| matches!(r, Region::Prose(p) if p.contains("print"))),
             "nested quoted fence body must not be Prose: {regions:?}"
+        );
+    }
+
+    /// GitHub #86 / snapper-tupp: after a blank, 4 spaces is Code, not Prose.
+    #[test]
+    fn indented_code_after_blank_is_code_not_prose() {
+        let input = concat!(
+            "After a blank, this is code.\n",
+            "\n",
+            "    def f():\n",
+            "        return 1.0\n",
+            "\n",
+            "Next sentence. Another.\n",
+        );
+        let regions = MarkdownParser.parse(input);
+        match regions.iter().find(|r| matches!(r, Region::Code { .. })) {
+            Some(Region::Code {
+                lang,
+                header,
+                body,
+                footer,
+            }) => {
+                assert_eq!(lang.as_deref(), None);
+                assert_eq!(header, "");
+                assert!(
+                    body.contains("    def f():\n") && body.contains("        return 1.0\n"),
+                    "indented lines stay in the Code body: {body:?}"
+                );
+                assert!(
+                    !body.contains("Next sentence"),
+                    "following prose must not enter the Code body: {body:?}"
+                );
+                assert_eq!(
+                    footer, "\n",
+                    "Code runs through the blank that ends the block: {footer:?}"
+                );
+            }
+            other => panic!("indented code must be Code, got {other:?} / {regions:?}"),
+        }
+        assert!(
+            !regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(p) if p.contains("def f") || p.contains("return 1.0")
+            )),
+            "indented code must not be Prose: {regions:?}"
+        );
+    }
+
+    #[test]
+    fn indented_code_fixture_is_identity_under_format() {
+        use crate::format::Format;
+        use crate::oracle;
+        use crate::{FormatConfig, format_text};
+
+        let input = concat!(
+            "After a blank, this is code.\n",
+            "\n",
+            "    def f():\n",
+            "        return 1.0\n",
+            "\n",
+            "Next sentence. Another.\n",
+        );
+        let cfg = FormatConfig {
+            format: Format::Markdown,
+            ..Default::default()
+        };
+        let out = format_text(input, &cfg).unwrap();
+        assert!(
+            out.contains("    def f():\n        return 1.0\n"),
+            "indent and body must stay literal, got:\n{out}"
+        );
+        assert!(
+            !out.contains("return 1.0.") && !out.contains("def f(): return"),
+            "must not reflow indented code as prose, got:\n{out}"
+        );
+        assert!(
+            out.contains("Next sentence.\nAnother."),
+            "surrounding prose still splits, got:\n{out}"
+        );
+        assert_eq!(format_text(&out, &cfg).unwrap(), out);
+        assert!(
+            oracle::matches(Format::Markdown, input, &out),
+            "oracle must accept the fixture reflow\n in={input:?}\n out={out:?}"
+        );
+
+        let cfg = cfg.without_safety_backstops();
+        let raw = format_text(input, &cfg).unwrap();
+        assert!(
+            raw.contains("    def f():\n        return 1.0\n"),
+            "without backstops, indent must still stay, got:\n{raw}"
+        );
+    }
+
+    #[test]
+    fn tab_indented_code_after_blank_is_code() {
+        let input = "Before.\n\n\tdef f():\n\t\treturn 1.0\n\nAfter.\n";
+        let regions = MarkdownParser.parse(input);
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Code { body, .. }
+                    if body.contains("\tdef f():\n") && body.contains("\t\treturn 1.0\n")
+            )),
+            "tab indent after a blank must be Code, got: {regions:?}"
+        );
+        assert!(
+            !regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(p) if p.contains("def f") || p.contains("return 1.0")
+            )),
+            "tab-indented code must not be Prose: {regions:?}"
+        );
+    }
+
+    #[test]
+    fn indented_line_without_blank_stays_prose() {
+        let input = "This is a paragraph\n    still the same paragraph.\n";
+        let regions = MarkdownParser.parse(input);
+        assert!(
+            !regions.iter().any(|r| matches!(r, Region::Code { .. })),
+            "lazy continuation is not indented code: {regions:?}"
+        );
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(p) if p.contains("still the same paragraph")
+            )),
+            "unblanked indent stays Prose: {regions:?}"
         );
     }
 }
