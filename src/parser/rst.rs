@@ -3,7 +3,7 @@ use std::sync::LazyLock;
 
 use crate::parser::{
     ByteSpan, FormatParser, Line, Region, SpannedRegion, flush_prose_spanned, iter_lines,
-    push_prose_line,
+    join_prose_gap, push_prose_line,
 };
 
 /// Match `.. code-block:: LANG` or `.. sourcecode:: LANG` (or `.. code:: LANG`).
@@ -339,7 +339,7 @@ fn parse_line_based(input: &str) -> Vec<SpannedRegion> {
                     }
                 } else if line_text.len() > leading {
                     if !current_prose.is_empty() {
-                        current_prose.push(' ');
+                        join_prose_gap(&mut current_prose);
                     }
                     current_prose.push_str(line_text[leading..].trim());
                     match prose_span.as_mut() {
@@ -846,7 +846,7 @@ mod tests {
             .collect();
         assert_eq!(
             prose,
-            ["One. Two."],
+            ["One.\nTwo."],
             "compact hang must join into one Prose, got {regions:?}"
         );
         assert!(

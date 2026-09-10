@@ -1,7 +1,9 @@
 use regex::Regex;
 use std::sync::LazyLock;
 
-use crate::parser::{ByteSpan, FormatParser, Line, SpannedRegion, flush_prose_spanned, iter_lines};
+use crate::parser::{
+    ByteSpan, FormatParser, Line, SpannedRegion, flush_prose_spanned, iter_lines, join_prose_gap,
+};
 use crate::sentence::unicode::latex_verb_span_end_with;
 
 // Environments whose content is NOT prose (math, code, figures, tables)
@@ -371,7 +373,7 @@ impl<'a> ParseState<'a> {
         let content_start = abs_start + lead;
         let content_end = content_start + trimmed.len();
         if !self.current_prose.is_empty() && !self.nospace_join {
-            self.current_prose.push(' ');
+            join_prose_gap(&mut self.current_prose);
         }
         self.current_prose.push_str(trimmed);
         match &mut self.prose_span {
