@@ -878,6 +878,57 @@ fn is_gfm_table_row(line: &str) -> bool {
     gfm_table_cells(line).is_some()
 }
 
+/// Pulldown `scan_metadata_block` opener: 0–3 spaces, then exactly three
+/// `-` (YAML) or `+` (pluses), then only trailing spaces.
+fn metadata_open_fence(line: &str) -> Option<u8> {
+    let rest = md_leaf_rest(line.trim_end())?;
+    let bytes = rest.as_bytes();
+    if bytes.len() != 3 {
+        return None;
+    }
+    let c = bytes[0];
+    if (c == b'-' || c == b'+') && bytes[1] == c && bytes[2] == c {
+        Some(c)
+    } else {
+        None
+    }
+}
+
+/// Pulldown `scan_closing_metadata_block`: YAML closes on exactly `---`
+/// or `...`; pluses on `+++`. Trailing spaces allowed.
+fn is_metadata_close(line: &str, fence_char: u8) -> bool {
+    let Some(rest) = md_leaf_rest(line.trim_end()) else {
+        return false;
+    };
+    let bytes = rest.as_bytes();
+    if bytes.len() != 3 {
+        return false;
+    }
+    if bytes[0] == fence_char && bytes[1] == fence_char && bytes[2] == fence_char {
+        return true;
+    }
+    fence_char == b'-' && bytes == b"..."
+}
+
+/// Inclusive end index of a document-start YAML/pluses metadata block.
+/// Opens only when the next line is neither blank nor the closer, and a
+/// closer exists later (pulldown `scan_metadata_block`).
+fn metadata_block_end(lines: &[Line<'_>], start: usize) -> Option<usize> {
+    if start != 0 {
+        return None;
+    }
+    let fence = metadata_open_fence(lines[start].text)?;
+    let next = lines.get(start + 1)?;
+    if next.text.trim().is_empty() || is_metadata_close(next.text, fence) {
+        return None;
+    }
+    lines
+        .iter()
+        .enumerate()
+        .skip(start + 2)
+        .find_map(|(j, line)| is_metadata_close(line.text, fence).then_some(j))
+}
+
 /// Last line of a GFM table starting at `start` (header), if the next line
 /// is a delimiter with a matching cell count. Data rows may omit flanking
 /// pipes (GFM 4.10 / pulldown `ENABLE_TABLES`, ex. 199).
@@ -957,8 +1008,6 @@ impl FormatParser for MarkdownParser {
         let mut code_header = ByteSpan::default();
         let mut code_body_start = 0usize;
         let mut code_lang: Option<String> = None;
-        let mut in_frontmatter = false;
-        let mut frontmatter_fence = String::new();
         let mut in_list_item = false;
         let mut list_hang: Option<usize> = None;
         let mut list_after_blank = false;
@@ -973,7 +1022,6 @@ impl FormatParser for MarkdownParser {
         while i < total {
             let line: &Line<'_> = &lines[i];
             let line_text = line.text;
-            let line_number = i + 1;
 
             // Check for snapper:off/on pragmas. Inside a fenced code block,
             // the markdown parser does NOT short-circuit on pragmas; the
@@ -1015,22 +1063,18 @@ impl FormatParser for MarkdownParser {
                 }
             }
 
-            // Front matter detection (only at start of file)
-            if line_number == 1 && (line_text.trim() == "---" || line_text.trim() == "+++") {
-                in_frontmatter = true;
-                frontmatter_fence = line_text.trim().to_string();
-                regions.push(SpannedRegion::structure(input, line.span()));
-                i += 1;
-                continue;
-            }
-
-            if in_frontmatter {
-                if line_text.trim() == frontmatter_fence {
-                    in_frontmatter = false;
+            // YAML / pluses metadata (pulldown `scan_metadata_block`).
+            // `---` opens only when the next line is neither blank nor a
+            // closer; closer is `---` or `...`. A blank after `---` is a
+            // thematic break, not unclosed front matter.
+            if i == 0 {
+                if let Some(end) = metadata_block_end(&lines, 0) {
+                    for k in 0..=end {
+                        regions.push(SpannedRegion::structure(input, lines[k].span()));
+                    }
+                    i = end + 1;
+                    continue;
                 }
-                regions.push(SpannedRegion::structure(input, line.span()));
-                i += 1;
-                continue;
             }
 
             // Inside fenced code block
@@ -1782,6 +1826,72 @@ mod tests {
         assert!(matches!(&regions[1], Region::Structure(_)));
         assert!(matches!(&regions[2], Region::Structure(_)));
         assert!(matches!(&regions[3], Region::Structure(_)));
+    }
+
+    /// snapper-4why: pulldown `scan_closing_metadata_block` accepts `...`.
+    #[test]
+    fn yaml_ellipsis_closes_front_matter() {
+        let input = concat!(
+            "---\n",
+            "title: Hello. World. This is a long title that would reflow.\n",
+            "...\n",
+            "\n",
+            "Body after yaml. Second sentence.\n",
+        );
+        let regions = MarkdownParser.parse(input);
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Structure(s) if s.contains("title: Hello. World.")
+            )),
+            "YAML body must be Structure, got: {regions:?}"
+        );
+        assert!(
+            regions
+                .iter()
+                .any(|r| matches!(r, Region::Structure(s) if s.trim() == "...")),
+            "... must close YAML as Structure, got: {regions:?}"
+        );
+        assert!(
+            !regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(p) if p.contains("title:") || p.contains("Hello. World.")
+            )),
+            "YAML title must not be Prose, got: {regions:?}"
+        );
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(p) if p.contains("Body after yaml.")
+            )),
+            "body after ... must be Prose, got: {regions:?}"
+        );
+    }
+
+    /// snapper-4why sibling: blank after `---` is a thematic break.
+    #[test]
+    fn blank_after_dashes_is_thematic_break_not_front_matter() {
+        let input = "---\n\nBody after yaml. Second sentence.\n";
+        let regions = MarkdownParser.parse(input);
+        assert!(
+            regions
+                .iter()
+                .any(|r| matches!(r, Region::Structure(s) if s.trim() == "---")),
+            "--- before a blank must be Structure (HR), got: {regions:?}"
+        );
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(p) if p.contains("Body after yaml.")
+            )),
+            "body after ---\\n\\n must be Prose, got: {regions:?}"
+        );
+        assert!(
+            !regions
+                .iter()
+                .any(|r| matches!(r, Region::Prose(p) if p.contains("---"))),
+            "--- must not join body prose, got: {regions:?}"
+        );
     }
 
     #[test]
