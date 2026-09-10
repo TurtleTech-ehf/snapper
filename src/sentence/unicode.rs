@@ -1926,7 +1926,13 @@ mod tests {
         use crate::{FormatConfig, format_text};
 
         let input = "First sentence.\niCloud starts the second sentence.\n";
-        for format in [Format::Markdown, Format::Plaintext] {
+        for format in [
+            Format::Markdown,
+            Format::Plaintext,
+            Format::Org,
+            Format::Latex,
+            Format::Rst,
+        ] {
             let cfg = FormatConfig {
                 format,
                 max_width: 0,
