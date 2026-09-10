@@ -33,9 +33,10 @@ impl FormatParser for RstParser {
     }
 }
 
-/// Line-based RST parser. Handles directives, literal blocks, doctest
-/// blocks, sections, field lists, option lists, comments, tables,
-/// definition lists, and block-quote hang spaces as structure regions.
+/// Line-based RST parser. Handles directives, literal blocks (indented
+/// and quoted), doctest blocks, sections, field lists, option lists,
+/// comments, tables, definition lists, and block-quote hang spaces as
+/// structure regions.
 fn parse_line_based(input: &str) -> Vec<SpannedRegion> {
     let mut regions = Vec::new();
     let mut current_prose = String::new();
@@ -300,6 +301,22 @@ fn parse_line_based(input: &str) -> Vec<SpannedRegion> {
                 if next_indent > 0 {
                     literal_indent = next_indent;
                     in_literal_block = true;
+                } else if let Some(q) = rst_quoted_literal_quote(next) {
+                    // Flush `>` / `|` / … after `::`. The blank after
+                    // `::` is the separator, not the Docutils terminator;
+                    // consume quoted lines here so that blank cannot
+                    // close the block before the first `>` is seen.
+                    i += 1;
+                    while i < total && lines[i].text.trim().is_empty() {
+                        flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
+                        regions.push(SpannedRegion::blank(input, lines[i].span()));
+                        i += 1;
+                    }
+                    while i < total && rst_quoted_literal_continues(lines[i].text, q) {
+                        regions.push(SpannedRegion::structure(input, lines[i].span()));
+                        i += 1;
+                    }
+                    continue;
                 }
             }
             i += 1;
@@ -637,6 +654,27 @@ fn take_roman_place(b: &[u8], i: usize, one: u8, five: u8, ten: u8) -> usize {
     take_roman_repeat(b, j, one, 3)
 }
 
+/// Docutils quoted-literal quoting characters: printable 7-bit ASCII
+/// except alphanumerics (same set as section adornments).
+fn is_rst_quote_char(b: u8) -> bool {
+    b.is_ascii_graphic() && !b.is_ascii_alphanumeric()
+}
+
+/// Quote byte when `line` is a flush quoted-literal line, else `None`.
+fn rst_quoted_literal_quote(line: &str) -> Option<u8> {
+    let indent = line.len() - line.trim_start().len();
+    if indent > 0 {
+        return None;
+    }
+    let b = *line.as_bytes().first()?;
+    is_rst_quote_char(b).then_some(b)
+}
+
+fn rst_quoted_literal_continues(line: &str, quote: u8) -> bool {
+    let indent = line.len() - line.trim_start().len();
+    indent == 0 && line.as_bytes().first() == Some(&quote)
+}
+
 /// Check if a line is a section underline (2+ repeated punctuation chars).
 /// Includes `' . _ < >` in addition to the common `= - ~ ^ " # * +` set.
 /// Docutils Body.doctest wins over Body.line: prompt-only `>>>` / `>>> `
@@ -827,6 +865,65 @@ mod tests {
             .filter(|r| matches!(r, Region::Structure(_)))
             .count();
         assert!(structure_count >= 3);
+    }
+
+    #[test]
+    fn quoted_literal_block_lines_are_structure() {
+        let input = concat!(
+            "Take it literally::\n",
+            "\n",
+            "> if literal_block:\n",
+            ">     text = 'is left as-is'\n",
+            ">     markup_processing = None\n",
+        );
+        let regions = RstParser.parse(input);
+        for needle in [
+            "> if literal_block:",
+            ">     text = 'is left as-is'",
+            ">     markup_processing = None",
+        ] {
+            assert!(
+                regions
+                    .iter()
+                    .any(|r| matches!(r, Region::Structure(s) if s.contains(needle))),
+                "quoted literal line {needle:?} must be Structure, got {regions:?}"
+            );
+            assert!(
+                !regions
+                    .iter()
+                    .any(|r| matches!(r, Region::Prose(s) if s.contains(needle))),
+                "quoted literal line {needle:?} must not be Prose, got {regions:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn reporter_quoted_literal_is_identity_under_format() {
+        use crate::format::Format;
+        use crate::{FormatConfig, format_text};
+
+        let cfg = FormatConfig {
+            format: Format::Rst,
+            max_width: 0,
+            ..Default::default()
+        };
+        let input = concat!(
+            "Take it literally::\n",
+            "\n",
+            "> if literal_block:\n",
+            ">     text = 'is left as-is'\n",
+            ">     markup_processing = None\n",
+        );
+        let out = format_text(input, &cfg).unwrap();
+        assert_eq!(
+            out, input,
+            "quoted literal after :: must stay unjoined, got:\n{out}"
+        );
+        assert_eq!(
+            format_text(&out, &cfg).unwrap(),
+            out,
+            "hung quoted literal must be identity, got:\n{out}"
+        );
     }
 
     #[test]

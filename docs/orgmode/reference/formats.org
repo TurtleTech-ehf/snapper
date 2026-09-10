@@ -149,7 +149,7 @@ These tokens within prose are not split across lines:
 :CUSTOM_ID: rst-structure
 :END:
 - Non-code directives (=.. math::=, =.. image::=, etc.) and their indented bodies
-- Literal blocks (text after =::= with indented content)
+- Literal blocks (text after =::= with indented or line-prefix-quoted content)
 - Section titles and underlines (=====, =-----=, etc.)
 - Field lists (=:Author:=, =:Date:=, etc.)
 - Comments (=..= without a directive)
