@@ -660,6 +660,9 @@ fn rst_opens_block(line: &str) -> bool {
     if crate::parser::rst::is_rst_doctest_opener(t) {
         return true;
     }
+    if crate::parser::rst::is_rst_anonymous_target(t) {
+        return true;
+    }
     if t == ".." || t.starts_with(".. ") || t.starts_with("..\t") {
         return true;
     }
@@ -1563,6 +1566,8 @@ They are endowed with reason and conscience and should act towards one another i
         assert_eq!(hanging_indent_width("(1) "), 4);
         assert_eq!(hanging_indent_width("i. "), 3);
         assert_eq!(hanging_indent_width("   - "), 5);
+        assert_eq!(hanging_indent_width("  * "), 4);
+        assert_eq!(hanging_prefix("  * "), "    ");
         // Quotes are a prefix hang, not a space-hang bullet.
         assert_eq!(hanging_indent_width("> "), 0);
         assert_eq!(hanging_indent_width("> > "), 0);
@@ -1724,6 +1729,22 @@ They are endowed with reason and conscience and should act towards one another i
         assert!(
             result.contains("\n   - Child one."),
             "nested marker must stay its own item: {result:?}"
+        );
+    }
+
+    #[test]
+    fn org_indented_star_list_hangs_child_prose() {
+        let result = reflow_regions(vec![
+            Region::Structure("- ".to_string()),
+            Region::Prose("Parent one. Parent two.".to_string()),
+            Region::Structure("\n".to_string()),
+            Region::Structure("  * ".to_string()),
+            Region::Prose("Child one. Child two.".to_string()),
+            Region::Structure("\n".to_string()),
+        ]);
+        assert_eq!(
+            result,
+            "- Parent one.\n  Parent two.\n  * Child one.\n    Child two.\n"
         );
     }
 
@@ -2210,6 +2231,21 @@ They are endowed with reason and conscience and should act towards one another i
         assert!(
             result.contains("apples .."),
             "RST skip-cut keeps the directive marker:\n{result}"
+        );
+    }
+
+    #[test]
+    fn wrap_created_rst_anonymous_target_is_not_a_block() {
+        // G2. RST __ (Docutils Body.anonymous)
+        let result = wrap_fmt(
+            "The options are apples __ extra words here.",
+            23,
+            crate::format::Format::Rst,
+        );
+        assert_no_col0_block(&result, &["__ ", "__"]);
+        assert!(
+            result.contains("apples __"),
+            "RST skip-cut keeps the anonymous-target marker:\n{result}"
         );
     }
 
