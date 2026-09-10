@@ -71,6 +71,65 @@ pub(crate) fn org_caption_marker_len(line: &str) -> Option<usize> {
     Some(lead + i)
 }
 
+/// org-element-line-break-parser: `\\\\[ \t]*$`.
+///
+/// Returns the byte offset of the `\\` that opens the line break.
+/// Mid-line `\\` is not a break. `\\[` is display math, not a break.
+pub(crate) fn org_line_break_start(text: &str) -> Option<usize> {
+    let bytes = text.as_bytes();
+    let mut end = bytes.len();
+    while end > 0 && (bytes[end - 1] == b' ' || bytes[end - 1] == b'\t') {
+        end -= 1;
+    }
+    if end >= 2 && bytes[end - 2] == b'\\' && bytes[end - 1] == b'\\' {
+        Some(end - 2)
+    } else {
+        None
+    }
+}
+
+/// True when `s` is an org line-break Structure payload (`\\` plus
+/// optional spaces/tabs, plus optional newline).
+pub(crate) fn is_org_line_break_structure(s: &str) -> bool {
+    let body = s.strip_suffix('\n').unwrap_or(s);
+    body.trim_end_matches([' ', '\t']) == "\\\\"
+}
+
+/// Emit hung prose from `line.text[text_from..]`, splitting a trailing
+/// org line-break into Structure so splice copies `\\` plus the newline.
+fn emit_hung_text(
+    input: &str,
+    line: &Line<'_>,
+    text_from: usize,
+    regions: &mut Vec<SpannedRegion>,
+) {
+    let text = &line.text[text_from..];
+    if let Some(rel) = org_line_break_start(text) {
+        let break_at = text_from + rel;
+        if break_at > text_from {
+            regions.push(SpannedRegion::prose(
+                line.text[text_from..break_at].to_string(),
+                ByteSpan::new(line.start + text_from, line.start + break_at),
+            ));
+        }
+        regions.push(SpannedRegion::structure(
+            input,
+            ByteSpan::new(line.start + break_at, line.end),
+        ));
+        return;
+    }
+    if !text.is_empty() {
+        regions.push(SpannedRegion::prose(
+            text.to_string(),
+            ByteSpan::new(line.start + text_from, line.start + line.text.len()),
+        ));
+    }
+    let term = line.terminator_span();
+    if !term.is_empty() {
+        regions.push(SpannedRegion::structure(input, term));
+    }
+}
+
 /// org-element / org-mode display math (`$$` or `\[`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum DisplayMathDelim {
@@ -653,17 +712,7 @@ impl FormatParser for OrgParser {
                 list_item_indent = Some(marker_len);
                 let marker_span = ByteSpan::new(line.start, line.start + marker_len);
                 regions.push(SpannedRegion::structure(input, marker_span));
-                if line_text.len() > marker_len {
-                    let text = &line_text[marker_len..];
-                    regions.push(SpannedRegion::prose(
-                        text.to_string(),
-                        ByteSpan::new(line.start + marker_len, line.start + line_text.len()),
-                    ));
-                }
-                let term = line.terminator_span();
-                if !term.is_empty() {
-                    regions.push(SpannedRegion::structure(input, term));
-                }
+                emit_hung_text(input, &line, marker_len, &mut regions);
                 continue;
             }
 
@@ -724,17 +773,7 @@ impl FormatParser for OrgParser {
                 list_item_indent = Some(marker_len);
                 let marker_span = ByteSpan::new(line.start, line.start + marker_len);
                 regions.push(SpannedRegion::structure(input, marker_span));
-                if line_text.len() > marker_len {
-                    let text = &line_text[marker_len..];
-                    regions.push(SpannedRegion::prose(
-                        text.to_string(),
-                        ByteSpan::new(line.start + marker_len, line.start + line_text.len()),
-                    ));
-                }
-                let term = line.terminator_span();
-                if !term.is_empty() {
-                    regions.push(SpannedRegion::structure(input, term));
-                }
+                emit_hung_text(input, &line, marker_len, &mut regions);
                 continue;
             }
 
@@ -742,21 +781,11 @@ impl FormatParser for OrgParser {
             if let Some(caps) = LIST_ITEM_RE.captures(line_text) {
                 flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
                 let marker = caps.get(1).unwrap().as_str();
-                let text = caps.get(2).unwrap().as_str();
                 // Track indent for continuation detection: text starts at marker length
                 list_item_indent = Some(marker.len());
                 let marker_span = ByteSpan::new(line.start, line.start + marker.len());
                 regions.push(SpannedRegion::structure(input, marker_span));
-                if !text.is_empty() {
-                    regions.push(SpannedRegion::prose(
-                        text.to_string(),
-                        ByteSpan::new(line.start + marker.len(), line.start + line_text.len()),
-                    ));
-                }
-                let term = line.terminator_span();
-                if !term.is_empty() {
-                    regions.push(SpannedRegion::structure(input, term));
-                }
+                emit_hung_text(input, &line, marker.len(), &mut regions);
                 continue;
             }
 
@@ -767,27 +796,54 @@ impl FormatParser for OrgParser {
                     // Append to the previous Prose region of the list item.
                     // The last three regions are Structure(marker), Prose(text), Structure(\n)
                     // We want to extend the Prose region.
-                    let is_term = matches!(
-                        regions.last(),
+                    let last_term = match regions.last() {
                         Some(SpannedRegion {
                             region: Region::Structure(s),
                             ..
-                        }) if s == "\n"
-                    );
-                    if is_term {
+                        }) if s == "\n" || is_org_line_break_structure(s) => Some(s.as_str()),
+                        _ => None,
+                    };
+                    if let Some(term) = last_term {
+                        if is_org_line_break_structure(term) {
+                            // New hung paragraph after `\\`; indent stays Structure
+                            // so reflow hangs at the list/caption/footnote marker.
+                            if leading > 0 {
+                                regions.push(SpannedRegion::structure(
+                                    input,
+                                    ByteSpan::new(line.start, line.start + leading),
+                                ));
+                            }
+                            emit_hung_text(input, &line, leading, &mut regions);
+                            continue;
+                        }
                         regions.pop();
+                        let break_at = org_line_break_start(line_text);
                         if let Some(prev) = regions.last_mut() {
                             if let Region::Prose(prose) = &mut prev.region {
                                 join_prose_gap(prose);
-                                prose.push_str(line_text.trim());
+                                let content = match break_at {
+                                    Some(at) => line_text[..at].trim(),
+                                    None => line_text.trim(),
+                                };
+                                prose.push_str(content);
                             }
                             if let Some(RegionOrigin::Whole(span)) = &mut prev.origin {
-                                span.end = line.start + line_text.len();
+                                span.end = match break_at {
+                                    Some(at) => line.start + at,
+                                    None => line.start + line_text.len(),
+                                };
                             }
                         }
-                        let term = line.terminator_span();
-                        if !term.is_empty() {
-                            regions.push(SpannedRegion::structure(input, term));
+                        if let Some(at) = break_at {
+                            regions.push(SpannedRegion::structure(
+                                input,
+                                ByteSpan::new(line.start + at, line.end),
+                            ));
+                        } else {
+                            let term = line.terminator_span();
+                            if !term.is_empty() {
+                                regions.push(SpannedRegion::structure(input, term));
+                            }
                         }
                         continue;
                     }
@@ -796,18 +852,53 @@ impl FormatParser for OrgParser {
                 list_item_indent = None;
             }
 
+            // org-element-line-break-parser `\\[ \t]*$`: do not join the
+            // next physical line. `\\` plus the terminator stay Structure.
+            let line_break_at = org_line_break_start(line_text);
+            let work_line = if let Some(at) = line_break_at {
+                Line {
+                    start: line.start,
+                    end: line.start + at,
+                    text: &line_text[..at],
+                }
+            } else {
+                line
+            };
+            let work_empty = work_line.text.trim().is_empty();
+
             // Same-line \[CONTENTS\] is Structure (org-syntax 5.2 / Kang).
             // Surrounding words stay Prose so "today. Next claim." still reflows.
-            if Self::emit_same_line_bracket_fragments(
-                input,
-                &line,
-                &mut current_prose,
-                &mut prose_span,
-                &mut regions,
-            ) {
+            if !work_empty
+                && Self::emit_same_line_bracket_fragments(
+                    input,
+                    &work_line,
+                    &mut current_prose,
+                    &mut prose_span,
+                    &mut regions,
+                )
+            {
+                if let Some(at) = line_break_at {
+                    flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
+                    regions.push(SpannedRegion::structure(
+                        input,
+                        ByteSpan::new(line.start + at, line.end),
+                    ));
+                }
                 if Self::in_verse_block(&block_stack) {
                     flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
                 }
+                continue;
+            }
+
+            if let Some(at) = line_break_at {
+                if !work_empty {
+                    push_prose_line(&mut current_prose, &mut prose_span, &work_line, true, false);
+                }
+                flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
+                regions.push(SpannedRegion::structure(
+                    input,
+                    ByteSpan::new(line.start + at, line.end),
+                ));
                 continue;
             }
 
@@ -3475,6 +3566,58 @@ mod tests {
         assert!(
             out.contains("After the figure.\nMore."),
             "following prose must still split, got:\n{out}"
+        );
+        assert_eq!(format_text(&out, &org_cfg()).unwrap(), out);
+    }
+
+    #[test]
+    fn org_line_break_start_matches_element_parser() {
+        // "sentence." is 9 bytes; `\\` starts there.
+        assert_eq!(org_line_break_start(r"sentence.\\"), Some(9));
+        assert_eq!(org_line_break_start("sentence.\\\\  \t"), Some(9));
+        assert_eq!(org_line_break_start(r"\\"), Some(0));
+        assert_eq!(org_line_break_start(r"words \\ inside"), None);
+        assert_eq!(org_line_break_start(r"display \["), None);
+        assert_eq!(org_line_break_start("no break"), None);
+        // Last two backslashes are the break; the first pair stays in prose.
+        assert_eq!(org_line_break_start(r"sentence.\\\\"), Some(11));
+    }
+
+    #[test]
+    fn line_break_is_structure_and_does_not_join() {
+        use crate::format_text;
+
+        let input = "This is a long first sentence.\\\\\nThis is the second sentence after the break. Next claim.\n";
+        let regions = OrgParser.parse(input);
+        assert!(
+            regions
+                .iter()
+                .any(|r| matches!(r, Region::Structure(s) if is_org_line_break_structure(s))),
+            "\\\\ plus EOL must be Structure, got {regions:?}"
+        );
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(s)
+                    if s.contains("This is a long first sentence.")
+                        && !s.contains("This is the second sentence after the break.")
+            )),
+            "line before \\\\ must not join the next line, got {regions:?}"
+        );
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(s)
+                    if s.contains("This is the second sentence after the break.")
+                        && s.contains("Next claim.")
+            )),
+            "line after \\\\ must stay Prose, got {regions:?}"
+        );
+        let out = format_text(input, &org_cfg()).unwrap();
+        assert_eq!(
+            out,
+            "This is a long first sentence.\\\\\nThis is the second sentence after the break.\nNext claim.\n",
+            "\\\\ stays; next line is its own sentence; Next claim. still splits, got:\n{out}"
         );
         assert_eq!(format_text(&out, &org_cfg()).unwrap(), out);
     }

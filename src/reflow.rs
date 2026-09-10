@@ -1139,9 +1139,14 @@ fn is_latex_item_core(core: &str) -> bool {
 }
 
 /// Markdown hard break payloads: two or more spaces plus newline, or `\\\n`.
+/// Org line-break: `\\` plus optional spaces/tabs plus newline
+/// (org-element-line-break-parser).
 fn is_hard_break_structure(s: &str) -> bool {
+    if crate::parser::org::is_org_line_break_structure(s) {
+        return true;
+    }
     let Some(body) = s.strip_suffix('\n') else {
-        return false;
+        return s == "\\";
     };
     if body == "\\" {
         return true;
