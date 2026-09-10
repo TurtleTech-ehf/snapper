@@ -683,7 +683,7 @@ impl SentenceSplitter for UnicodeSentenceSplitter {
 
         let merged = self.refine_segments_from_strs(&raw_segments);
         let restored = restore_inline_tokens(merged, &placeholders);
-        split_after_markup_sentence_end(restored)
+        self.finish_segments(restored)
     }
 }
 
@@ -709,6 +709,28 @@ impl UnicodeSentenceSplitter {
         );
         let merged = merge_quoted_punct_splits(merged);
         merge_splits_inside_delimiters(merged)
+    }
+
+    /// Markup-closer splits plus UAX SB8 override before a lowercase proper noun.
+    pub(crate) fn finish_segments(&self, segments: Vec<String>) -> Vec<String> {
+        self.split_before_lowercase_proper_noun(split_after_markup_sentence_end(segments))
+    }
+
+    /// UAX SB8 refuses a break before lowercase. A camelCase token (`iCloud`)
+    /// after `.!?` is still a new sentence when it is not an abbreviation.
+    fn split_before_lowercase_proper_noun(&self, segments: Vec<String>) -> Vec<String> {
+        let mut out = Vec::new();
+        for seg in segments {
+            push_lowercase_proper_noun_splits(
+                &mut out,
+                seg.trim(),
+                &self.extra_verbatim_commands,
+                &self.lang_abbrev_pattern,
+                &self.lang_multi_pattern,
+                self.extra_pattern.as_ref(),
+            );
+        }
+        out.into_iter().filter(|s| !s.is_empty()).collect()
     }
 }
 
@@ -856,6 +878,184 @@ fn take_markup_terminal_sentence(seg: &str) -> Option<(String, String)> {
         return None;
     }
     Some((head.to_string(), rest.to_string()))
+}
+
+/// Closers stripped by [`ends_sentence_punct`] in `parser/span.rs`.
+const SENTENCE_CLOSERS: [char; 14] = [
+    '"', '\'', ')', ']', '}', '*', '_', '`', '~', '/', '=', '+', '\u{201d}', '\u{2019}',
+];
+
+fn push_lowercase_proper_noun_splits(
+    out: &mut Vec<String>,
+    seg: &str,
+    extra_verbs: &[String],
+    abbrev_re: &Regex,
+    multi_re: &Regex,
+    extra: Option<&Regex>,
+) {
+    if let Some((head, rest)) =
+        take_lowercase_proper_noun_sentence(seg, extra_verbs, abbrev_re, multi_re, extra)
+    {
+        out.push(head);
+        push_lowercase_proper_noun_splits(out, &rest, extra_verbs, abbrev_re, multi_re, extra);
+    } else if !seg.is_empty() {
+        out.push(seg.to_string());
+    }
+}
+
+fn take_lowercase_proper_noun_sentence(
+    seg: &str,
+    extra_verbs: &[String],
+    abbrev_re: &Regex,
+    multi_re: &Regex,
+    extra: Option<&Regex>,
+) -> Option<(String, String)> {
+    if seg.is_empty() {
+        return None;
+    }
+    let (protected, placeholders) = protect_inline_tokens_with(seg, extra_verbs);
+    let mut i = 0;
+    while i < protected.len() {
+        if let Some((idx, ph_end)) = placeholder_at(&protected, i) {
+            if let Some(original) = placeholders.get(idx)
+                && let Some((head, rest)) = split_if_proper_noun_follows(
+                    &protected,
+                    ph_end,
+                    original,
+                    &placeholders,
+                    abbrev_re,
+                    multi_re,
+                    extra,
+                )
+            {
+                return Some((head, rest));
+            }
+            i = ph_end;
+            continue;
+        }
+
+        let ch = protected[i..].chars().next()?;
+        let ch_len = ch.len_utf8();
+        if matches!(ch, '.' | '!' | '?') {
+            let ellipsis = ch == '.' && i > 0 && protected[..i].ends_with('.');
+            if !ellipsis {
+                let after_closers = skip_sentence_closers(&protected, i + ch_len);
+                if let Some((head, rest)) = split_if_proper_noun_follows(
+                    &protected,
+                    after_closers,
+                    &protected[..after_closers],
+                    &placeholders,
+                    abbrev_re,
+                    multi_re,
+                    extra,
+                ) {
+                    return Some((head, rest));
+                }
+            }
+        }
+        i += ch_len;
+    }
+    None
+}
+
+fn split_if_proper_noun_follows(
+    protected: &str,
+    after_end: usize,
+    head_for_abbrev: &str,
+    placeholders: &[String],
+    abbrev_re: &Regex,
+    multi_re: &Regex,
+    extra: Option<&Regex>,
+) -> Option<(String, String)> {
+    let rest_start = skip_sentence_gap(protected, after_end)?;
+    if !starts_with_lowercase_proper_noun(&protected[rest_start..]) {
+        return None;
+    }
+    let abbrev_src = strip_sentence_closers(head_for_abbrev);
+    if !ends_sentence_core(abbrev_src)
+        || is_abbreviation_ending(abbrev_src, abbrev_re, multi_re, extra)
+    {
+        return None;
+    }
+    let head = restore_one(&protected[..after_end], placeholders);
+    let rest = restore_one(&protected[rest_start..], placeholders);
+    if head.is_empty() || rest.is_empty() {
+        return None;
+    }
+    Some((head, rest))
+}
+
+fn starts_with_lowercase_proper_noun(s: &str) -> bool {
+    let s = s
+        .trim_start()
+        .trim_start_matches(['"', '\'', '\u{201c}', '\u{2018}']);
+    let mut chars = s.chars();
+    let Some(first) = chars.next() else {
+        return false;
+    };
+    if !first.is_lowercase() {
+        return false;
+    }
+    for c in chars {
+        if c.is_uppercase() {
+            return true;
+        }
+        if !c.is_alphabetic() {
+            return false;
+        }
+    }
+    false
+}
+
+fn placeholder_at(s: &str, i: usize) -> Option<(usize, usize)> {
+    let rest = s.get(i..)?.strip_prefix('\0')?.strip_prefix("PH")?;
+    let digits = rest.bytes().take_while(u8::is_ascii_digit).count();
+    if digits == 0 || rest.as_bytes().get(digits) != Some(&0) {
+        return None;
+    }
+    let idx = rest[..digits].parse().ok()?;
+    Some((idx, i + 1 + 2 + digits + 1))
+}
+
+fn skip_sentence_closers(s: &str, mut i: usize) -> usize {
+    while i < s.len() {
+        let Some(c) = s[i..].chars().next() else {
+            break;
+        };
+        if !SENTENCE_CLOSERS.contains(&c) {
+            break;
+        }
+        i += c.len_utf8();
+    }
+    i
+}
+
+fn skip_sentence_gap(s: &str, mut i: usize) -> Option<usize> {
+    let mut saw = false;
+    while i < s.len() {
+        let c = s[i..].chars().next()?;
+        if !c.is_whitespace() {
+            break;
+        }
+        saw = true;
+        i += c.len_utf8();
+    }
+    if saw && i < s.len() { Some(i) } else { None }
+}
+
+fn strip_sentence_closers(s: &str) -> &str {
+    s.trim_end().trim_end_matches(SENTENCE_CLOSERS)
+}
+
+fn ends_sentence_core(s: &str) -> bool {
+    s.ends_with('.') || s.ends_with('!') || s.ends_with('?')
+}
+
+fn restore_one(s: &str, placeholders: &[String]) -> String {
+    restore_inline_tokens(vec![s.to_string()], placeholders)
+        .into_iter()
+        .next()
+        .unwrap_or_default()
 }
 
 fn merge_quoted_punct_splits(segments: Vec<String>) -> Vec<String> {
@@ -2035,6 +2235,66 @@ mod tests {
             assert_eq!(
                 out, input,
                 "{format:?} must keep the break before iCloud, got:\n{out}"
+            );
+            assert_eq!(format_text(&out, &cfg).unwrap(), out);
+        }
+    }
+
+    #[test]
+    fn splits_same_line_lowercase_proper_noun() {
+        use crate::format::Format;
+        use crate::{FormatConfig, format_text};
+
+        assert_eq!(
+            split("First sentence. iCloud starts the second sentence."),
+            vec![
+                "First sentence.".to_string(),
+                "iCloud starts the second sentence.".to_string()
+            ]
+        );
+        assert_eq!(
+            split("Stop! iCloud starts now."),
+            vec!["Stop!".to_string(), "iCloud starts now.".to_string()]
+        );
+        assert_eq!(
+            split("Ready? iPhone is here."),
+            vec!["Ready?".to_string(), "iPhone is here.".to_string()]
+        );
+        // UAX SB8: all-lowercase continuation stays one sentence.
+        assert_eq!(
+            split("First sentence. icloud starts the second sentence."),
+            vec!["First sentence. icloud starts the second sentence.".to_string()]
+        );
+        assert_eq!(
+            split("Use a provider, e.g. iCloud. Next."),
+            vec![
+                "Use a provider, e.g. iCloud.".to_string(),
+                "Next.".to_string()
+            ]
+        );
+        assert_eq!(
+            split("This is **the end. iCloud still** after."),
+            vec!["This is **the end. iCloud still** after.".to_string()]
+        );
+
+        let input = "First sentence. iCloud starts the second sentence.";
+        let expected = "First sentence.\niCloud starts the second sentence.";
+        for format in [
+            Format::Markdown,
+            Format::Plaintext,
+            Format::Org,
+            Format::Latex,
+            Format::Rst,
+        ] {
+            let cfg = FormatConfig {
+                format,
+                max_width: 0,
+                ..Default::default()
+            };
+            let out = format_text(input, &cfg).unwrap();
+            assert_eq!(
+                out, expected,
+                "{format:?} must split the same-line iCloud fixture, got:\n{out}"
             );
             assert_eq!(format_text(&out, &cfg).unwrap(), out);
         }
