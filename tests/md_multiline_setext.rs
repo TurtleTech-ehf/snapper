@@ -153,3 +153,73 @@ fn multiline_setext_dash_underline_is_heading_not_hr() {
         "body Prose must still split, got:\n{out}"
     );
 }
+
+/// `<!-- toc -->` then setext must not duplicate the comment.
+#[test]
+fn setext_after_html_comment_emits_comment_once() {
+    let input = "<!-- toc -->\nMy Title\n========\n\nBody after setext. Second body.\n";
+    let regions = MarkdownParser.parse(input);
+    let comments = regions
+        .iter()
+        .filter(|r| matches!(r, Region::Structure(s) if s.contains("<!-- toc -->")))
+        .count();
+    assert_eq!(
+        comments, 1,
+        "HTML comment must appear once, got: {regions:?}"
+    );
+    assert!(
+        regions
+            .iter()
+            .any(|r| matches!(r, Region::Structure(s) if s == "My Title\n")),
+        "setext title must be Structure, got: {regions:?}"
+    );
+
+    let out = format_text(input, &md_cfg()).unwrap();
+    assert_eq!(
+        out.matches("<!-- toc -->").count(),
+        1,
+        "formatted comment must appear once, got:\n{out}"
+    );
+    assert!(
+        out.contains("Body after setext.\nSecond body."),
+        "body Prose must still split, got:\n{out}"
+    );
+}
+
+/// Indented code then setext must not copy the code as Structure.
+#[test]
+fn setext_after_indented_code_emits_code_once() {
+    let input = "    code line\nHeading here\n=======\n\nBody after setext. Second body.\n";
+    let regions = MarkdownParser.parse(input);
+    assert_eq!(
+        regions
+            .iter()
+            .filter(|r| matches!(r, Region::Code { .. }))
+            .count(),
+        1,
+        "indented code must appear once, got: {regions:?}"
+    );
+    assert!(
+        !regions
+            .iter()
+            .any(|r| matches!(r, Region::Structure(s) if s.contains("code line"))),
+        "indented code must not be re-emitted as Structure: {regions:?}"
+    );
+    assert!(
+        regions
+            .iter()
+            .any(|r| matches!(r, Region::Structure(s) if s == "Heading here\n")),
+        "setext title must be Structure, got: {regions:?}"
+    );
+
+    let out = format_text(input, &md_cfg()).unwrap();
+    assert_eq!(
+        out.matches("code line").count(),
+        1,
+        "formatted code must appear once, got:\n{out}"
+    );
+    assert!(
+        out.contains("Body after setext.\nSecond body."),
+        "body Prose must still split, got:\n{out}"
+    );
+}
