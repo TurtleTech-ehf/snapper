@@ -164,8 +164,8 @@ There is no regex =other:= key (latexindent's pattern-based extra matching is no
 :CUSTOM_ID: field-verbatim-envs
 :END:
 
-String array of environment names treated like =minted= / =lstlisting= / =verbatim= (=Region::Code=, no reflow).
-Built-in: =minted=, =lstlisting=, =verbatim=.
+String array of environment names treated like =minted= / =lstlisting= / =verbatim= / =comment= (=Region::Code=, no reflow).
+Built-in: =minted=, =lstlisting=, =verbatim=, =comment=.
 Adding =Verbatim= (fancyvrb) stops reflow of that environment.
 
 ** structure_envs (latex)
@@ -175,7 +175,7 @@ Adding =Verbatim= (fancyvrb) stops reflow of that environment.
 
 String array of environment names treated like =equation= / =figure= (=Region::Structure=, no reflow).
 Built-in: the =NON_PROSE_ENVS= list (equation, align, figure, table, tabular, tikzpicture, and starred variants, plus the built-in code envs).
-Adding =algorithm= or =comment= stops reflow of those environments.
+Adding =algorithm= stops reflow of that environment.
 
 ** verbatim_commands (latex)
 :PROPERTIES:
