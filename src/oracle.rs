@@ -232,6 +232,7 @@ fn md_html(src: &str) -> String {
     opts.insert(Options::ENABLE_FOOTNOTES);
     opts.insert(Options::ENABLE_STRIKETHROUGH);
     opts.insert(Options::ENABLE_TASKLISTS);
+    opts.insert(Options::ENABLE_DEFINITION_LIST);
     let parser = Parser::new_ext(src, opts);
     let mut html_output = String::new();
     html::push_html(&mut html_output, parser);
@@ -354,6 +355,18 @@ mod tests {
             !matches(Format::Rst, "* One. Two.\n", "* One.\n\n  Two.\n"),
             "a blank is a new paragraph, not a hang"
         );
+    }
+
+    #[test]
+    fn hung_md_definition_list_matches_source_item() {
+        // pulldown lazy-continues an unindented second sentence inside the
+        // <dd>, so both the hung form and a column-0 split are render-safe.
+        // The formatter still hangs; this only checks the hung form.
+        assert!(matches(
+            Format::Markdown,
+            "Term\n: This is a long definition sentence that must hang. Second sentence.\n",
+            "Term\n: This is a long definition sentence that must hang.\n  Second sentence.\n"
+        ));
     }
 
     #[test]

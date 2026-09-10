@@ -113,6 +113,7 @@ These tokens within prose are not split across lines:
 - Full ATX heading lines (=#= … =######= including title text)
 - Setext headings (one or more title lines plus ====== or ------ underline)
 - List item markers (=-=, =*=, =+=, =1.=); continuation sentences hang at the marker width
+- Definition-list terms and =: = markers (pulldown =ENABLE_DEFINITION_LIST=); the body hangs at the marker width
 - Blockquote markers (=>= / nested => > =); continuation sentences repeat the quote prefix
 - GFM alert type markers (=[!NOTE]= / =[!TIP]= / =[!WARNING]= / =[!CAUTION]= / =[!IMPORTANT]=); the body hangs and splits like a quote
 - Hard line breaks (two trailing spaces, or a trailing backslash)
@@ -133,6 +134,7 @@ These tokens within prose are not split across lines:
 :END:
 - Paragraph text
 - List item text (after the marker); continuation sentences hang at the marker width
+- Definition-list body (after the =: = marker); continuation sentences hang at the marker width
 - Blockquote inner text (after the =>= marker); continuation sentences repeat the quote prefix
 
 *** Inline tokens (kept atomic)

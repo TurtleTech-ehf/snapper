@@ -1100,6 +1100,11 @@ fn hanging_indent_width(s: &str) -> usize {
     if crate::parser::org::org_caption_marker_len(s) == Some(s.len()) {
         return s.chars().count();
     }
+    // Markdown definition marker (`: ` / `  : `): hang at marker width
+    // so the body stays inside the definition (GitHub #210).
+    if crate::parser::markdown::md_definition_list_marker_len(s) == Some(s.len()) {
+        return s.chars().count();
+    }
     // Parser markers are `core` plus one or more trailing spaces; leading
     // indent is part of the hang so nested `   - ` continues at column 5.
     // Extra spaces after `*` (`*  Candidate:`) stay in the hang so a
@@ -1264,11 +1269,15 @@ mod tests {
         assert_eq!(hanging_prefix("i. "), "   ");
         assert_eq!(hanging_prefix("\\item "), "      ");
         assert_eq!(hanging_prefix("  "), "  ");
+        assert_eq!(hanging_prefix(": "), "  ");
+        assert_eq!(hanging_prefix("  : "), "    ");
         assert_eq!(hanging_indent_width("  "), 0);
         assert_eq!(hanging_indent_width("> "), 0);
         assert_eq!(hanging_indent_width("- "), 2);
         assert_eq!(hanging_indent_width("#. "), 3);
         assert_eq!(hanging_indent_width("\\item "), 6);
+        assert_eq!(hanging_indent_width(": "), 2);
+        assert_eq!(hanging_indent_width("  : "), 4);
     }
 
     #[test]
@@ -1794,6 +1803,10 @@ They are endowed with reason and conscience and should act towards one another i
         assert_eq!(hanging_prefix("i. "), "   ");
         assert_eq!(hanging_prefix("\\item "), "      ");
         assert_eq!(hanging_prefix("  "), "  ");
+        assert_eq!(hanging_prefix(": "), "  ");
+        assert_eq!(hanging_prefix("  : "), "    ");
+        assert_eq!(hanging_indent_width(": "), 2);
+        assert_eq!(hanging_indent_width("  : "), 4);
         assert_eq!(hanging_indent_width("  "), 0);
         assert_eq!(hanging_indent_width("\n"), 0);
         assert_eq!(hanging_indent_width("#+TITLE: Test\n"), 0);
@@ -1846,6 +1859,30 @@ They are endowed with reason and conscience and should act towards one another i
             Region::Structure("\n".to_string()),
         ]);
         assert_eq!(result, "- One.\n  Two.\n");
+    }
+
+    #[test]
+    fn md_definition_list_hangs_second_sentence() {
+        let result = reflow_regions(vec![
+            Region::Structure("Term\n".to_string()),
+            Region::Structure(": ".to_string()),
+            Region::Prose(
+                "This is a long definition sentence that must hang. Second sentence.".to_string(),
+            ),
+            Region::Structure("\n".to_string()),
+        ]);
+        assert_eq!(
+            result,
+            concat!(
+                "Term\n",
+                ": This is a long definition sentence that must hang.\n",
+                "  Second sentence.\n",
+            )
+        );
+        assert!(
+            !result.contains("\nSecond sentence."),
+            "second sentence must not land at column 0, got:\n{result}"
+        );
     }
 
     #[test]
