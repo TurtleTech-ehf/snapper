@@ -74,3 +74,39 @@ fn boxedverbatim_tcblisting_codeexample_do_not_reflow() {
         );
     }
 }
+
+/// Ticket fixture (GitHub #209): fancyvrb BVerbatim and LVerbatim
+/// bodies stay Code; surrounding prose still splits.
+#[test]
+fn bverbatim_lverbatim_do_not_reflow() {
+    for name in ["BVerbatim", "LVerbatim"] {
+        let long = format!("This is a long sentence that must not reflow as prose inside {name}.");
+        let input = format!(
+            "\\begin{{document}}\nBefore the listing. More before.\n\\begin{{{name}}}\n{long}\n\\end{{{name}}}\nAfter the listing. Second sentence.\n\\end{{document}}\n"
+        );
+        let regions = LatexParser::default().parse(&input);
+        assert!(
+            regions.iter().any(|r| match r {
+                Region::Code { body, .. } | Region::Structure(body) => body.contains(&long),
+                _ => false,
+            }),
+            "{name} body must be Code or Structure, got: {regions:?}"
+        );
+        assert!(
+            !regions
+                .iter()
+                .any(|r| matches!(r, Region::Prose(p) if p.contains("must not reflow"))),
+            "{name} body must not be Prose, got: {regions:?}"
+        );
+        let out = format_text(&input, &latex_cfg()).unwrap();
+        assert!(
+            out.contains(&format!("\\begin{{{name}}}\n{long}\n\\end{{{name}}}")),
+            "{name} body must stay one source line, got:\n{out}"
+        );
+        assert!(
+            out.contains("After the listing.\nSecond sentence."),
+            "prose after {name} must still split, got:\n{out}"
+        );
+        assert_eq!(format_text(&out, &latex_cfg()).unwrap(), out);
+    }
+}

@@ -128,11 +128,12 @@ static LSTLISTING_LANG_RE: LazyLock<Regex> = LazyLock::new(|| {
 /// Beyond minted/lstlisting/verbatim: latexindent `fileContentsEnvironments`
 /// (`filecontents`, `filecontents*`) and tree-sitter-latex raw trivia envs
 /// (`asy`, `asydef`, `pycode`, `luacode`, `luacode*`, `sagesilent`,
-/// `sageblock`) plus fancyvrb `verbatim*` / `Verbatim`, moreverb
-/// `boxedverbatim`, tcolorbox `tcblisting` / `codeexample`, and the
-/// `comment` package env (tree-sitter `comment_environment`: raw through
-/// matching `\end{comment}`). Overleaf `verbatimEnvNames` is Verbatim,
-/// boxedverbatim, tcblisting, codeexample.
+/// `sageblock`) plus fancyvrb `verbatim*` / `Verbatim` / `BVerbatim` /
+/// `LVerbatim`, moreverb `boxedverbatim`, tcolorbox `tcblisting` /
+/// `codeexample`, and the `comment` package env (tree-sitter
+/// `comment_environment`: raw through matching `\end{comment}`).
+/// Overleaf `verbatimEnvNames` is Verbatim, boxedverbatim, tcblisting,
+/// codeexample. fancyvrb BVerbatim/LVerbatim share Verbatim's raw class.
 fn is_builtin_code_env(name: &str) -> bool {
     matches!(
         name,
@@ -141,6 +142,8 @@ fn is_builtin_code_env(name: &str) -> bool {
             | "verbatim"
             | "verbatim*"
             | "Verbatim"
+            | "BVerbatim"
+            | "LVerbatim"
             | "boxedverbatim"
             | "tcblisting"
             | "codeexample"
@@ -2373,6 +2376,46 @@ Some text.
             assert!(
                 out.contains("After the block.\nNext."),
                 "prose after {name} must still reflow, got:\n{out}"
+            );
+            assert_eq!(format_text(&out, &latex_cfg()).unwrap(), out);
+        }
+    }
+
+    /// Ticket fixture (GitHub #209): fancyvrb BVerbatim and LVerbatim
+    /// share Verbatim's raw class, so the body is Code.
+    #[test]
+    fn fancyvrb_bverbatim_lverbatim_are_code_not_prose() {
+        use crate::format_text;
+
+        let names = ["BVerbatim", "LVerbatim"];
+        for name in names {
+            let input = format!(
+                "\\begin{{document}}\nBefore the listing. More before.\n\\begin{{{name}}}\nThis is a long sentence that must not reflow as prose inside {name}.\n\\end{{{name}}}\nAfter the listing. Second sentence.\n\\end{{document}}\n"
+            );
+            let regions = LatexParser::default().parse(&input);
+            let long =
+                format!("This is a long sentence that must not reflow as prose inside {name}.");
+            assert!(
+                regions.iter().any(|r| match r {
+                    Region::Code { body, .. } | Region::Structure(body) => body.contains(&long),
+                    _ => false,
+                }),
+                "{name} body must be Code or Structure, got: {regions:?}"
+            );
+            assert!(
+                !regions
+                    .iter()
+                    .any(|r| matches!(r, Region::Prose(p) if p.contains("must not reflow"))),
+                "{name} body must not leak into Prose, got: {regions:?}"
+            );
+            let out = format_text(&input, &latex_cfg()).unwrap();
+            assert!(
+                out.contains(&format!("\\begin{{{name}}}\n{long}\n\\end{{{name}}}")),
+                "{name} listing must stay one source line, got:\n{out}"
+            );
+            assert!(
+                out.contains("After the listing.\nSecond sentence."),
+                "prose after {name} must still split, got:\n{out}"
             );
             assert_eq!(format_text(&out, &latex_cfg()).unwrap(), out);
         }
