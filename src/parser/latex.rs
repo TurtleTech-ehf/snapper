@@ -351,6 +351,17 @@ impl<'a> ParseState<'a> {
         }
     }
 
+    /// `\item` / `\item[label]` is Structure so reflow can hang the next
+    /// sentence at marker width (same class as Markdown/Org/RST `1.`).
+    fn append_item_or_prose(&mut self, abs_start: usize, piece: &str) {
+        if let Some(marker_len) = latex_item_marker_len(piece) {
+            self.push_structure(ByteSpan::new(abs_start, abs_start + marker_len));
+            self.append_prose_slice(abs_start + marker_len, &piece[marker_len..]);
+        } else {
+            self.append_prose_slice(abs_start, piece);
+        }
+    }
+
     fn append_prose_slice(&mut self, abs_start: usize, piece: &str) {
         let trimmed = piece.trim();
         if trimmed.is_empty() {
@@ -532,7 +543,7 @@ impl<'a> ParseState<'a> {
         let mut i = 0;
         while i < code.len() {
             if let Some(hit) = find_env_at(code, i, &self.parser.extra_verbatim_commands) {
-                self.append_prose_slice(line.start + i, &code[i..hit.start]);
+                self.append_item_or_prose(line.start + i, &code[i..hit.start]);
                 if hit.is_begin && self.parser.is_code_env(&hit.name) {
                     self.flush();
                     if let Some(end_at) = find_matching_raw_end(line.text, hit.end, &hit.name, 1) {
@@ -599,10 +610,39 @@ impl<'a> ParseState<'a> {
                 ));
                 return false;
             }
-            self.append_prose_slice(line.start + i, rest);
+            self.append_item_or_prose(line.start + i, rest);
             return false;
         }
         false
+    }
+}
+
+/// Byte length of a compact LaTeX `\item` opener: leading indent, `\item`,
+/// optional `[label]`, and one trailing space when present.
+/// `\itemize` / `\itemsep` are different control words.
+fn latex_item_marker_len(s: &str) -> Option<usize> {
+    let indent = s.len() - s.trim_start_matches([' ', '\t']).len();
+    let t = &s[indent..];
+    let rest = t.strip_prefix("\\item")?;
+    if rest.starts_with(|c: char| c.is_ascii_alphabetic()) {
+        return None;
+    }
+    let mut len = indent + "\\item".len();
+    if rest.starts_with('[') {
+        let close = rest.find(']')?;
+        if rest[1..close].contains('[') {
+            return None;
+        }
+        len += close + 1;
+        if rest[close + 1..].starts_with(' ') {
+            len += 1;
+        }
+        return Some(len);
+    }
+    if rest.starts_with(' ') {
+        Some(len + 1)
+    } else {
+        Some(len)
     }
 }
 
@@ -1546,5 +1586,81 @@ Some text.
             "\\Verbatim must remain in the source, got:\n{out}"
         );
         assert_eq!(format_text(&out, &cfg).unwrap(), out);
+    }
+
+    #[test]
+    fn latex_item_marker_len_skips_itemize() {
+        assert_eq!(latex_item_marker_len("\\item "), Some(6));
+        assert_eq!(latex_item_marker_len("  \\item "), Some(8));
+        assert_eq!(latex_item_marker_len("\\item[Term] "), Some(12));
+        assert_eq!(latex_item_marker_len("\\itemize"), None);
+        assert_eq!(latex_item_marker_len("\\itemsep"), None);
+        assert_eq!(latex_item_marker_len("not an item"), None);
+    }
+
+    #[test]
+    fn enumerate_item_marker_is_structure() {
+        let input =
+            "\\begin{enumerate}\n\\item First sentence. Second sentence.\n\\end{enumerate}\n";
+        let regions = LatexParser::default().parse(input);
+        assert!(
+            regions
+                .iter()
+                .any(|r| matches!(r, Region::Structure(s) if s == "\\item ")),
+            "\\item  must be Structure, got {regions:?}"
+        );
+        let prose: Vec<_> = regions
+            .iter()
+            .filter_map(|r| match r {
+                Region::Prose(s) => Some(s.as_str()),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(
+            prose,
+            ["First sentence. Second sentence."],
+            "item body must be one Prose region, got {regions:?}"
+        );
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Structure(s) if s.contains("\\begin{enumerate}")
+            )),
+            "enumerate opener must stay Structure, got {regions:?}"
+        );
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Structure(s) if s.contains("\\end{enumerate}")
+            )),
+            "enumerate closer must stay Structure, got {regions:?}"
+        );
+    }
+
+    #[test]
+    fn enumerate_item_hangs_next_sentence() {
+        use crate::format::Format;
+        use crate::oracle;
+        use crate::{FormatConfig, format_text};
+
+        let cfg = FormatConfig {
+            format: Format::Latex,
+            max_width: 0,
+            ..Default::default()
+        };
+        let input =
+            "\\begin{enumerate}\n\\item First sentence. Second sentence.\n\\end{enumerate}\n";
+        let out = format_text(input, &cfg).unwrap();
+        assert_eq!(
+            out,
+            "\\begin{enumerate}\n\\item First sentence.\n      Second sentence.\n\\end{enumerate}\n",
+            "enumerate item must hang at \\\\item  width, got:\n{out}"
+        );
+        let twice = format_text(&out, &cfg).unwrap();
+        assert_eq!(out, twice, "hung enumerate must be identity, got:\n{twice}");
+        assert!(
+            oracle::matches(Format::Latex, input, &out),
+            "oracle mismatch\n in={input:?}\n out={out:?}"
+        );
     }
 }
