@@ -12,7 +12,7 @@
 //! reflow already allowed by the code-byte check).
 
 use crate::format::Format;
-use crate::parser::{Region, parser_for_format, parser_for_format_config};
+use crate::parser::{parser_for_format, parser_for_format_config, Region};
 
 /// True when `output` is a render-safe reflow of `original`.
 pub fn matches(format: Format, original: &str, output: &str) -> bool {
@@ -226,12 +226,13 @@ fn md_html_ok(original: &str, output: &str) -> bool {
 }
 
 fn md_html(src: &str) -> String {
-    use pulldown_cmark::{Options, Parser, html};
+    use pulldown_cmark::{html, Options, Parser};
     let mut opts = Options::empty();
     opts.insert(Options::ENABLE_TABLES);
     opts.insert(Options::ENABLE_FOOTNOTES);
     opts.insert(Options::ENABLE_STRIKETHROUGH);
     opts.insert(Options::ENABLE_TASKLISTS);
+    opts.insert(Options::ENABLE_DEFINITION_LIST);
     let parser = Parser::new_ext(src, opts);
     let mut html_output = String::new();
     html::push_html(&mut html_output, parser);
