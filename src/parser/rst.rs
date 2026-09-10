@@ -334,6 +334,14 @@ fn parse_line_based(input: &str) -> Vec<SpannedRegion> {
         // after `1.`, and each item is its own region so adjacent
         // bullets are not glued onto one line.
         if let Some(marker_len) = rst_list_marker_len(line_text) {
+            // Docutils needs a blank before a list. A marker line after
+            // an open paragraph is still that paragraph (GitHub #134).
+            // Inside a list (`list_hang`), adjacent items stay separate.
+            if list_hang.is_none() && !current_prose.is_empty() {
+                push_prose_line(&mut current_prose, &mut prose_span, line, true, true);
+                i += 1;
+                continue;
+            }
             flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
             list_hang = Some(marker_len);
             // A next line indented past the hang is a definition of this
@@ -1229,6 +1237,36 @@ mod tests {
         assert!(
             oracle::matches(Format::Rst, input, &out),
             "oracle mismatch\n in={input:?}\n out={out:?}"
+        );
+    }
+
+    #[test]
+    fn compact_listlike_prose_joins_into_one_paragraph() {
+        let input = concat!(
+            "Topics include:\n",
+            "* Product requirements - what pages exist? What functionality lives on them?\n",
+            "* Technical requirements\n",
+        );
+        let regions = RstParser.parse(input);
+        let prose: Vec<_> = regions
+            .iter()
+            .filter_map(|r| match r {
+                Region::Prose(s) => Some(s.as_str()),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(
+            prose,
+            [
+                "Topics include: * Product requirements - what pages exist? What functionality lives on them?\n* Technical requirements"
+            ],
+            "compact list-like prose must be one paragraph, got {regions:?}"
+        );
+        assert!(
+            !regions
+                .iter()
+                .any(|r| matches!(r, Region::Structure(s) if s.contains('*'))),
+            "must not invent a list marker, got {regions:?}"
         );
     }
 
