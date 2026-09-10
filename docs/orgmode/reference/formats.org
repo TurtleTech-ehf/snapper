@@ -95,7 +95,7 @@ These tokens within prose are not split across lines:
 :CUSTOM_ID: latex-code
 :END:
 - =\\begin{...}= / =\\end{...}= lines are structure
-- fancyvrb =Verbatim= / =Verbatim*= / =BVerbatim= / =BVerbatim*= / =LVerbatim= / =LVerbatim*= / =SaveVerbatim= / =VerbatimOut= are built-in code regions (same FV@Scan class)
+- fancyvrb =Verbatim= / =Verbatim*= / =BVerbatim= / =BVerbatim*= / =LVerbatim= / =LVerbatim*= / =SaveVerbatim= / =VerbatimOut= / fvextra =VerbatimWrite= are built-in code regions (same FV@Scan class)
 - standard =alltt= (alltt.sty) is a built-in code region (macros still apply; line breaks stay raw)
 - listings.sty =lstlisting*= is the same raw body scan as =lstlisting=
 - spverbatim.sty =spverbatim= is a built-in code region (raw line breaks)
