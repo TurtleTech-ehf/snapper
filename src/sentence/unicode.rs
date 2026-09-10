@@ -19,6 +19,10 @@ static INLINE_TOKEN_RE: LazyLock<Regex> = LazyLock::new(|| {
             // org-element 5.5 citation: [cite/style:prefix;@key p. 7;suffix]
             // Must be atomic so a page locator is not a sentence boundary.
             r"\[cite(?:/[-a-zA-Z0-9_/]*)?:[^\]]*\]",
+            // org-element-footnote-reference-parser / org-footnote-re
+            // inline arm: [fn::def] / [fn:LABEL:def]. First ] closes.
+            // Standard [fn:LABEL] is not a token (GitHub #231).
+            r"\[fn:(?:[-_\w]+)?:[^\]]*\]",
             // org-element-radio-target-parser / org-radio-target-regexp:
             // <<<contents>>> with no <, >, or newline. Must precede <<...>>
             // so the triple-angle form stays one token (GitHub #211).
@@ -156,6 +160,8 @@ pub fn protect_inline_tokens_with(
     let after_verb = protect_latex_verbatim(text, &mut placeholders, extra_verbatim_commands);
     // org-element inline src / babel-call before paired `=`/`~` so a body
     // like `src_python{~x~}` stays one object, not an Org code span.
+    // Footnote references run in the same walk so a nested `[[link]]`
+    // closer does not end `[fn:: …]` early.
     let after_org = protect_org_inline_src_and_call(&after_verb, &mut placeholders);
     let after_spans = protect_paired_spans(&after_org, &mut placeholders);
     let protected = INLINE_TOKEN_RE.replace_all(&after_spans, |caps: &regex::Captures| {
@@ -344,7 +350,9 @@ fn protect_org_inline_src_and_call(text: &str, placeholders: &mut Vec<String>) -
     let mut out = String::with_capacity(text.len());
     let mut i = 0;
     while i < text.len() {
-        if let Some(end) = org_inline_src_or_call_span_end(text, i) {
+        if let Some(end) = org_inline_src_or_call_span_end(text, i)
+            .or_else(|| org_footnote_reference_span_end(text, i))
+        {
             push_placeholder(&mut out, placeholders, &text[i..end]);
             i = end;
             continue;
@@ -358,6 +366,60 @@ fn protect_org_inline_src_and_call(text: &str, placeholders: &mut Vec<String>) -
 
 fn org_inline_src_or_call_span_end(text: &str, at: usize) -> Option<usize> {
     org_inline_src_span_end(text, at).or_else(|| org_inline_call_span_end(text, at))
+}
+
+/// org-footnote-re inline arm + org-element-footnote-reference-parser.
+///
+/// `[fn::def]` and `[fn:LABEL:def]` only. Standard `[fn:LABEL]` stays
+/// prose so `See the claim.[fn:1]` is not split at `claim.`.
+/// Closing `]` is scan-lists on `[]` (nested brackets). A newline
+/// ends the object (org-footnote-re `.` / org-element successor
+/// `line-end-position`).
+fn org_footnote_reference_span_end(text: &str, at: usize) -> Option<usize> {
+    let rest = text.get(at..)?;
+    if !rest.starts_with("[fn:") {
+        return None;
+    }
+    let bytes = text.as_bytes();
+    let mut i = at + 4;
+    while i < bytes.len() {
+        let ch = text[i..].chars().next()?;
+        if ch == '-' || ch == '_' || ch.is_alphanumeric() {
+            i += ch.len_utf8();
+        } else {
+            break;
+        }
+    }
+    if i >= bytes.len() || bytes[i] != b':' {
+        return None;
+    }
+    org_scan_lists_same_line(text, at, b'[', b']')
+}
+
+/// `scan-lists` on one pair, stopped at newline.
+fn org_scan_lists_same_line(text: &str, open_at: usize, open: u8, close: u8) -> Option<usize> {
+    let bytes = text.as_bytes();
+    if bytes.get(open_at) != Some(&open) {
+        return None;
+    }
+    let mut depth = 1usize;
+    let mut i = open_at + 1;
+    while i < bytes.len() {
+        let b = bytes[i];
+        if b == b'\n' {
+            return None;
+        }
+        if b == open {
+            depth += 1;
+        } else if b == close {
+            depth -= 1;
+            if depth == 0 {
+                return Some(i + 1);
+            }
+        }
+        i += 1;
+    }
+    None
 }
 
 /// `\<` in `org-element-inline-src-block-regexp`: start of text or a
@@ -726,8 +788,9 @@ fn find_md_code_span(text: &str, open_at: usize) -> Option<usize> {
 
 /// Byte ranges of inline tokens that wrapping must not split (links, images,
 /// reference links `[text][ref]`, inline code, autolinks, math, Org `[[...]]`,
-/// Org `[cite...]`, Org `<<<...>>>` / `<<...>>`, Org `{{{name}}}` /
-/// `{{{name(args)}}}`, Org `src_lang{...}` / `call_name(...)`, paired spans).
+/// Org `[cite...]`, Org `[fn::…]` / `[fn:LABEL:…]`, Org `<<<...>>>` /
+/// `<<...>>`, Org `{{{name}}}` / `{{{name(args)}}}`, Org `src_lang{...}` /
+/// `call_name(...)`, paired spans).
 ///
 /// Ranges are half-open `[start, end)`, sorted, non-overlapping, and merged
 /// when a regex match wraps a paired span.
@@ -736,7 +799,9 @@ pub fn atomic_inline_spans(text: &str) -> Vec<(usize, usize)> {
     let bytes = text.as_bytes();
     let mut i = 0;
     while i < text.len() {
-        if let Some(end) = org_inline_src_or_call_span_end(text, i) {
+        if let Some(end) = org_inline_src_or_call_span_end(text, i)
+            .or_else(|| org_footnote_reference_span_end(text, i))
+        {
             spans.push((i, end));
             i = end;
             continue;
@@ -1867,6 +1932,125 @@ mod tests {
             split(text),
             vec![
                 "See [cite/t:see;@foo p. 7;@bar pp. 4;by foo].".to_string(),
+                "Next sentence.".to_string()
+            ]
+        );
+    }
+
+    #[test]
+    fn inline_org_footnote_reference_interior_punct_is_not_a_sentence_boundary() {
+        // GitHub #231 / snapper-gjkj: org-element-footnote-reference-parser
+        // `[fn:: …]` stays one token so an interior period is not a
+        // sentence boundary. `Next sentence.` still splits.
+        let note = "[fn:: the Fourier. transform]";
+        let text = "See [fn:: the Fourier. transform] in the notes. Next sentence.";
+        let (_, placeholders) = protect_inline_tokens(text);
+        assert!(
+            placeholders.iter().any(|p| p == note),
+            "inline footnote must be one token, got {placeholders:?}"
+        );
+        let spans = atomic_inline_spans(text);
+        assert!(
+            spans.iter().any(|&(s, e)| &text[s..e] == note),
+            "inline footnote must be an atomic wrap span, got {:?}",
+            spans.iter().map(|&(s, e)| &text[s..e]).collect::<Vec<_>>()
+        );
+        assert_eq!(
+            split(text),
+            vec![
+                "See [fn:: the Fourier. transform] in the notes.".to_string(),
+                "Next sentence.".to_string()
+            ]
+        );
+    }
+
+    #[test]
+    fn named_inline_org_footnote_reference_is_one_token() {
+        let note = "[fn:note: the Fourier. transform]";
+        let text = "See [fn:note: the Fourier. transform] in the notes. Next sentence.";
+        let (_, placeholders) = protect_inline_tokens(text);
+        assert!(
+            placeholders.iter().any(|p| p == note),
+            "named inline footnote must be one token, got {placeholders:?}"
+        );
+        assert_eq!(
+            split(text),
+            vec![
+                "See [fn:note: the Fourier. transform] in the notes.".to_string(),
+                "Next sentence.".to_string()
+            ]
+        );
+        let hyphen = "[fn:foo-bar: the Fourier. transform]";
+        let hyphen_text = "See [fn:foo-bar: the Fourier. transform] in the notes. Next sentence.";
+        let (_, placeholders) = protect_inline_tokens(hyphen_text);
+        assert!(
+            placeholders.iter().any(|p| p == hyphen),
+            "hyphen label must stay one token, got {placeholders:?}"
+        );
+        assert_eq!(
+            split(hyphen_text),
+            vec![
+                "See [fn:foo-bar: the Fourier. transform] in the notes.".to_string(),
+                "Next sentence.".to_string()
+            ]
+        );
+    }
+
+    #[test]
+    fn standard_org_footnote_reference_is_not_an_inline_token() {
+        // `[fn:1]` is org-footnote-re standard, not the inline arm.
+        // Protecting it would split `See the claim.[fn:1]` at `claim.`.
+        let text = "See the claim.[fn:1] Next sentence.";
+        let (_, placeholders) = protect_inline_tokens(text);
+        assert!(
+            !placeholders.iter().any(|p| p == "[fn:1]"),
+            "standard [fn:1] must not be a token, got {placeholders:?}"
+        );
+        let parts = split(text);
+        assert!(
+            parts.iter().any(|p| p.contains("See the claim.[fn:1]")),
+            "standard ref must stay on the preceding sentence, got {parts:?}"
+        );
+    }
+
+    #[test]
+    fn unclosed_inline_org_footnote_is_not_an_inline_token() {
+        let text = "See [fn:: the Fourier. transform in the notes. Next sentence.";
+        let (_, placeholders) = protect_inline_tokens(text);
+        assert!(
+            !placeholders.iter().any(|p| p.contains("[fn::")),
+            "unclosed inline footnote must not swallow the sentence, got {placeholders:?}"
+        );
+    }
+
+    #[test]
+    fn nested_bracket_inline_org_footnote_is_one_token() {
+        // org-element scan-lists on [] so `[fig. 1]` and `[[link]]` stay inside.
+        let note = "[fn:: see [fig. 1]]";
+        let text = "See [fn:: see [fig. 1]] in the notes. Next sentence.";
+        let (_, placeholders) = protect_inline_tokens(text);
+        assert!(
+            placeholders.iter().any(|p| p == note),
+            "nested-bracket footnote must be one token, got {placeholders:?}"
+        );
+        assert_eq!(
+            split(text),
+            vec![
+                "See [fn:: see [fig. 1]] in the notes.".to_string(),
+                "Next sentence.".to_string()
+            ]
+        );
+        let link = "[fn:: see [[https://ex.com][ex. site]]]";
+        let link_text = "See [fn:: see [[https://ex.com][ex. site]]] in the notes. Next sentence.";
+        let (_, placeholders) = protect_inline_tokens(link_text);
+        assert!(
+            placeholders.iter().any(|p| p == link),
+            "nested [[link]] must stay inside the footnote, got {placeholders:?}"
+        );
+        assert_eq!(
+            split(link_text),
+            vec![
+                "See [fn:: see [[https://ex.com][ex. site]]] in the notes.".to_string(),
                 "Next sentence.".to_string()
             ]
         );
