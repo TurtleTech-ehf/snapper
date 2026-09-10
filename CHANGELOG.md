@@ -8,6 +8,7 @@ All notable changes to this project will be documented in this file. See [conven
 - (**org**) inline footnote references (`[fn:: …]` / `[fn:name: …]`) stay one token so interior punctuation is not a sentence or wrap boundary (#231)
 - (**org**) inline `src_lang{...}` and `call_name(...)` stay one token so interior punctuation is not a sentence or wrap boundary (#214)
 - (**org**) macros (`{{{name}}}` / `{{{name(args)}}}`) stay one token so interior punctuation is not a sentence or wrap boundary (#212)
+- (**markdown**) setext titles keep a hard-break plus lazy 4-space continuation as title text; a lazy quote underline is not a heading (CommonMark 4.3 ex. 93) (#208)
 - (**markdown**) setext titles promote the open CommonMark paragraph: list/quote items, hard-break lines, and a 4-space `<!--` continuation stay title text (#208)
 - (**markdown**) setext titles promote only the open paragraph so a preceding HTML comment or indented code block is not re-emitted (#208)
 - (**org**) radio targets (`<<<...>>>`) and angle targets (`<<...>>`) stay one token so interior punctuation is not a sentence or wrap boundary (#211)

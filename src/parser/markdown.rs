@@ -1056,16 +1056,25 @@ fn quote_body(line: &str) -> Option<&str> {
 /// Last title line plus the following underline form a setext heading.
 ///
 /// pulldown `parse_setext_heading` accepts a quoted underline (`> ===`).
-/// A lazy `---` after a quoted paragraph is a thematic break (CM ex. 93),
-/// not a heading; `=======` cannot be a break, so it may still close.
+/// CommonMark 4.3: the underline cannot be a lazy continuation in a list
+/// item or block quote. A quoted last title line plus an unquoted
+/// underline is therefore not a pair (ex. 93 is one quote paragraph).
+/// Strip a quote marker from the underline only when the title line is
+/// already quoted, or when the underline itself is quoted (parse_full
+/// still rejects an unquoted paragraph plus `> ===`, a new blockquote).
 /// A list item plus a column-0 underline is not inside the item.
 fn is_setext_pair(title_line: &str, underline: &str) -> bool {
     let title_quoted = QUOTE_RE.is_match(title_line);
-    let under_body = quote_body(underline).unwrap_or(underline);
-    if !is_setext_title_line(container_title_body(title_line)) || !is_setext_underline(under_body) {
+    let under_quoted = quote_body(underline).is_some();
+    if title_quoted && !under_quoted {
         return false;
     }
-    if title_quoted && quote_body(underline).is_none() && is_thematic_break(underline) {
+    let under_body = if title_quoted || under_quoted {
+        quote_body(underline).unwrap_or(underline)
+    } else {
+        underline
+    };
+    if !is_setext_title_line(container_title_body(title_line)) || !is_setext_underline(under_body) {
         return false;
     }
     if !title_quoted && LIST_ITEM_RE.is_match(title_line) && line_indent(underline) == 0 {
@@ -1441,7 +1450,14 @@ impl FormatParser for MarkdownParser {
                     }
                 }
             }
-            if current_prose.is_empty() && !in_list_item && is_indented_code_line(line_text) {
+            // Hard-break flush empties current_prose but leaves para_span;
+            // indented code cannot interrupt that still-open paragraph
+            // (CM 4.4 / snapper-0dnt).
+            if current_prose.is_empty()
+                && para_span.is_none()
+                && !in_list_item
+                && is_indented_code_line(line_text)
+            {
                 close_list_item(
                     &mut in_list_item,
                     &mut list_hang,
@@ -1606,6 +1622,9 @@ impl FormatParser for MarkdownParser {
             // `para_span` survives a hard-break flush; `in_list_item` is not
             // a last-line-only switch. HTML comments and indented code
             // already closed the paragraph, so they stay out of para_span.
+            // A quote paragraph plus an unquoted underline is lazy (ex. 93),
+            // not a heading; an unquoted paragraph plus `> ===` is a new
+            // blockquote, not a closer (snapper-wu2v).
             if i + 1 < total && is_setext_pair(line_text, lines[i + 1].text) {
                 let start = setext_heading_start(&lines, i, para_span.or(prose_span));
                 // Column-0 underline is outside a list item. The opener
@@ -1614,7 +1633,10 @@ impl FormatParser for MarkdownParser {
                 let list_col0 = line_indent(lines[i + 1].text) == 0
                     && LIST_ITEM_RE.is_match(lines[start].text)
                     && !QUOTE_RE.is_match(lines[start].text);
-                if !list_col0 {
+                let start_quoted = QUOTE_RE.is_match(lines[start].text);
+                let under_quoted = quote_body(lines[i + 1].text).is_some();
+                let quote_not_pair = start_quoted != under_quoted;
+                if !list_col0 && !quote_not_pair {
                     promote_setext_title(
                         &lines,
                         start,
@@ -1807,9 +1829,10 @@ impl FormatParser for MarkdownParser {
             }
 
             // CommonMark 4.6 HTML blocks types 1 and 3–7. Type 2 is above.
-            // Type 7 cannot interrupt a paragraph (open prose / list item).
+            // Type 7 cannot interrupt a paragraph (open prose / list item /
+            // hard-break para_span; CM 4.6 / snapper-0dnt).
             if let Some(kind) = html_block_kind(line_text) {
-                let in_paragraph = !current_prose.is_empty() || in_list_item;
+                let in_paragraph = !current_prose.is_empty() || in_list_item || para_span.is_some();
                 if kind.can_interrupt() || !in_paragraph {
                     close_list_item(
                         &mut in_list_item,
@@ -3412,13 +3435,15 @@ mod tests {
         );
     }
 
-    /// Lazy quote setext promotes the whole open paragraph (snapper-awpt).
+    /// Fully marked quote setext promotes the whole open paragraph
+    /// (snapper-awpt / snapper-wu2v). Lazy `> Foo` then `=======` is
+    /// CommonMark 4.3 ex. 93 and is not a heading.
     #[test]
     fn quote_multiline_setext_title_is_structure() {
         let input = concat!(
             "> Foo is the first title line. Still title.\n",
-            "Bar is the second title line.\n",
-            "=======\n",
+            "> Bar is the second title line.\n",
+            "> =======\n",
             "\n",
             "Body after setext. Second body.\n",
         );
@@ -3437,6 +3462,32 @@ mod tests {
                 Region::Structure(s) if s.contains("Bar is the second title line.")
             )),
             "quote setext second title line must be Structure, got: {regions:?}"
+        );
+    }
+
+    /// Lazy title lines in a quote plus a marked `> ===` closer are a heading.
+    #[test]
+    fn quote_lazy_title_then_marked_underline_is_setext() {
+        let input = concat!(
+            "> Foo is the first title line. Still title.\n",
+            "Bar is the second title line.\n",
+            "> =======\n",
+        );
+        let regions = MarkdownParser.parse(input);
+        assert!(
+            !regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(p)
+                    if p.contains("Still title") || p.contains("Foo is the first")
+            )),
+            "marked quote closer after lazy title must be setext, got: {regions:?}"
+        );
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Structure(s) if s.contains("=======")
+            )),
+            "marked quote underline must be Structure, got: {regions:?}"
         );
     }
 
@@ -3466,7 +3517,58 @@ mod tests {
         );
     }
 
-    /// CommonMark ex. 93: lazy `---` after a quote is a break, not a heading.
+    /// CommonMark 4.3 ex. 93: lazy unquoted lines after a quote stay one
+    /// paragraph, including `=======` (not a heading). First sentence splits.
+    #[test]
+    fn quote_then_lazy_equals_underline_is_not_setext() {
+        let spec = "> foo\nbar\n===\n";
+        let spec_regions = MarkdownParser.parse(spec);
+        assert!(
+            spec_regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(p) if p.contains("foo") && p.contains("bar")
+            )),
+            "CM ex. 93 must stay one quote paragraph, got: {spec_regions:?}"
+        );
+        assert!(
+            !spec_regions.iter().any(|r| matches!(
+                r,
+                Region::Structure(s) if s.trim() == "===" && !s.contains('>')
+            )),
+            "CM ex. 93 === must not be a setext underline, got: {spec_regions:?}"
+        );
+
+        let input = concat!(
+            "> Foo is the first title line. Still title.\n",
+            "Bar is the second title line.\n",
+            "=======\n",
+        );
+        let regions = MarkdownParser.parse(input);
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(p)
+                    if p.contains("Still title") || p.contains("Foo is the first")
+            )),
+            "lazy quote ======= must leave the quote as Prose, got: {regions:?}"
+        );
+    }
+
+    /// `Foo` then `> =======` is a new blockquote, not a setext closer.
+    #[test]
+    fn unquoted_title_then_quoted_underline_is_not_setext() {
+        let input = "Foo is the first title line. Still title.\n> =======\n";
+        let regions = MarkdownParser.parse(input);
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(p) if p.contains("Still title") || p.contains("Foo is the first")
+            )),
+            "quoted underline after unquoted prose must not promote, got: {regions:?}"
+        );
+    }
+
+    /// CommonMark ex. 92 / 93: lazy `---` after a quote is a break, not a heading.
     #[test]
     fn quote_then_lazy_dash_underline_is_thematic_break() {
         let input = "> foo\n---\n";
@@ -3528,6 +3630,72 @@ mod tests {
                     if p.contains("Still title") || p.contains("Foo is the first")
             )),
             "backslash hard-break setext must not leak Prose: {regions:?}"
+        );
+    }
+
+    /// Hard-break flush is not a paragraph close, so a 4-space line stays
+    /// title text (CM 4.4 / snapper-0dnt).
+    #[test]
+    fn hard_break_then_indented_setext_title_is_structure() {
+        let input = concat!(
+            "Foo is the first title line. Still title.  \n",
+            "    Bar is a lazy title line.\n",
+            "=======\n",
+            "\n",
+            "Body after setext. Second body.\n",
+        );
+        let regions = MarkdownParser.parse(input);
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Structure(s) if s == "Foo is the first title line. Still title."
+                    || s == "Foo is the first title line. Still title.  \n"
+            )),
+            "hard-break first title line must be Structure, got: {regions:?}"
+        );
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Structure(s) if s == "    Bar is a lazy title line.\n"
+            )),
+            "hard-break 4-space continuation must be Structure, got: {regions:?}"
+        );
+        assert!(
+            !regions.iter().any(|r| matches!(r, Region::Code { .. })),
+            "hard-break 4-space title must not become indented code: {regions:?}"
+        );
+        assert!(
+            !regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(p)
+                    if p.contains("Still title") || p.contains("lazy title")
+            )),
+            "hard-break indented setext must not leak Prose: {regions:?}"
+        );
+    }
+
+    /// Type 7 cannot interrupt a paragraph, including after a hard break.
+    #[test]
+    fn hard_break_then_type7_stays_setext_title() {
+        let input = concat!(
+            "Foo is the first title line. Still title.  \n",
+            "<span class=\"x\">\n",
+            "=======\n",
+        );
+        let regions = MarkdownParser.parse(input);
+        assert!(
+            !regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(p) if p.contains("Still title") || p.contains("Foo is the first")
+            )),
+            "hard-break type-7 title must not leak Prose: {regions:?}"
+        );
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Structure(s) if s.contains("<span class=\"x\">")
+            )),
+            "type-7 continuation must stay in the setext title, got: {regions:?}"
         );
     }
 
