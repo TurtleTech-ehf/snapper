@@ -42,8 +42,8 @@ static INLINE_TOKEN_RE: LazyLock<Regex> = LazyLock::new(|| {
             r"<[A-Za-z][A-Za-z0-9+.\-]*:[^\s<>]*>", // Autolink: <http://...>
             r"<[^\s<>@]+@[^\s<>]+>",                // Autolink: <user@host>
             r#"https?://\S+[^.\s!?,;:)\]'""]"#,     // URLs (don't swallow trailing punctuation)
-            r"file:\S+",                            // Org file: links
-            r"@@[a-zA-Z]+:[^@]*@@",                 // Org inline export snippets: @@backend:value@@
+            r#"file:\S+[^.\s!?,;:)\]'""]"#, // Org file: links (don't swallow trailing punctuation)
+            r"@@[a-zA-Z]+:[^@]*@@",         // Org inline export snippets: @@backend:value@@
         ]
         .join("|"),
     )
@@ -1807,6 +1807,54 @@ mod tests {
         assert_eq!(
             split("See https://example.com/path?q=1&r=2. Next sentence."),
             vec!["See https://example.com/path?q=1&r=2.", "Next sentence."]
+        );
+    }
+
+    #[test]
+    fn org_file_token_trailing_punct_not_swallowed() {
+        // GitHub #169: `file:\S+` used to eat the period so
+        // `See file:/tmp/foo. Next` stayed one sentence.
+        let (_, placeholders) = protect_inline_tokens("See file:/tmp/foo. Next");
+        assert!(
+            placeholders.iter().any(|p| p == "file:/tmp/foo"),
+            "file: token must stop before sentence punct, got {placeholders:?}"
+        );
+        assert!(
+            !placeholders.iter().any(|p| p.contains("file:/tmp/foo.")),
+            "file: token must not swallow trailing period, got {placeholders:?}"
+        );
+        assert_eq!(
+            split("See file:/tmp/foo. Next"),
+            vec!["See file:/tmp/foo.".to_string(), "Next".to_string()]
+        );
+        assert_eq!(
+            split("See file:/tmp/foo. Next sentence."),
+            vec![
+                "See file:/tmp/foo.".to_string(),
+                "Next sentence.".to_string()
+            ]
+        );
+        assert_eq!(
+            split("See file:/tmp/foo! Next sentence."),
+            vec![
+                "See file:/tmp/foo!".to_string(),
+                "Next sentence.".to_string()
+            ]
+        );
+        assert_eq!(
+            split("See file:/tmp/foo? Next sentence."),
+            vec![
+                "See file:/tmp/foo?".to_string(),
+                "Next sentence.".to_string()
+            ]
+        );
+        // Mid-path dots stay inside the token (same as URL path segments).
+        assert_eq!(
+            split("See file:/tmp/foo.org. Next sentence."),
+            vec![
+                "See file:/tmp/foo.org.".to_string(),
+                "Next sentence.".to_string()
+            ]
         );
     }
 

@@ -2451,4 +2451,32 @@ mod tests {
         );
         assert_eq!(format_text(&out, &org_cfg()).unwrap(), out);
     }
+
+    /// Ticket fixture (Format::Org / GitHub #169): `file:\S+` must not
+    /// swallow trailing `.!?` so `See file:/tmp/foo. Next` is two sentences.
+    #[test]
+    fn org_file_token_does_not_swallow_trailing_sentence_punct() {
+        use crate::format_text;
+
+        let two_line = "See file:/tmp/foo.\nNext sentence.\n";
+        let out = format_text(two_line, &org_cfg()).unwrap();
+        assert_eq!(
+            out, two_line,
+            "existing newline must stay two lines, got:\n{out}"
+        );
+        assert_eq!(format_text(&out, &org_cfg()).unwrap(), out);
+
+        let same_line = "See file:/tmp/foo. Next sentence.\n";
+        let out = format_text(same_line, &org_cfg()).unwrap();
+        assert_eq!(
+            out, two_line,
+            "same-line file: period must split, got:\n{out}"
+        );
+        assert_eq!(format_text(&out, &org_cfg()).unwrap(), out);
+
+        let bang = "See file:/tmp/foo!\nNext sentence.\n";
+        let out = format_text("See file:/tmp/foo! Next sentence.\n", &org_cfg()).unwrap();
+        assert_eq!(out, bang, "same-line file: bang must split, got:\n{out}");
+        assert_eq!(format_text(&out, &org_cfg()).unwrap(), out);
+    }
 }
