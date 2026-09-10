@@ -3,7 +3,7 @@ use std::sync::LazyLock;
 
 use crate::parser::{
     ByteSpan, FormatParser, Region, RegionOrigin, SpannedRegion, flush_prose_spanned, iter_lines,
-    push_prose_line,
+    join_prose_gap, push_prose_line,
 };
 
 static HEADLINE_RE: LazyLock<Regex> =
@@ -359,7 +359,7 @@ impl FormatParser for OrgParser {
                         regions.pop();
                         if let Some(prev) = regions.last_mut() {
                             if let Region::Prose(prose) = &mut prev.region {
-                                prose.push(' ');
+                                join_prose_gap(prose);
                                 prose.push_str(line_text.trim());
                             }
                             if let Some(RegionOrigin::Whole(span)) = &mut prev.origin {
@@ -410,7 +410,7 @@ mod tests {
         assert_eq!(
             regions,
             vec![Region::Prose(
-                "Hello world. This is a test. Another line here.".to_string()
+                "Hello world. This is a test.\nAnother line here.".to_string()
             )]
         );
     }
@@ -586,11 +586,11 @@ mod tests {
     fn list_item_continuation() {
         let input = "- First sentence of item.\n  Continuation of the same item.\n- Second item";
         let regions = OrgParser.parse(input);
-        // First item: Structure("- ") + Prose("First sentence of item. Continuation of the same item.") + Structure("\n")
+        // First item: Structure("- ") + Prose + Structure("\n")
         assert_eq!(regions[0], Region::Structure("- ".to_string()));
         assert_eq!(
             regions[1],
-            Region::Prose("First sentence of item. Continuation of the same item.".to_string())
+            Region::Prose("First sentence of item.\nContinuation of the same item.".to_string())
         );
         assert_eq!(regions[2], Region::Structure("\n".to_string()));
         // Second item: Structure("- ") + Prose("Second item") + Structure("\n")
@@ -669,7 +669,7 @@ mod tests {
 
         let regions = OrgParser.parse(&out);
         assert_eq!(regions[0], Region::Structure("- ".to_string()));
-        assert_eq!(regions[1], Region::Prose("One. Two.".to_string()));
+        assert_eq!(regions[1], Region::Prose("One.\nTwo.".to_string()));
         assert_eq!(regions[2], Region::Structure("\n".to_string()));
         assert_eq!(regions.len(), 3);
     }
@@ -695,13 +695,13 @@ mod tests {
         assert_eq!(regions[0], Region::Structure("1. ".to_string()));
         assert_eq!(
             regions[1],
-            Region::Prose("Parent one. Parent two.".to_string())
+            Region::Prose("Parent one.\nParent two.".to_string())
         );
         assert_eq!(regions[2], Region::Structure("\n".to_string()));
         assert_eq!(regions[3], Region::Structure("   - ".to_string()));
         assert_eq!(
             regions[4],
-            Region::Prose("Child one. Child two.".to_string())
+            Region::Prose("Child one.\nChild two.".to_string())
         );
         assert_eq!(regions[5], Region::Structure("\n".to_string()));
         assert_eq!(regions.len(), 6);
