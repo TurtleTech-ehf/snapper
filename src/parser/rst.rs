@@ -380,11 +380,16 @@ fn parse_line_based(input: &str) -> Vec<SpannedRegion> {
         // Simple table: `=====  =====` borders plus the rows they wrap.
         // `is_underline` rejects those borders (interior spaces), so without
         // this the header/body rows fall through to prose and get joined.
+        // Interior blanks stay BlankLines; the walk still reaches the closer.
         if is_simple_table_border(line_text) {
             if let Some(end) = simple_table_end(&lines, i) {
                 flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
                 for row in &lines[i..=end] {
-                    regions.push(SpannedRegion::structure(input, row.span()));
+                    if row.text.trim().is_empty() {
+                        regions.push(SpannedRegion::blank(input, row.span()));
+                    } else {
+                        regions.push(SpannedRegion::structure(input, row.span()));
+                    }
                 }
                 i = end + 1;
                 continue;
@@ -757,19 +762,35 @@ fn is_definition_term(lines: &[Line<'_>], i: usize) -> bool {
     next_indent > indent
 }
 
-/// Last line of a simple table starting at `start`, if a later `=` border
-/// closes it before a blank line.
+/// Last line of a simple table starting at `start`.
+///
+/// Docutils `isolate_simple_table` (states.py 1858-1898) scans to a
+/// matching-width `=` border and does not stop on blanks. Close on the
+/// second matching-width border, or on the first when the next line is
+/// blank or the input ends. A different-width `=` border is malformed
+/// and is not a closer.
 fn simple_table_end(lines: &[Line<'_>], start: usize) -> Option<usize> {
-    let mut last_border = start;
+    let toplen = lines[start].text.trim().len();
+    let mut found = 0u32;
+    let mut end = None;
     for (j, line) in lines.iter().enumerate().skip(start + 1) {
-        if line.text.trim().is_empty() {
+        if !is_simple_table_border(line.text) {
+            continue;
+        }
+        if line.text.trim().len() != toplen {
             break;
         }
-        if is_simple_table_border(line.text) {
-            last_border = j;
+        found += 1;
+        end = Some(j);
+        let next_blank_or_eof = match lines.get(j + 1) {
+            None => true,
+            Some(next) => next.text.trim().is_empty(),
+        };
+        if found == 2 || next_blank_or_eof {
+            break;
         }
     }
-    (last_border > start).then_some(last_border)
+    end
 }
 
 #[cfg(test)]
@@ -1011,6 +1032,72 @@ mod tests {
         let input = "=====  =====\nName   Value\n=====  =====\nA      B\n=====  =====\n";
         let out = format_text(input, &cfg).unwrap();
         assert_eq!(out, input, "simple table must stay identity, got:\n{out}");
+    }
+
+    /// GitHub #99 / snapper-8n65: interior blank must not end the table.
+    fn interior_blank_simple_table() -> &'static str {
+        concat!(
+            "=====  =====\n",
+            "Name   Value\n",
+            "=====  =====\n",
+            "A      first\n",
+            "\n",
+            "       more\n",
+            "=====  =====\n",
+        )
+    }
+
+    #[test]
+    fn simple_table_interior_blank_rows_are_structure() {
+        let input = interior_blank_simple_table();
+        let regions = RstParser.parse(input);
+        for needle in [
+            "Name   Value",
+            "A      first",
+            "       more",
+            "=====  =====",
+        ] {
+            assert!(
+                regions
+                    .iter()
+                    .any(|r| matches!(r, Region::Structure(s) if s.contains(needle))),
+                "table line {needle:?} must be Structure, got {regions:?}"
+            );
+        }
+        assert!(
+            !regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(s)
+                    if s.contains("Name")
+                        || s.contains("first")
+                        || s.contains("more")
+                        || s.contains("=====")
+            )),
+            "table lines must not be Prose, got {regions:?}"
+        );
+    }
+
+    #[test]
+    fn simple_table_interior_blank_is_identity_under_format() {
+        use crate::format::Format;
+        use crate::{FormatConfig, format_text};
+
+        let cfg = FormatConfig {
+            format: Format::Rst,
+            max_width: 0,
+            ..Default::default()
+        };
+        let input = interior_blank_simple_table();
+        let out = format_text(input, &cfg).unwrap();
+        assert_eq!(
+            out, input,
+            "interior-blank simple table must stay identity, got:\n{out}"
+        );
+        assert_eq!(
+            format_text(&out, &cfg).unwrap(),
+            out,
+            "interior-blank simple table must be identity, got:\n{out}"
+        );
     }
 
     #[test]
