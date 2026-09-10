@@ -115,3 +115,41 @@ fn multiline_setext_survives_safety_backstops() {
         "CLI backstops must not revert the body split, got:\n{out}"
     );
 }
+
+#[test]
+fn multiline_setext_dash_underline_is_heading_not_hr() {
+    let input = concat!(
+        "Foo is the first title line. Still title.\n",
+        "Bar is the second title line.\n",
+        "-------\n",
+        "\n",
+        "Body after setext. Second body.\n",
+    );
+    let regions = MarkdownParser.parse(input);
+    assert!(
+        regions.iter().any(|r| matches!(
+            r,
+            Region::Structure(s) if s == "Foo is the first title line. Still title.\n"
+        )),
+        "first dash-setext title line must be Structure, got: {regions:?}"
+    );
+    assert!(
+        regions
+            .iter()
+            .any(|r| matches!(r, Region::Structure(s) if s.trim() == "-------")),
+        "dash underline must stay setext Structure, got: {regions:?}"
+    );
+    assert!(
+        !regions.iter().any(|r| matches!(
+            r,
+            Region::Prose(p) if p.contains("Still title")
+        )),
+        "dash-setext title must not be Prose: {regions:?}"
+    );
+
+    let out = format_text(input, &md_cfg()).unwrap();
+    assert!(
+        out.contains("Body after setext.\nSecond body."),
+        "body Prose must still split, got:\n{out}"
+    );
+}
