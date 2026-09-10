@@ -10,26 +10,59 @@ static NON_PROSE_ENVS: &[&str] = &[
     "equation*",
     "align",
     "align*",
+    "alignat",
+    "alignat*",
+    "aligned",
+    "aligned*",
+    "alignedat",
+    "alignedat*",
+    "flalign",
+    "flalign*",
     "gather",
     "gather*",
+    "gathered",
+    "gathered*",
     "multline",
     "multline*",
     "eqnarray",
     "eqnarray*",
+    "split",
+    "split*",
+    "displaymath",
+    "displaymath*",
+    "math",
     "figure",
     "figure*",
     "table",
     "table*",
     "tabular",
     "tabular*",
+    "tabularx",
+    "longtable",
+    "tabu",
+    "tblr",
+    "longtblr",
+    "talltblr",
     "lstlisting",
     "verbatim",
     "minted",
     "tikzpicture",
     "array",
+    "array*",
     "matrix",
     "pmatrix",
     "bmatrix",
+    "Bmatrix",
+    "vmatrix",
+    "Vmatrix",
+    "cases",
+    "cases*",
+    "dcases",
+    "dcases*",
+    "rcases",
+    "rcases*",
+    "drcases",
+    "drcases*",
 ];
 
 /// `\begin{minted}{LANG}` -- the language is the brace argument after the env.
@@ -1546,5 +1579,106 @@ Some text.
             "\\Verbatim must remain in the source, got:\n{out}"
         );
         assert_eq!(format_text(&out, &cfg).unwrap(), out);
+    }
+
+    #[test]
+    fn tree_sitter_and_latexindent_non_prose_envs_are_listed() {
+        for name in [
+            "displaymath",
+            "displaymath*",
+            "math",
+            "aligned",
+            "aligned*",
+            "alignat",
+            "alignat*",
+            "alignedat",
+            "alignedat*",
+            "flalign",
+            "flalign*",
+            "gathered",
+            "gathered*",
+            "split",
+            "split*",
+            "array*",
+            "tabularx",
+            "longtable",
+            "tabu",
+            "cases",
+            "cases*",
+            "dcases",
+            "dcases*",
+            "rcases",
+            "rcases*",
+            "drcases",
+            "drcases*",
+            "tblr",
+            "longtblr",
+            "talltblr",
+            "Bmatrix",
+            "vmatrix",
+            "Vmatrix",
+        ] {
+            assert!(
+                NON_PROSE_ENVS.contains(&name),
+                "NON_PROSE_ENVS must include {name}"
+            );
+        }
+    }
+
+    #[test]
+    fn alignat_and_tabularx_bodies_are_structure_not_prose() {
+        let input = "\\begin{document}\n\\begin{alignat}{2}\nThis is a long sentence that must not reflow as prose inside alignat.\n\\end{alignat}\n\\begin{tabularx}{\\textwidth}{l}\nThis is a long sentence that must not reflow as prose inside tabularx.\n\\end{tabularx}\n\\end{document}\n";
+        let regions = LatexParser::default().parse(input);
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Structure(s) if s.contains("must not reflow as prose inside alignat")
+            )),
+            "alignat body must be Structure, got: {regions:?}"
+        );
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Structure(s) if s.contains("must not reflow as prose inside tabularx")
+            )),
+            "tabularx body must be Structure, got: {regions:?}"
+        );
+        assert!(
+            !regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(p)
+                    if p.contains("inside alignat") || p.contains("inside tabularx")
+            )),
+            "alignat/tabularx bodies must not be Prose, got: {regions:?}"
+        );
+    }
+
+    #[test]
+    fn alignat_and_tabularx_two_sentence_bodies_do_not_reflow() {
+        use crate::format_text;
+
+        let input = "\\begin{document}\n\\begin{alignat}{2}\nFirst sentence inside alignat. Second sentence stays put.\n\\end{alignat}\n\\begin{tabularx}{\\textwidth}{l}\nFirst sentence inside tabularx. Second sentence stays put.\n\\end{tabularx}\nAfter the tables. Next.\n\\end{document}\n";
+        let out = format_text(input, &latex_cfg()).unwrap();
+        assert!(
+            out.contains("First sentence inside alignat. Second sentence stays put."),
+            "alignat body must not reflow, got:\n{out}"
+        );
+        assert!(
+            !out.contains("First sentence inside alignat.\nSecond sentence stays put."),
+            "alignat body must stay one source line, got:\n{out}"
+        );
+        assert!(
+            out.contains("First sentence inside tabularx. Second sentence stays put."),
+            "tabularx body must not reflow, got:\n{out}"
+        );
+        assert!(
+            !out.contains("First sentence inside tabularx.\nSecond sentence stays put."),
+            "tabularx body must stay one source line, got:\n{out}"
+        );
+        assert!(
+            out.contains("After the tables.\nNext."),
+            "prose after the envs must still reflow, got:\n{out}"
+        );
+        assert_eq!(format_text(&out, &latex_cfg()).unwrap(), out);
     }
 }
