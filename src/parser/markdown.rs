@@ -996,7 +996,6 @@ fn setext_heading_start(lines: &[Line<'_>], last: usize, prose_span: Option<Byte
         .unwrap_or(last)
 }
 
-
 /// Pandoc / academic Markdown display math: a line that starts with `$$`.
 fn display_math_open(line: &str) -> bool {
     line.trim().starts_with("$$")
@@ -4758,7 +4757,7 @@ mod tests {
     #[test]
     fn definition_list_body_hangs_and_splits() {
         use crate::format::Format;
-        use crate::{format_text, FormatConfig};
+        use crate::{FormatConfig, format_text};
 
         let input = ticket_definition_list_fixture();
         let out = format_text(input, &md_cfg()).unwrap();

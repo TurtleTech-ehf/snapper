@@ -2,8 +2,8 @@ use regex::Regex;
 use std::sync::LazyLock;
 
 use crate::parser::{
-    ByteSpan, FormatParser, Region, RegionOrigin, SpannedRegion, flush_prose_spanned, iter_lines,
-    join_prose_gap, push_prose_line,
+    ByteSpan, FormatParser, Line, Region, RegionOrigin, SpannedRegion, flush_prose_spanned,
+    iter_lines, join_prose_gap, push_prose_line,
 };
 
 static HEADLINE_RE: LazyLock<Regex> =
@@ -529,85 +529,6 @@ impl OrgParser {
         push_prose_line(current_prose, prose_span, &rest, join_space, true);
     }
 
-    /// Split same-line `\[CONTENTS\]` into Structure islands (Kang / org-syntax 5.2).
-    /// Glue space before `\[` stays on the island so reflow does not break
-    /// `The root is \[ x = a.b \]`. Leftover-start indent stays on the island.
-    /// Returns true when at least one same-line pair was emitted.
-    fn emit_same_line_bracket_fragments(
-        input: &str,
-        line: &Line<'_>,
-        current_prose: &mut String,
-        prose_span: &mut Option<ByteSpan>,
-        regions: &mut Vec<SpannedRegion>,
-    ) -> bool {
-        let mut rel = 0;
-        let mut found = false;
-        while let Some((open, after_close)) = Self::same_line_bracket_fragment(&line.text[rel..]) {
-            found = true;
-            let open_abs = rel + open;
-            let end_abs = rel + after_close;
-            let prefix = &line.text[rel..open_abs];
-            let lead_glue = if prefix.trim().is_empty() {
-                0
-            } else {
-                prefix.len() - prefix.trim_end_matches([' ', '\t']).len()
-            };
-            // Prose span must stop before the glue space; splice copies
-            // Structure from source and overlapping ranges drop the space.
-            // Whitespace-only leftover-start indent is not prose: pushing
-            // it writes prose_span then flush skips take(), so the next
-            // line extends over the math and splice drops it.
-            if !prefix.trim().is_empty() && prefix.len() > lead_glue {
-                let lead = Line {
-                    start: line.start + rel,
-                    end: line.start + open_abs - lead_glue,
-                    text: &line.text[rel..open_abs - lead_glue],
-                };
-                push_prose_line(current_prose, prose_span, &lead, true, false);
-            }
-            flush_prose_spanned(current_prose, prose_span, regions);
-            let island_start = if prefix.trim().is_empty() {
-                line.start + rel
-            } else {
-                line.start + open_abs - lead_glue
-            };
-            let rest_after = &line.text[end_abs..];
-            let trail_glue = if rest_after.trim().is_empty() {
-                0
-            } else {
-                rest_after.len() - rest_after.trim_start_matches([' ', '\t']).len()
-            };
-            let island_end = if rest_after.trim().is_empty() {
-                line.end
-            } else {
-                line.start + end_abs + trail_glue
-            };
-            regions.push(SpannedRegion::structure(
-                input,
-                ByteSpan::new(island_start, island_end),
-            ));
-            rel = end_abs + trail_glue;
-            if rest_after.trim().is_empty() {
-                return true;
-            }
-        }
-        if !found {
-            return false;
-        }
-        if rel < line.text.len() && !line.text[rel..].trim().is_empty() {
-            Self::push_prose_or_line_break(
-                input,
-                line,
-                rel,
-                current_prose,
-                prose_span,
-                regions,
-                true,
-            );
-        }
-        true
-    }
-
     fn inside_opaque(stack: &[OpenGreater]) -> bool {
         stack.iter().any(|b| b.kind == GreaterKind::Opaque)
     }
@@ -1066,7 +987,7 @@ impl FormatParser for OrgParser {
                 &mut regions,
                 true,
             );
-            if Self::in_verse_block(&block_stack) {
+            if Self::innermost_container(&block_stack) == Some("VERSE") {
                 flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
             }
         }
@@ -2791,6 +2712,157 @@ mod tests {
         assert!(
             wrapped.contains("Next sentence."),
             "sentence after the macro must still reflow, got:\n{wrapped}"
+        );
+        assert_eq!(format_text(&wrapped, &wrap_cfg).unwrap(), wrapped);
+    }
+
+    /// Ticket fixture (Format::Org / GitHub #214): org-element inline
+    /// `src_lang{...}` stays one token so an interior period is not a
+    /// sentence boundary. `Next sentence.` still splits. Same class:
+    /// `call_name(...)`.
+    fn inline_src_fixture() -> &'static str {
+        "Use src_python{print(1. 2)} today. Next sentence.\n"
+    }
+
+    #[test]
+    fn org_inline_src_interior_punct_is_not_a_sentence_boundary() {
+        use crate::format_text;
+
+        let src = "src_python{print(1. 2)}";
+        let input = inline_src_fixture();
+        let regions = OrgParser.parse(input);
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(p)
+                    if p.contains(src) && p.contains("Next sentence.")
+            )),
+            "inline src stays inline Prose, got: {regions:?}"
+        );
+        let out = format_text(input, &org_cfg()).unwrap();
+        assert!(
+            out.contains("Use src_python{print(1. 2)} today.\nNext sentence."),
+            "sentence after the inline src must reflow, got:\n{out}"
+        );
+        assert!(
+            !out.contains("1.\n") && !out.contains("print(1.\n2)"),
+            "must not split inside the inline src, got:\n{out}"
+        );
+        assert_eq!(format_text(&out, &org_cfg()).unwrap(), out);
+
+        let wrap_cfg = crate::FormatConfig {
+            format: crate::format::Format::Org,
+            max_width: 20,
+            ..Default::default()
+        }
+        .without_safety_backstops();
+        let wrapped = format_text(input, &wrap_cfg).unwrap();
+        assert!(
+            wrapped.lines().any(|l| l.contains(src)),
+            "wrap must not cut inside the inline src, got:\n{wrapped}"
+        );
+        assert!(
+            !wrapped.contains("1.\n2"),
+            "must not wrap on the interior period, got:\n{wrapped}"
+        );
+        assert!(
+            wrapped.contains("Next sentence."),
+            "sentence after the inline src must still reflow, got:\n{wrapped}"
+        );
+        assert_eq!(format_text(&wrapped, &wrap_cfg).unwrap(), wrapped);
+    }
+
+    #[test]
+    fn org_inline_call_interior_punct_is_not_a_sentence_boundary() {
+        use crate::format_text;
+
+        let call = "call_name(1. 2)";
+        let input = "Use call_name(1. 2) today. Next sentence.\n";
+        let regions = OrgParser.parse(input);
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(p)
+                    if p.contains(call) && p.contains("Next sentence.")
+            )),
+            "inline babel call stays inline Prose, got: {regions:?}"
+        );
+        let out = format_text(input, &org_cfg()).unwrap();
+        assert!(
+            out.contains("Use call_name(1. 2) today.\nNext sentence."),
+            "sentence after the inline call must reflow, got:\n{out}"
+        );
+        assert!(
+            !out.contains("1.\n") && !out.contains("call_name(1.\n2)"),
+            "must not split inside the inline call, got:\n{out}"
+        );
+        assert_eq!(format_text(&out, &org_cfg()).unwrap(), out);
+    }
+
+    #[test]
+    fn org_inline_src_after_leading_underscore_is_not_a_sentence_boundary() {
+        use crate::format_text;
+
+        let src = "src_python{print(1. 2)}";
+        for input in [
+            "See _src_python{print(1. 2)} today. Next sentence.\n",
+            "See foo-src_python{print(1. 2)} today. Next sentence.\n",
+        ] {
+            let regions = OrgParser.parse(input);
+            assert!(
+                regions.iter().any(|r| matches!(
+                    r,
+                    Region::Prose(p)
+                        if p.contains(src) && p.contains("Next sentence.")
+                )),
+                "src after leading _ or hyphen stays inline Prose, got: {regions:?}"
+            );
+            let out = format_text(input, &org_cfg()).unwrap();
+            assert!(
+                out.contains("today.\nNext sentence."),
+                "sentence after leading-_ src must reflow, got:\n{out}"
+            );
+            assert!(
+                !out.contains("1.\n") && !out.contains("print(1.\n2)"),
+                "must not split inside src after leading _ or hyphen, got:\n{out}"
+            );
+            assert_eq!(format_text(&out, &org_cfg()).unwrap(), out);
+        }
+    }
+
+    #[test]
+    fn org_inline_src_after_word_underscore_is_subscript() {
+        use crate::format_text;
+
+        let src = "src_python{print(1. 2)}";
+        let input = "See foo_src_python{print(1. 2)} today. Next sentence.\n";
+        let regions = OrgParser.parse(input);
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(p)
+                    if p.contains(src) && p.contains("Next sentence.")
+            )),
+            "foo_src leftover stays inline Prose, got: {regions:?}"
+        );
+        let wrap_cfg = crate::FormatConfig {
+            format: crate::format::Format::Org,
+            max_width: 20,
+            ..Default::default()
+        }
+        .without_safety_backstops();
+        let wrapped = format_text(input, &wrap_cfg).unwrap();
+        assert!(
+            !wrapped.lines().any(|l| l.contains(src)),
+            "foo_src leftover braces must not stay atomic, got:\n{wrapped}"
+        );
+        assert!(
+            wrapped.contains("1.\n2"),
+            "interior period may wrap after word-underscore subscript, got:\n{wrapped}"
+        );
+        assert!(
+            wrapped.contains("Next sentence."),
+            "following sentence must still reflow, got:\n{wrapped}"
         );
         assert_eq!(format_text(&wrapped, &wrap_cfg).unwrap(), wrapped);
     }
