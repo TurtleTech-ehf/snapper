@@ -1865,6 +1865,20 @@ They are endowed with reason and conscience and should act towards one another i
     }
 
     #[test]
+    fn max_width_keeps_org_cite_atomic() {
+        let token = "[cite/t:see;@foo p. 7;@bar pp. 4;by foo]";
+        let sentence = "See [cite/t:see;@foo p. 7;@bar pp. 4;by foo]. Next sentence.";
+        for clause in [false, true] {
+            let wrapped = wrap_sentence(sentence, 30, clause);
+            assert_atomic_token(&wrapped, token);
+            assert!(
+                !wrapped.contains("p.\n7"),
+                "must not wrap on p. inside the citation, got:\n{wrapped}"
+            );
+        }
+    }
+
+    #[test]
     fn max_width_keeps_math_atomic() {
         let token = "$E = m c^{2}$";
         let sentence = "The identity $E = m c^{2}$ holds in this frame.";

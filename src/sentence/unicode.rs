@@ -16,12 +16,16 @@ static INLINE_TOKEN_RE: LazyLock<Regex> = LazyLock::new(|| {
         &[
             r"\[\[[^\]]*\]\]",           // Org links: [[url]] or [[url][desc]]
             r"\[\[[^\]]*\]\[[^\]]*\]\]", // Org links with desc
-            r"\[[^\]]+\]\([^)]+\)",      // Markdown links: [text](url)
-            r"!\[[^\]]*\]\([^)]+\)",     // Markdown images: ![alt](url)
-            r"\$\$[^$\n]+\$\$",          // Display math: $$...$$
-            r"\$[^$\n]+\$",              // Inline math: $...$
-            r"\\\([^\\\n]+\\\)",         // LaTeX inline math: \(...\)
-            r"\\([a-zA-Z]+)\{[^}]*\}",   // LaTeX commands: \cmd{arg}
+            // org-element 5.5 citation: [cite/style:prefix;@key p. 7;suffix]
+            // Must be atomic so a page locator is not a sentence boundary.
+            r"\[cite(?:/[-a-zA-Z0-9_/]*)?:[^\]]*\]",
+            r"\[[^\]]+\]\([^)]+\)",    // Markdown links: [text](url)
+            r"!\[[^\]]*\]\([^)]+\)",   // Markdown images: ![alt](url)
+            r"\$\$[^$\n]+\$\$",        // Display math: $$...$$
+            r"\$[^$\n]+\$",            // Inline math: $...$
+            r"\\\([^\\\n]+\\\)",       // LaTeX inline math: \(...\)
+            r"\\\[[^\n]+?\\\]",        // Org / LaTeX display math fragment: \[...\]
+            r"\\([a-zA-Z]+)\{[^}]*\}", // LaTeX commands: \cmd{arg}
             // Org emphasis must be protected before sentence splits so a line
             // cannot begin with `*rest` (false headline) or leave markers open.
             // Org requires a non-space immediately after the opener and before
@@ -583,7 +587,7 @@ fn find_md_code_span(text: &str, open_at: usize) -> Option<usize> {
 }
 
 /// Byte ranges of inline tokens that wrapping must not split (links, images,
-/// inline code, autolinks, math, Org `[[...]]`, paired spans).
+/// inline code, autolinks, math, Org `[[...]]`, Org `[cite...]`, paired spans).
 ///
 /// Ranges are half-open `[start, end)`, sorted, non-overlapping, and merged
 /// when a regex match wraps a paired span.
@@ -1349,6 +1353,33 @@ mod tests {
             vec![
                 "See [[https://example.com][Ex. Site]] for details.",
                 "Then continue."
+            ]
+        );
+    }
+
+    #[test]
+    fn inline_org_cite_page_locator_is_not_a_sentence_boundary() {
+        // EN_ABBREVIATIONS has `pp` but not `p`. Bracket-depth merge can
+        // glue a UAX split, but wrap still cuts on `p. 7` unless the
+        // org-element citation is one inline token.
+        let cite = "[cite/t:see;@foo p. 7;@bar pp. 4;by foo]";
+        let text = "See [cite/t:see;@foo p. 7;@bar pp. 4;by foo]. Next sentence.";
+        let (_, placeholders) = protect_inline_tokens(text);
+        assert!(
+            placeholders.iter().any(|p| p == cite),
+            "org citation must be one token, got {placeholders:?}"
+        );
+        let spans = atomic_inline_spans(text);
+        assert!(
+            spans.iter().any(|&(s, e)| &text[s..e] == cite),
+            "citation must be an atomic wrap span, got {:?}",
+            spans.iter().map(|&(s, e)| &text[s..e]).collect::<Vec<_>>()
+        );
+        assert_eq!(
+            split(text),
+            vec![
+                "See [cite/t:see;@foo p. 7;@bar pp. 4;by foo].".to_string(),
+                "Next sentence.".to_string()
             ]
         );
     }
