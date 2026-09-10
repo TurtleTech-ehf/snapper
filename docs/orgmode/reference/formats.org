@@ -97,8 +97,9 @@ These tokens within prose are not split across lines:
 - =\\begin{...}= / =\\end{...}= lines are structure
 - fancyvrb =Verbatim= / =BVerbatim= / =LVerbatim= / =SaveVerbatim= / =VerbatimOut= are built-in code regions (same FV@Scan class)
 - =alltt= (standard =alltt.sty=) is a built-in code region (raw line breaks)
+- listings.sty =lstlisting*= is the same raw body scan as =lstlisting=
 - Extra names from =[latex].verbatim_envs= are code regions too
-- Body follows the same comment-reflow and optional =--format-code= rules as other formats when language is known (=minted= language arg, =lstlisting= =language== option)
+- Body follows the same comment-reflow and optional =--format-code= rules as other formats when language is known (=minted= language arg, =lstlisting= / =lstlisting*= =language== option)
 - Inline =\verb= / =\lstinline= (and extra =[latex].verbatim_commands=, for example =\Verb=) stay atomic; inner =.!?%= do not split or comment
 
 *** Prose regions (reflowed)
