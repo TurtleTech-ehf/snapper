@@ -42,8 +42,8 @@ static INLINE_TOKEN_RE: LazyLock<Regex> = LazyLock::new(|| {
             r"<[A-Za-z][A-Za-z0-9+.\-]*:[^\s<>]*>", // Autolink: <http://...>
             r"<[^\s<>@]+@[^\s<>]+>",                // Autolink: <user@host>
             r#"https?://\S+[^.\s!?,;:)\]'""]"#,     // URLs (don't swallow trailing punctuation)
-            r"file:\S+",                            // Org file: links
-            r"@@[a-zA-Z]+:[^@]*@@",                 // Org inline export snippets: @@backend:value@@
+            r#"file:\S+[^.\s!?,;:)\]'""]"#, // Org file: links (don't swallow trailing punctuation)
+            r"@@[a-zA-Z]+:[^@]*@@",         // Org inline export snippets: @@backend:value@@
         ]
         .join("|"),
     )
@@ -1775,6 +1775,76 @@ mod tests {
             split("See https://example.com/path?q=1&r=2. Next sentence."),
             vec!["See https://example.com/path?q=1&r=2.", "Next sentence."]
         );
+    }
+
+    #[test]
+    fn org_file_token_trailing_punct_not_swallowed() {
+        // GitHub #169: file:\S+ used to eat the period so UAX saw one sentence.
+        let text = "See file:/tmp/foo. Next stays one sentence.";
+        let (_, placeholders) = protect_inline_tokens(text);
+        assert!(
+            placeholders.iter().any(|p| p == "file:/tmp/foo"),
+            "file: token must stop before sentence punct, got {placeholders:?}"
+        );
+        assert!(
+            !placeholders.iter().any(|p| p.ends_with('.')),
+            "file: token must not swallow trailing punct, got {placeholders:?}"
+        );
+        assert_eq!(
+            split(text),
+            vec![
+                "See file:/tmp/foo.".to_string(),
+                "Next stays one sentence.".to_string()
+            ]
+        );
+        assert_eq!(
+            split("See file:/tmp/foo! Next stays one sentence."),
+            vec![
+                "See file:/tmp/foo!".to_string(),
+                "Next stays one sentence.".to_string()
+            ]
+        );
+        assert_eq!(
+            split("See file:/tmp/foo? Next stays one sentence."),
+            vec![
+                "See file:/tmp/foo?".to_string(),
+                "Next stays one sentence.".to_string()
+            ]
+        );
+        assert_eq!(
+            split("See file:/tmp/foo.bar/baz. Next sentence."),
+            vec![
+                "See file:/tmp/foo.bar/baz.".to_string(),
+                "Next sentence.".to_string()
+            ]
+        );
+    }
+
+    #[test]
+    fn org_file_token_keeps_two_sentence_lines() {
+        use crate::format::Format;
+        use crate::{FormatConfig, format_text};
+
+        let cfg = FormatConfig {
+            format: Format::Org,
+            max_width: 0,
+            ..Default::default()
+        };
+        let two_line = "See file:/tmp/foo.\nNext stays one sentence.\n";
+        let out = format_text(two_line, &cfg).unwrap();
+        assert_eq!(
+            out, two_line,
+            "already-split file: sentences must stay two lines, got:\n{out}"
+        );
+        assert_eq!(format_text(&out, &cfg).unwrap(), out);
+
+        let same_line = "See file:/tmp/foo. Next stays one sentence.\n";
+        let out = format_text(same_line, &cfg).unwrap();
+        assert_eq!(
+            out, two_line,
+            "file: token must not swallow trailing period, got:\n{out}"
+        );
+        assert_eq!(format_text(&out, &cfg).unwrap(), out);
     }
 
     #[test]
