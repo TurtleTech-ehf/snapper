@@ -2261,4 +2261,55 @@ mod tests {
         );
         assert_eq!(format_text(&out, &org_cfg()).unwrap(), out);
     }
+
+    /// Ticket fixture (Format::Org / GitHub #112): org-element 5.5
+    /// citations are atomic so `p.` inside is not a sentence boundary.
+    fn cite_page_locator_fixture() -> &'static str {
+        "See [cite/t:see;@foo p. 7;@bar pp. 4;by foo]. Next sentence.\n"
+    }
+
+    #[test]
+    fn org_cite_page_locator_is_not_a_sentence_boundary() {
+        use crate::format_text;
+
+        let cite = "[cite/t:see;@foo p. 7;@bar pp. 4;by foo]";
+        let input = cite_page_locator_fixture();
+        let regions = OrgParser.parse(input);
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(p)
+                    if p.contains(cite) && p.contains("Next sentence.")
+            )),
+            "citation stays inline Prose, got: {regions:?}"
+        );
+        let out = format_text(input, &org_cfg()).unwrap();
+        assert!(
+            out.contains("See [cite/t:see;@foo p. 7;@bar pp. 4;by foo].\nNext sentence."),
+            "sentence after the citation must reflow, got:\n{out}"
+        );
+        assert_eq!(format_text(&out, &org_cfg()).unwrap(), out);
+
+        // max_width 30 wraps through the locator unless [cite...] is atomic.
+        let wrap_cfg = crate::FormatConfig {
+            format: crate::format::Format::Org,
+            max_width: 30,
+            ..Default::default()
+        }
+        .without_safety_backstops();
+        let wrapped = format_text(input, &wrap_cfg).unwrap();
+        assert!(
+            wrapped.lines().any(|l| l.contains(cite)),
+            "wrap must not cut inside the citation, got:\n{wrapped}"
+        );
+        assert!(
+            !wrapped.contains("p.\n7"),
+            "must not split on p. inside the citation, got:\n{wrapped}"
+        );
+        assert!(
+            wrapped.contains("Next sentence."),
+            "sentence after the citation must still reflow, got:\n{wrapped}"
+        );
+        assert_eq!(format_text(&wrapped, &wrap_cfg).unwrap(), wrapped);
+    }
 }
