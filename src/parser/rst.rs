@@ -228,6 +228,35 @@ fn parse_line_based(input: &str) -> Vec<SpannedRegion> {
             continue;
         }
 
+        // Doctest block: Docutils Body.doctest (`>>>( +|$)`) is checked
+        // before Body.line, so a prompt-only `>>>` / `>>> ` is not a
+        // `>` section underline. One doctest_block through the next
+        // blank or dedent; no inline parse.
+        if is_rst_doctest_opener(trimmed) {
+            flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
+            let block_indent = line_text.len() - trimmed.len();
+            let block_start = line.start;
+            let mut block_end = line.end;
+            i += 1;
+            while i < total {
+                let next = lines[i].text;
+                if next.trim().is_empty() {
+                    break;
+                }
+                let next_indent = next.len() - next.trim_start().len();
+                if next_indent < block_indent {
+                    break;
+                }
+                block_end = lines[i].end;
+                i += 1;
+            }
+            regions.push(SpannedRegion::structure(
+                input,
+                ByteSpan::new(block_start, block_end),
+            ));
+            continue;
+        }
+
         // Section underline
         if is_underline(line_text) {
             flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
@@ -274,33 +303,6 @@ fn parse_line_based(input: &str) -> Vec<SpannedRegion> {
                 }
             }
             i += 1;
-            continue;
-        }
-
-        // Doctest block: Docutils Body.doctest (`>>>( +|$)`). One
-        // doctest_block through the next blank or dedent; no inline parse.
-        if is_rst_doctest_opener(trimmed) {
-            flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
-            let block_indent = line_text.len() - trimmed.len();
-            let block_start = line.start;
-            let mut block_end = line.end;
-            i += 1;
-            while i < total {
-                let next = lines[i].text;
-                if next.trim().is_empty() {
-                    break;
-                }
-                let next_indent = next.len() - next.trim_start().len();
-                if next_indent < block_indent {
-                    break;
-                }
-                block_end = lines[i].end;
-                i += 1;
-            }
-            regions.push(SpannedRegion::structure(
-                input,
-                ByteSpan::new(block_start, block_end),
-            ));
             continue;
         }
 
@@ -637,9 +639,14 @@ fn take_roman_place(b: &[u8], i: usize, one: u8, five: u8, ten: u8) -> usize {
 
 /// Check if a line is a section underline (2+ repeated punctuation chars).
 /// Includes `' . _ < >` in addition to the common `= - ~ ^ " # * +` set.
+/// Docutils Body.doctest wins over Body.line: prompt-only `>>>` / `>>> `
+/// are not `>` adornments. `>>>>>` (and `>>` / `>>>>`) stay underlines.
 fn is_underline(line: &str) -> bool {
     let trimmed = line.trim();
     if trimmed.len() < 2 {
+        return false;
+    }
+    if is_rst_doctest_opener(trimmed) {
         return false;
     }
     let first = trimmed.as_bytes()[0];
@@ -1450,6 +1457,19 @@ mod tests {
         assert!(!is_rst_doctest_opener(">> > print(1)"));
         assert!(!is_rst_doctest_opener("print(1)"));
         assert!(!is_rst_doctest_opener(".. >>>"));
+        assert!(!is_rst_doctest_opener(">>>>"));
+        assert!(!is_rst_doctest_opener(">>>>>"));
+    }
+
+    #[test]
+    fn doctest_opener_is_not_a_section_underline() {
+        assert!(!is_underline(">>>"));
+        assert!(!is_underline(">>> "));
+        assert!(!is_underline("  >>>"));
+        assert!(is_underline(">>"));
+        assert!(is_underline(">>>>"));
+        assert!(is_underline(">>>>>"));
+        assert!(is_underline("===== "));
     }
 
     #[test]
@@ -1551,6 +1571,125 @@ mod tests {
         assert!(
             out.contains("After.\nMore after."),
             "trailing paragraph must still reflow, got:\n{out}"
+        );
+    }
+
+    #[test]
+    fn prompt_only_doctest_is_structure_not_underline() {
+        let input = concat!(
+            ">>>\n",
+            "Python-specific usage examples; begun with \">>> \"\n",
+            ">>> print('(cut and pasted from interactive Python sessions)')\n",
+            "(cut and pasted from interactive Python sessions)\n",
+        );
+        let regions = RstParser.parse(input);
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Structure(s)
+                    if s.contains(">>>")
+                        && s.contains("Python-specific usage examples; begun with")
+                        && s.contains(">>> print('(cut and pasted")
+                        && s.contains("(cut and pasted from interactive Python sessions)")
+            )),
+            "prompt-only >>> must open one Structure doctest, got {regions:?}"
+        );
+        assert!(
+            !regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(s) if s.contains(">>>") || s.contains("Python-specific")
+            )),
+            "prompt-only >>> must not leave output as Prose, got {regions:?}"
+        );
+    }
+
+    #[test]
+    fn prompt_only_doctest_is_identity_under_format() {
+        use crate::format::Format;
+        use crate::{FormatConfig, format_text};
+
+        let cfg = FormatConfig {
+            format: Format::Rst,
+            max_width: 0,
+            ..Default::default()
+        };
+        let input = concat!(
+            ">>>\n",
+            "Python-specific usage examples; begun with \">>> \"\n",
+            ">>> print('(cut and pasted from interactive Python sessions)')\n",
+            "(cut and pasted from interactive Python sessions)\n",
+        );
+        let out = format_text(input, &cfg).unwrap();
+        assert_eq!(
+            out, input,
+            "prompt-only >>> must stay identity under format, got:\n{out}"
+        );
+        assert!(
+            !out.contains(">>> Python-specific"),
+            "must not join prompt-only >>> onto the output line, got:\n{out}"
+        );
+        assert_eq!(
+            format_text(&out, &cfg).unwrap(),
+            out,
+            "prompt-only doctest identity must survive a second pass"
+        );
+    }
+
+    #[test]
+    fn prompt_only_doctest_does_not_steal_preceding_prose_as_title() {
+        use crate::format::Format;
+        use crate::{FormatConfig, format_text};
+
+        let cfg = FormatConfig {
+            format: Format::Rst,
+            max_width: 0,
+            ..Default::default()
+        };
+        let input = concat!("Before. More before.\n", ">>>\n", "1\n",);
+        let out = format_text(input, &cfg).unwrap();
+        assert!(
+            out.contains("Before.\nMore before."),
+            "preceding prose must still reflow, not become a section title, got:\n{out}"
+        );
+        assert!(
+            out.contains(">>>\n1\n"),
+            "prompt-only >>> plus output must stay unjoined, got:\n{out}"
+        );
+        assert!(
+            !out.contains("Before. More before.\n>>>"),
+            "title-lookahead must not freeze preceding prose as a section, got:\n{out}"
+        );
+    }
+
+    #[test]
+    fn five_gt_adornment_stays_a_section_underline() {
+        use crate::format::Format;
+        use crate::{FormatConfig, format_text};
+
+        let cfg = FormatConfig {
+            format: Format::Rst,
+            max_width: 0,
+            ..Default::default()
+        };
+        let input = "Input\n>>>>>\n";
+        let out = format_text(input, &cfg).unwrap();
+        assert_eq!(out, input, ">>>>> must stay a > adornment, got:\n{out}");
+        assert!(
+            !out.contains("Input >>>>>"),
+            "must not glue >>>>> onto the title, got:\n{out}"
+        );
+        let regions = RstParser.parse(input);
+        assert!(
+            regions
+                .iter()
+                .any(|r| matches!(r, Region::Structure(s) if s.contains("Input"))),
+            "title above >>>>> must stay Structure, got {regions:?}"
+        );
+        assert!(
+            regions
+                .iter()
+                .any(|r| matches!(r, Region::Structure(s) if s.trim() == ">>>>>")),
+            ">>>>> must stay Structure adornment, got {regions:?}"
         );
     }
 
