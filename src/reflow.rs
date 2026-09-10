@@ -445,11 +445,53 @@ fn ordered_list_start(text: &str) -> bool {
 
 fn thematic_or_setext_token(text: &str) -> bool {
     let first = text.split_whitespace().next().unwrap_or("");
-    if first.len() < 3 {
+    if first.len() >= 3 {
+        let b = first.as_bytes()[0];
+        if matches!(b, b'-' | b'=' | b'*' | b'_') && first.bytes().all(|c| c == b) {
+            return true;
+        }
+    }
+    // Spaced CM 4.1 prefix (`_ _ _ extra`) so wrap does not start an HR.
+    let mut toks = text.split_whitespace();
+    if let (Some(a), Some(b), Some(c)) = (toks.next(), toks.next(), toks.next()) {
+        if a.len() == 1 && a == b && b == c {
+            let ch = a.as_bytes()[0];
+            if matches!(ch, b'-' | b'*' | b'_') {
+                return true;
+            }
+        }
+    }
+    md_thematic_break(text)
+}
+
+/// CommonMark 0.31.2 §4.1: 0–3 spaces, then three or more matching
+/// `-` / `*` / `_` with optional spaces or tabs between them.
+fn md_thematic_break(line: &str) -> bool {
+    let bytes = line.as_bytes();
+    let mut i = 0;
+    while i < bytes.len() && i < 3 && bytes[i] == b' ' {
+        i += 1;
+    }
+    if i >= bytes.len() {
         return false;
     }
-    let b = first.as_bytes()[0];
-    matches!(b, b'-' | b'=' | b'*' | b'_') && first.bytes().all(|c| c == b)
+    let marker = bytes[i];
+    if !matches!(marker, b'-' | b'*' | b'_') {
+        return false;
+    }
+    let mut count = 0;
+    while i < bytes.len() {
+        let b = bytes[i];
+        if b == marker {
+            count += 1;
+            i += 1;
+        } else if b == b' ' || b == b'\t' {
+            i += 1;
+        } else {
+            return false;
+        }
+    }
+    count >= 3
 }
 
 fn atx_heading_start(text: &str) -> bool {
@@ -2076,8 +2118,8 @@ They are endowed with reason and conscience and should act towards one another i
 
     #[test]
     fn wrap_created_thematic_break_is_not_a_markdown_block() {
-        // B. --- / === / *** / ___
-        for token in ["---", "===", "***", "___"] {
+        // B. --- / === / *** / ___ / spaced CM 4.1 (`* * *`, `_ _ _`)
+        for token in ["---", "===", "***", "___", "* * *", "_ _ _", "- - -"] {
             let input = format!("The options are apples {token} extra words here.");
             let result = wrap_fmt(&input, 23, crate::format::Format::Markdown);
             assert_no_col0_block(&result, &[token]);
