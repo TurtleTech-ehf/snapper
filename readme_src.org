@@ -260,7 +260,7 @@ verbatim_envs = ["Verbatim"]
 structure_envs = ["algorithm", "comment"]
 verbatim_commands = ["Verb"]
 #+end_src
-Missing =[latex]= keys keep the built-in minted/lstlisting/verbatim, equation/figure, and verb/lstinline lists.
+Missing =[latex]= keys keep the built-in minted/lstlisting/verbatim/comment, equation/figure, and verb/lstinline lists.
 ~snapper~ walks up from the current directory to find it.
 * Documentation
 :PROPERTIES:
