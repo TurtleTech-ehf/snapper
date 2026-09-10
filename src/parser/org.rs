@@ -27,10 +27,31 @@ static EXPORT_SNIPPET_RE: LazyLock<Regex> =
 pub struct OrgParser;
 
 impl OrgParser {
-    /// Check if a line starts a block (#+BEGIN_...)
-    fn is_block_begin(line: &str) -> bool {
+    /// First token after `#+BEGIN_` / `#+END_`, uppercased (org-element NAME).
+    fn block_directive_name(line: &str, prefix: &str) -> Option<String> {
         let trimmed = line.trim_start();
-        trimmed.to_ascii_uppercase().starts_with("#+BEGIN_")
+        let upper = trimmed.to_ascii_uppercase();
+        if !upper.starts_with(prefix) {
+            return None;
+        }
+        let name = trimmed[prefix.len()..].split_whitespace().next()?;
+        if name.is_empty() {
+            return None;
+        }
+        Some(name.to_ascii_uppercase())
+    }
+
+    fn block_begin_name(line: &str) -> Option<String> {
+        Self::block_directive_name(line, "#+BEGIN_")
+    }
+
+    fn block_end_name(line: &str) -> Option<String> {
+        Self::block_directive_name(line, "#+END_")
+    }
+
+    /// Check if a line starts a block (#+BEGIN_NAME).
+    fn is_block_begin(line: &str) -> bool {
+        Self::block_begin_name(line).is_some()
     }
 
     /// Check if a line starts a source code block (#+BEGIN_SRC LANG ARGS...).
@@ -52,16 +73,14 @@ impl OrgParser {
         Some(lang)
     }
 
-    /// Check if a line ends a block (#+END_...)
+    /// Check if a line ends a block (#+END_NAME).
     fn is_block_end(line: &str) -> bool {
-        let trimmed = line.trim_start();
-        trimmed.to_ascii_uppercase().starts_with("#+END_")
+        Self::block_end_name(line).is_some()
     }
 
-    /// Check if a line ends a source code block (#+END_SRC).
+    /// Check if a line ends a source code block (`#+END_SRC` only).
     fn is_src_end(line: &str) -> bool {
-        let trimmed = line.trim_start();
-        trimmed.to_ascii_uppercase().starts_with("#+END_SRC")
+        Self::block_end_name(line).as_deref() == Some("SRC")
     }
 
     /// Check if a line starts a property drawer
@@ -127,8 +146,9 @@ impl FormatParser for OrgParser {
         let mut regions: Vec<SpannedRegion> = Vec::new();
         let mut current_prose = String::new();
         let mut prose_span: Option<ByteSpan> = None;
-        let mut in_block = false;
-        // Source block bookkeeping; `in_src_block` implies `in_block`.
+        // Open greater-element names. `#+END_NAME` pops only a matching top
+        // (org-element / orgize); a mismatched closer stays structure.
+        let mut block_stack: Vec<String> = Vec::new();
         let mut in_src_block = false;
         let mut src_lang: Option<String> = None;
         let mut src_header = ByteSpan::default();
@@ -167,7 +187,6 @@ impl FormatParser for OrgParser {
                 flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
                 if Self::is_src_end(line_text) {
                     in_src_block = false;
-                    in_block = false;
                     regions.push(SpannedRegion::code(
                         input,
                         src_lang.take(),
@@ -180,10 +199,14 @@ impl FormatParser for OrgParser {
             }
 
             // Inside a non-src block -- everything is structure
-            if in_block {
+            if !block_stack.is_empty() {
                 flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
-                if Self::is_block_end(line_text) {
-                    in_block = false;
+                if let Some(end_name) = Self::block_end_name(line_text) {
+                    if block_stack.last() == Some(&end_name) {
+                        block_stack.pop();
+                    }
+                } else if let Some(begin_name) = Self::block_begin_name(line_text) {
+                    block_stack.push(begin_name);
                 }
                 regions.push(SpannedRegion::structure(input, line.span()));
                 continue;
@@ -223,7 +246,6 @@ impl FormatParser for OrgParser {
             // Source block begin (#+BEGIN_SRC LANG ...)
             if let Some(lang) = Self::is_src_begin(line_text) {
                 flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
-                in_block = true;
                 in_src_block = true;
                 src_lang = lang;
                 src_header = line.span();
@@ -231,10 +253,10 @@ impl FormatParser for OrgParser {
                 continue;
             }
 
-            // Other #+BEGIN_ block: opaque structure
-            if Self::is_block_begin(line_text) {
+            // Other #+BEGIN_NAME: opaque structure until matching #+END_NAME
+            if let Some(name) = Self::block_begin_name(line_text) {
                 flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
-                in_block = true;
+                block_stack.push(name);
                 regions.push(SpannedRegion::structure(input, line.span()));
                 continue;
             }
@@ -705,5 +727,137 @@ mod tests {
         );
         assert_eq!(regions[5], Region::Structure("\n".to_string()));
         assert_eq!(regions.len(), 6);
+    }
+
+    /// Quote containing example: `#+END_EXAMPLE` must not close the quote.
+    fn quote_with_nested_example() -> &'static str {
+        concat!(
+            "#+BEGIN_QUOTE\n",
+            "Quoted one. Quoted two.\n",
+            "#+BEGIN_EXAMPLE\n",
+            "foo. bar.\n",
+            "#+END_EXAMPLE\n",
+            "Still quoted. More quoted.\n",
+            "#+END_QUOTE\n",
+            "After. Next.\n",
+        )
+    }
+
+    #[test]
+    fn nested_example_does_not_close_quote_by_any_end() {
+        let input = quote_with_nested_example();
+        let regions = OrgParser.parse(input);
+        let structure: String = regions
+            .iter()
+            .filter_map(|r| match r {
+                Region::Structure(s) => Some(s.as_str()),
+                _ => None,
+            })
+            .collect();
+        assert!(
+            structure.contains("#+BEGIN_QUOTE"),
+            "quote opener must stay Structure, got: {regions:?}"
+        );
+        assert!(
+            structure.contains("#+END_QUOTE"),
+            "matching #+END_QUOTE must stay Structure, not prose: {regions:?}"
+        );
+        assert!(
+            structure.contains("Still quoted. More quoted."),
+            "post-example quote body must stay inside the quote: {regions:?}"
+        );
+        assert!(
+            structure.contains("foo. bar."),
+            "EXAMPLE body must stay Structure: {regions:?}"
+        );
+        assert!(
+            !regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(p) if p.contains("Still quoted") || p.contains("#+END_QUOTE")
+            )),
+            "quote closer and inner quote body must not become Prose: {regions:?}"
+        );
+        let prose: Vec<_> = regions
+            .iter()
+            .filter_map(|r| match r {
+                Region::Prose(t) => Some(t.as_str()),
+                _ => None,
+            })
+            .collect();
+        assert!(
+            prose
+                .iter()
+                .any(|p| p.contains("After.") && p.contains("Next.")),
+            "prose after the quote must remain Prose, got: {regions:?}"
+        );
+    }
+
+    #[test]
+    fn nested_example_in_quote_closes_by_name_only() {
+        use crate::format::Format;
+        use crate::{FormatConfig, format_text};
+
+        let input = quote_with_nested_example();
+        let cfg = FormatConfig {
+            format: Format::Org,
+            ..Default::default()
+        }
+        .without_safety_backstops();
+        let out = format_text(input, &cfg).unwrap();
+        assert!(
+            out.contains("Quoted one. Quoted two."),
+            "quoted sentences must stay inside the quote fence, got:\n{out}"
+        );
+        assert!(
+            out.contains("foo. bar."),
+            "EXAMPLE body must not reflow, got:\n{out}"
+        );
+        assert!(
+            !out.contains("foo.\nbar."),
+            "EXAMPLE must stay literal, got:\n{out}"
+        );
+        assert!(
+            out.contains("Still quoted. More quoted."),
+            "text after nested EXAMPLE must stay in the quote, got:\n{out}"
+        );
+        assert!(
+            !out.contains("Still quoted.\nMore quoted."),
+            "inner quote body must not become prose (name-blind close), got:\n{out}"
+        );
+        assert!(
+            out.contains("#+END_QUOTE\nAfter.\nNext.\n")
+                || out.ends_with("#+END_QUOTE\nAfter.\nNext."),
+            "real closer stays a fence; following prose reflows, got:\n{out}"
+        );
+        assert_eq!(format_text(&out, &cfg).unwrap(), out);
+    }
+
+    #[test]
+    fn example_export_comment_do_not_reflow() {
+        use crate::format::Format;
+        use crate::{FormatConfig, format_text};
+
+        let cfg = FormatConfig {
+            format: Format::Org,
+            ..Default::default()
+        }
+        .without_safety_backstops();
+        for (name, body) in [
+            ("EXAMPLE", "foo. bar."),
+            ("EXPORT", "<p>Hello. World.</p>"),
+            ("COMMENT", "Secret one. Secret two."),
+        ] {
+            let input = format!("#+BEGIN_{name}\n{body}\n#+END_{name}\nAfter. Next.\n");
+            let out = format_text(&input, &cfg).unwrap();
+            assert!(
+                out.contains(body),
+                "{name} body must not reflow, got:\n{out}"
+            );
+            assert!(
+                out.contains(&format!("#+END_{name}\nAfter.\nNext.")),
+                "{name} closer is name-matched; following prose reflows, got:\n{out}"
+            );
+            assert_eq!(format_text(&out, &cfg).unwrap(), out);
+        }
     }
 }
