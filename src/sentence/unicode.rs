@@ -1646,67 +1646,6 @@ mod tests {
     }
 
     #[test]
-    fn latex_fancyvrb_verb_inner_punct_stays_atomic() {
-        // GitHub #243: fancyvrb `\Verb` / `\Verb*` use the same
-        // delimiter-body scan as `\verb`.
-        let text = r"Use \Verb|a.b! c| here. Next sentence.";
-        let (_, placeholders) = protect_inline_tokens(text);
-        assert!(
-            placeholders.iter().any(|p| p == r"\Verb|a.b! c|"),
-            "Verb span must be protected, got {placeholders:?}"
-        );
-        assert_eq!(
-            latex_verb_span_end_with(r"\Verb|a.b! c|", 0, &[]),
-            Some(r"\Verb|a.b! c|".len())
-        );
-        assert_eq!(
-            split(text),
-            vec![
-                r"Use \Verb|a.b! c| here.".to_string(),
-                "Next sentence.".to_string()
-            ]
-        );
-    }
-
-    #[test]
-    fn latex_fancyvrb_verb_star_inner_punct_stays_atomic() {
-        let text = r"Use \Verb*|a.b! c| here. Next sentence.";
-        let (_, placeholders) = protect_inline_tokens(text);
-        assert!(
-            placeholders.iter().any(|p| p == r"\Verb*|a.b! c|"),
-            "Verb* span must be protected, got {placeholders:?}"
-        );
-        assert_eq!(
-            latex_verb_span_end_with(r"\Verb*|a.b! c|", 0, &[]),
-            Some(r"\Verb*|a.b! c|".len())
-        );
-        assert_eq!(
-            split(text),
-            vec![
-                r"Use \Verb*|a.b! c| here.".to_string(),
-                "Next sentence.".to_string()
-            ]
-        );
-    }
-
-    #[test]
-    fn latex_fancyvrb_verb_inner_percent_stays_atomic() {
-        let text = r"Code \Verb!%! here. Next sentence.";
-        let (_, placeholders) = protect_inline_tokens(text);
-        assert!(
-            placeholders.iter().any(|p| p == r"\Verb!%!"),
-            "Verb span with inner % must be protected, got {placeholders:?}"
-        );
-        assert_eq!(
-            split(text),
-            vec![
-                r"Code \Verb!%! here.".to_string(),
-                "Next sentence.".to_string()
-            ]
-        );
-    }
-
-    #[test]
     fn extra_verbatim_command_is_tokenized_like_verb() {
         let text = r"Use \MyVerb|a.b! c| here. Next.";
         let extras = ["MyVerb".to_string()];
@@ -1726,29 +1665,26 @@ mod tests {
 
     #[test]
     fn extra_verb_does_not_steal_verbatim() {
+        let extras = ["Verb".to_string()];
         assert_eq!(
-            latex_verb_span_end_with(r"\Verbatim|x.y|", 0, &[]),
+            latex_verb_span_end_with(r"\Verbatim|x.y|", 0, &extras),
             None,
             "Verb must not match as a prefix of Verbatim"
         );
         assert_eq!(
-            latex_verb_span_end_with(r"\Verb|x.y|", 0, &[]),
+            latex_verb_span_end_with(r"\Verb|x.y|", 0, &extras),
             Some(r"\Verb|x.y|".len())
         );
-        let extras = ["MyVerb".to_string()];
-        assert_eq!(
-            latex_verb_span_end_with(r"\MyVerbatim|x.y|", 0, &extras),
-            None,
-            "MyVerb must not match as a prefix of MyVerbatim"
-        );
         let text = r"Use \Verbatim|x.y| here. Next.";
-        let (_, placeholders) = protect_inline_tokens(text);
+        let (_, placeholders) = protect_inline_tokens_with(text, &extras);
         assert!(
             placeholders.iter().all(|p| p != r"\Verbatim|x.y|"),
             "Verbatim must not become a verb span, got {placeholders:?}"
         );
         assert_eq!(
-            split(text),
+            UnicodeSentenceSplitter::new()
+                .with_verbatim_commands(extras.to_vec())
+                .split(text),
             vec![r"Use \Verbatim|x.y| here.".to_string(), "Next.".to_string()]
         );
     }
