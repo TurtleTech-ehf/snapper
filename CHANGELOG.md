@@ -3,6 +3,8 @@ All notable changes to this project will be documented in this file. See [conven
 
 - - -
 ## Unreleased (main)
+#### Bug Fixes
+- (**rst**) keep consecutive Jinja `{% ... %}` statements on their own lines (#196)
 
 - - -
 
