@@ -50,6 +50,33 @@ static DISPLAY_MATH_OPEN: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^\s*\\
 
 static DISPLAY_MATH_CLOSE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\\\]\s*$").unwrap());
 
+/// tree-sitter `displayed_equation` / latexindent `displayMathTeX`: `$$` is
+/// the same class as `\[`. A lone `$$` line must open, not self-close.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum DisplayMath {
+    Off,
+    Bracket,
+    Dollars,
+}
+
+fn starts_dollar_dollar_display(s: &str) -> bool {
+    s.trim_start().starts_with("$$")
+}
+
+fn dollar_dollar_closes_same_line(s: &str) -> bool {
+    let t = s.trim_start();
+    t.starts_with("$$") && t[2..].contains("$$")
+}
+
+fn is_dollar_dollar_close(s: &str) -> bool {
+    let t = s.trim_end();
+    if !t.ends_with("$$") {
+        return false;
+    }
+    let prefix = &t[..t.len() - 2];
+    prefix.bytes().rev().take_while(|&b| b == b'\\').count() % 2 == 0
+}
+
 /// Sectioning commands whose brace argument is prose (titles can be long).
 /// Captures: (1) command + opening brace prefix, (2) argument body, (3) closing brace + rest.
 static SECTION_CMD_RE: LazyLock<Regex> = LazyLock::new(|| {
@@ -321,7 +348,7 @@ struct ParseState<'a> {
     code_lang: Option<String>,
     code_header: ByteSpan,
     code_body_start: usize,
-    in_display_math: bool,
+    in_display_math: DisplayMath,
     nospace_join: bool,
 }
 
@@ -396,10 +423,15 @@ impl<'a> ParseState<'a> {
             return;
         }
 
-        if self.in_display_math {
+        if self.in_display_math != DisplayMath::Off {
             self.flush();
-            if DISPLAY_MATH_CLOSE.is_match(line.text) {
-                self.in_display_math = false;
+            let closed = match self.in_display_math {
+                DisplayMath::Bracket => DISPLAY_MATH_CLOSE.is_match(line.text),
+                DisplayMath::Dollars => is_dollar_dollar_close(line.text),
+                DisplayMath::Off => false,
+            };
+            if closed {
+                self.in_display_math = DisplayMath::Off;
             }
             self.regions
                 .push(SpannedRegion::structure(self.input, line.span()));
@@ -591,7 +623,18 @@ impl<'a> ParseState<'a> {
             if DISPLAY_MATH_OPEN.is_match(rest) {
                 self.flush();
                 if !DISPLAY_MATH_CLOSE.is_match(rest) {
-                    self.in_display_math = true;
+                    self.in_display_math = DisplayMath::Bracket;
+                }
+                self.regions.push(SpannedRegion::structure(
+                    self.input,
+                    ByteSpan::new(line.start + i, line.end),
+                ));
+                return false;
+            }
+            if starts_dollar_dollar_display(rest) {
+                self.flush();
+                if !dollar_dollar_closes_same_line(rest) {
+                    self.in_display_math = DisplayMath::Dollars;
                 }
                 self.regions.push(SpannedRegion::structure(
                     self.input,
@@ -621,7 +664,7 @@ impl FormatParser for LatexParser {
             code_lang: None,
             code_header: ByteSpan::default(),
             code_body_start: 0,
-            in_display_math: false,
+            in_display_math: DisplayMath::Off,
             nospace_join: false,
         };
         let mut in_preamble = super::latex_starts_in_preamble(input);
@@ -1546,5 +1589,132 @@ Some text.
             "\\Verbatim must remain in the source, got:\n{out}"
         );
         assert_eq!(format_text(&out, &cfg).unwrap(), out);
+    }
+
+    #[test]
+    fn dollar_dollar_display_math_is_structure_not_prose() {
+        let input = "$$\nThis is a long sentence that must stay inside display math and must not reflow as prose.\n$$\n";
+        let regions = LatexParser::default().parse(input);
+        assert!(
+            regions
+                .iter()
+                .any(|r| matches!(r, Region::Structure(s) if s.contains("$$"))),
+            "$$ delimiters must be Structure, got: {regions:?}"
+        );
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Structure(s)
+                    if s.contains("must stay inside display math")
+            )),
+            "display math body must be Structure, got: {regions:?}"
+        );
+        assert!(
+            !regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(p) if p.contains("must stay inside display math")
+            )),
+            "display math body must not be Prose: {regions:?}"
+        );
+    }
+
+    #[test]
+    fn dollar_dollar_display_math_does_not_reflow_as_prose() {
+        use crate::format_text;
+
+        let input = "$$\nThis is a long sentence that must stay inside display math and must not reflow as prose.\n$$\n";
+        let out = format_text(input, &latex_cfg()).unwrap();
+        assert_eq!(
+            out, input,
+            "$$ display math must not reflow as prose, got:\n{out}"
+        );
+        assert!(
+            out.contains("$$\nThis is a long sentence that must stay inside display math and must not reflow as prose.\n$$"),
+            "fixture must keep the sentence between $$ lines, got:\n{out}"
+        );
+        assert_eq!(format_text(&out, &latex_cfg()).unwrap(), out);
+    }
+
+    #[test]
+    fn dollar_dollar_display_math_in_document_does_not_reflow() {
+        use crate::format_text;
+
+        let input = "\\begin{document}\n$$\nThis is a long sentence that must stay inside display math and must not reflow as prose.\n$$\nAfter the math. Next.\n\\end{document}\n";
+        let regions = LatexParser::default().parse(input);
+        assert!(
+            !regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(p) if p.contains("must stay inside display math")
+            )),
+            "document $$ body must not be Prose: {regions:?}"
+        );
+        let out = format_text(input, &latex_cfg()).unwrap();
+        assert!(
+            out.contains("$$\nThis is a long sentence that must stay inside display math and must not reflow as prose.\n$$"),
+            "document $$ must not reflow the inner sentence, got:\n{out}"
+        );
+        assert!(
+            out.contains("After the math.\nNext."),
+            "prose after $$ must still reflow, got:\n{out}"
+        );
+        assert_eq!(format_text(&out, &latex_cfg()).unwrap(), out);
+    }
+
+    #[test]
+    fn dollar_dollar_same_line_display_math_is_structure() {
+        let input = "\\begin{document}\n$$ E = mc^2 $$\nAfter.\n\\end{document}\n";
+        let regions = LatexParser::default().parse(input);
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Structure(s) if s.contains("$$ E = mc^2 $$")
+            )),
+            "same-line $$ must be Structure, got: {regions:?}"
+        );
+        assert!(
+            !regions
+                .iter()
+                .any(|r| matches!(r, Region::Prose(p) if p.contains("E = mc^2"))),
+            "same-line $$ body must not be Prose: {regions:?}"
+        );
+    }
+
+    #[test]
+    fn inline_dollar_math_stays_prose() {
+        let input = "\\begin{document}\nSee $E = mc^2$ here. Next sentence.\n\\end{document}\n";
+        let regions = LatexParser::default().parse(input);
+        assert!(
+            regions
+                .iter()
+                .any(|r| matches!(r, Region::Prose(p) if p.contains("$E = mc^2$"))),
+            "single-dollar math must stay Prose, got: {regions:?}"
+        );
+        assert!(
+            !regions
+                .iter()
+                .any(|r| matches!(r, Region::Structure(s) if s.contains("$E = mc^2$"))),
+            "single-dollar math must not become Structure: {regions:?}"
+        );
+    }
+
+    #[test]
+    fn bracket_display_math_still_structure() {
+        let input = "\\begin{document}\n\\[\nThis is a long sentence that must stay inside display math and must not reflow as prose.\n\\]\nAfter.\n\\end{document}\n";
+        let regions = LatexParser::default().parse(input);
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Structure(s)
+                    if s.contains("must stay inside display math")
+            )),
+            "\\[ body must stay Structure, got: {regions:?}"
+        );
+        assert!(
+            !regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(p) if p.contains("must stay inside display math")
+            )),
+            "\\[ body must not become Prose: {regions:?}"
+        );
     }
 }
