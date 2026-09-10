@@ -1,6 +1,8 @@
-//! snapper-t0th: RST substitution references are not leftover table rows.
-//! Docutils Inliner substitution_ref is inline; line_block is only `|`
-//! plus space or EOL; grid_table_top is `+---+`. Leftover `|` stays Prose.
+//! snapper-t0th / snapper-15i9 / GitHub #233: RST substitution
+//! references are not leftover table rows, and interior punctuation
+//! is not a sentence boundary. Docutils Inliner substitution_ref is
+//! inline; line_block is only `|` plus space or EOL; grid_table_top
+//! is `+---+`. Leftover `|` stays Prose. `|fig. 1|` stays one token.
 
 use snapper_fmt::format::Format;
 use snapper_fmt::parser::rst::RstParser;
@@ -97,5 +99,66 @@ fn line_block_and_grid_table_still_hold() {
         format_text(grid, &rst_cfg()).unwrap(),
         grid,
         "grid table must stay identity"
+    );
+}
+
+/// Ticket fixture (Format::Rst / GitHub #233).
+fn interior_punct_fixture() -> &'static str {
+    "See |fig. 1| in the caption. Next sentence.\n"
+}
+
+#[test]
+fn interior_punct_use_stays_prose_not_structure() {
+    let regions = RstParser.parse(interior_punct_fixture());
+    assert!(
+        regions.iter().any(|r| matches!(
+            r,
+            Region::Prose(s) if s.contains("|fig. 1|") && s.contains("Next sentence.")
+        )),
+        "|fig. 1| must stay Prose, got {regions:?}"
+    );
+    assert!(
+        !regions.iter().any(|r| matches!(
+            r,
+            Region::Structure(s) if s.contains("|fig. 1|") || s.contains("|version|")
+        )),
+        "|fig. 1| / |version| must not be Structure, got {regions:?}"
+    );
+}
+
+#[test]
+fn interior_punct_fixture_keeps_span_and_splits_next() {
+    let input = interior_punct_fixture();
+    let out = format_text(input, &rst_cfg()).unwrap();
+    assert!(
+        out.contains("|fig. 1|"),
+        "substitution_ref must stay one token, got:\n{out}"
+    );
+    assert!(
+        !out.contains("|fig.\n") && !out.contains("fig.\n1"),
+        "must not split inside |fig. 1|, got:\n{out}"
+    );
+    assert!(
+        out.contains("in the caption.\nNext sentence."),
+        "following sentence must still split, got:\n{out}"
+    );
+    assert!(
+        !out.contains("in the caption. Next sentence."),
+        "fused trailing prose must not survive, got:\n{out}"
+    );
+    assert_eq!(format_text(&out, &rst_cfg()).unwrap(), out);
+
+    let guarded = FormatConfig {
+        format: Format::Rst,
+        ..Default::default()
+    };
+    let guarded_out = format_text(input, &guarded).unwrap();
+    assert_eq!(
+        guarded_out, out,
+        "oracle-on path must match, got:\n{guarded_out}"
+    );
+    assert!(
+        snapper_fmt::oracle::matches(Format::Rst, input, &out),
+        "oracle mismatch\n in={input:?}\n out={out:?}"
     );
 }

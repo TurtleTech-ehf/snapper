@@ -187,6 +187,12 @@ These tokens within prose are not split across lines:
 - Paragraph text between structural elements
 - Indented bodies of container directives (admonitions, figure captions, topic, sidebar, container); hang spaces stay structure
 
+*** Inline tokens (kept atomic)
+:PROPERTIES:
+:CUSTOM_ID: rst-inline
+:END:
+- Substitution references: =|fig. 1|= / =|version|= (Docutils Inliner.substitution_ref; optional =_= / =__= suffix). Leftover =|version|= stays Prose, not a table row
+
 *** Auto-detection
 :PROPERTIES:
 :CUSTOM_ID: rst-detection

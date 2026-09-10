@@ -3,6 +3,8 @@ All notable changes to this project will be documented in this file. See [conven
 
 - - -
 ## Unreleased (main)
+#### Bug Fixes
+- (**rst**) substitution references (`|fig. 1|`) stay one token so interior punctuation is not a sentence or wrap boundary (#233)
 
 - - -
 
