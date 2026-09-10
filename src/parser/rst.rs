@@ -284,10 +284,17 @@ fn parse_line_based(input: &str) -> Vec<SpannedRegion> {
             continue;
         }
 
-        // Field list (:field: value)
+        // Field list (`:field: value`). Interpreted text roles
+        // (`:role:`text``) share the opening colon pair; Docutils
+        // requires a space after the closing colon, so a following
+        // backtick stays inline markup in the list item (GitHub #126).
         if trimmed.starts_with(':') && trimmed.len() > 2 {
             if let Some(colon_pos) = trimmed[1..].find(':') {
-                if colon_pos > 0 && colon_pos < trimmed.len() - 2 {
+                let after_close = colon_pos + 2;
+                if colon_pos > 0
+                    && after_close < trimmed.len()
+                    && trimmed.as_bytes()[after_close] == b' '
+                {
                     flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
                     regions.push(SpannedRegion::structure(input, line.span()));
                     i += 1;
@@ -1091,6 +1098,43 @@ mod tests {
             regions
                 .iter()
                 .any(|r| matches!(r, Region::Structure(s) if s.contains("Author")))
+        );
+    }
+
+    #[test]
+    fn interpreted_role_list_continuation_joins_item_prose() {
+        let input = concat!(
+            "* TooManyRequests is returned when a\n",
+            "  :class:`CloudDatabase` exceeds a configured request rate\n",
+            "  limit. Set requests_per_second_limit to 0 for every request.\n",
+        );
+        let regions = RstParser.parse(input);
+        assert!(
+            regions
+                .iter()
+                .any(|r| matches!(r, Region::Structure(s) if s == "* ")),
+            "bullet marker must be Structure, got {regions:?}"
+        );
+        let prose: Vec<_> = regions
+            .iter()
+            .filter_map(|r| match r {
+                Region::Prose(s) => Some(s.as_str()),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(
+            prose,
+            [
+                "TooManyRequests is returned when a :class:`CloudDatabase` exceeds a configured request rate limit. Set requests_per_second_limit to 0 for every request."
+            ],
+            "role continuation must stay list-item Prose, got {regions:?}"
+        );
+        assert!(
+            !regions.iter().any(|r| matches!(
+                r,
+                Region::Structure(s) if s.contains(":class:")
+            )),
+            "interpreted role must not be a field-list Structure, got {regions:?}"
         );
     }
 
