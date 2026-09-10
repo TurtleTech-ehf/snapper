@@ -176,7 +176,7 @@ pub fn protect_inline_tokens_with(
     (protected.into_owned(), placeholders)
 }
 
-/// `\verb|...|` / `\lstinline[...]!...!` so inner `.!?%` cannot split or comment.
+/// `\verb|...|` / `\lstinline[...]!...!` / `\spverb|...|` so inner `.!?%` cannot split or comment.
 fn protect_latex_verbatim(
     text: &str,
     placeholders: &mut Vec<String>,
@@ -200,13 +200,13 @@ fn protect_latex_verbatim(
     out
 }
 
-/// Byte end of a `\verb` / `\lstinline` / extra-name span starting at `at`.
+/// Byte end of a `\verb` / `\lstinline` / `\spverb` / extra-name span starting at `at`.
 ///
-/// `\verb` / `\verb*`: next character is the delimiter; content runs to the
-/// same character. `\lstinline` / `\lstinline*` may take optional `[...]`
-/// before a delimiter or a `{...}` brace body. Extra names are tokenized
-/// like `\verb`. With no closer, the span runs to end of line so an inner
-/// `%` is not a comment.
+/// `\verb` / `\verb*` / `\spverb` / `\spverb*`: next character is the
+/// delimiter; content runs to the same character. `\lstinline` /
+/// `\lstinline*` may take optional `[...]` before a delimiter or a
+/// `{...}` brace body. Extra names are tokenized like `\verb`. With no
+/// closer, the span runs to end of line so an inner `%` is not a comment.
 pub(crate) fn latex_verb_span_end_with(
     text: &str,
     at: usize,
@@ -223,6 +223,11 @@ pub(crate) fn latex_verb_span_end_with(
             return None;
         }
         (after_bs + "lstinline".len(), true)
+    } else if let Some(stripped) = tail.strip_prefix("spverb") {
+        if stripped.starts_with(|c: char| c.is_ascii_alphabetic()) {
+            return None;
+        }
+        (after_bs + "spverb".len(), false)
     } else if let Some(stripped) = tail.strip_prefix("verb") {
         if stripped.starts_with(|c: char| c.is_ascii_alphabetic()) {
             return None;
@@ -282,7 +287,7 @@ fn line_end(text: &str, from: usize) -> usize {
 fn match_extra_verb_command<'a>(tail: &'a str, extras: &'a [String]) -> Option<&'a str> {
     let mut best: Option<&str> = None;
     for name in extras {
-        if name.is_empty() || name == "verb" || name == "lstinline" {
+        if name.is_empty() || name == "verb" || name == "lstinline" || name == "spverb" {
             continue;
         }
         let Some(stripped) = tail.strip_prefix(name.as_str()) else {
@@ -1580,6 +1585,32 @@ mod tests {
         assert_eq!(
             split(text),
             vec![r"Use \verb|a.b! c| here.".to_string(), "Next.".to_string()]
+        );
+    }
+
+    #[test]
+    fn latex_spverb_inner_percent_stays_atomic() {
+        let text = r"See \spverb|a.b%| please. Next.";
+        let (_, placeholders) = protect_inline_tokens(text);
+        assert!(
+            placeholders.iter().any(|p| p == r"\spverb|a.b%|"),
+            "spverb span must be protected, got {placeholders:?}"
+        );
+        assert_eq!(
+            latex_verb_span_end_with(r"\spverb|a.b%|", 0, &[]),
+            Some(r"\spverb|a.b%|".len())
+        );
+        assert_eq!(
+            latex_verb_span_end_with(r"\spverbatim|x.y|", 0, &[]),
+            None,
+            "spverb must not match as a prefix of spverbatim"
+        );
+        assert_eq!(
+            split(text),
+            vec![
+                r"See \spverb|a.b%| please.".to_string(),
+                "Next.".to_string()
+            ]
         );
     }
 

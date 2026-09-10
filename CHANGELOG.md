@@ -4,6 +4,7 @@ All notable changes to this project will be documented in this file. See [conven
 - - -
 ## Unreleased (main)
 #### Bug Fixes
+- (**latex**) treat spverbatim.sty `spverbatim` as code and tokenize `\\spverb` like `\\verb` so listing bodies and inner `%` / `.!?` do not reflow as prose (#235)
 - (**rst**) substitution references (`|fig. 1|`) stay one token so interior punctuation is not a sentence or wrap boundary (#233)
 - (**org**) `\\` at end of line is an org-element line break (Structure); the next physical line is not joined onto it (#232)
 - (**latex**) treat listings `lstlisting*` as code so listing bodies do not reflow as prose (#234)

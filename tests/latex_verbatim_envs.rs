@@ -3,6 +3,7 @@
 //! GitHub #213: fancyvrb SaveVerbatim / VerbatimOut are the same FV@Scan class.
 //! GitHub #230: alltt.sty is a standard verbatim-like env (raw line breaks).
 //! GitHub #234: listings.sty lstlisting* is the same raw scan as lstlisting.
+//! GitHub #235: spverbatim.sty env and \\spverb are the same class as verb.
 
 use snapper_fmt::format::Format;
 use snapper_fmt::parser::latex::LatexParser;
@@ -321,6 +322,64 @@ fn lstlisting_star_fixture_is_code_and_does_not_reflow() {
     assert!(
         out.contains("After the block.\nNext."),
         "prose after lstlisting* must still split, got:\n{out}"
+    );
+    assert_eq!(format_text(&out, &latex_cfg()).unwrap(), out);
+}
+
+/// Ticket fixture (GitHub #235): spverbatim.sty `spverbatim` body stays
+/// Code; `\spverb|a.b%|` is one token; following `Next.` still splits.
+#[test]
+fn spverbatim_and_spverb_fixture_is_code_and_does_not_reflow() {
+    let input = concat!(
+        "\\begin{spverbatim}\n",
+        "First line. Second line.\n",
+        "\\end{spverbatim}\n",
+        "See \\spverb|a.b%| please. Next.\n",
+    );
+    let regions = LatexParser::default().parse(input);
+    assert!(
+        regions.iter().any(|r| matches!(
+            r,
+            Region::Code { body, .. } if body.contains("First line. Second line.")
+        )),
+        "spverbatim body must be Code, got: {regions:?}"
+    );
+    assert!(
+        !regions
+            .iter()
+            .any(|r| matches!(r, Region::Prose(p) if p.contains("First line"))),
+        "spverbatim body must not be Prose, got: {regions:?}"
+    );
+    assert!(
+        !regions.iter().any(|r| {
+            matches!(r, Region::Structure(s) if s.contains("%|") || s.trim() == "%|\n")
+        }),
+        "inner % of \\spverb must not be a comment, got: {regions:?}"
+    );
+    let out = format_text(input, &latex_cfg()).unwrap();
+    assert!(
+        out.contains("\\begin{spverbatim}") && out.contains("\\end{spverbatim}"),
+        "spverbatim begin/end must stay, got:\n{out}"
+    );
+    assert!(
+        out.contains("First line. Second line."),
+        "spverbatim body must stay one source line, got:\n{out}"
+    );
+    assert!(
+        !out.contains("First line.\nSecond line."),
+        "spverbatim must not reflow as prose, got:\n{out}"
+    );
+    assert!(
+        out.contains(r"\spverb|a.b%|"),
+        "\\spverb|a.b%| must stay one token, got:\n{out}"
+    );
+    assert!(
+        !out.contains("\\spverb|a.\n") && !out.contains("\\spverb|a.b%\n"),
+        "inner .!?% must not split \\spverb, got:\n{out}"
+    );
+    assert!(
+        out.contains("See \\spverb|a.b%| please.\nNext."),
+        "prose after \\spverb must still split, got:\n{out}"
     );
     assert_eq!(format_text(&out, &latex_cfg()).unwrap(), out);
 }

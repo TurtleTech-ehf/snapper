@@ -16,15 +16,15 @@ pub struct FormatOverrides {
     /// Meaningful under `[latex]` only. Missing or empty keeps the built-in
     /// minted/lstlisting/lstlisting*/verbatim/comment, filecontents, tree-sitter
     /// trivia, Overleaf Verbatim/boxedverbatim/tcblisting/codeexample,
-    /// fancyvrb BVerbatim/LVerbatim/SaveVerbatim/VerbatimOut, and
-    /// standard alltt; entries are added to it.
+    /// fancyvrb BVerbatim/LVerbatim/SaveVerbatim/VerbatimOut,
+    /// standard alltt, and spverbatim; entries are added to it.
     pub verbatim_envs: Vec<String>,
     /// Extra LaTeX environments treated as structure (no reflow).
     /// Meaningful under `[latex]` only. Missing or empty keeps
     /// `NON_PROSE_ENVS`; entries are added to that list.
     pub structure_envs: Vec<String>,
     /// Extra LaTeX command names tokenized like `\verb` before split.
-    /// Meaningful under `[latex]` only. Missing or empty keeps verb/lstinline.
+    /// Meaningful under `[latex]` only. Missing or empty keeps verb/lstinline/spverb.
     pub verbatim_commands: Vec<String>,
 }
 
