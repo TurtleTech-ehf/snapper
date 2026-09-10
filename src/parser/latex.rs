@@ -85,6 +85,8 @@ static LSTLISTING_LANG_RE: LazyLock<Regex> = LazyLock::new(|| {
 /// (`asy`, `asydef`, `pycode`, `luacode`, `luacode*`, `sagesilent`,
 /// `sageblock`) plus fancyvrb `verbatim*` and the `comment` package env
 /// (tree-sitter `comment_environment`: raw through matching `\end{comment}`).
+/// Overleaf `verbatimEnvNames`: `Verbatim`, `boxedverbatim`, `tcblisting`,
+/// `codeexample` (fancyvrb / framed / tcolorbox listings).
 fn is_builtin_code_env(name: &str) -> bool {
     matches!(
         name,
@@ -92,6 +94,10 @@ fn is_builtin_code_env(name: &str) -> bool {
             | "lstlisting"
             | "verbatim"
             | "verbatim*"
+            | "Verbatim"
+            | "boxedverbatim"
+            | "tcblisting"
+            | "codeexample"
             | "filecontents"
             | "filecontents*"
             | "asy"
@@ -1709,8 +1715,20 @@ Some text.
         let input = "\\begin{document}\nBefore.\n\\begin{Verbatim}\nFirst line. Second line.\n\\end{Verbatim}\nAfter the listing. Next.\n\\end{document}\n";
         let default_out = format_text(input, &latex_cfg()).unwrap();
         assert!(
-            default_out.contains("First line.\nSecond line."),
-            "unlisted Verbatim body is prose and reflows, got:\n{default_out}"
+            default_out.contains("First line. Second line."),
+            "builtin Verbatim body must not reflow, got:\n{default_out}"
+        );
+        assert!(
+            !default_out.contains("First line.\nSecond line."),
+            "builtin Verbatim must stay verbatim, got:\n{default_out}"
+        );
+        let default_regions = LatexParser::default().parse(input);
+        assert!(
+            default_regions.iter().any(|r| matches!(
+                r,
+                Region::Code { body, .. } if body.contains("First line. Second line.")
+            )),
+            "builtin Verbatim must be Code, got: {default_regions:?}"
         );
 
         let cfg = crate::FormatConfig {
@@ -2051,6 +2069,66 @@ Some text.
             "pycode body must stay intact, got:\n{out}"
         );
         assert_eq!(format_text(&out, &latex_cfg()).unwrap(), out);
+    }
+
+    #[test]
+    fn verbatim_fixture_file_is_code_not_prose() {
+        let input = include_str!("../../tests/fixtures/verbatim.tex");
+        let regions = LatexParser::default().parse(input);
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Code { body, .. } if body.contains("First line. Second line.")
+            )),
+            "tests/fixtures/verbatim.tex body must be Code, got: {regions:?}"
+        );
+        assert!(
+            !regions
+                .iter()
+                .any(|r| matches!(r, Region::Prose(p) if p.contains("First line"))),
+            "verbatim fixture must not be Prose, got: {regions:?}"
+        );
+    }
+
+    /// Ticket snapper-3tj3 / GitHub #98: Overleaf verbatimEnvNames are Code.
+    #[test]
+    fn overleaf_verbatim_env_names_are_code_not_prose() {
+        use crate::format_text;
+
+        let names = ["Verbatim", "boxedverbatim", "tcblisting", "codeexample"];
+        for name in names {
+            let input = format!(
+                "\\begin{{{name}}}\nFirst line. Second line.\n\\end{{{name}}}\nAfter the block. Next.\n"
+            );
+            let regions = LatexParser::default().parse(&input);
+            assert!(
+                regions.iter().any(|r| matches!(
+                    r,
+                    Region::Code { body, .. } if body.contains("First line. Second line.")
+                )),
+                "{name} body must be Code, got: {regions:?}"
+            );
+            assert!(
+                !regions
+                    .iter()
+                    .any(|r| matches!(r, Region::Prose(p) if p.contains("First line"))),
+                "{name} body must not leak into Prose, got: {regions:?}"
+            );
+            let out = format_text(&input, &latex_cfg()).unwrap();
+            assert!(
+                out.contains("First line. Second line."),
+                "{name} body must not reflow, got:\n{out}"
+            );
+            assert!(
+                !out.contains("First line.\nSecond line."),
+                "{name} must stay verbatim, got:\n{out}"
+            );
+            assert!(
+                out.contains("After the block.\nNext."),
+                "prose after {name} must still reflow, got:\n{out}"
+            );
+            assert_eq!(format_text(&out, &latex_cfg()).unwrap(), out);
+        }
     }
 
     #[test]
