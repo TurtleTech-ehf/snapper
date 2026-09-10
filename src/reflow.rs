@@ -3,6 +3,7 @@ use std::collections::HashMap;
 
 use crate::config::CodeLang;
 use crate::format::Format;
+use crate::parser::rst::rst_option_column_len;
 use crate::parser::{Region, RegionOrigin, SpannedRegion};
 use crate::sentence::SentenceSplitter;
 use crate::sentence::unicode::atomic_inline_spans;
@@ -842,6 +843,10 @@ fn hanging_prefix(s: &str) -> String {
     if !s.is_empty() && !s.contains('\n') && s.bytes().all(|b| b == b' ') {
         return s.to_string();
     }
+    // RST option-list column: option plus 2+ pad spaces (GitHub #89).
+    if rst_option_column_len(s) == Some(s.len()) && s.ends_with("  ") {
+        return " ".repeat(s.chars().count());
+    }
     let width = hanging_indent_width(s);
     if width > 0 {
         " ".repeat(width)
@@ -1020,6 +1025,8 @@ mod tests {
         assert_eq!(hanging_prefix("#. "), "   ");
         assert_eq!(hanging_prefix("\\item "), "      ");
         assert_eq!(hanging_prefix("  "), "  ");
+        assert_eq!(hanging_prefix("-a            "), "              ");
+        assert_eq!(hanging_prefix("--long        "), "              ");
         assert_eq!(hanging_indent_width("  "), 0);
         assert_eq!(hanging_indent_width("> "), 0);
         assert_eq!(hanging_indent_width("- "), 2);
@@ -1465,6 +1472,8 @@ They are endowed with reason and conscience and should act towards one another i
         assert_eq!(hanging_prefix("#. "), "   ");
         assert_eq!(hanging_prefix("\\item "), "      ");
         assert_eq!(hanging_prefix("  "), "  ");
+        assert_eq!(hanging_prefix("-a            "), "              ");
+        assert_eq!(hanging_prefix("--long        "), "              ");
         assert_eq!(hanging_indent_width("  "), 0);
         assert_eq!(hanging_indent_width("\n"), 0);
         assert_eq!(hanging_indent_width("#+TITLE: Test\n"), 0);
@@ -1524,6 +1533,19 @@ They are endowed with reason and conscience and should act towards one another i
             Region::Structure("\n".to_string()),
         ]);
         assert_eq!(result, "\\item One.\n      Two.\n");
+    }
+
+    #[test]
+    fn rst_option_list_hanging_indent() {
+        let result = reflow_regions(vec![
+            Region::Structure("-a            ".to_string()),
+            Region::Prose("Output all. Keep this aligned.".to_string()),
+            Region::Structure("\n".to_string()),
+        ]);
+        assert_eq!(
+            result,
+            "-a            Output all.\n              Keep this aligned.\n"
+        );
     }
 
     #[test]
