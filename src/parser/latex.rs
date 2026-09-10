@@ -718,7 +718,18 @@ impl<'a> ParseState<'a> {
     fn consume_code_span(&mut self, code: &str, line: Line<'_>) -> bool {
         let mut i = 0;
         while i < code.len() {
-            if let Some(hit) = find_env_at(code, i, &self.parser.extra_verbatim_commands) {
+            let env = find_env_at(code, i, &self.parser.extra_verbatim_commands);
+            let iffalse = find_iffalse_at(code, i, &self.parser.extra_verbatim_commands);
+            // tree-sitter `block_comment`: take the earlier of `\iffalse` and
+            // `\begin`/`\end`. Env-first leaked `\iffalse ... \fi \end{document}`
+            // (and `\iffalse ... \fi \begin{equation}`) as Prose.
+            let env_first = match (env.as_ref(), iffalse) {
+                (Some(hit), Some(open)) => hit.start <= open,
+                (Some(_), None) => true,
+                _ => false,
+            };
+            if env_first {
+                let hit = env.expect("env_first implies find_env_at");
                 self.append_item_or_prose(line.start + i, &code[i..hit.start]);
                 if hit.is_begin && self.parser.is_code_env(&hit.name) {
                     self.flush();
@@ -771,7 +782,7 @@ impl<'a> ParseState<'a> {
             }
 
             let rest = &code[i..];
-            if let Some(open) = find_iffalse_at(code, i, &self.parser.extra_verbatim_commands) {
+            if let Some(open) = iffalse {
                 self.append_item_or_prose(line.start + i, &code[i..open]);
                 self.flush();
                 let after_open = open + "\\iffalse".len();
@@ -2309,6 +2320,49 @@ Some text.
     }
 
     #[test]
+    fn comment_fixture_file_is_code_or_structure_not_prose() {
+        let input = include_str!("../../tests/fixtures/comment.tex");
+        let regions = LatexParser::default().parse(input);
+        assert!(
+            regions.iter().any(|r| match r {
+                Region::Code { body, .. } => {
+                    body.contains("must not reflow as prose inside comment")
+                }
+                Region::Structure(s) => s.contains("must not reflow as prose inside comment"),
+                _ => false,
+            }),
+            "tests/fixtures/comment.tex body must be Code or Structure, got: {regions:?}"
+        );
+        assert!(
+            !regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(p) if p.contains("inside comment")
+            )),
+            "comment fixture must not be Prose, got: {regions:?}"
+        );
+    }
+
+    #[test]
+    fn iffalse_fixture_file_is_structure_not_prose() {
+        let input = include_str!("../../tests/fixtures/iffalse.tex");
+        let regions = LatexParser::default().parse(input);
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Structure(s) if s.contains("must not reflow as prose inside iffalse")
+            )),
+            "tests/fixtures/iffalse.tex body must be Structure, got: {regions:?}"
+        );
+        assert!(
+            !regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(p) if p.contains("inside iffalse")
+            )),
+            "iffalse fixture must not be Prose, got: {regions:?}"
+        );
+    }
+
+    #[test]
     fn comment_environment_body_is_not_prose() {
         use crate::format_text;
 
@@ -2432,5 +2486,73 @@ Some text.
                 .any(|r| matches!(r, Region::Prose(p) if p.contains("Keep this"))),
             "text before iffalse stays prose, got: {regions:?}"
         );
+    }
+
+    #[test]
+    fn same_line_iffalse_before_end_env_is_structure() {
+        use crate::format_text;
+
+        // snapper-d93x: env-first scan leaked the payload as Prose because
+        // `\end{document}` sits later on the same physical line.
+        let input = "\\begin{document}\nKeep this. \\iffalse Hidden one. Hidden two. \\fi After. \\end{document}\n";
+        let regions = LatexParser::default().parse(input);
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Structure(s) if s.contains(r"\iffalse") && s.contains("Hidden one")
+            )),
+            "same-line iffalse before \\end must be Structure, got: {regions:?}"
+        );
+        assert!(
+            !regions
+                .iter()
+                .any(|r| matches!(r, Region::Prose(p) if p.contains("Hidden one"))),
+            "iffalse payload before \\end must not be Prose, got: {regions:?}"
+        );
+        let out = format_text(input, &latex_cfg()).unwrap();
+        assert!(
+            out.contains("Hidden one. Hidden two."),
+            "iffalse two sentences must not reflow, got:\n{out}"
+        );
+        assert!(
+            !out.contains("Hidden one.\nHidden two."),
+            "iffalse payload must stay one source line, got:\n{out}"
+        );
+        assert_eq!(format_text(&out, &latex_cfg()).unwrap(), out);
+    }
+
+    #[test]
+    fn same_line_iffalse_before_begin_env_is_structure() {
+        use crate::format_text;
+
+        let input = "\\begin{document}\nKeep this. \\iffalse Hidden one. Hidden two. \\fi \\begin{equation}x=1.\\end{equation}\nAfter the skip. Next.\n\\end{document}\n";
+        let regions = LatexParser::default().parse(input);
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Structure(s) if s.contains(r"\iffalse") && s.contains("Hidden one")
+            )),
+            "same-line iffalse before \\begin must be Structure, got: {regions:?}"
+        );
+        assert!(
+            !regions
+                .iter()
+                .any(|r| matches!(r, Region::Prose(p) if p.contains("Hidden one"))),
+            "iffalse payload before \\begin must not be Prose, got: {regions:?}"
+        );
+        let out = format_text(input, &latex_cfg()).unwrap();
+        assert!(
+            out.contains("Hidden one. Hidden two."),
+            "iffalse two sentences must not reflow, got:\n{out}"
+        );
+        assert!(
+            !out.contains("Hidden one.\nHidden two."),
+            "iffalse payload must stay one source line, got:\n{out}"
+        );
+        assert!(
+            out.contains("After the skip.\nNext."),
+            "prose after the envs must still reflow, got:\n{out}"
+        );
+        assert_eq!(format_text(&out, &latex_cfg()).unwrap(), out);
     }
 }
