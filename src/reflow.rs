@@ -920,8 +920,9 @@ fn wrap_atomic_words(
 /// Repeat list/quote hang after source newlines left inside one sentence.
 ///
 /// Compact RST list joins insert a newline after sentence punct (`No.`,
-/// `etc.`); abbreviation merge then keeps that as one sentence, so splice
-/// would otherwise emit the continuation flush-left (GitHub #129).
+/// `etc.`) or inside an open quote or `()`; abbreviation/delimiter merge
+/// then keeps that as one sentence, so splice would otherwise emit the
+/// continuation flush-left (GitHub #129, #130, #131).
 fn hang_internal_newlines(text: &str, hang: &str) -> String {
     if hang.is_empty() || !text.contains('\n') {
         return text.to_string();
@@ -1665,6 +1666,31 @@ They are endowed with reason and conscience and should act towards one another i
             concat!(
                 "- - Document typed fixture exports.\n",
                 "    The package already includes ``py.typed``.\n",
+            )
+        );
+    }
+
+    #[test]
+    fn rst_open_paren_list_keeps_hang_on_internal_newline() {
+        // GitHub #131: `(priority.` stays one sentence, so the
+        // compact-hang newline must still get the two-space prefix.
+        let result = reflow_regions(vec![
+            Region::Structure("- ".to_string()),
+            Region::Prose(
+                "Ordering (smaller indices mean higher priority.\nRecurse to the left side of the array)"
+                    .to_string(),
+            ),
+            Region::Structure("\n".to_string()),
+            Region::Structure("- ".to_string()),
+            Region::Prose("Next item.".to_string()),
+            Region::Structure("\n".to_string()),
+        ]);
+        assert_eq!(
+            result,
+            concat!(
+                "- Ordering (smaller indices mean higher priority.\n",
+                "  Recurse to the left side of the array)\n",
+                "- Next item.\n",
             )
         );
     }
