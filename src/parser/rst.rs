@@ -175,10 +175,9 @@ fn parse_line_based(input: &str) -> Vec<SpannedRegion> {
             flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
             code_lang = caps.get(1).map(|m| m.as_str().to_string());
             code_header = line.span();
-            // Body indent: directive_indent + 3 spaces is the rst convention;
-            // be liberal and accept any deeper indent of the first body line.
+            // Docutils accepts a two-space body; +3 is convention only.
             let leading = line_text.len() - line_text.trim_start().len();
-            code_indent = leading + 3;
+            code_indent = leading + 2;
             code_body_start = line.end;
             code_body_end = line.end;
             code_footer_start = None;
@@ -998,6 +997,50 @@ mod tests {
         );
         assert!(
             out.contains("\n  Body."),
+            "body must keep two-space indent, got:\n{out}"
+        );
+    }
+
+    #[test]
+    fn two_space_code_block_body_is_code() {
+        let input = ".. code-block:: python\n\n  print(\"hello\")\n";
+        let regions = RstParser.parse(input);
+        let code = regions.iter().find_map(|r| match r {
+            Region::Code { lang, body, .. } => Some((lang.clone(), body.clone())),
+            _ => None,
+        });
+        let (lang, body) = code.expect("expected one Region::Code");
+        assert_eq!(lang.as_deref(), Some("python"));
+        assert!(
+            body.contains("print(\"hello\")"),
+            "two-space body must stay in the code region, got {regions:?}"
+        );
+        assert!(
+            !regions
+                .iter()
+                .any(|r| matches!(r, Region::Prose(s) if s.contains("print"))),
+            "two-space code-block body must not be Prose, got {regions:?}"
+        );
+    }
+
+    #[test]
+    fn reporter_two_space_code_block_body_is_identity_under_format() {
+        use crate::format::Format;
+        use crate::{FormatConfig, format_text};
+
+        let cfg = FormatConfig {
+            format: Format::Rst,
+            max_width: 0,
+            ..Default::default()
+        };
+        let input = ".. code-block:: python\n\n  print(\"hello\")\n";
+        let out = format_text(input, &cfg).unwrap();
+        assert_eq!(
+            out, input,
+            "reporter two-space code-block body must stay identity under format, got:\n{out}"
+        );
+        assert!(
+            out.contains("\n  print(\"hello\")"),
             "body must keep two-space indent, got:\n{out}"
         );
     }
