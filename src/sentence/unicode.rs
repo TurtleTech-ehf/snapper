@@ -156,9 +156,9 @@ pub fn protect_inline_tokens_with(
 ) -> (String, Vec<String>) {
     let mut placeholders: Vec<String> = Vec::new();
     let after_verb = protect_latex_verbatim(text, &mut placeholders, extra_verbatim_commands);
-    // After `\verb|` so a configured delimiter is gone. Unlisted
-    // `\Verb|a.b! c|` keeps the letter prefix, so it is not a
-    // substitution_ref (Docutils start-string; GitHub #233).
+    // After `\verb|` / `\Verb|` the delimiter is gone. A leftover
+    // letter prefix before `|` is not a Docutils start-string
+    // (GitHub #233).
     let after_rst = protect_rst_substitution_refs(&after_verb, &mut placeholders);
     // org-element inline src / babel-call before paired `=`/`~` so a body
     // like `src_python{~x~}` stays one object, not an Org code span.
@@ -174,7 +174,7 @@ pub fn protect_inline_tokens_with(
     (protected.into_owned(), placeholders)
 }
 
-/// `\verb|...|` / `\lstinline[...]!...!` / `\spverb|...|` so inner `.!?%` cannot split or comment.
+/// `\verb|...|` / `\lstinline[...]!...!` / `\spverb|...|` / `\Verb|...|` so inner `.!?%` cannot split or comment.
 fn protect_latex_verbatim(
     text: &str,
     placeholders: &mut Vec<String>,
@@ -198,9 +198,10 @@ fn protect_latex_verbatim(
     out
 }
 
-/// Byte end of a `\verb` / `\lstinline` / `\spverb` / extra-name span starting at `at`.
+/// Byte end of a `\verb` / `\lstinline` / `\spverb` / `\Verb` / extra-name span starting at `at`.
 ///
-/// `\verb` / `\verb*` / `\spverb` / `\spverb*`: next character is the
+/// `\verb` / `\verb*` / `\spverb` / `\spverb*` / `\Verb` / `\Verb*`: next
+/// character is the
 /// delimiter; content runs to the same character. `\lstinline` /
 /// `\lstinline*` may take optional `[...]` before a delimiter or a
 /// `{...}` brace body. Extra names are tokenized like `\verb`. With no
@@ -226,6 +227,11 @@ pub(crate) fn latex_verb_span_end_with(
             return None;
         }
         (after_bs + "spverb".len(), false)
+    } else if let Some(stripped) = tail.strip_prefix("Verb") {
+        if stripped.starts_with(|c: char| c.is_ascii_alphabetic()) {
+            return None;
+        }
+        (after_bs + "Verb".len(), false)
     } else if let Some(stripped) = tail.strip_prefix("verb") {
         if stripped.starts_with(|c: char| c.is_ascii_alphabetic()) {
             return None;
@@ -285,7 +291,12 @@ fn line_end(text: &str, from: usize) -> usize {
 fn match_extra_verb_command<'a>(tail: &'a str, extras: &'a [String]) -> Option<&'a str> {
     let mut best: Option<&str> = None;
     for name in extras {
-        if name.is_empty() || name == "verb" || name == "lstinline" || name == "spverb" {
+        if name.is_empty()
+            || name == "verb"
+            || name == "lstinline"
+            || name == "spverb"
+            || name == "Verb"
+        {
             continue;
         }
         let Some(stripped) = tail.strip_prefix(name.as_str()) else {
@@ -353,7 +364,7 @@ fn find_unescaped_brace_close(text: &str, mut i: usize) -> Option<usize> {
 /// Docutils Inliner.substitution_ref: `|text|` plus optional `_` / `__`.
 /// Text may not begin or end with whitespace (line_block is `| `).
 /// Start-string must be at BOS or after 7-bit non-alphanumeric, so
-/// `\Verb|a.b|` is not a substitution (GitHub #233).
+/// `\foo|a.b|` is not a substitution (GitHub #233).
 fn protect_rst_substitution_refs(text: &str, placeholders: &mut Vec<String>) -> String {
     let mut out = String::with_capacity(text.len());
     let mut i = 0;
@@ -1600,45 +1611,109 @@ mod tests {
     }
 
     #[test]
-    fn extra_verbatim_command_is_tokenized_like_verb() {
-        let text = r"Use \Verb|a.b! c| here. Next.";
-        let extras = ["Verb".to_string()];
-        let (_, placeholders) = protect_inline_tokens_with(text, &extras);
+    fn latex_fancyvrb_verb_inner_punct_stays_atomic() {
+        // GitHub #243: fancyvrb `\Verb` / `\Verb*` use the same
+        // delimiter-body scan as `\verb`.
+        let text = r"Use \Verb|a.b! c| here. Next sentence.";
+        let (_, placeholders) = protect_inline_tokens(text);
         assert!(
             placeholders.iter().any(|p| p == r"\Verb|a.b! c|"),
-            "extra Verb span must be protected, got {placeholders:?}"
+            "Verb span must be protected, got {placeholders:?}"
+        );
+        assert_eq!(
+            latex_verb_span_end_with(r"\Verb|a.b! c|", 0, &[]),
+            Some(r"\Verb|a.b! c|".len())
+        );
+        assert_eq!(
+            split(text),
+            vec![
+                r"Use \Verb|a.b! c| here.".to_string(),
+                "Next sentence.".to_string()
+            ]
+        );
+    }
+
+    #[test]
+    fn latex_fancyvrb_verb_star_inner_punct_stays_atomic() {
+        let text = r"Use \Verb*|a.b! c| here. Next sentence.";
+        let (_, placeholders) = protect_inline_tokens(text);
+        assert!(
+            placeholders.iter().any(|p| p == r"\Verb*|a.b! c|"),
+            "Verb* span must be protected, got {placeholders:?}"
+        );
+        assert_eq!(
+            latex_verb_span_end_with(r"\Verb*|a.b! c|", 0, &[]),
+            Some(r"\Verb*|a.b! c|".len())
+        );
+        assert_eq!(
+            split(text),
+            vec![
+                r"Use \Verb*|a.b! c| here.".to_string(),
+                "Next sentence.".to_string()
+            ]
+        );
+    }
+
+    #[test]
+    fn latex_fancyvrb_verb_inner_percent_stays_atomic() {
+        let text = r"Code \Verb!%! here. Next sentence.";
+        let (_, placeholders) = protect_inline_tokens(text);
+        assert!(
+            placeholders.iter().any(|p| p == r"\Verb!%!"),
+            "Verb span with inner % must be protected, got {placeholders:?}"
+        );
+        assert_eq!(
+            split(text),
+            vec![
+                r"Code \Verb!%! here.".to_string(),
+                "Next sentence.".to_string()
+            ]
+        );
+    }
+
+    #[test]
+    fn extra_verbatim_command_is_tokenized_like_verb() {
+        let text = r"Use \MyVerb|a.b! c| here. Next.";
+        let extras = ["MyVerb".to_string()];
+        let (_, placeholders) = protect_inline_tokens_with(text, &extras);
+        assert!(
+            placeholders.iter().any(|p| p == r"\MyVerb|a.b! c|"),
+            "extra MyVerb span must be protected, got {placeholders:?}"
         );
         assert!(
             !protect_inline_tokens(text)
                 .1
                 .iter()
-                .any(|p| p == r"\Verb|a.b! c|"),
-            "unlisted Verb must not be protected"
+                .any(|p| p == r"\MyVerb|a.b! c|"),
+            "unlisted MyVerb must not be protected"
         );
     }
 
     #[test]
     fn extra_verb_does_not_steal_verbatim() {
-        let extras = ["Verb".to_string()];
         assert_eq!(
-            latex_verb_span_end_with(r"\Verbatim|x.y|", 0, &extras),
+            latex_verb_span_end_with(r"\Verbatim|x.y|", 0, &[]),
             None,
             "Verb must not match as a prefix of Verbatim"
         );
         assert_eq!(
-            latex_verb_span_end_with(r"\Verb|x.y|", 0, &extras),
+            latex_verb_span_end_with(r"\Verb|x.y|", 0, &[]),
             Some(r"\Verb|x.y|".len())
         );
+        let extras = ["MyVerb".to_string()];
+        assert_eq!(
+            latex_verb_span_end_with(r"\MyVerbatim|x.y|", 0, &extras),
+            None,
+            "MyVerb must not match as a prefix of MyVerbatim"
+        );
         let text = r"Use \Verbatim|x.y| here. Next.";
-        let (_, placeholders) = protect_inline_tokens_with(text, &extras);
+        let (_, placeholders) = protect_inline_tokens(text);
         assert!(
             placeholders.iter().all(|p| p != r"\Verbatim|x.y|"),
             "Verbatim must not become a verb span, got {placeholders:?}"
         );
         assert_eq!(
-            UnicodeSentenceSplitter::new()
-                .with_verbatim_commands(extras.to_vec())
-                .split(text),
+            split(text),
             vec![r"Use \Verbatim|x.y| here.".to_string(), "Next.".to_string()]
         );
     }
@@ -2367,20 +2442,18 @@ mod tests {
     fn rst_line_block_and_open_bar_are_not_substitution_refs() {
         // Docutils line_block is `| ` (space after opener). Unclosed
         // `|fig. 1` is not substitution_ref. Leading/trailing space
-        // inside the bars is invalid. A letter prefix (`\Verb|`) is
-        // not a start-string.
+        // inside the bars is invalid. `\Verb|...|` is a fancyvrb verb
+        // token (GitHub #243), not a substitution_ref.
         for text in [
             "| This is a line. Another sentence.",
             "See |fig. 1 in the caption. Next sentence.",
             "See | fig. 1| in the caption. Next sentence.",
             "See |fig. 1 | in the caption. Next sentence.",
-            r"Use \Verb|a.b! c| here. Next sentence.",
         ] {
             let (_, placeholders) = protect_inline_tokens(text);
             assert!(
                 !placeholders.iter().any(|p| p.contains("fig. 1")
                     || p.contains("This is a line")
-                    || p.contains("a.b!")
                     || p.starts_with("| ")),
                 "invalid / line-block `|` must not be a token, got {placeholders:?} for {text:?}"
             );
