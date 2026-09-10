@@ -6,9 +6,12 @@ use crate::parser::{
 };
 use crate::sentence::unicode::latex_verb_span_end_with;
 
-// Environments whose content is NOT prose (math, code, figures, tables).
+// Environments whose content is NOT prose (math, code, tabulars).
 // Extra names are tree-sitter-latex `math_environment` plus latexindent
 // `lookForAlignDelims` (amsmath / mathtools / tabularray), not a GPL copy.
+// figure/figure*/table/table* are not here: float chrome is Structure and
+// `\caption` / `\caption*` long argument is Prose (tree-sitter caption
+// curly_group is text; Overleaf FigureEnvironment is Content<Text>).
 static NON_PROSE_ENVS: &[&str] = &[
     "equation",
     "equation*",
@@ -35,10 +38,6 @@ static NON_PROSE_ENVS: &[&str] = &[
     "displaymath",
     "displaymath*",
     "math",
-    "figure",
-    "figure*",
-    "table",
-    "table*",
     "tabular",
     "tabular*",
     "tabularx",
@@ -509,6 +508,8 @@ struct ParseState<'a> {
     code_body_start: usize,
     in_display_math: Option<DisplayMathDelim>,
     in_iffalse: bool,
+    /// Unclosed `\caption` / `\caption*` long-argument brace depth.
+    in_caption_depth: usize,
     nospace_join: bool,
 }
 
@@ -591,6 +592,11 @@ impl<'a> ParseState<'a> {
     fn consume_body_line(&mut self, line: Line<'_>) {
         if self.in_iffalse {
             self.consume_iffalse_line(line);
+            return;
+        }
+
+        if self.in_caption_depth > 0 {
+            self.consume_caption_line(line);
             return;
         }
 
@@ -912,11 +918,271 @@ impl<'a> ParseState<'a> {
                 ));
                 return false;
             }
+            if self.consume_caption_or_chrome(code, line, &mut i) {
+                return false;
+            }
             self.append_item_or_prose(line.start + i, rest);
             return false;
         }
         false
     }
+
+    /// `\caption` / `\caption*` chrome is Structure; long argument is Prose.
+    /// `\centering` / `\includegraphics` / `\label` stay Structure (float chrome).
+    /// Returns true when the leftover through EOL is consumed.
+    fn consume_caption_or_chrome(&mut self, code: &str, line: Line<'_>, i: &mut usize) -> bool {
+        loop {
+            let rest = &code[*i..];
+            if rest.trim().is_empty() {
+                return true;
+            }
+            if let Some(open_len) = caption_open_len(rest) {
+                self.push_structure(ByteSpan::new(line.start + *i, line.start + *i + open_len));
+                let open_at = open_len - 1;
+                if let Some(close) = find_matching_brace(rest, open_at) {
+                    self.append_item_or_prose(line.start + *i + open_len, &rest[open_len..close]);
+                    let after = close + 1;
+                    let end = if rest[after..].trim().is_empty() {
+                        thru_eol_if_blank_rest(line, *i + after)
+                    } else {
+                        line.start + *i + after
+                    };
+                    self.push_structure(ByteSpan::new(line.start + *i + close, end));
+                    if rest[after..].trim().is_empty() {
+                        return true;
+                    }
+                    *i += after;
+                    continue;
+                }
+                let delta = brace_depth_delta(&rest[open_len..]);
+                self.in_caption_depth = (1 + delta).max(1) as usize;
+                self.append_prose_slice(line.start + *i + open_len, &rest[open_len..]);
+                return true;
+            }
+            if let Some(len) = float_chrome_cmd_len(rest) {
+                let end = if rest[len..].trim().is_empty() {
+                    thru_eol_if_blank_rest(line, *i + len)
+                } else {
+                    line.start + *i + len
+                };
+                self.push_structure(ByteSpan::new(line.start + *i, end));
+                if rest[len..].trim().is_empty() {
+                    return true;
+                }
+                *i += len;
+                continue;
+            }
+            return false;
+        }
+    }
+
+    fn consume_caption_line(&mut self, line: Line<'_>) {
+        if line.text.trim().is_empty() {
+            self.flush();
+            self.nospace_join = false;
+            self.regions
+                .push(SpannedRegion::blank(self.input, line.span()));
+            return;
+        }
+        if LatexParser::is_comment(line.text) {
+            self.flush();
+            self.nospace_join = false;
+            self.regions
+                .push(SpannedRegion::structure(self.input, line.span()));
+            return;
+        }
+        let pct = self.parser.unescaped_percent(line.text);
+        let code = match pct {
+            Some(idx) => &line.text[..idx],
+            None => line.text,
+        };
+        if let Some(close) = find_closing_brace_at_depth(code, self.in_caption_depth) {
+            self.append_prose_slice(line.start, &code[..close]);
+            let after = close + 1;
+            let end = if line.text[after..].trim().is_empty() {
+                thru_eol_if_blank_rest(line, after)
+            } else {
+                line.start + after
+            };
+            self.push_structure(ByteSpan::new(line.start + close, end));
+            self.in_caption_depth = 0;
+            if !line.text[after..].trim().is_empty() {
+                self.consume_body_line(rest_line(line, after));
+            }
+            return;
+        }
+        if !code.trim().is_empty() {
+            let delta = brace_depth_delta(code);
+            self.in_caption_depth = (self.in_caption_depth as i32 + delta).max(1) as usize;
+            self.append_prose_slice(line.start, code);
+        }
+        if let Some(idx) = pct {
+            self.nospace_join = true;
+            let comment = &line.text[idx..];
+            if comment.trim() != "%" {
+                self.flush();
+                self.regions.push(SpannedRegion::structure(
+                    self.input,
+                    ByteSpan::new(line.start + idx, line.end),
+                ));
+            } else {
+                self.extend_prose_to(line.end);
+            }
+        } else {
+            self.extend_prose_to(line.end);
+            self.nospace_join = false;
+        }
+    }
+}
+
+/// Matching `}` for `{` at `open_at`. Nested braces count; `\{` / `\}` skip.
+fn find_matching_brace(s: &str, open_at: usize) -> Option<usize> {
+    let bytes = s.as_bytes();
+    if bytes.get(open_at) != Some(&b'{') {
+        return None;
+    }
+    let mut depth = 0i32;
+    let mut i = open_at;
+    while i < bytes.len() {
+        if bytes[i] == b'\\' {
+            i = (i + 2).min(bytes.len());
+            continue;
+        }
+        match bytes[i] {
+            b'{' => depth += 1,
+            b'}' => {
+                depth -= 1;
+                if depth == 0 {
+                    return Some(i);
+                }
+            }
+            _ => {}
+        }
+        i += 1;
+    }
+    None
+}
+
+/// Offset of the `}` that brings `start_depth` to zero, or `None`.
+fn find_closing_brace_at_depth(s: &str, start_depth: usize) -> Option<usize> {
+    if start_depth == 0 {
+        return None;
+    }
+    let bytes = s.as_bytes();
+    let mut depth = start_depth as i32;
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'\\' {
+            i = (i + 2).min(bytes.len());
+            continue;
+        }
+        match bytes[i] {
+            b'{' => depth += 1,
+            b'}' => {
+                depth -= 1;
+                if depth == 0 {
+                    return Some(i);
+                }
+            }
+            _ => {}
+        }
+        i += 1;
+    }
+    None
+}
+
+fn brace_depth_delta(s: &str) -> i32 {
+    let bytes = s.as_bytes();
+    let mut depth = 0i32;
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'\\' {
+            i = (i + 2).min(bytes.len());
+            continue;
+        }
+        match bytes[i] {
+            b'{' => depth += 1,
+            b'}' => depth -= 1,
+            _ => {}
+        }
+        i += 1;
+    }
+    depth
+}
+
+/// `\caption` / `\caption*` + optional `[short title]` + `{`.
+/// `\captionof` / `\captionsetup` are different control words.
+fn caption_open_len(s: &str) -> Option<usize> {
+    let indent = s.len() - s.trim_start_matches([' ', '\t']).len();
+    let t = &s[indent..];
+    let rest = t.strip_prefix("\\caption")?;
+    let rest = rest.strip_prefix('*').unwrap_or(rest);
+    if rest.starts_with(|c: char| c.is_ascii_alphabetic()) {
+        return None;
+    }
+    let mut i = s.len() - rest.len();
+    while i < s.len() && matches!(s.as_bytes()[i], b' ' | b'\t') {
+        i += 1;
+    }
+    if let Some(br) = skip_optional_brackets(s, i, s.len()) {
+        i = br;
+        while i < s.len() && matches!(s.as_bytes()[i], b' ' | b'\t') {
+            i += 1;
+        }
+    }
+    if s.as_bytes().get(i) == Some(&b'{') {
+        Some(i + 1)
+    } else {
+        None
+    }
+}
+
+/// Float chrome: `\centering` / `\raggedright` / `\raggedleft`,
+/// `\includegraphics` / `\includegraphics*`, `\label{...}`.
+fn float_chrome_cmd_len(s: &str) -> Option<usize> {
+    let indent = s.len() - s.trim_start_matches([' ', '\t']).len();
+    let t = &s[indent..];
+    for name in ["\\centering", "\\raggedright", "\\raggedleft"] {
+        if let Some(rest) = t.strip_prefix(name) {
+            if rest.starts_with(|c: char| c.is_ascii_alphabetic()) {
+                continue;
+            }
+            return Some(indent + name.len());
+        }
+    }
+    if let Some(rest) = t.strip_prefix("\\includegraphics") {
+        let rest = rest.strip_prefix('*').unwrap_or(rest);
+        if rest.starts_with(|c: char| c.is_ascii_alphabetic()) {
+            return None;
+        }
+        let mut i = s.len() - rest.len();
+        while i < s.len() && matches!(s.as_bytes()[i], b' ' | b'\t') {
+            i += 1;
+        }
+        if let Some(br) = skip_optional_brackets(s, i, s.len()) {
+            i = br;
+            while i < s.len() && matches!(s.as_bytes()[i], b' ' | b'\t') {
+                i += 1;
+            }
+        }
+        if s.as_bytes().get(i) == Some(&b'{') {
+            return find_matching_brace(s, i).map(|close| close + 1);
+        }
+        return None;
+    }
+    if let Some(rest) = t.strip_prefix("\\label") {
+        if rest.starts_with(|c: char| c.is_ascii_alphabetic()) {
+            return None;
+        }
+        let mut i = indent + "\\label".len();
+        while i < s.len() && matches!(s.as_bytes()[i], b' ' | b'\t') {
+            i += 1;
+        }
+        if s.as_bytes().get(i) == Some(&b'{') {
+            return find_matching_brace(s, i).map(|close| close + 1);
+        }
+    }
+    None
 }
 
 /// Byte length of a compact LaTeX `\item` opener: leading indent, `\item`,
@@ -965,6 +1231,7 @@ impl FormatParser for LatexParser {
             code_body_start: 0,
             in_display_math: None,
             in_iffalse: false,
+            in_caption_depth: 0,
             nospace_join: false,
         };
         let mut in_preamble = super::latex_starts_in_preamble(input);
@@ -2946,6 +3213,217 @@ Some text.
         assert!(
             out.contains("still prose.\nNext."),
             "\\\\[2ex] must not swallow following prose as math, got:\n{out}"
+        );
+        assert_eq!(format_text(&out, &latex_cfg()).unwrap(), out);
+    }
+
+    #[test]
+    fn figure_caption_long_argument_is_prose_chrome_is_structure() {
+        let input = concat!(
+            "\\begin{figure}\n",
+            "\\centering\n",
+            "\\caption{First claim. Second claim about the plot.}\n",
+            "\\end{figure}\n",
+        );
+        let regions = LatexParser::default().parse(input);
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Structure(s) if s.contains(r"\begin{figure}")
+            )),
+            "figure begin must be Structure, got: {regions:?}"
+        );
+        assert!(
+            regions
+                .iter()
+                .any(|r| matches!(r, Region::Structure(s) if s.contains(r"\centering"))),
+            "centering must be Structure, got: {regions:?}"
+        );
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Structure(s) if s.contains(r"\caption{")
+            )),
+            "caption chrome must be Structure, got: {regions:?}"
+        );
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(p) if p.contains("First claim. Second claim about the plot.")
+            )),
+            "caption long argument must be Prose, got: {regions:?}"
+        );
+        assert!(
+            !regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(p) if p.contains(r"\centering") || p.contains(r"\caption{")
+            )),
+            "float chrome must not be Prose, got: {regions:?}"
+        );
+    }
+
+    #[test]
+    fn figure_caption_two_sentences_reflow() {
+        use crate::format_text;
+
+        let input = concat!(
+            "\\begin{figure}\n",
+            "\\centering\n",
+            "\\caption{First claim. Second claim about the plot.}\n",
+            "\\end{figure}\n",
+        );
+        let out = format_text(input, &latex_cfg()).unwrap();
+        assert!(
+            out.contains("\\caption{First claim.\nSecond claim about the plot.}"),
+            "caption long argument must sembr, got:\n{out}"
+        );
+        assert!(
+            out.contains("\\begin{figure}\n\\centering\n"),
+            "float chrome must stay put, got:\n{out}"
+        );
+        assert_eq!(format_text(&out, &latex_cfg()).unwrap(), out);
+    }
+
+    #[test]
+    fn table_and_starred_float_captions_reflow() {
+        use crate::format_text;
+
+        for env in ["table", "table*", "figure*"] {
+            let input = format!(
+                "\\begin{{{env}}}\n\\caption{{First claim. Second claim about the plot.}}\n\\end{{{env}}}\n"
+            );
+            let out = format_text(&input, &latex_cfg()).unwrap();
+            assert!(
+                out.contains("\\caption{First claim.\nSecond claim about the plot.}"),
+                "{env} caption must sembr, got:\n{out}"
+            );
+            assert_eq!(format_text(&out, &latex_cfg()).unwrap(), out);
+        }
+    }
+
+    #[test]
+    fn nested_tabular_and_tikzpicture_stay_non_prose() {
+        use crate::format_text;
+
+        let input = concat!(
+            "\\begin{figure}\n",
+            "\\begin{tikzpicture}\n",
+            "First sentence inside tikz. Second stays put.\n",
+            "\\end{tikzpicture}\n",
+            "\\begin{tabular}{ll}\n",
+            "a & b. c & d.\n",
+            "\\end{tabular}\n",
+            "\\caption{First claim. Second claim about the plot.}\n",
+            "\\end{figure}\n",
+        );
+        let regions = LatexParser::default().parse(input);
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Structure(s) if s.contains("First sentence inside tikz. Second stays put.")
+            )),
+            "tikzpicture body must stay Structure, got: {regions:?}"
+        );
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Structure(s) if s.contains("a & b. c & d.")
+            )),
+            "tabular body must stay Structure, got: {regions:?}"
+        );
+        assert!(
+            !regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(p)
+                    if p.contains("First sentence inside tikz") || p.contains("a & b.")
+            )),
+            "nested non-prose must not leak into Prose, got: {regions:?}"
+        );
+        let out = format_text(input, &latex_cfg()).unwrap();
+        assert!(
+            out.contains("First sentence inside tikz. Second stays put."),
+            "tikzpicture must not sembr, got:\n{out}"
+        );
+        assert!(
+            out.contains("a & b. c & d."),
+            "tabular must not sembr, got:\n{out}"
+        );
+        assert!(
+            out.contains("\\caption{First claim.\nSecond claim about the plot.}"),
+            "caption must still sembr, got:\n{out}"
+        );
+        assert_eq!(format_text(&out, &latex_cfg()).unwrap(), out);
+    }
+
+    #[test]
+    fn includegraphics_and_label_stay_structure() {
+        use crate::format_text;
+
+        let input = concat!(
+            "\\begin{figure}\n",
+            "\\includegraphics[width=0.8\\textwidth]{plot.pdf}\n",
+            "\\caption{First claim. Second claim about the plot.}\n",
+            "\\label{fig:plot.pdf}\n",
+            "\\end{figure}\n",
+        );
+        let regions = LatexParser::default().parse(input);
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Structure(s) if s.contains(r"\includegraphics[width=0.8\textwidth]{plot.pdf}")
+            )),
+            "includegraphics must be Structure, got: {regions:?}"
+        );
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Structure(s) if s.contains(r"\label{fig:plot.pdf}")
+            )),
+            "label must be Structure, got: {regions:?}"
+        );
+        let out = format_text(input, &latex_cfg()).unwrap();
+        assert!(
+            out.contains("\\includegraphics[width=0.8\\textwidth]{plot.pdf}"),
+            "includegraphics must not split on .pdf, got:\n{out}"
+        );
+        assert!(
+            !out.contains("plot.\npdf"),
+            "filename period must not sembr, got:\n{out}"
+        );
+        assert!(
+            out.contains("\\caption{First claim.\nSecond claim about the plot.}"),
+            "caption must sembr, got:\n{out}"
+        );
+        assert_eq!(format_text(&out, &latex_cfg()).unwrap(), out);
+    }
+
+    #[test]
+    fn caption_optional_short_title_is_structure() {
+        use crate::format_text;
+
+        let input = "\\caption[Short. Title.]{First claim. Second claim about the plot.}\n";
+        let regions = LatexParser::default().parse(input);
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Structure(s) if s.contains(r"\caption[Short. Title.]{")
+            )),
+            "optional short title must stay on caption chrome, got: {regions:?}"
+        );
+        assert!(
+            !regions
+                .iter()
+                .any(|r| matches!(r, Region::Prose(p) if p.contains("Short. Title"))),
+            "short title must not be Prose, got: {regions:?}"
+        );
+        let out = format_text(input, &latex_cfg()).unwrap();
+        assert!(
+            out.contains("\\caption[Short. Title.]{First claim.\nSecond claim about the plot.}"),
+            "short title must stay one token; long arg sembrs, got:\n{out}"
+        );
+        assert!(
+            !out.contains("Short.\n"),
+            "must not split periods in optional short title:\n{out}"
         );
         assert_eq!(format_text(&out, &latex_cfg()).unwrap(), out);
     }
