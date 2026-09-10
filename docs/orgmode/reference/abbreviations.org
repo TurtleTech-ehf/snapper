@@ -124,6 +124,7 @@ These merge with the built-in list at runtime.
 Periods inside inline tokens never trigger sentence breaks, regardless of abbreviation lists:
 
 - Org links: =[[https://example.com][Ex. Site]]=
+- Org radio / angle targets: =<<<the Fourier. transform>>>=, =<<sec. intro>>=
 - LaTeX math: =$x = 3.14$=
 - LaTeX commands: =\cite{smith.2024}=
 - Markdown links: =[Example Inc.](url)=

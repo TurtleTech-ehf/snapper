@@ -19,6 +19,12 @@ static INLINE_TOKEN_RE: LazyLock<Regex> = LazyLock::new(|| {
             // org-element 5.5 citation: [cite/style:prefix;@key p. 7;suffix]
             // Must be atomic so a page locator is not a sentence boundary.
             r"\[cite(?:/[-a-zA-Z0-9_/]*)?:[^\]]*\]",
+            // org-element-radio-target-parser / org-radio-target-regexp:
+            // <<<contents>>> with no <, >, or newline. Must precede <<...>>
+            // so the triple-angle form stays one token (GitHub #211).
+            r"<<<[^<>\n]+>>>",
+            // org-element-target-parser / org-target-regexp: <<contents>>
+            r"<<[^<>\n]+>>",
             r"\[[^\]]+\]\([^)]+\)",    // Markdown links: [text](url)
             r"!\[[^\]]*\]\([^)]+\)",   // Markdown images: ![alt](url)
             r"\$\$[^$\n]+\$\$",        // Display math: $$...$$
@@ -587,7 +593,8 @@ fn find_md_code_span(text: &str, open_at: usize) -> Option<usize> {
 }
 
 /// Byte ranges of inline tokens that wrapping must not split (links, images,
-/// inline code, autolinks, math, Org `[[...]]`, Org `[cite...]`, paired spans).
+/// inline code, autolinks, math, Org `[[...]]`, Org `[cite...]`,
+/// Org `<<<...>>>` / `<<...>>`, paired spans).
 ///
 /// Ranges are half-open `[start, end)`, sorted, non-overlapping, and merged
 /// when a regex match wraps a paired span.
@@ -1405,6 +1412,64 @@ mod tests {
             vec![
                 "See [[https://example.com][Ex. Site]] for details.",
                 "Then continue."
+            ]
+        );
+    }
+
+    #[test]
+    fn inline_org_radio_target_interior_punct_is_not_a_sentence_boundary() {
+        // GitHub #211 / snapper-gz10: org-element radio targets
+        // `<<<contents>>>` stay one token so an interior period is not
+        // a sentence boundary. `Next sentence.` still splits.
+        let radio = "<<<the Fourier. transform>>>";
+        let text = "See <<<the Fourier. transform>>> in the text. Next sentence.";
+        let (_, placeholders) = protect_inline_tokens(text);
+        assert!(
+            placeholders.iter().any(|p| p == radio),
+            "radio target must be one token, got {placeholders:?}"
+        );
+        assert!(
+            !placeholders
+                .iter()
+                .any(|p| p == "<<the Fourier. transform>>"),
+            "radio must not collapse to the inner angle target, got {placeholders:?}"
+        );
+        let spans = atomic_inline_spans(text);
+        assert!(
+            spans.iter().any(|&(s, e)| &text[s..e] == radio),
+            "radio target must be an atomic wrap span, got {:?}",
+            spans.iter().map(|&(s, e)| &text[s..e]).collect::<Vec<_>>()
+        );
+        assert_eq!(
+            split(text),
+            vec![
+                "See <<<the Fourier. transform>>> in the text.".to_string(),
+                "Next sentence.".to_string()
+            ]
+        );
+    }
+
+    #[test]
+    fn inline_org_angle_target_interior_punct_is_not_a_sentence_boundary() {
+        // Same class as radio: org-element-target-parser `<<sec. intro>>`.
+        let target = "<<sec. intro>>";
+        let text = "See <<sec. intro>> in the text. Next sentence.";
+        let (_, placeholders) = protect_inline_tokens(text);
+        assert!(
+            placeholders.iter().any(|p| p == target),
+            "angle target must be one token, got {placeholders:?}"
+        );
+        let spans = atomic_inline_spans(text);
+        assert!(
+            spans.iter().any(|&(s, e)| &text[s..e] == target),
+            "angle target must be an atomic wrap span, got {:?}",
+            spans.iter().map(|&(s, e)| &text[s..e]).collect::<Vec<_>>()
+        );
+        assert_eq!(
+            split(text),
+            vec![
+                "See <<sec. intro>> in the text.".to_string(),
+                "Next sentence.".to_string()
             ]
         );
     }
