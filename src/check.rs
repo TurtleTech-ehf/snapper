@@ -812,14 +812,39 @@ mod tests {
     }
 
     #[test]
-    fn configured_verb_inner_percent_is_fused_not_comment() {
+    fn fancyvrb_verb_inner_percent_is_fused_not_comment() {
         let input = "\\begin{document}\nCode \\Verb!%! here. Next sentence.\n\\end{document}\n";
+        let splitter = UnicodeSentenceSplitter::new();
+        let found = collect_diagnostics(
+            input,
+            Format::Latex,
+            &splitter,
+            DEFAULT_LONG_THRESHOLD,
+            None,
+        );
+        assert!(
+            found
+                .iter()
+                .any(|d| d.line == 2 && d.kind == DiagnosticKind::Fused),
+            "built-in Verb inner % is content; the line is fused, got {found:?}"
+        );
+        let payloads = source_line_payloads(input, Format::Latex, None);
+        assert_eq!(
+            payloads[1].as_deref().map(str::trim),
+            Some("Code \\Verb!%! here. Next sentence."),
+            "built-in Verb must keep inner % as prose, got {payloads:?}"
+        );
+    }
+
+    #[test]
+    fn configured_verb_inner_percent_is_fused_not_comment() {
+        let input = "\\begin{document}\nCode \\MyVerb!%! here. Next sentence.\n\\end{document}\n";
         let config = FormatConfig {
             format: Format::Latex,
-            latex_verbatim_commands: vec!["Verb".into()],
+            latex_verbatim_commands: vec!["MyVerb".into()],
             ..Default::default()
         };
-        let splitter = UnicodeSentenceSplitter::new().with_verbatim_commands(vec!["Verb".into()]);
+        let splitter = UnicodeSentenceSplitter::new().with_verbatim_commands(vec!["MyVerb".into()]);
         let found = collect_diagnostics(
             input,
             Format::Latex,
@@ -831,19 +856,19 @@ mod tests {
             found
                 .iter()
                 .any(|d| d.line == 2 && d.kind == DiagnosticKind::Fused),
-            "configured Verb inner % is content; the line is fused, got {found:?}"
+            "configured MyVerb inner % is content; the line is fused, got {found:?}"
         );
         let payloads = source_line_payloads(input, Format::Latex, Some(&config));
         assert_eq!(
             payloads[1].as_deref().map(str::trim),
-            Some("Code \\Verb!%! here. Next sentence."),
-            "extras must keep % inside Verb as prose, got {payloads:?}"
+            Some("Code \\MyVerb!%! here. Next sentence."),
+            "extras must keep % inside MyVerb as prose, got {payloads:?}"
         );
         let builtin = source_line_payloads(input, Format::Latex, None);
         assert_ne!(
             builtin[1].as_deref().map(str::trim),
-            Some("Code \\Verb!%! here. Next sentence."),
-            "built-in lists treat % as a comment, got {builtin:?}"
+            Some("Code \\MyVerb!%! here. Next sentence."),
+            "built-in lists treat unlisted MyVerb % as a comment, got {builtin:?}"
         );
     }
 
