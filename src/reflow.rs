@@ -5,7 +5,7 @@ use crate::config::CodeLang;
 use crate::format::Format;
 use crate::parser::{Region, RegionOrigin, SpannedRegion};
 use crate::sentence::SentenceSplitter;
-use crate::sentence::unicode::atomic_inline_spans;
+use crate::sentence::unicode::{DelimState, atomic_inline_spans};
 
 /// Configuration for the reflow engine.
 pub struct ReflowConfig<'a> {
@@ -254,7 +254,7 @@ fn reflow_prose(
             if hanging > 0 && i > 0 {
                 output.push_str(&hang);
             }
-            output.push_str(sentence);
+            output.push_str(&hang_open_quote_continuations(sentence, hang.as_str()));
         }
         if i + 1 < nsent {
             output.push('\n');
@@ -916,6 +916,30 @@ fn wrap_atomic_words(
 /// True when `s` is a list or quote marker that continuation lines hang from.
 pub(crate) fn is_hanging_marker(s: &str) -> bool {
     !hanging_prefix(s).is_empty()
+}
+
+/// Re-indent source newlines that sit inside an open quotation.
+///
+/// Compact RST list joins strip hang spaces; delimiter-span merge then
+/// keeps the item as one sentence, so those newlines would otherwise
+/// land at column 0 (GitHub #130). Parentheses are out of scope.
+fn hang_open_quote_continuations(sentence: &str, hang: &str) -> String {
+    if hang.is_empty() || !sentence.contains('\n') {
+        return sentence.to_string();
+    }
+    let mut state = DelimState::default();
+    let mut out = String::with_capacity(sentence.len() + hang.len());
+    for (i, line) in sentence.split('\n').enumerate() {
+        if i > 0 {
+            out.push('\n');
+            if state.quote_is_open() {
+                out.push_str(hang);
+            }
+        }
+        out.push_str(line);
+        state.feed(line);
+    }
+    out
 }
 
 /// Prefix emitted on continuation lines after a list or quote marker.
@@ -1666,6 +1690,37 @@ They are endowed with reason and conscience and should act towards one another i
             Region::Structure("\n".to_string()),
         ]);
         assert_eq!(result, "- One.\n  Two.\n");
+    }
+
+    #[test]
+    fn rst_open_quote_list_keeps_two_space_hang() {
+        let joined = reflow_regions(vec![
+            Region::Structure("* ".to_string()),
+            Region::Prose("\"First sentence.\nSecond sentence.\"".to_string()),
+            Region::Structure("\n".to_string()),
+            Region::Structure("* ".to_string()),
+            Region::Prose("Next item.".to_string()),
+            Region::Structure("\n".to_string()),
+        ]);
+        assert_eq!(
+            joined, "* \"First sentence.\n  Second sentence.\"\n* Next item.\n",
+            "joined open-quote prose must keep two-space hang, got:\n{joined}"
+        );
+
+        let structured = reflow_regions(vec![
+            Region::Structure("* ".to_string()),
+            Region::Prose("\"First sentence.".to_string()),
+            Region::Structure("  ".to_string()),
+            Region::Prose("Second sentence.\"".to_string()),
+            Region::Structure("\n".to_string()),
+            Region::Structure("* ".to_string()),
+            Region::Prose("Next item.".to_string()),
+            Region::Structure("\n".to_string()),
+        ]);
+        assert_eq!(
+            structured, "* \"First sentence.\n  Second sentence.\"\n* Next item.\n",
+            "structure hang while quote is open must stay, got:\n{structured}"
+        );
     }
 
     #[test]

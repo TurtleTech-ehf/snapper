@@ -5,6 +5,7 @@ use crate::parser::{
     ByteSpan, FormatParser, Line, Region, SpannedRegion, flush_prose_spanned, iter_lines,
     join_prose_gap, push_prose_line,
 };
+use crate::sentence::unicode::DelimState;
 
 /// Match `.. code-block:: LANG` or `.. sourcecode:: LANG` (or `.. code:: LANG`).
 static CODE_DIRECTIVE_RE: LazyLock<Regex> = LazyLock::new(|| {
@@ -54,6 +55,10 @@ fn parse_line_based(input: &str) -> Vec<SpannedRegion> {
     // Continuation paragraphs after a blank stay in the item when
     // indented this far.
     let mut list_hang: Option<usize> = None;
+    // Quote nesting across the open list item. Compact join assumes
+    // reflow will re-split and re-hang; an open quote blocks that
+    // split, so continuations keep hang as Structure (GitHub #130).
+    let mut list_quote_state = DelimState::default();
     let mut pragma_off = false;
 
     // Code-block directive bookkeeping. Mutually exclusive with `in_directive`.
@@ -339,12 +344,15 @@ fn parse_line_based(input: &str) -> Vec<SpannedRegion> {
         if let Some(marker_len) = rst_list_marker_len(line_text) {
             flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
             list_hang = Some(marker_len);
+            list_quote_state = DelimState::default();
             regions.push(SpannedRegion::structure(
                 input,
                 ByteSpan::new(line.start, line.start + marker_len),
             ));
             if line_text.len() > marker_len {
-                current_prose.push_str(line_text[marker_len..].trim());
+                let body = line_text[marker_len..].trim();
+                current_prose.push_str(body);
+                list_quote_state.feed(body);
                 prose_span = Some(ByteSpan::new(line.start + marker_len, line.end));
             }
             i += 1;
@@ -357,12 +365,15 @@ fn parse_line_based(input: &str) -> Vec<SpannedRegion> {
         if let Some(col_len) = rst_option_column_len(line_text) {
             flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
             list_hang = Some(col_len);
+            list_quote_state = DelimState::default();
             regions.push(SpannedRegion::structure(
                 input,
                 ByteSpan::new(line.start, line.start + col_len),
             ));
             if line_text.len() > col_len {
-                current_prose.push_str(line_text[col_len..].trim());
+                let body = line_text[col_len..].trim();
+                current_prose.push_str(body);
+                list_quote_state.feed(body);
                 prose_span = Some(ByteSpan::new(line.start + col_len, line.end));
             }
             i += 1;
@@ -413,28 +424,34 @@ fn parse_line_based(input: &str) -> Vec<SpannedRegion> {
         // A blank before it is a new paragraph: hang spaces stay
         // Structure so splice does not outdent them. Compact wrap
         // (no blank) is the same paragraph; join into the open Prose
-        // so a reflow hang reparses as the source list item.
+        // so a reflow hang reparses as the source list item. An open
+        // quote blocks that re-split, so keep hang as Structure
+        // (GitHub #130).
         if let Some(hang) = list_hang {
             let leading = line_text.len() - line_text.trim_start().len();
             if leading >= hang {
                 let after_blank = regions
                     .last()
                     .is_some_and(|r| matches!(r.region, Region::BlankLines(_)));
-                if after_blank {
+                if after_blank || list_quote_state.quote_is_open() {
                     flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
                     regions.push(SpannedRegion::structure(
                         input,
                         ByteSpan::new(line.start, line.start + leading),
                     ));
                     if line_text.len() > leading {
-                        current_prose.push_str(line_text[leading..].trim());
+                        let body = line_text[leading..].trim();
+                        current_prose.push_str(body);
+                        list_quote_state.feed(body);
                         prose_span = Some(ByteSpan::new(line.start + leading, line.end));
                     }
                 } else if line_text.len() > leading {
                     if !current_prose.is_empty() {
                         join_prose_gap(&mut current_prose);
                     }
-                    current_prose.push_str(line_text[leading..].trim());
+                    let body = line_text[leading..].trim();
+                    current_prose.push_str(body);
+                    list_quote_state.feed(body);
                     match prose_span.as_mut() {
                         Some(span) => span.end = line.end,
                         None => {
@@ -446,6 +463,7 @@ fn parse_line_based(input: &str) -> Vec<SpannedRegion> {
                 continue;
             }
             list_hang = None;
+            list_quote_state = DelimState::default();
         }
 
         // Block quote: indented prose that is not a list, directive,
@@ -456,12 +474,15 @@ fn parse_line_based(input: &str) -> Vec<SpannedRegion> {
         if leading > 0 {
             flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
             list_hang = Some(leading);
+            list_quote_state = DelimState::default();
             regions.push(SpannedRegion::structure(
                 input,
                 ByteSpan::new(line.start, line.start + leading),
             ));
             if line_text.len() > leading {
-                current_prose.push_str(line_text[leading..].trim());
+                let body = line_text[leading..].trim();
+                current_prose.push_str(body);
+                list_quote_state.feed(body);
                 prose_span = Some(ByteSpan::new(line.start + leading, line.end));
             }
             i += 1;
@@ -1349,6 +1370,43 @@ mod tests {
                 .iter()
                 .any(|r| matches!(r, Region::Structure(s) if s == "  ")),
             "compact hang must not be Structure, got {regions:?}"
+        );
+    }
+
+    #[test]
+    fn open_quote_list_continuation_keeps_hang_structure() {
+        let input = concat!(
+            "* \"First sentence.\n",
+            "  Second sentence.\"\n",
+            "* Next item.\n",
+        );
+        let regions = RstParser.parse(input);
+        assert!(
+            regions
+                .iter()
+                .any(|r| matches!(r, Region::Structure(s) if s == "* ")),
+            "marker must be Structure, got {regions:?}"
+        );
+        assert!(
+            regions
+                .iter()
+                .any(|r| matches!(r, Region::Structure(s) if s == "  ")),
+            "open-quote continuation hang must be Structure, got {regions:?}"
+        );
+        let prose: Vec<_> = regions
+            .iter()
+            .filter_map(|r| match r {
+                Region::Prose(s) => Some(s.as_str()),
+                _ => None,
+            })
+            .collect();
+        assert!(
+            prose.iter().any(|s| s.contains("First sentence.")),
+            "first quoted sentence must be Prose, got {regions:?}"
+        );
+        assert!(
+            prose.iter().any(|s| s.contains("Second sentence.")),
+            "second quoted sentence must be Prose, got {regions:?}"
         );
     }
 

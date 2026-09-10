@@ -932,15 +932,22 @@ pub struct DelimState {
 
 impl DelimState {
     pub fn is_inside(&self) -> bool {
+        self.quote_is_open()
+            || self.paren_depth > 0
+            || self.bracket_depth > 0
+            || self.brace_depth > 0
+    }
+
+    /// True when a quotation is still open. Excludes `()` / `[]` / `{}`
+    /// so RST list hang can keep quote continuations without taking the
+    /// parenthesis ticket (GitHub #130 vs #131).
+    pub fn quote_is_open(&self) -> bool {
         self.ascii_double_open
             || self.ascii_single_open
             || self.curly_double_depth > 0
             || self.curly_single_depth > 0
             || self.guillemet_depth > 0
             || self.latex_quote_depth > 0
-            || self.paren_depth > 0
-            || self.bracket_depth > 0
-            || self.brace_depth > 0
     }
 
     /// Feed `text` and update nesting. Used both in the splitter merge pass
@@ -1674,6 +1681,21 @@ mod tests {
             split("He said 'Hello world. How are you?' Then he left."),
             vec!["He said 'Hello world. How are you?'", "Then he left."]
         );
+    }
+
+    #[test]
+    fn quote_is_open_excludes_parens() {
+        let mut quoted = DelimState::default();
+        quoted.feed("\"First sentence.");
+        assert!(quoted.quote_is_open());
+        assert!(quoted.is_inside());
+        quoted.feed(" Second.\"");
+        assert!(!quoted.quote_is_open());
+
+        let mut paren = DelimState::default();
+        paren.feed("(First sentence.");
+        assert!(!paren.quote_is_open());
+        assert!(paren.is_inside());
     }
 
     #[test]
