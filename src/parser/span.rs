@@ -201,8 +201,12 @@ pub fn iter_lines(input: &str) -> Vec<Line<'_>> {
 }
 
 /// True when `s` ends a sentence: `.!?` plus optional quotes, brackets,
-/// or markup closers.
+/// or markup closers. Punctuation inside a closed inline code span is
+/// not a sentence end.
 pub fn ends_sentence_punct(s: &str) -> bool {
+    if crate::sentence::unicode::trailing_sentence_punct_inside_span(s) {
+        return false;
+    }
     let core = s.trim_end().trim_end_matches([
         '"', '\'', ')', ']', '}', '*', '_', '`', '~', '/', '=', '+', '\u{201d}', '\u{2019}',
     ]);
@@ -213,7 +217,8 @@ pub fn ends_sentence_punct(s: &str) -> bool {
 ///
 /// A source newline after sentence punctuation is a break. Replacing it
 /// with a space lets UAX SB8 fuse the next token when it starts lowercase
-/// (`iCloud`). Mid-sentence wraps still join with a space.
+/// (`iCloud`). Mid-sentence wraps still join with a space. Punctuation
+/// inside a closed inline code span is not a keep-break.
 pub fn join_prose_gap(prose: &mut String) {
     if prose.is_empty() {
         return;
@@ -311,5 +316,16 @@ mod tests {
             wrap,
             "The experiment ran for several weeks using the usual protocol."
         );
+    }
+
+    #[test]
+    fn join_prose_gap_does_not_keep_break_inside_code_span() {
+        assert!(!ends_sentence_punct("`=!a`"));
+        assert!(!ends_sentence_punct("see `foo!`"));
+
+        let mut closed = String::from("see `foo!`");
+        join_prose_gap(&mut closed);
+        closed.push_str("bar");
+        assert_eq!(closed, "see `foo!` bar");
     }
 }

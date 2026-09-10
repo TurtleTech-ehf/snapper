@@ -414,7 +414,8 @@ fn find_org_paired_span(text: &str, open_at: usize, marker: char) -> Option<usiz
                 let after_close = j + marker.len_utf8();
                 let post_ok =
                     after_close == text.len() || POST.contains(text[after_close..].chars().next()?);
-                if post_ok {
+                // A PRE-valid `=` after `?\n` must not close inside `` `=!a` ``.
+                if post_ok && !md_code_span_covers(text, j) {
                     return Some(after_close);
                 }
             }
@@ -545,6 +546,127 @@ fn md_flanking(before: char, after: char) -> (bool, bool) {
     (left, right)
 }
 
+/// Closed paired-span ranges used to keep sentence joins out of inline code.
+pub(crate) fn paired_span_bounds(text: &str) -> Vec<(usize, usize)> {
+    let mut spans = Vec::new();
+    let bytes = text.as_bytes();
+    let mut i = 0;
+    while i < text.len() {
+        if bytes[i] == b'`' {
+            if let Some(end) = find_md_code_span(text, i) {
+                spans.push((i, end));
+                i = end;
+                continue;
+            }
+        } else if bytes[i] == b'=' {
+            if let Some(end) = find_org_paired_span(text, i, '=') {
+                spans.push((i, end));
+                i = end;
+                continue;
+            }
+        } else if bytes[i] == b'~' {
+            if let Some(end) = find_md_strike_span(text, i) {
+                spans.push((i, end));
+                i = end;
+                continue;
+            }
+            if let Some(end) = find_org_paired_span(text, i, '~') {
+                spans.push((i, end));
+                i = end;
+                continue;
+            }
+        } else if bytes[i] == b'*' {
+            if let Some(end) = find_md_emphasis_span(text, i) {
+                spans.push((i, end));
+                i = end;
+                continue;
+            }
+        }
+        let ch = text[i..].chars().next().expect("i is in range");
+        i += ch.len_utf8();
+    }
+    spans
+}
+
+/// True when the trailing `.!?` that [`crate::parser::span::ends_sentence_punct`]
+/// would see sits inside a closed paired span.
+pub(crate) fn trailing_sentence_punct_inside_span(text: &str) -> bool {
+    let Some(idx) = last_core_sentence_punct_index(text) else {
+        return false;
+    };
+    paired_span_bounds(text)
+        .into_iter()
+        .any(|(start, end)| start <= idx && idx < end)
+}
+
+fn last_core_sentence_punct_index(s: &str) -> Option<usize> {
+    let trimmed = s.trim_end();
+    const CLOSERS: &[char] = &[
+        '"', '\'', ')', ']', '}', '*', '_', '`', '~', '/', '=', '+', '\u{201d}', '\u{2019}',
+    ];
+    let mut end = trimmed.len();
+    while end > 0 {
+        let ch = trimmed[..end].chars().next_back()?;
+        if CLOSERS.contains(&ch) {
+            end -= ch.len_utf8();
+        } else {
+            break;
+        }
+    }
+    if end == 0 {
+        return None;
+    }
+    let ch = trimmed[..end].chars().next_back()?;
+    if matches!(ch, '.' | '!' | '?') {
+        Some(end - ch.len_utf8())
+    } else {
+        None
+    }
+}
+
+/// Glue UAX pieces that together form one inline code/verbatim span.
+///
+/// A first pass can still cut on `!` inside `` `=!a` `` when the span was
+/// not protected. The next format then joins the pieces. Rejoining here
+/// keeps one format pass a fixpoint.
+pub(crate) fn merge_splits_inside_paired_spans(segments: Vec<String>) -> Vec<String> {
+    let mut result: Vec<String> = Vec::with_capacity(segments.len());
+    for segment in segments {
+        if let Some(prev) = result.last_mut() {
+            let join_at = prev.len();
+            let glued = format!("{prev}{segment}");
+            if paired_span_bounds(&glued)
+                .into_iter()
+                .any(|(start, end)| start < join_at && join_at < end)
+            {
+                *prev = glued;
+                continue;
+            }
+        }
+        result.push(segment);
+    }
+    result
+}
+
+/// True when `idx` sits inside a closed Markdown backtick span.
+fn md_code_span_covers(text: &str, idx: usize) -> bool {
+    let bytes = text.as_bytes();
+    let mut i = 0;
+    while i < text.len() && i <= idx {
+        if bytes[i] == b'`' {
+            if let Some(end) = find_md_code_span(text, i) {
+                if i <= idx && idx < end {
+                    return true;
+                }
+                i = end;
+                continue;
+            }
+        }
+        i += 1;
+    }
+    false
+}
+
 fn find_md_code_span(text: &str, open_at: usize) -> Option<usize> {
     let bytes = text.as_bytes();
     if bytes.get(open_at) != Some(&b'`') {
@@ -672,7 +794,8 @@ impl SentenceSplitter for UnicodeSentenceSplitter {
 
         let merged = self.refine_segments_from_strs(&raw_segments);
         let restored = restore_inline_tokens(merged, &placeholders);
-        split_after_markup_sentence_end(restored)
+        let restored = merge_splits_inside_paired_spans(restored);
+        merge_splits_inside_paired_spans(split_after_markup_sentence_end(restored))
     }
 }
 
@@ -1470,6 +1593,22 @@ mod tests {
     }
 
     #[test]
+    fn org_equals_does_not_close_inside_backtick_span() {
+        let one_line = "?=\"`=!a`";
+        let (_, ph) = protect_inline_tokens(one_line);
+        assert_eq!(ph, vec!["`=!a`".to_string()], "one-line {ph:?}");
+
+        // After the iCloud keep-break, `=` follows a newline and is PRE-valid.
+        let two_line = "?\n=\"`=!a`";
+        let (_, ph) = protect_inline_tokens(two_line);
+        assert_eq!(
+            ph,
+            vec!["`=!a`".to_string()],
+            "two-line must keep the md span, got {ph:?}"
+        );
+    }
+
+    #[test]
     fn markdown_code_span_with_dot_pl_stays_atomic() {
         let text = "`latexindent.pl` covers LaTeX only. Snapper handles Org.";
         let (_, placeholders) = protect_inline_tokens(text);
@@ -1945,5 +2084,41 @@ mod tests {
             );
             assert_eq!(format_text(&out, &cfg).unwrap(), out);
         }
+    }
+
+    #[test]
+    fn does_not_split_bang_inside_backtick_span() {
+        use crate::format::Format;
+        use crate::{FormatConfig, format_text};
+
+        let input = "?=\"`=!a`";
+        assert_eq!(
+            split(input),
+            vec!["?", "=\"`=!a`"],
+            "splitter must not cut inside `=!a`"
+        );
+        assert_eq!(
+            split("?\n=\"`=!a`"),
+            vec!["?", "=\"`=!a`"],
+            "newline after ? must not expose ! inside the code span, got {got:?}",
+            got = split("?\n=\"`=!a`")
+        );
+
+        let cfg = FormatConfig {
+            format: Format::Plaintext,
+            ..Default::default()
+        }
+        .without_safety_backstops();
+        let out = format_text(&(input.to_string() + "\n"), &cfg).unwrap();
+        assert!(
+            !out.contains("=!\n"),
+            "keep-break must not land inside the code span, got:\n{out:?}"
+        );
+        assert!(
+            out.contains("`=!a`"),
+            "code span must stay intact, got:\n{out:?}"
+        );
+        let again = format_text(&out, &cfg).unwrap();
+        assert_eq!(again, out, "first={out:?} second={again:?}");
     }
 }
