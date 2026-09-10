@@ -800,12 +800,15 @@ fn push_segment_preserving_space(dest: &mut String, piece: &str) {
 /// Merge false splits caused by sentence punctuation inside quotes or parens.
 /// E.g., `He said "wow!"` + `and left.` should stay as one sentence when
 /// the next segment starts with a lowercase letter.
-/// Split after `.!?` that sits immediately before Markdown/Org closers.
+/// Split after `.!?` that sits immediately before Markdown/Org closers,
+/// or after an RST interpreted-text role closer then `.!?`.
 ///
 /// `**Bold sentence.** Next` is one UAX sentence because the period lives
-/// inside the protected span. Quotes are not paired spans, so they already
-/// split. Mid-span periods (`**the end. Still bold**`) have no closers
-/// after the period and stay one sentence.
+/// inside the protected span. `:file:`README.md`. Next` has the period
+/// after the closer. A bare backtick run plus punct is not a role closer
+/// (` ``?A'' ` is a LaTeX quote). Quotes are not paired spans, so they
+/// already split. Mid-span periods (`**the end. Still bold**`) have no
+/// closers after the period and stay one sentence.
 pub(crate) fn split_after_markup_sentence_end(segments: Vec<String>) -> Vec<String> {
     let mut out = Vec::new();
     for seg in segments {
@@ -824,13 +827,14 @@ fn push_markup_sentence_splits(out: &mut Vec<String>, seg: &str) {
 }
 
 fn take_markup_terminal_sentence(seg: &str) -> Option<(String, String)> {
-    // Period, then `**` / `*` / `_` / backticks / `~~` / `](url)`, then
-    // whitespace, then a new sentence (uppercase or opening quote). A
-    // lowercase continuation (`[Example Inc.](url) now.`) stays one
-    // sentence.
+    // Period then `**` / `*` / `_` / backticks / `~~` / `](url)`, or an
+    // RST `:role:`text`` closer then period. Then whitespace and a new
+    // sentence (uppercase or opening quote). A lowercase continuation
+    // (`[Example Inc.](url) now.`) stays one sentence. A bare backtick
+    // run plus punct (` ``?A'' `) is not a role closer.
     static CAP: LazyLock<Regex> = LazyLock::new(|| {
         Regex::new(
-            r#"(?s)^(.*?[.!?](?:\*{1,3}|_{1,3}|`+|~{1,2}|\]\([^)]*\))+)\s+([A-Z][\s\S]*|["'][A-Z][\s\S]*)$"#,
+            r#"(?s)^(.*?(?:[.!?](?:\*{1,3}|_{1,3}|`+|~{1,2}|\]\([^)]*\))+|:[A-Za-z][A-Za-z0-9_.:+-]*:`[^`\n]*`[.!?]))\s+([A-Z][\s\S]*|["'][A-Z][\s\S]*)$"#,
         )
         .expect("valid markup-terminal sentence regex")
     });
@@ -1895,6 +1899,47 @@ mod tests {
         assert!(
             !out.contains("**complex.\n"),
             "must not split before the closer, got:\n{out}"
+        );
+    }
+
+    #[test]
+    fn rst_interpreted_text_role_closer_is_a_sentence_end() {
+        assert_eq!(
+            split("The task is in :file:`README.md`. Use this section for questions."),
+            vec![
+                "The task is in :file:`README.md`.".to_string(),
+                "Use this section for questions.".to_string()
+            ]
+        );
+        assert_eq!(
+            split("The task is in ``README.md``. Use this section for questions."),
+            vec![
+                "The task is in ``README.md``.".to_string(),
+                "Use this section for questions.".to_string()
+            ]
+        );
+    }
+
+    #[test]
+    fn rst_role_closer_stays_two_lines_under_format() {
+        use crate::format::Format;
+        use crate::{FormatConfig, format_text};
+
+        let cfg = FormatConfig {
+            format: Format::Rst,
+            max_width: 0,
+            ..Default::default()
+        };
+        let input = "The task is in :file:`README.md`.\nUse this section for questions.\n";
+        let out = format_text(input, &cfg).unwrap();
+        assert_eq!(out, input, "role closer must stay two lines, got:\n{out}");
+        assert_eq!(format_text(&out, &cfg).unwrap(), out);
+
+        let literal = "The task is in ``README.md``.\nUse this section for questions.\n";
+        let lit_out = format_text(literal, &cfg).unwrap();
+        assert_eq!(
+            lit_out, literal,
+            "double-backtick literal must stay two lines, got:\n{lit_out}"
         );
     }
 }
