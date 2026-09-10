@@ -8,7 +8,8 @@ use crate::sentence::unicode::latex_verb_span_end_with;
 
 // Environments whose content is NOT prose (math, code, tables, pictures).
 // Extra names are tree-sitter-latex `math_environment` plus latexindent
-// `lookForAlignDelims` (amsmath / mathtools / tabularray), not a GPL copy.
+// `lookForAlignDelims` (amsmath / mathtools / nicematrix / listabla /
+// tabularray / spreadtab), not a GPL copy.
 // Overleaf `equationEnvNames` includes `tikzcd`; pgfplots `axis` /
 // `pgfpicture` are the same class (and starred variants). Not every
 // pgfplots name.
@@ -50,6 +51,28 @@ static NON_PROSE_ENVS: &[&str] = &[
     "tblr",
     "longtblr",
     "talltblr",
+    "listabla",
+    "spreadtab",
+    "NiceTabular",
+    "NiceMatrix",
+    "pNiceMatrix",
+    "bNiceMatrix",
+    "BNiceMatrix",
+    "vNiceMatrix",
+    "VNiceMatrix",
+    "NiceArray",
+    "pNiceArrayC",
+    "bNiceArrayC",
+    "BNiceArrayC",
+    "vNiceArrayC",
+    "VNiceArrayC",
+    "NiceArrayCwithDelims",
+    "pNiceArrayRC",
+    "bNiceArrayRC",
+    "BNiceArrayRC",
+    "vNiceArrayRC",
+    "VNiceArrayRC",
+    "NiceArrayRCwithDelims",
     "lstlisting",
     "verbatim",
     "minted",
@@ -3197,6 +3220,152 @@ Some text.
         assert!(
             out.contains("After the tables.\nNext."),
             "prose after the envs must still reflow, got:\n{out}"
+        );
+        assert_eq!(format_text(&out, &latex_cfg()).unwrap(), out);
+    }
+
+    /// Leftover latexindent 4.0.2 `lookForAlignDelims` names (GitHub #182 / snapper-x4di).
+    fn leftover_align_delim_names() -> &'static [&'static str] {
+        &[
+            "NiceTabular",
+            "NiceMatrix",
+            "pNiceMatrix",
+            "bNiceMatrix",
+            "BNiceMatrix",
+            "vNiceMatrix",
+            "VNiceMatrix",
+            "NiceArray",
+            "pNiceArrayC",
+            "bNiceArrayC",
+            "BNiceArrayC",
+            "vNiceArrayC",
+            "VNiceArrayC",
+            "NiceArrayCwithDelims",
+            "pNiceArrayRC",
+            "bNiceArrayRC",
+            "BNiceArrayRC",
+            "vNiceArrayRC",
+            "VNiceArrayRC",
+            "NiceArrayRCwithDelims",
+            "listabla",
+            "spreadtab",
+        ]
+    }
+
+    /// Ticket fixture: NiceTabular body is Structure; surrounding prose still reflows.
+    #[test]
+    fn nicetabular_fixture_is_structure_and_surrounding_reflows() {
+        use crate::format_text;
+
+        let input = concat!(
+            "\\begin{NiceTabular}{cc}\n",
+            "This is a long sentence that must stay inside NiceTabular and must not reflow as prose.\n",
+            "\\end{NiceTabular}\n",
+            "After the table. Second sentence.\n",
+        );
+        let regions = LatexParser::default().parse(input);
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Structure(s)
+                    if s.contains("must stay inside NiceTabular and must not reflow as prose")
+            )),
+            "NiceTabular body must be Structure, got: {regions:?}"
+        );
+        assert!(
+            !regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(p) if p.contains("inside NiceTabular")
+            )),
+            "NiceTabular body must not be Prose, got: {regions:?}"
+        );
+        let out = format_text(input, &latex_cfg()).unwrap();
+        assert!(
+            out.contains(
+                "This is a long sentence that must stay inside NiceTabular and must not reflow as prose."
+            ),
+            "NiceTabular body must stay one source line, got:\n{out}"
+        );
+        assert!(
+            out.contains("After the table.\nSecond sentence."),
+            "prose after NiceTabular must still reflow, got:\n{out}"
+        );
+        assert_eq!(format_text(&out, &latex_cfg()).unwrap(), out);
+    }
+
+    #[test]
+    fn leftover_align_delim_envs_are_structure() {
+        for name in leftover_align_delim_names() {
+            let input = format!(
+                "\\begin{{{name}}}\nThis is a long sentence that must not reflow as prose inside {name}.\n\\end{{{name}}}\n"
+            );
+            let needle = format!("must not reflow as prose inside {name}");
+            let regions = LatexParser::default().parse(&input);
+            assert!(
+                regions
+                    .iter()
+                    .any(|r| matches!(r, Region::Structure(s) if s.contains(&needle))),
+                "{name} body must be Structure, got: {regions:?}"
+            );
+            assert!(
+                !regions
+                    .iter()
+                    .any(|r| matches!(r, Region::Prose(p) if p.contains(&needle))),
+                "{name} body must not be Prose, got: {regions:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn leftover_align_delim_two_sentence_bodies_do_not_reflow() {
+        use crate::format_text;
+
+        let input = concat!(
+            "\\begin{document}\n",
+            "Before the table. More before.\n",
+            "\\begin{NiceTabular}{cc}\n",
+            "First sentence inside NiceTabular. Second sentence stays put.\n",
+            "\\end{NiceTabular}\n",
+            "\\begin{NiceMatrix}\n",
+            "First sentence inside NiceMatrix. Second sentence stays put.\n",
+            "\\end{NiceMatrix}\n",
+            "\\begin{NiceArray}\n",
+            "First sentence inside NiceArray. Second sentence stays put.\n",
+            "\\end{NiceArray}\n",
+            "\\begin{listabla}\n",
+            "First sentence inside listabla. Second sentence stays put.\n",
+            "\\end{listabla}\n",
+            "\\begin{spreadtab}\n",
+            "First sentence inside spreadtab. Second sentence stays put.\n",
+            "\\end{spreadtab}\n",
+            "After the table. Second sentence.\n",
+            "\\end{document}\n",
+        );
+        let out = format_text(input, &latex_cfg()).unwrap();
+        for fused in [
+            "First sentence inside NiceTabular. Second sentence stays put.",
+            "First sentence inside NiceMatrix. Second sentence stays put.",
+            "First sentence inside NiceArray. Second sentence stays put.",
+            "First sentence inside listabla. Second sentence stays put.",
+            "First sentence inside spreadtab. Second sentence stays put.",
+        ] {
+            assert!(
+                out.contains(fused),
+                "align-delim body must not reflow, missing {fused:?}, got:\n{out}"
+            );
+        }
+        assert!(
+            !out.contains("inside NiceTabular.\nSecond")
+                && !out.contains("inside NiceMatrix.\nSecond")
+                && !out.contains("inside NiceArray.\nSecond")
+                && !out.contains("inside listabla.\nSecond")
+                && !out.contains("inside spreadtab.\nSecond"),
+            "align-delim bodies must stay one source line, got:\n{out}"
+        );
+        assert!(
+            out.contains("Before the table.\nMore before.")
+                && out.contains("After the table.\nSecond sentence."),
+            "prose around leftover align-delim envs must still reflow, got:\n{out}"
         );
         assert_eq!(format_text(&out, &latex_cfg()).unwrap(), out);
     }
