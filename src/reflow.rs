@@ -669,6 +669,9 @@ fn rst_opens_block(line: &str) -> bool {
     if crate::parser::rst::rst_option_column_len(t).is_some() {
         return true;
     }
+    if crate::parser::rst::is_rst_doctest_opener(t) {
+        return true;
+    }
     ordered_list_start(t)
 }
 

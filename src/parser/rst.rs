@@ -25,6 +25,9 @@ static OPTION_MARKER_RE: LazyLock<Regex> = LazyLock::new(|| {
     .unwrap()
 });
 
+/// Docutils `Body.patterns['doctest']`: `>>>( +|$)`.
+static DOCTEST_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^>>>( +|$)").unwrap());
+
 pub struct RstParser;
 
 impl FormatParser for RstParser {
@@ -34,8 +37,8 @@ impl FormatParser for RstParser {
 }
 
 /// Line-based RST parser. Handles directives, literal blocks, sections,
-/// field lists, option lists, comments, tables, definition lists, and
-/// block-quote hang spaces as structure regions.
+/// field lists, option lists, doctest blocks, comments, tables, definition
+/// lists, and block-quote hang spaces as structure regions.
 fn parse_line_based(input: &str) -> Vec<SpannedRegion> {
     let mut regions = Vec::new();
     let mut current_prose = String::new();
@@ -313,6 +316,23 @@ fn parse_line_based(input: &str) -> Vec<SpannedRegion> {
             continue;
         }
 
+        // Doctest block: Docutils Body.doctest (`>>>( +|$)`). The rest of
+        // the text block (until a blank) is one doctest_block with no
+        // inline parse, so SemBr / wrap cannot join prompt, output, and
+        // the next `>>>` (GitHub #90).
+        if is_rst_doctest_opener(line_text) {
+            flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
+            let start = line.start;
+            let mut end = line.end;
+            i += 1;
+            while i < total && !lines[i].text.trim().is_empty() {
+                end = lines[i].end;
+                i += 1;
+            }
+            regions.push(SpannedRegion::structure(input, ByteSpan::new(start, end)));
+            continue;
+        }
+
         // Grid table rows (`| cell |` / `+---+---+`)
         if trimmed.starts_with('|') || trimmed.starts_with('+') {
             flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
@@ -462,6 +482,12 @@ pub(crate) fn source_has_dropped_rst_comments(input: &str) -> bool {
     input
         .lines()
         .any(|line| is_rst_dropped_comment_opener(line.trim_start()))
+}
+
+/// True when `line` opens a Docutils doctest block (`>>>( +|$)`).
+/// Leading indent is stripped so a nested Body sees the same opener.
+pub(crate) fn is_rst_doctest_opener(line: &str) -> bool {
+    DOCTEST_RE.is_match(line.trim_start())
 }
 
 /// Byte length of the RST option column on `line`, including leading
@@ -1468,6 +1494,79 @@ mod tests {
         assert!(
             wrap_out.contains("-a            "),
             "wrap must not eat option-column spaces, got:\n{wrap_out}"
+        );
+    }
+
+    #[test]
+    fn doctest_opener_matches_docutils_pattern() {
+        assert!(is_rst_doctest_opener(
+            ">>> print('Python-specific usage examples; begun with \">>> \"')"
+        ));
+        assert!(is_rst_doctest_opener(">>>"));
+        assert!(is_rst_doctest_opener(">>> "));
+        assert!(is_rst_doctest_opener("   >>> print(1)"));
+        assert!(!is_rst_doctest_opener(">>>>"));
+        assert!(!is_rst_doctest_opener(">>>foo"));
+        assert!(!is_rst_doctest_opener("see >>> print(1)"));
+    }
+
+    #[test]
+    fn doctest_block_is_one_structure_not_prose() {
+        let input = concat!(
+            ">>> print('Python-specific usage examples; begun with \">>> \"')\n",
+            "Python-specific usage examples; begun with \">>> \"\n",
+            ">>> print('(cut and pasted from interactive Python sessions)')\n",
+            "(cut and pasted from interactive Python sessions)\n",
+        );
+        let regions = RstParser.parse(input);
+        let structure: Vec<_> = regions
+            .iter()
+            .filter_map(|r| match r {
+                Region::Structure(s) => Some(s.as_str()),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(
+            structure,
+            [input],
+            "whole doctest must be one Structure, got {regions:?}"
+        );
+        assert!(
+            !regions.iter().any(|r| matches!(r, Region::Prose(_))),
+            "doctest must not be Prose, got {regions:?}"
+        );
+    }
+
+    #[test]
+    fn reporter_doctest_block_is_identity_under_format() {
+        use crate::format::Format;
+        use crate::{FormatConfig, format_text};
+
+        let cfg = FormatConfig {
+            format: Format::Rst,
+            max_width: 0,
+            ..Default::default()
+        };
+        let input = concat!(
+            ">>> print('Python-specific usage examples; begun with \">>> \"')\n",
+            "Python-specific usage examples; begun with \">>> \"\n",
+            ">>> print('(cut and pasted from interactive Python sessions)')\n",
+            "(cut and pasted from interactive Python sessions)\n",
+        );
+        let out = format_text(input, &cfg).unwrap();
+        assert_eq!(out, input, "doctest block must stay identity, got:\n{out}");
+        assert_eq!(
+            format_text(&out, &cfg).unwrap(),
+            out,
+            "doctest identity must hold on a second pass, got:\n{out}"
+        );
+        assert!(
+            !out.contains(">>> \"') Python-specific"),
+            "must not join prompt onto output, got:\n{out}"
+        );
+        assert!(
+            !out.contains(">>> \" >>> print"),
+            "must not join output onto the next >>>, got:\n{out}"
         );
     }
 }
