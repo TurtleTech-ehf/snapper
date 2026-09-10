@@ -25,7 +25,8 @@ The classification depends on the format.
 - Special-block interiors (NOTE, ABSTRACT, WARNING, ...) reflow as prose
 - =:PROPERTIES:= ...
 =:END:= drawers
-- =#+KEYWORD:= directives (TITLE, AUTHOR, DATE, OPTIONS, etc.)
+- =#+KEYWORD:= directives (TITLE, AUTHOR, DATE, OPTIONS, NAME, ATTR_*, etc.); =#+CAPTION:= / =#+CAPTION[short]:= opener only
+- Standalone bracket-link lines (=[[file:plot.png]]=)
 - Table rows (lines starting with =|=)
 - Comment lines (starting with =#= but not =#+= )
 - Full headline lines (stars, optional TODO keyword, and title text)
@@ -50,6 +51,7 @@ The classification depends on the format.
 - Paragraph text
 - List item text (after the marker); continuation sentences hang at the marker width so Org rejoins the item
 - Quote, verse, center, and special-block inner text (verse stays line-preserving)
+- =#+CAPTION:= value (org-element-parsed-keywords); continuation sentences hang at the opener width. Dual =#+CAPTION[short]:= keeps the short title on the opener
 
 *** Inline tokens (kept atomic)
 :PROPERTIES:

@@ -1095,6 +1095,11 @@ fn hanging_indent_width(s: &str) -> usize {
     if crate::parser::org::org_footnote_definition_marker_len(s) == Some(s.len()) {
         return s.chars().count();
     }
+    // Org CAPTION (`#+CAPTION: `, `#+CAPTION[short]: `): hang at
+    // opener width so the value stays a hung paragraph (GitHub #204).
+    if crate::parser::org::org_caption_marker_len(s) == Some(s.len()) {
+        return s.chars().count();
+    }
     // Parser markers are `core` plus one or more trailing spaces; leading
     // indent is part of the hang so nested `   - ` continues at column 5.
     // Extra spaces after `*` (`*  Candidate:`) stay in the hang so a
@@ -1761,6 +1766,19 @@ They are endowed with reason and conscience and should act towards one another i
         assert_eq!(hanging_indent_width("[fn:note] "), 10);
         assert_eq!(hanging_prefix("[fn:1] "), "       ");
         assert_eq!(hanging_prefix("[fn:note] "), "          ");
+        assert_eq!(hanging_indent_width("#+CAPTION: "), 11);
+        assert_eq!(hanging_prefix("#+CAPTION: "), "           ");
+        assert_eq!(
+            hanging_indent_width("#+CAPTION[Short. Title.]: "),
+            "#+CAPTION[Short. Title.]: ".len()
+        );
+        assert_eq!(
+            hanging_prefix("#+CAPTION[Short. Title.]: "),
+            "                          "
+        );
+        assert_eq!(hanging_indent_width("#+NAME: "), 0);
+        assert_eq!(hanging_indent_width("#+ATTR_HTML: "), 0);
+        assert_eq!(hanging_indent_width("#+ATTR_LATEX: "), 0);
     }
 
     #[test]
@@ -1786,6 +1804,25 @@ They are endowed with reason and conscience and should act towards one another i
         assert_eq!(
             result,
             "[fn:1] This is a long footnote sentence that must stay inside the definition.\n       Second sentence.\n"
+        );
+    }
+
+    #[test]
+    fn org_caption_hangs_second_sentence() {
+        let result = reflow_regions(vec![
+            Region::Structure("#+CAPTION: ".to_string()),
+            Region::Prose(
+                "This is a long figure caption that must reflow as prose. Second sentence."
+                    .to_string(),
+            ),
+            Region::Structure("\n".to_string()),
+        ]);
+        assert_eq!(
+            result,
+            concat!(
+                "#+CAPTION: This is a long figure caption that must reflow as prose.\n",
+                "           Second sentence.\n",
+            )
         );
     }
 
