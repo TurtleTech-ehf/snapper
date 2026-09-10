@@ -147,10 +147,39 @@ impl OrgParser {
             || t.starts_with("CLOCK:")
     }
 
+    /// org-element-dynamic-block-open-re: `^[ \t]*#\+BEGIN:[ \t]+\S`
+    /// (`case-fold-search t`). A name is required; bare `#+BEGIN:` is a keyword.
+    fn is_dynamic_block_begin(line: &str) -> bool {
+        let t = line.trim_start_matches([' ', '\t']);
+        let upper = t.to_ascii_uppercase();
+        let Some(rest) = upper.strip_prefix("#+BEGIN:") else {
+            return false;
+        };
+        !rest.trim_start_matches([' ', '\t']).is_empty()
+    }
+
+    /// org-element-dynamic-block-parser closer: `^[ \t]*#\+END:?[ \t]*$`
+    /// (`case-fold-search t`). Does not match `#+END_NAME`.
+    fn is_dynamic_block_end(line: &str) -> bool {
+        let t = line.trim_start_matches([' ', '\t']);
+        let upper = t.to_ascii_uppercase();
+        let rest = if let Some(r) = upper.strip_prefix("#+END:") {
+            r
+        } else if let Some(r) = upper.strip_prefix("#+END") {
+            r
+        } else {
+            return false;
+        };
+        rest.trim_matches([' ', '\t']).is_empty()
+    }
+
     /// Check if a line is a keyword/directive (#+KEYWORD:)
     fn is_keyword(line: &str) -> bool {
         let trimmed = line.trim_start();
-        trimmed.starts_with("#+") && !Self::is_block_begin(line) && !Self::is_block_end(line)
+        trimmed.starts_with("#+")
+            && !Self::is_block_begin(line)
+            && !Self::is_block_end(line)
+            && !Self::is_dynamic_block_begin(line)
     }
 
     /// Check if a line is a comment (starts with #, but not #+)
@@ -361,6 +390,7 @@ impl FormatParser for OrgParser {
         // Quote/verse/center are containers (inner Prose); other names are opaque.
         let mut block_stack: Vec<OpenGreater> = Vec::new();
         let mut in_src_block = false;
+        let mut in_dynamic_block = false;
         let mut src_lang: Option<String> = None;
         let mut src_header = ByteSpan::default();
         let mut src_body_start = 0usize;
@@ -576,6 +606,25 @@ impl FormatParser for OrgParser {
                 flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
                 list_item_indent = None;
                 regions.push(SpannedRegion::blank(input, line.span()));
+                continue;
+            }
+
+            // Inside a dynamic block (`#+BEGIN: NAME` ... `#+END:`) -- Structure.
+            if in_dynamic_block {
+                flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
+                if Self::is_dynamic_block_end(line_text) {
+                    in_dynamic_block = false;
+                }
+                regions.push(SpannedRegion::structure(input, line.span()));
+                continue;
+            }
+
+            // #+BEGIN: NAME -- org-element dynamic block. Body stays Structure
+            // through #+END: / #+END (GitHub #178).
+            if Self::is_dynamic_block_begin(line_text) {
+                flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
+                in_dynamic_block = true;
+                regions.push(SpannedRegion::structure(input, line.span()));
                 continue;
             }
 
