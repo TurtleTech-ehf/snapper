@@ -284,16 +284,13 @@ fn parse_line_based(input: &str) -> Vec<SpannedRegion> {
             continue;
         }
 
-        // Field list (:field: value)
-        if trimmed.starts_with(':') && trimmed.len() > 2 {
-            if let Some(colon_pos) = trimmed[1..].find(':') {
-                if colon_pos > 0 && colon_pos < trimmed.len() - 2 {
-                    flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
-                    regions.push(SpannedRegion::structure(input, line.span()));
-                    i += 1;
-                    continue;
-                }
-            }
+        // Field list (`:field: value`). Docutils field_marker needs
+        // space after the closing colon; `:role:`text`` is prose.
+        if is_rst_field_list_line(trimmed) {
+            flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
+            regions.push(SpannedRegion::structure(input, line.span()));
+            i += 1;
+            continue;
         }
 
         // Literal block intro (line ending with ::)
@@ -535,6 +532,23 @@ pub(crate) fn source_has_dropped_rst_comments(input: &str) -> bool {
     input
         .lines()
         .any(|line| is_rst_dropped_comment_opener(line.trim_start()))
+}
+
+/// True when `trimmed` is an RST field-list item (`:name: value`).
+/// Docutils `field_marker` requires whitespace after the closing colon.
+/// `:role:`text`` is interpreted text, not a field (GitHub #126).
+pub(crate) fn is_rst_field_list_line(trimmed: &str) -> bool {
+    if !trimmed.starts_with(':') || trimmed.len() < 3 {
+        return false;
+    }
+    let Some(name_end) = trimmed[1..].find(':') else {
+        return false;
+    };
+    if name_end == 0 {
+        return false;
+    }
+    let after = name_end + 2;
+    after < trimmed.len() && trimmed.as_bytes()[after].is_ascii_whitespace()
 }
 
 /// Byte length of the RST option column on `line`, including leading
@@ -1091,6 +1105,99 @@ mod tests {
             regions
                 .iter()
                 .any(|r| matches!(r, Region::Structure(s) if s.contains("Author")))
+        );
+    }
+
+    #[test]
+    fn field_list_line_rejects_interpreted_text_role() {
+        assert!(is_rst_field_list_line(":Author: Someone"));
+        assert!(is_rst_field_list_line(":class: test"));
+        assert!(!is_rst_field_list_line(
+            ":class:`CloudDatabase` exceeds a rate"
+        ));
+        assert!(!is_rst_field_list_line(":py:class:`CloudDatabase`"));
+        assert!(!is_rst_field_list_line("::"));
+        assert!(!is_rst_field_list_line("Hello"));
+    }
+
+    #[test]
+    fn role_continuation_joins_list_item_prose() {
+        let input = concat!(
+            "* TooManyRequests is returned when a\n",
+            "  :class:`CloudDatabase` exceeds a configured request rate\n",
+            "  limit. Set requests_per_second_limit to 0 for every request.\n",
+        );
+        let regions = RstParser.parse(input);
+        assert!(
+            regions
+                .iter()
+                .any(|r| matches!(r, Region::Structure(s) if s == "* ")),
+            "marker must be Structure, got {regions:?}"
+        );
+        let prose: Vec<_> = regions
+            .iter()
+            .filter_map(|r| match r {
+                Region::Prose(s) => Some(s.as_str()),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(
+            prose,
+            [
+                "TooManyRequests is returned when a :class:`CloudDatabase` exceeds a configured request rate limit. Set requests_per_second_limit to 0 for every request."
+            ],
+            "role continuation must join the item, got {regions:?}"
+        );
+        assert!(
+            !regions.iter().any(|r| matches!(
+                r,
+                Region::Structure(s) if s.contains(":class:`CloudDatabase`")
+            )),
+            "role must not be a field-list Structure, got {regions:?}"
+        );
+    }
+
+    #[test]
+    fn reporter_role_continuation_second_sentence_hangs() {
+        use crate::format::Format;
+        use crate::oracle;
+        use crate::{FormatConfig, format_text};
+
+        let cfg = FormatConfig {
+            format: Format::Rst,
+            max_width: 0,
+            ..Default::default()
+        };
+        let input = concat!(
+            "* TooManyRequests is returned when a\n",
+            "  :class:`CloudDatabase` exceeds a configured request rate\n",
+            "  limit. Set requests_per_second_limit to 0 for every request.\n",
+        );
+        let out = format_text(input, &cfg).unwrap();
+        assert_eq!(
+            out,
+            concat!(
+                "* TooManyRequests is returned when a :class:`CloudDatabase` exceeds a configured request rate limit.\n",
+                "  Set requests_per_second_limit to 0 for every request.\n",
+            ),
+            "second sentence must hang at `* ` width, got:\n{out}"
+        );
+        assert!(
+            out.contains("\n  Set requests_per_second_limit"),
+            "second sentence must keep two-space hang, got:\n{out}"
+        );
+        assert!(
+            !out.contains("\nSet requests_per_second_limit"),
+            "second sentence must not outdent to column 0, got:\n{out}"
+        );
+        let twice = format_text(&out, &cfg).unwrap();
+        assert_eq!(
+            out, twice,
+            "hung role continuation must be identity, got:\n{twice}"
+        );
+        assert!(
+            oracle::matches(Format::Rst, input, &out),
+            "oracle mismatch\n in={input:?}\n out={out:?}"
         );
     }
 
