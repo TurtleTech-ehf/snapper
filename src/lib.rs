@@ -115,8 +115,8 @@ pub struct FormatConfig {
     pub render_backstop: bool,
     /// Extra LaTeX environments treated as code (no reflow), added to
     /// minted/lstlisting/verbatim/comment, filecontents, tree-sitter
-    /// trivia, and Overleaf Verbatim/boxedverbatim/tcblisting/codeexample.
-    /// Empty keeps the built-in list.
+    /// trivia, Overleaf Verbatim/boxedverbatim/tcblisting/codeexample,
+    /// and fancyvrb BVerbatim/LVerbatim. Empty keeps the built-in list.
     pub latex_verbatim_envs: Vec<String>,
     /// Extra LaTeX environments treated as structure (no reflow), added
     /// to `NON_PROSE_ENVS`. Empty keeps the built-in list.
