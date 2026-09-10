@@ -191,6 +191,12 @@ These tokens within prose are not split across lines:
 - Paragraph text between structural elements
 - Indented bodies of container directives (admonitions, figure captions, topic, sidebar, container); hang spaces stay structure
 
+*** Inline tokens (kept atomic)
+:PROPERTIES:
+:CUSTOM_ID: rst-inline
+:END:
+- Substitution references: =|fig. 1|= / =|version|= / =|name|_= / =|name|__= (Docutils Inliner.substitution_ref). Interior punctuation is not a sentence or wrap boundary. The use stays Prose, not Structure (line-block is =|= plus space or EOL)
+
 *** Auto-detection
 :PROPERTIES:
 :CUSTOM_ID: rst-detection

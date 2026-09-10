@@ -156,11 +156,15 @@ pub fn protect_inline_tokens_with(
 ) -> (String, Vec<String>) {
     let mut placeholders: Vec<String> = Vec::new();
     let after_verb = protect_latex_verbatim(text, &mut placeholders, extra_verbatim_commands);
+    // After `\verb|` so a configured delimiter is gone. Unlisted
+    // `\Verb|a.b! c|` keeps the letter prefix, so it is not a
+    // substitution_ref (Docutils start-string; GitHub #233).
+    let after_rst = protect_rst_substitution_refs(&after_verb, &mut placeholders);
     // org-element inline src / babel-call before paired `=`/`~` so a body
     // like `src_python{~x~}` stays one object, not an Org code span.
     // Footnote references run in the same walk so a nested `[[link]]`
     // closer does not end `[fn:: …]` early (GitHub #231).
-    let after_org = protect_org_inline_src_and_call(&after_verb, &mut placeholders);
+    let after_org = protect_org_inline_src_and_call(&after_rst, &mut placeholders);
     let after_spans = protect_paired_spans(&after_org, &mut placeholders);
     let protected = INLINE_TOKEN_RE.replace_all(&after_spans, |caps: &regex::Captures| {
         let idx = placeholders.len();
@@ -337,6 +341,75 @@ fn find_unescaped_brace_close(text: &str, mut i: usize) -> Option<usize> {
             return Some(i + 1);
         }
         i += 1;
+    }
+    None
+}
+
+/// Docutils Inliner.substitution_ref: `|text|` plus optional `_` / `__`.
+/// Text may not begin or end with whitespace (line_block is `| `).
+/// Start-string must be at BOS or after 7-bit non-alphanumeric, so
+/// `\Verb|a.b|` is not a substitution (GitHub #233).
+fn protect_rst_substitution_refs(text: &str, placeholders: &mut Vec<String>) -> String {
+    let mut out = String::with_capacity(text.len());
+    let mut i = 0;
+    while i < text.len() {
+        if let Some(end) = rst_substitution_ref_span_end(text, i) {
+            push_placeholder(&mut out, placeholders, &text[i..end]);
+            i = end;
+            continue;
+        }
+        let ch = text[i..].chars().next().expect("i is in range");
+        out.push(ch);
+        i += ch.len_utf8();
+    }
+    out
+}
+
+/// Byte end of a substitution_ref starting at `at`, or None.
+fn rst_substitution_ref_span_end(text: &str, at: usize) -> Option<usize> {
+    if !text.get(at..)?.starts_with('|') {
+        return None;
+    }
+    if at > 0 {
+        let prev = text[..at].chars().next_back()?;
+        // Docutils start-string: whitespace or 7-bit non-alphanumeric.
+        // A preceding `\` is an escape, not a start.
+        if prev == '\\' || !prev.is_ascii() || prev.is_ascii_alphanumeric() {
+            return None;
+        }
+    }
+    let mut chars = text[at + 1..].chars();
+    let first = chars.next()?;
+    if first == '|' || first == '\n' || first.is_whitespace() {
+        return None;
+    }
+    let mut last = first;
+    let mut consumed = first.len_utf8();
+    for ch in chars {
+        if ch == '\n' {
+            return None;
+        }
+        if ch == '|' {
+            if last.is_whitespace() {
+                return None;
+            }
+            let mut end = at + 1 + consumed + '|'.len_utf8();
+            let mut unders = 0;
+            for c in text[end..].chars() {
+                if unders < 2 && c == '_' {
+                    end += 1;
+                    unders += 1;
+                    continue;
+                }
+                if c.is_ascii_alphanumeric() {
+                    return None;
+                }
+                break;
+            }
+            return Some(end);
+        }
+        last = ch;
+        consumed += ch.len_utf8();
     }
     None
 }
@@ -804,7 +877,7 @@ fn find_md_code_span(text: &str, open_at: usize) -> Option<usize> {
 /// reference links `[text][ref]`, inline code, autolinks, math, Org `[[...]]`,
 /// Org `[cite...]`, Org `[fn::…]` / `[fn:LABEL:…]`, Org `<<<...>>>` /
 /// `<<...>>`, Org `{{{name}}}` / `{{{name(args)}}}`, Org `src_lang{...}` /
-/// `call_name(...)`, paired spans).
+/// `call_name(...)`, RST `|fig. 1|` / `|name|_` / `|name|__`, paired spans).
 ///
 /// Ranges are half-open `[start, end)`, sorted, non-overlapping, and merged
 /// when a regex match wraps a paired span.
@@ -814,6 +887,11 @@ pub fn atomic_inline_spans(text: &str) -> Vec<(usize, usize)> {
     let bytes = text.as_bytes();
     let mut i = 0;
     while i < text.len() {
+        if let Some(end) = rst_substitution_ref_span_end(text, i) {
+            spans.push((i, end));
+            i = end;
+            continue;
+        }
         if let Some(end) = org_inline_src_or_call_span_end(text, i) {
             spans.push((i, end));
             org_src_call_spans.push((i, end));
@@ -2203,6 +2281,102 @@ mod tests {
             split(link_text),
             vec![
                 "See [fn:: see [[https://ex.com][ex. site]]] in the notes.".to_string(),
+                "Next sentence.".to_string()
+            ]
+        );
+    }
+
+    #[test]
+    fn inline_rst_substitution_ref_interior_punct_is_not_a_sentence_boundary() {
+        // GitHub #233 / snapper-15i9: Docutils Inliner.substitution_ref
+        // `|fig. 1|` stays one token so an interior period is not a
+        // sentence boundary. `Next sentence.` still splits.
+        let sub = "|fig. 1|";
+        let text = "See |fig. 1| in the caption. Next sentence.";
+        let (_, placeholders) = protect_inline_tokens(text);
+        assert!(
+            placeholders.iter().any(|p| p == sub),
+            "substitution_ref must be one token, got {placeholders:?}"
+        );
+        let spans = atomic_inline_spans(text);
+        assert!(
+            spans.iter().any(|&(s, e)| &text[s..e] == sub),
+            "substitution_ref must be an atomic wrap span, got {:?}",
+            spans.iter().map(|&(s, e)| &text[s..e]).collect::<Vec<_>>()
+        );
+        assert_eq!(
+            split(text),
+            vec![
+                "See |fig. 1| in the caption.".to_string(),
+                "Next sentence.".to_string()
+            ]
+        );
+    }
+
+    #[test]
+    fn rst_substitution_ref_hyperlink_suffix_stays_one_token() {
+        for sub in ["|fig. 1|_", "|fig. 1|__"] {
+            let text = format!("See {sub} in the caption. Next sentence.");
+            let (_, placeholders) = protect_inline_tokens(&text);
+            assert!(
+                placeholders.iter().any(|p| p == sub),
+                "suffixed substitution_ref must be one token, got {placeholders:?} for {sub}"
+            );
+            assert_eq!(
+                split(&text),
+                vec![
+                    format!("See {sub} in the caption."),
+                    "Next sentence.".to_string()
+                ]
+            );
+        }
+    }
+
+    #[test]
+    fn rst_line_block_and_open_bar_are_not_substitution_refs() {
+        // Docutils line_block is `| ` (space after opener). Unclosed
+        // `|fig. 1` is not substitution_ref. Leading/trailing space
+        // inside the bars is invalid. A letter prefix (`\Verb|`) is
+        // not a start-string.
+        for text in [
+            "| This is a line. Another sentence.",
+            "See |fig. 1 in the caption. Next sentence.",
+            "See | fig. 1| in the caption. Next sentence.",
+            "See |fig. 1 | in the caption. Next sentence.",
+            r"Use \Verb|a.b! c| here. Next sentence.",
+        ] {
+            let (_, placeholders) = protect_inline_tokens(text);
+            assert!(
+                !placeholders.iter().any(|p| p.contains("fig. 1")
+                    || p.contains("This is a line")
+                    || p.contains("a.b!")
+                    || p.starts_with("| ")),
+                "invalid / line-block `|` must not be a token, got {placeholders:?} for {text:?}"
+            );
+        }
+        let parts = split("See |fig. 1 in the caption. Next sentence.");
+        assert_eq!(parts.last().map(String::as_str), Some("Next sentence."));
+        assert!(
+            parts.iter().any(|p| p.contains("fig.")),
+            "unclosed |fig. 1 must still expose the interior period, got {parts:?}"
+        );
+    }
+
+    #[test]
+    fn rst_version_substitution_ref_is_one_token_and_still_splits() {
+        // snapper-t0th: `|version|` stays Prose. The closer period is
+        // still a sentence end.
+        let sub = "|version|";
+        let text = "The current release is |version|. Next sentence.";
+        let (_, placeholders) = protect_inline_tokens(text);
+        assert!(
+            placeholders.iter().any(|p| p == sub),
+            "|version| must be one token, got {placeholders:?}"
+        );
+        assert_eq!(
+            split(text),
+            vec![
+                "The current release is |version|.".to_string(),
                 "Next sentence.".to_string()
             ]
         );
