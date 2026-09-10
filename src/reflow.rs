@@ -964,7 +964,9 @@ fn hanging_indent_width(s: &str) -> usize {
         return s.chars().count();
     }
     // RST Docutils enumerators (`a. `, `(1) `, `i. `, `#. `) hang at
-    // marker width like `1. ` (GitHub #91).
+    // marker width like `1. ` (GitHub #91). Same-line nested markers
+    // (`- - `) hang at the inner item so the continuation stays inside
+    // it (GitHub #125).
     if crate::parser::rst::rst_list_marker_len(s) == Some(s.len()) {
         return s.chars().count();
     }
@@ -1117,6 +1119,8 @@ mod tests {
         assert_eq!(hanging_prefix(">> "), ">> ");
         assert_eq!(hanging_prefix("  > "), "  > ");
         assert_eq!(hanging_prefix("- "), "  ");
+        assert_eq!(hanging_indent_width("- - "), 4);
+        assert_eq!(hanging_prefix("- - "), "    ");
         assert_eq!(hanging_prefix("1. "), "   ");
         assert_eq!(hanging_prefix("#. "), "   ");
         assert_eq!(hanging_prefix("a. "), "   ");
@@ -1626,6 +1630,8 @@ They are endowed with reason and conscience and should act towards one another i
         assert_eq!(hanging_prefix("> > "), "> > ");
         assert_eq!(hanging_prefix("  > "), "  > ");
         assert_eq!(hanging_prefix("- "), "  ");
+        assert_eq!(hanging_indent_width("- - "), 4);
+        assert_eq!(hanging_prefix("- - "), "    ");
         assert_eq!(hanging_prefix("1. "), "   ");
         assert_eq!(hanging_prefix("#. "), "   ");
         assert_eq!(hanging_prefix("a. "), "   ");
@@ -1656,6 +1662,25 @@ They are endowed with reason and conscience and should act towards one another i
             Region::Structure("\n".to_string()),
         ]);
         assert_eq!(result, "- One.\n  Two.\n");
+    }
+
+    #[test]
+    fn rst_nested_same_line_list_hangs_at_inner_width() {
+        let result = reflow_regions(vec![
+            Region::Structure("- - ".to_string()),
+            Region::Prose(
+                "Document typed fixture exports. The package already includes ``py.typed``."
+                    .to_string(),
+            ),
+            Region::Structure("\n".to_string()),
+        ]);
+        assert_eq!(
+            result,
+            concat!(
+                "- - Document typed fixture exports.\n",
+                "    The package already includes ``py.typed``.\n",
+            )
+        );
     }
 
     #[test]
