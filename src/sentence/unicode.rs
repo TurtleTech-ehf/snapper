@@ -800,12 +800,15 @@ fn push_segment_preserving_space(dest: &mut String, piece: &str) {
 /// Merge false splits caused by sentence punctuation inside quotes or parens.
 /// E.g., `He said "wow!"` + `and left.` should stay as one sentence when
 /// the next segment starts with a lowercase letter.
-/// Split after `.!?` that sits immediately before Markdown/Org closers.
+/// Split after `.!?` next to Markdown/Org closers, or after an RST
+/// interpreted-text closer followed by `.!?`.
 ///
 /// `**Bold sentence.** Next` is one UAX sentence because the period lives
-/// inside the protected span. Quotes are not paired spans, so they already
-/// split. Mid-span periods (`**the end. Still bold**`) have no closers
-/// after the period and stay one sentence.
+/// inside the protected span. RST prefix roles put the period after the
+/// closer; `file:` token protection can also swallow that period, so UAX
+/// sees one sentence. Quotes are not paired spans, so they already split.
+/// Mid-span periods (`**the end. Still bold**`) have no closers after the
+/// period and stay one sentence.
 pub(crate) fn split_after_markup_sentence_end(segments: Vec<String>) -> Vec<String> {
     let mut out = Vec::new();
     for seg in segments {
@@ -824,13 +827,14 @@ fn push_markup_sentence_splits(out: &mut Vec<String>, seg: &str) {
 }
 
 fn take_markup_terminal_sentence(seg: &str) -> Option<(String, String)> {
-    // Period, then `**` / `*` / `_` / backticks / `~~` / `](url)`, then
-    // whitespace, then a new sentence (uppercase or opening quote). A
-    // lowercase continuation (`[Example Inc.](url) now.`) stays one
-    // sentence.
+    // Terminal `.!?` immediately before `**` / `*` / `_` / backticks /
+    // `~~` / `](url)`, or an RST `:role:` / `:domain:role:` closer then
+    // `.!?`, then whitespace, then a new sentence (uppercase or opening
+    // quote). Opening ```` is not a closer. A lowercase continuation
+    // (`[Example Inc.](url) now.`) stays one sentence.
     static CAP: LazyLock<Regex> = LazyLock::new(|| {
         Regex::new(
-            r#"(?s)^(.*?[.!?](?:\*{1,3}|_{1,3}|`+|~{1,2}|\]\([^)]*\))+)\s+([A-Z][\s\S]*|["'][A-Z][\s\S]*)$"#,
+            r#"(?s)^(.*?(?:[.!?](?:\*{1,3}|_{1,3}|`+|~{1,2}|\]\([^)]*\))+|:[A-Za-z][A-Za-z0-9_-]*(?::[A-Za-z][A-Za-z0-9_-]*)*:`[^`\n]+`[.!?]))\s+([A-Z][\s\S]*|["'][A-Z][\s\S]*)$"#,
         )
         .expect("valid markup-terminal sentence regex")
     });
@@ -1794,6 +1798,24 @@ mod tests {
         // PR #52 CI seed: period before backticks, then quote-backtick.
         // Next token is not a capital letter, so this is not a new sentence.
         assert_eq!(split("`.`` \"`"), vec!["`.`` \"`".to_string()]);
+    }
+
+    #[test]
+    fn rst_role_closer_period_is_a_sentence_end() {
+        assert_eq!(
+            split("The task is in :file:`README.md`. Use this section for questions."),
+            vec![
+                "The task is in :file:`README.md`.".to_string(),
+                "Use this section for questions.".to_string()
+            ]
+        );
+        assert_eq!(
+            split("The task is in ``README.md``. Use this section for questions."),
+            vec![
+                "The task is in ``README.md``.".to_string(),
+                "Use this section for questions.".to_string()
+            ]
+        );
     }
 
     #[test]
