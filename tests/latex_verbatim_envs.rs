@@ -1,6 +1,7 @@
 //! snapper-3tj3 / GitHub #98: Overleaf verbatimEnvNames are Code, not prose.
 //! GitHub #209: fancyvrb BVerbatim / LVerbatim are the same.
 //! GitHub #213: fancyvrb SaveVerbatim / VerbatimOut are the same FV@Scan class.
+//! GitHub #230: alltt.sty is a standard verbatim-like env (raw line breaks).
 
 use snapper_fmt::format::Format;
 use snapper_fmt::parser::latex::LatexParser;
@@ -209,4 +210,72 @@ fn saveverbatim_verbatimout_fixture_is_code_and_does_not_reflow() {
         );
         assert_eq!(format_text(&out, &latex_cfg()).unwrap(), out);
     }
+}
+
+/// Ticket fixture (GitHub #230): alltt.sty bodies stay Code; following
+/// prose still splits.
+#[test]
+fn alltt_fixture_is_code_and_does_not_reflow() {
+    let input = concat!(
+        "\\begin{document}\n",
+        "Before. More.\n",
+        "\\begin{alltt}\n",
+        "First line. Second line.\n",
+        "\\end{alltt}\n",
+        "After the block. Next.\n",
+        "\\end{document}\n",
+    );
+    let regions = LatexParser::default().parse(input);
+    assert!(
+        regions.iter().any(|r| matches!(
+            r,
+            Region::Code { body, .. } if body.contains("First line. Second line.")
+        )),
+        "alltt body must be Code, got: {regions:?}"
+    );
+    assert!(
+        !regions
+            .iter()
+            .any(|r| matches!(r, Region::Prose(p) if p.contains("First line"))),
+        "alltt body must not be Prose, got: {regions:?}"
+    );
+    let out = format_text(input, &latex_cfg()).unwrap();
+    assert!(
+        out.contains("\\begin{alltt}") && out.contains("\\end{alltt}"),
+        "alltt begin/end must stay, got:\n{out}"
+    );
+    assert!(
+        out.contains("First line. Second line."),
+        "alltt body must stay one source line, got:\n{out}"
+    );
+    assert!(
+        !out.contains("First line.\nSecond line."),
+        "alltt must not reflow as prose, got:\n{out}"
+    );
+    assert!(
+        out.contains("After the block.\nNext."),
+        "prose after alltt must still split, got:\n{out}"
+    );
+    assert_eq!(format_text(&out, &latex_cfg()).unwrap(), out);
+
+    let two = concat!(
+        "\\begin{alltt}\n",
+        "First line. Second line.\n",
+        "\\end{alltt}\n",
+        "After the block. Next.\n",
+    );
+    let two_out = format_text(two, &latex_cfg()).unwrap();
+    assert!(
+        two_out.contains("First line. Second line."),
+        "alltt two-sentence body must stay one source line, got:\n{two_out}"
+    );
+    assert!(
+        !two_out.contains("First line.\nSecond line."),
+        "alltt two-sentence body must not split, got:\n{two_out}"
+    );
+    assert!(
+        two_out.contains("After the block.\nNext."),
+        "prose after alltt must still split, got:\n{two_out}"
+    );
+    assert_eq!(format_text(&two_out, &latex_cfg()).unwrap(), two_out);
 }

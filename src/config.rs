@@ -16,8 +16,8 @@ pub struct FormatOverrides {
     /// Meaningful under `[latex]` only. Missing or empty keeps the built-in
     /// minted/lstlisting/verbatim/comment, filecontents, tree-sitter
     /// trivia, Overleaf Verbatim/boxedverbatim/tcblisting/codeexample,
-    /// and fancyvrb BVerbatim/LVerbatim/SaveVerbatim/VerbatimOut;
-    /// entries are added to it.
+    /// fancyvrb BVerbatim/LVerbatim/SaveVerbatim/VerbatimOut, and
+    /// alltt; entries are added to it.
     pub verbatim_envs: Vec<String>,
     /// Extra LaTeX environments treated as structure (no reflow).
     /// Meaningful under `[latex]` only. Missing or empty keeps
