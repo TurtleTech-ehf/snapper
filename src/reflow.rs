@@ -2205,6 +2205,26 @@ They are endowed with reason and conscience and should act towards one another i
     }
 
     #[test]
+    fn max_width_keeps_markdown_reference_link_atomic() {
+        let token = "[the Fourier. transform][wiki]";
+        let sentence = "See [the Fourier. transform][wiki] for details.";
+        for clause in [false, true] {
+            let wrapped = wrap_sentence(sentence, 28, clause);
+            assert_atomic_token(&wrapped, token);
+        }
+    }
+
+    #[test]
+    fn max_width_does_not_glue_shortcut_to_full_reference() {
+        let token = "[See also][ref]";
+        let sentence = "See [important] [See also][ref] for details today.";
+        for clause in [false, true] {
+            let wrapped = wrap_sentence(sentence, 24, clause);
+            assert_atomic_token(&wrapped, token);
+        }
+    }
+
+    #[test]
     fn max_width_keeps_markdown_image_atomic() {
         let token = "![alt text here](https://img.example.com/a.png)";
         let sentence = "Look at ![alt text here](https://img.example.com/a.png) now please.";
