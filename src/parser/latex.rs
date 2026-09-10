@@ -83,8 +83,11 @@ static LSTLISTING_LANG_RE: LazyLock<Regex> = LazyLock::new(|| {
 /// Beyond minted/lstlisting/verbatim: latexindent `fileContentsEnvironments`
 /// (`filecontents`, `filecontents*`) and tree-sitter-latex raw trivia envs
 /// (`asy`, `asydef`, `pycode`, `luacode`, `luacode*`, `sagesilent`,
-/// `sageblock`) plus fancyvrb `verbatim*` and the `comment` package env
-/// (tree-sitter `comment_environment`: raw through matching `\end{comment}`).
+/// `sageblock`) plus fancyvrb `verbatim*` / `Verbatim`, moreverb
+/// `boxedverbatim`, tcolorbox `tcblisting` / `codeexample`, and the
+/// `comment` package env (tree-sitter `comment_environment`: raw through
+/// matching `\end{comment}`). Overleaf `verbatimEnvNames` is Verbatim,
+/// boxedverbatim, tcblisting, codeexample.
 fn is_builtin_code_env(name: &str) -> bool {
     matches!(
         name,
@@ -92,6 +95,10 @@ fn is_builtin_code_env(name: &str) -> bool {
             | "lstlisting"
             | "verbatim"
             | "verbatim*"
+            | "Verbatim"
+            | "boxedverbatim"
+            | "tcblisting"
+            | "codeexample"
             | "filecontents"
             | "filecontents*"
             | "asy"
@@ -1702,31 +1709,108 @@ Some text.
         assert_eq!(format_text(&out, &cfg).unwrap(), out);
     }
 
+    /// Ticket fixture (GitHub #98 / snapper-3tj3): fancyvrb Verbatim is Code.
     #[test]
-    fn configured_verbatim_env_stops_fancyvrb_reflow() {
+    fn fancyvrb_verbatim_fixture_is_code_not_prose() {
         use crate::format_text;
 
-        let input = "\\begin{document}\nBefore.\n\\begin{Verbatim}\nFirst line. Second line.\n\\end{Verbatim}\nAfter the listing. Next.\n\\end{document}\n";
+        let input = concat!(
+            "\\begin{Verbatim}\n",
+            "First line. Second line.\n",
+            "\\end{Verbatim}\n",
+        );
+        let regions = LatexParser::default().parse(input);
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Code { body, .. } if body.contains("First line. Second line.")
+            )),
+            "Verbatim body must be Code, got: {regions:?}"
+        );
+        assert!(
+            !regions
+                .iter()
+                .any(|r| matches!(r, Region::Prose(p) if p.contains("First line"))),
+            "Verbatim body must not be Prose, got: {regions:?}"
+        );
+        let out = format_text(input, &latex_cfg()).unwrap();
+        assert!(
+            out.contains("First line. Second line."),
+            "Verbatim body must not reflow, got:\n{out}"
+        );
+        assert!(
+            !out.contains("First line.\nSecond line."),
+            "Verbatim must stay verbatim, got:\n{out}"
+        );
+        assert_eq!(out, input, "Verbatim env must be identity, got:\n{out}");
+        assert_eq!(format_text(&out, &latex_cfg()).unwrap(), out);
+    }
+
+    #[test]
+    fn boxedverbatim_tcblisting_codeexample_are_code_not_prose() {
+        use crate::format_text;
+
+        let names = ["boxedverbatim", "tcblisting", "codeexample"];
+        for name in names {
+            let input = format!(
+                "\\begin{{{name}}}\nFirst line. Second line.\n\\end{{{name}}}\nAfter the block. Next.\n"
+            );
+            let regions = LatexParser::default().parse(&input);
+            assert!(
+                regions.iter().any(|r| matches!(
+                    r,
+                    Region::Code { body, .. } if body.contains("First line. Second line.")
+                )),
+                "{name} body must be Code, got: {regions:?}"
+            );
+            assert!(
+                !regions
+                    .iter()
+                    .any(|r| matches!(r, Region::Prose(p) if p.contains("First line"))),
+                "{name} body must not leak into Prose, got: {regions:?}"
+            );
+            let out = format_text(&input, &latex_cfg()).unwrap();
+            assert!(
+                out.contains("First line. Second line."),
+                "{name} body must not reflow, got:\n{out}"
+            );
+            assert!(
+                !out.contains("First line.\nSecond line."),
+                "{name} must stay verbatim, got:\n{out}"
+            );
+            assert!(
+                out.contains("After the block.\nNext."),
+                "prose after {name} must still reflow, got:\n{out}"
+            );
+            assert_eq!(format_text(&out, &latex_cfg()).unwrap(), out);
+        }
+    }
+
+    #[test]
+    fn configured_verbatim_envs_still_add_unlisted_names() {
+        use crate::format_text;
+
+        let input = "\\begin{document}\nBefore.\n\\begin{MyListings}\nFirst line. Second line.\n\\end{MyListings}\nAfter the listing. Next.\n\\end{document}\n";
         let default_out = format_text(input, &latex_cfg()).unwrap();
         assert!(
             default_out.contains("First line.\nSecond line."),
-            "unlisted Verbatim body is prose and reflows, got:\n{default_out}"
+            "unlisted MyListings body is prose and reflows, got:\n{default_out}"
         );
 
         let cfg = crate::FormatConfig {
             format: crate::format::Format::Latex,
-            latex_verbatim_envs: vec!["Verbatim".into()],
+            latex_verbatim_envs: vec!["MyListings".into()],
             ..Default::default()
         }
         .without_safety_backstops();
         let out = format_text(input, &cfg).unwrap();
         assert!(
             out.contains("First line. Second line."),
-            "configured Verbatim body must not reflow, got:\n{out}"
+            "configured MyListings body must not reflow, got:\n{out}"
         );
         assert!(
             !out.contains("First line.\nSecond line."),
-            "Verbatim must stay verbatim, got:\n{out}"
+            "MyListings must stay verbatim, got:\n{out}"
         );
         let regions = LatexParser::from_config(Some(&cfg)).parse(input);
         assert!(
@@ -1734,11 +1818,11 @@ Some text.
                 r,
                 Region::Code { body, .. } if body.contains("First line. Second line.")
             )),
-            "configured Verbatim must be Code, got: {regions:?}"
+            "configured MyListings must be Code, got: {regions:?}"
         );
         assert!(
             out.contains("After the listing.\nNext."),
-            "prose after Verbatim must still reflow, got:\n{out}"
+            "prose after MyListings must still reflow, got:\n{out}"
         );
         assert_eq!(format_text(&out, &cfg).unwrap(), out);
     }
@@ -1956,6 +2040,25 @@ Some text.
         assert!(
             oracle::matches(Format::Latex, input, &out),
             "oracle mismatch\n in={input:?}\n out={out:?}"
+        );
+    }
+
+    #[test]
+    fn verbatim_fixture_file_is_code_not_prose() {
+        let input = include_str!("../../tests/fixtures/verbatim.tex");
+        let regions = LatexParser::default().parse(input);
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Code { body, .. } if body.contains("First line. Second line.")
+            )),
+            "tests/fixtures/verbatim.tex body must be Code, got: {regions:?}"
+        );
+        assert!(
+            !regions
+                .iter()
+                .any(|r| matches!(r, Region::Prose(p) if p.contains("First line"))),
+            "verbatim fixture must not be Prose, got: {regions:?}"
         );
     }
 
