@@ -2367,6 +2367,41 @@ Some text.
     }
 
     #[test]
+    fn leftover_start_indented_bracket_does_not_glue_preceding_prose() {
+        use crate::format_text;
+
+        // snapper-2ixz: 2-space leftover-start `\[` after a prose line.
+        let two = "The formula is\n  \\[\n  E = mc^2\n  \\]\nafter.\n";
+        let two_out = format_text(two, &latex_cfg()).unwrap();
+        assert!(
+            two_out.contains("The formula is\n  \\[\n"),
+            "2-space leftover-start \\[ must keep the sentence break, got:\n{two_out}"
+        );
+        assert!(
+            !two_out.contains("The formula is  \\["),
+            "must not glue preceding prose onto indented \\[, got:\n{two_out}"
+        );
+        assert_eq!(format_text(&two_out, &latex_cfg()).unwrap(), two_out);
+
+        // snapper-zj0u: 4-space leftover-start `\[` after a sentence.
+        let four = "Some sentence. More words.\n    \\[\n    E = m c^2.\n    \\]\nAfter. Next.\n";
+        let four_out = format_text(four, &latex_cfg()).unwrap();
+        assert!(
+            four_out.contains("More words.\n    \\[\n"),
+            "4-space leftover-start \\[ must keep the sentence break, got:\n{four_out}"
+        );
+        assert!(
+            !four_out.contains("More words.    \\["),
+            "must not glue More words. onto indented \\[, got:\n{four_out}"
+        );
+        assert!(
+            four_out.contains("After.\nNext."),
+            "prose after the block must still reflow, got:\n{four_out}"
+        );
+        assert_eq!(format_text(&four_out, &latex_cfg()).unwrap(), four_out);
+    }
+
+    #[test]
     fn inline_single_dollar_math_is_still_prose() {
         use crate::format_text;
 

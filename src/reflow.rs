@@ -957,10 +957,13 @@ fn suppress_prose_trailing_newline(s: &str) -> bool {
     }
     // Islands may carry a leading space for glue after reflow trims prose.
     let t = s.trim();
-    // Mid-line `\[` / `\[ ... \]` (snapper-ep2t). Start-of-line `\[` has
-    // no glue space, so a preceding sentence still gets its newline.
-    if s.starts_with([' ', '\t']) && s.trim_start().starts_with("\\[") {
-        return true;
+    // Mid-line `\[` / `\[ ... \]` (snapper-ep2t): one glue space after
+    // prose. Leftover-start indent (`  \[`, tab) is not glue, so the
+    // preceding sentence keeps its newline (snapper-2ixz / snapper-zj0u).
+    if let Some(rest) = s.strip_prefix(' ') {
+        if !rest.starts_with([' ', '\t']) && rest.starts_with("\\[") {
+            return true;
+        }
     }
     // Inline math: single-line `$...$` (not display `$$...$$`).
     if t.starts_with('$') && !t.starts_with("$$") && !t.contains('\n') {
@@ -1478,6 +1481,62 @@ They are endowed with reason and conscience and should act towards one another i
             &UnicodeSentenceSplitter::new(),
             &ReflowConfig::default(),
         )
+    }
+
+    #[test]
+    fn leftover_start_indented_bracket_keeps_prose_newline() {
+        // snapper-2ixz / snapper-zj0u: indent on leftover-start `\[` is
+        // not mid-line glue.
+        let two_space = reflow_regions(vec![
+            Region::Prose("The formula is\n".to_string()),
+            Region::Structure("  \\[\n".to_string()),
+            Region::Structure("  E = mc^2\n".to_string()),
+            Region::Structure("  \\]\n".to_string()),
+            Region::Prose("after.\n".to_string()),
+        ]);
+        assert!(
+            two_space.contains("The formula is\n  \\[\n"),
+            "2-space leftover-start \\[ must keep the sentence break, got:\n{two_space}"
+        );
+        assert!(
+            !two_space.contains("The formula is  \\["),
+            "must not glue preceding prose onto indented \\[, got:\n{two_space}"
+        );
+
+        let four_space = reflow_regions(vec![
+            Region::Prose("Some sentence. More words.\n".to_string()),
+            Region::Structure("    \\[\n".to_string()),
+            Region::Structure("    E = m c^2.\n".to_string()),
+            Region::Structure("    \\]\n".to_string()),
+            Region::Prose("After. Next.\n".to_string()),
+        ]);
+        assert!(
+            four_space.contains("More words.\n    \\[\n"),
+            "4-space leftover-start \\[ must keep the sentence break, got:\n{four_space}"
+        );
+        assert!(
+            !four_space.contains("More words.    \\["),
+            "must not glue More words. onto indented \\[, got:\n{four_space}"
+        );
+    }
+
+    #[test]
+    fn mid_line_bracket_glue_space_still_joins() {
+        let result = reflow_regions(vec![
+            Region::Prose("inducing".to_string()),
+            Region::Structure(" \\[\n".to_string()),
+            Region::Structure("E = m c^2.\n".to_string()),
+            Region::Structure("\\]".to_string()),
+            Region::Prose(" more words. Next.".to_string()),
+        ]);
+        assert!(
+            result.contains("inducing \\[\n"),
+            "mid-line inducing \\[ still needs one glue space, got:\n{result}"
+        );
+        assert!(
+            !result.contains("inducing\n \\["),
+            "must not insert a newline before mid-line \\[ glue, got:\n{result}"
+        );
     }
 
     #[test]
