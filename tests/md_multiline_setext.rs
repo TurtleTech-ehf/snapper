@@ -251,3 +251,175 @@ fn setext_after_indented_code_emits_code_once() {
         "body Prose must still split, got:\n{out}"
     );
 }
+
+/// snapper-5sck: 4-space `<!--` in an open paragraph is title text.
+#[test]
+fn four_space_html_comment_stays_setext_title() {
+    let input = concat!(
+        "Foo is the first title line. Still title.\n",
+        "    <!-- toc -->\n",
+        "=======\n",
+        "\n",
+        "Body after setext. Second body.\n",
+    );
+    let regions = MarkdownParser.parse(input);
+    assert!(
+        !regions.iter().any(|r| matches!(
+            r,
+            Region::Prose(p) if p.contains("Still title") || p.contains("<!-- toc")
+        )),
+        "4-space comment title must not be Prose: {regions:?}"
+    );
+    let out = format_text(input, &md_cfg()).unwrap();
+    assert!(
+        !out.contains("first title line.\nStill"),
+        "must not sentence-split the 4-space-comment setext, got:\n{out}"
+    );
+    assert!(
+        out.contains("    <!-- toc -->\n======="),
+        "4-space comment plus underline must stay intact, got:\n{out}"
+    );
+    assert!(
+        out.contains("Body after setext.\nSecond body."),
+        "body Prose must still split, got:\n{out}"
+    );
+}
+
+/// snapper-awpt: list-item setext promotes every title line.
+#[test]
+fn list_multiline_setext_does_not_split_first_title_line() {
+    let input = concat!(
+        "- Foo is the first title line. Still title.\n",
+        "  Bar is the second title line.\n",
+        "  =======\n",
+        "\n",
+        "Body after setext. Second body.\n",
+    );
+    let regions = MarkdownParser.parse(input);
+    assert!(
+        !regions.iter().any(|r| matches!(
+            r,
+            Region::Prose(p) if p.contains("Still title") || p.contains("Foo is the first")
+        )),
+        "list setext first title line must not be Prose: {regions:?}"
+    );
+    let out = format_text(input, &md_cfg()).unwrap();
+    assert!(
+        !out.contains("first title line.\nStill"),
+        "must not sentence-split a list setext title, got:\n{out}"
+    );
+    assert!(
+        out.contains("Body after setext.\nSecond body."),
+        "body Prose must still split, got:\n{out}"
+    );
+}
+
+/// A list item plus a column-0 underline is not inside the item.
+#[test]
+fn list_then_column0_underline_is_not_setext() {
+    let input = concat!(
+        "- Foo is a list item. Still item.\n",
+        "=======\n",
+        "\n",
+        "Body after list. Second body.\n",
+    );
+    let regions = MarkdownParser.parse(input);
+    assert!(
+        regions.iter().any(|r| matches!(
+            r,
+            Region::Prose(p) if p.contains("list item") && p.contains("Still item")
+        )),
+        "column-0 ======= must not promote the list item, got: {regions:?}"
+    );
+    let out = format_text(input, &md_cfg()).unwrap();
+    assert!(
+        out.contains("list item.\n  Still item."),
+        "list item Prose must still split and hang, got:\n{out}"
+    );
+    assert!(
+        out.contains("Body after list.\nSecond body."),
+        "body after the list must still split, got:\n{out}"
+    );
+}
+
+/// snapper-awpt: quote setext (lazy and fully marked) promotes every title line.
+#[test]
+fn quote_multiline_setext_does_not_split_first_title_line() {
+    let lazy = concat!(
+        "> Foo is the first title line. Still title.\n",
+        "Bar is the second title line.\n",
+        "=======\n",
+        "\n",
+        "Body after setext. Second body.\n",
+    );
+    let regions = MarkdownParser.parse(lazy);
+    assert!(
+        !regions.iter().any(|r| matches!(
+            r,
+            Region::Prose(p) if p.contains("Still title") || p.contains("Foo is the first")
+        )),
+        "lazy quote setext first title line must not be Prose: {regions:?}"
+    );
+    let out = format_text(lazy, &md_cfg()).unwrap();
+    assert!(
+        !out.contains("first title line.\nStill"),
+        "must not sentence-split a lazy quote setext, got:\n{out}"
+    );
+
+    let marked = concat!(
+        "> Foo is the first title line. Still title.\n",
+        "> Bar is the second title line.\n",
+        "> =======\n",
+    );
+    let regions = MarkdownParser.parse(marked);
+    assert!(
+        !regions.iter().any(|r| matches!(
+            r,
+            Region::Prose(p) if p.contains("Still title") || p.contains("Bar is the second")
+        )),
+        "fully marked quote setext must not be Prose: {regions:?}"
+    );
+}
+
+/// snapper-j945: hard-break flush is not a paragraph close.
+#[test]
+fn hard_break_multiline_setext_does_not_split_first_title_line() {
+    let spaces = concat!(
+        "Foo is the first title line. Still title.  \n",
+        "Bar is the second title line.\n",
+        "=======\n",
+        "\n",
+        "Body after setext. Second body.\n",
+    );
+    let regions = MarkdownParser.parse(spaces);
+    assert!(
+        !regions.iter().any(|r| matches!(
+            r,
+            Region::Prose(p) if p.contains("Still title") || p.contains("Foo is the first")
+        )),
+        "hard-break setext first title line must not be Prose: {regions:?}"
+    );
+    let out = format_text(spaces, &md_cfg()).unwrap();
+    assert!(
+        !out.contains("first title line.\nStill"),
+        "must not sentence-split a hard-break setext, got:\n{out}"
+    );
+    assert!(
+        out.contains("Body after setext.\nSecond body."),
+        "body Prose must still split, got:\n{out}"
+    );
+
+    let backslash = concat!(
+        "Foo is the first title line. Still title.\\\n",
+        "Bar is the second title line.\n",
+        "=======\n",
+    );
+    let regions = MarkdownParser.parse(backslash);
+    assert!(
+        !regions.iter().any(|r| matches!(
+            r,
+            Region::Prose(p) if p.contains("Still title") || p.contains("Foo is the first")
+        )),
+        "backslash hard-break setext must not leak Prose: {regions:?}"
+    );
+}

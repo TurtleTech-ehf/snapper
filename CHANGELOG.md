@@ -7,6 +7,7 @@ All notable changes to this project will be documented in this file. See [conven
 - (**latex**) treat standard `alltt` as code so listing bodies do not reflow as prose (#230)
 - (**org**) inline `src_lang{...}` and `call_name(...)` stay one token so interior punctuation is not a sentence or wrap boundary (#214)
 - (**org**) macros (`{{{name}}}` / `{{{name(args)}}}`) stay one token so interior punctuation is not a sentence or wrap boundary (#212)
+- (**markdown**) setext titles promote the open CommonMark paragraph: list/quote items, hard-break lines, and a 4-space `<!--` continuation stay title text (#208)
 - (**markdown**) setext titles promote only the open paragraph so a preceding HTML comment or indented code block is not re-emitted (#208)
 - (**org**) radio targets (`<<<...>>>`) and angle targets (`<<...>>`) stay one token so interior punctuation is not a sentence or wrap boundary (#211)
 - (**markdown**) definition-list terms and `: ` markers stay structure; the body hangs and splits (#210)
