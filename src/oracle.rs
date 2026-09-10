@@ -348,6 +348,11 @@ mod tests {
             !matches(Format::Rst, "* One. Two.\n", "* One.\n\n  Two.\n"),
             "a blank is a new paragraph, not a hang"
         );
+        // snapper-9dc1: pulldown reads `* 0. A.` as a nested ordered list.
+        assert!(
+            !matches(Format::Markdown, "* 0. A.", "* 0.\n  A."),
+            "nested 0. vs hung continuation must stay a leftover"
+        );
     }
 
     #[test]
