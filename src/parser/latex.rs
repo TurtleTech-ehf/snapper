@@ -6,12 +6,16 @@ use crate::parser::{
 };
 use crate::sentence::unicode::latex_verb_span_end_with;
 
-// Environments whose content is NOT prose (math, code, figures, tables).
+// Environments whose content is NOT prose (math, code, tables, pictures).
 // Extra names are tree-sitter-latex `math_environment` plus latexindent
 // `lookForAlignDelims` (amsmath / mathtools / tabularray), not a GPL copy.
 // Overleaf `equationEnvNames` includes `tikzcd`; pgfplots `axis` /
 // `pgfpicture` are the same class (and starred variants). Not every
 // pgfplots name.
+//
+// `figure` / `table` (and stars) are not here: Overleaf FigureEnvironment
+// is Content<Text>, tree-sitter caption curly_group is text. Float chrome
+// stays Structure; the caption long argument is Prose (snapper-t4lj / #95).
 static NON_PROSE_ENVS: &[&str] = &[
     "equation",
     "equation*",
@@ -38,10 +42,6 @@ static NON_PROSE_ENVS: &[&str] = &[
     "displaymath",
     "displaymath*",
     "math",
-    "figure",
-    "figure*",
-    "table",
-    "table*",
     "tabular",
     "tabular*",
     "tabularx",
@@ -77,6 +77,11 @@ static NON_PROSE_ENVS: &[&str] = &[
     "drcases",
     "drcases*",
 ];
+
+/// Float environments: chrome is Structure; `\caption` long arg is Prose.
+fn is_float_env(name: &str) -> bool {
+    matches!(name, "figure" | "figure*" | "table" | "table*")
+}
 
 /// `\begin{minted}{LANG}` -- the language is the brace argument after the env.
 static MINTED_LANG_RE: LazyLock<Regex> =
@@ -363,6 +368,117 @@ fn skip_optional_brackets(line: &str, open_at: usize, stop: usize) -> Option<usi
     None
 }
 
+/// Byte offset of `\caption` / `\caption*` at or after `from`.
+/// `\captionof` / `\captionsetup` are different control words.
+fn find_caption_at(line: &str, from: usize, extra_cmds: &[String]) -> Option<usize> {
+    let bytes = line.as_bytes();
+    let mut i = from;
+    let stop = unescaped_percent_with(line, extra_cmds).unwrap_or(line.len());
+    while i < stop {
+        if bytes[i] == b'\\' {
+            if let Some(end) = latex_verb_span_end_with(line, i, extra_cmds) {
+                i = end;
+                continue;
+            }
+            if let Some(name) = tex_cs_at(line, i) {
+                if name == "\\caption" {
+                    return Some(i);
+                }
+                i += name.len();
+                continue;
+            }
+        }
+        i += 1;
+    }
+    None
+}
+
+/// End of `\caption` or `\caption*` starting at `start`.
+fn caption_cmd_end(line: &str, start: usize) -> usize {
+    let after = start + "\\caption".len();
+    if line.get(after..).is_some_and(|r| r.starts_with('*')) {
+        after + 1
+    } else {
+        after
+    }
+}
+
+/// After `\caption`/`\caption*`: optional `[short title]`, then the `{` of
+/// the long argument (tree-sitter caption curly_group). None if `{` is
+/// not on this slice.
+fn caption_open_brace(line: &str, cmd_end: usize, stop: usize) -> Option<usize> {
+    let mut j = cmd_end;
+    while j < stop && matches!(line.as_bytes()[j], b' ' | b'\t') {
+        j += 1;
+    }
+    if let Some(br) = skip_optional_brackets(line, j, stop) {
+        j = br;
+        while j < stop && matches!(line.as_bytes()[j], b' ' | b'\t') {
+            j += 1;
+        }
+    }
+    (line.as_bytes().get(j) == Some(&b'{')).then_some(j)
+}
+
+/// Matching `}` for the `{` at `open_at`, skipping `\{` / `\}` and `\verb`.
+fn find_matching_curly(s: &str, open_at: usize, extra_cmds: &[String]) -> Option<usize> {
+    let bytes = s.as_bytes();
+    let mut depth = 0;
+    let mut i = open_at;
+    let stop = unescaped_percent_with(s, extra_cmds).unwrap_or(s.len());
+    while i < stop {
+        if bytes[i] == b'\\' {
+            if let Some(end) = latex_verb_span_end_with(s, i, extra_cmds) {
+                i = end;
+                continue;
+            }
+            if i + 1 < stop {
+                i += 2;
+                continue;
+            }
+        }
+        match bytes[i] {
+            b'{' => depth += 1,
+            b'}' => {
+                depth -= 1;
+                if depth == 0 {
+                    return Some(i);
+                }
+            }
+            _ => {}
+        }
+        i += 1;
+    }
+    None
+}
+
+/// Brace depth remaining at `stop` after walking from `{` at `open_at`.
+fn curly_depth_at(s: &str, open_at: usize, stop: usize, extra_cmds: &[String]) -> usize {
+    let bytes = s.as_bytes();
+    let mut depth = 0;
+    let mut i = open_at;
+    let stop = stop.min(s.len());
+    while i < stop {
+        if bytes[i] == b'\\' {
+            if let Some(end) = latex_verb_span_end_with(s, i, extra_cmds) {
+                i = end.min(stop);
+                continue;
+            }
+            if i + 1 < stop {
+                i += 2;
+                continue;
+            }
+        }
+        match bytes[i] {
+            b'{' => depth += 1,
+            b'}' if depth > 0 => depth -= 1,
+            _ => {}
+        }
+        i += 1;
+    }
+    depth
+}
+
 fn find_matching_end(
     line: &str,
     from: usize,
@@ -511,6 +627,11 @@ struct ParseState<'a> {
     prose_span: Option<ByteSpan>,
     in_non_prose_env: Option<String>,
     non_prose_depth: usize,
+    in_float_env: Option<String>,
+    float_depth: usize,
+    in_caption: bool,
+    caption_depth: usize,
+    await_caption_brace: bool,
     in_code_env: Option<String>,
     code_depth: usize,
     code_lang: Option<String>,
@@ -603,8 +724,18 @@ impl<'a> ParseState<'a> {
             return;
         }
 
+        if self.in_caption || self.await_caption_brace {
+            self.consume_caption_line(line);
+            return;
+        }
+
         if self.in_non_prose_env.is_some() {
             self.consume_non_prose_line(line);
+            return;
+        }
+
+        if self.in_float_env.is_some() {
+            self.consume_float_line(line);
             return;
         }
 
@@ -654,7 +785,13 @@ impl<'a> ParseState<'a> {
 
         if !code.trim().is_empty() {
             let line_done = self.consume_code_span(code, line);
-            if line_done || self.in_code_env.is_some() || self.in_non_prose_env.is_some() {
+            if line_done
+                || self.in_code_env.is_some()
+                || self.in_non_prose_env.is_some()
+                || self.in_float_env.is_some()
+                || self.in_caption
+                || self.await_caption_brace
+            {
                 return;
             }
         }
@@ -671,7 +808,10 @@ impl<'a> ParseState<'a> {
             } else {
                 self.extend_prose_to(line.end);
             }
-        } else if self.in_code_env.is_none() && self.in_non_prose_env.is_none() {
+        } else if self.in_code_env.is_none()
+            && self.in_non_prose_env.is_none()
+            && self.in_float_env.is_none()
+        {
             self.extend_prose_to(line.end);
             self.nospace_join = false;
         }
@@ -730,6 +870,291 @@ impl<'a> ParseState<'a> {
         }
         self.regions
             .push(SpannedRegion::structure(self.input, line.span()));
+    }
+
+    /// Float chrome is Structure. `\caption` long curly_group is Prose.
+    fn consume_float_line(&mut self, line: Line<'_>) {
+        if self.in_caption || self.await_caption_brace {
+            self.consume_caption_line(line);
+            return;
+        }
+        let name = self
+            .in_float_env
+            .as_deref()
+            .expect("consume_float_line only when inside")
+            .to_string();
+        let extra = &self.parser.extra_verbatim_commands;
+
+        if line.text.trim().is_empty() {
+            self.flush();
+            self.regions
+                .push(SpannedRegion::blank(self.input, line.span()));
+            return;
+        }
+        if LatexParser::is_comment(line.text) {
+            self.flush();
+            self.regions
+                .push(SpannedRegion::structure(self.input, line.span()));
+            return;
+        }
+
+        let mut i = 0;
+        while i < line.text.len() {
+            let env = find_env_at(line.text, i, extra);
+            let cap = find_caption_at(line.text, i, extra);
+            let env_first = match (env.as_ref(), cap) {
+                (Some(hit), Some(c)) => hit.start <= c,
+                (Some(_), None) => true,
+                _ => false,
+            };
+            if env_first {
+                let hit = env.expect("env_first implies find_env_at");
+                if hit.start > i {
+                    self.push_structure(ByteSpan::new(line.start + i, line.start + hit.start));
+                }
+                if hit.name == name {
+                    if hit.is_begin {
+                        self.float_depth += 1;
+                        self.push_structure(ByteSpan::new(
+                            line.start + hit.start,
+                            line.start + hit.end,
+                        ));
+                        i = hit.end;
+                        continue;
+                    }
+                    self.float_depth -= 1;
+                    if self.float_depth == 0 {
+                        let end = thru_eol_if_blank_rest(line, hit.end);
+                        self.push_structure(ByteSpan::new(line.start + hit.start, end));
+                        self.in_float_env = None;
+                        if !line.text[hit.end..].trim().is_empty() {
+                            self.consume_body_line(rest_line(line, hit.end));
+                        }
+                        return;
+                    }
+                    self.push_structure(ByteSpan::new(
+                        line.start + hit.start,
+                        line.start + hit.end,
+                    ));
+                    i = hit.end;
+                    continue;
+                }
+                if hit.is_begin && self.parser.is_non_prose_env(&hit.name) {
+                    if let Some(end_at) = find_matching_end(line.text, hit.end, &hit.name, 1, extra)
+                    {
+                        self.push_structure(ByteSpan::new(
+                            line.start + hit.start,
+                            line.start + end_at,
+                        ));
+                        i = end_at;
+                        continue;
+                    }
+                    self.in_non_prose_env = Some(hit.name);
+                    self.non_prose_depth = 1;
+                    self.push_structure(ByteSpan::new(line.start + hit.start, line.end));
+                    return;
+                }
+                if hit.is_begin && self.parser.is_code_env(&hit.name) {
+                    if let Some(end_at) = find_matching_raw_end(line.text, hit.end, &hit.name, 1) {
+                        let header = ByteSpan::new(line.start + hit.start, line.start + end_at);
+                        let empty = ByteSpan::new(line.start + end_at, line.start + end_at);
+                        self.flush();
+                        self.regions
+                            .push(SpannedRegion::code(self.input, None, header, empty, empty));
+                        i = end_at;
+                        continue;
+                    }
+                    self.enter_code(&hit.name, line, hit.start);
+                    return;
+                }
+                self.push_structure(ByteSpan::new(line.start + hit.start, line.start + hit.end));
+                i = hit.end;
+                continue;
+            }
+            if let Some(c) = cap {
+                if c > i {
+                    self.push_structure(ByteSpan::new(line.start + i, line.start + c));
+                }
+                self.consume_caption_at(line, c);
+                return;
+            }
+            self.push_structure(ByteSpan::new(line.start + i, line.end));
+            return;
+        }
+    }
+
+    fn consume_caption_at(&mut self, line: Line<'_>, cap_start: usize) {
+        let extra = &self.parser.extra_verbatim_commands;
+        let stop = unescaped_percent_with(line.text, extra).unwrap_or(line.text.len());
+        let cmd_end = caption_cmd_end(line.text, cap_start);
+        if let Some(open) = caption_open_brace(line.text, cmd_end, stop) {
+            self.push_structure(ByteSpan::new(line.start + cap_start, line.start + open + 1));
+            self.emit_caption_group(line, open);
+            return;
+        }
+        self.push_structure(ByteSpan::new(line.start + cap_start, line.start + cmd_end));
+        let mut j = cmd_end;
+        while j < stop && matches!(line.text.as_bytes()[j], b' ' | b'\t') {
+            j += 1;
+        }
+        if let Some(br) = skip_optional_brackets(line.text, j, stop) {
+            self.push_structure(ByteSpan::new(line.start + cmd_end, line.start + br));
+            j = br;
+        }
+        if j < stop && !line.text[j..stop].trim().is_empty() {
+            self.push_structure(ByteSpan::new(line.start + j, line.start + stop));
+        }
+        if let Some(pct) = unescaped_percent_with(line.text, extra) {
+            self.push_structure(ByteSpan::new(line.start + pct, line.end));
+        } else if j < line.text.len() && line.text[j..].trim().is_empty() {
+            self.push_structure(ByteSpan::new(line.start + j, line.end));
+        }
+        self.await_caption_brace = true;
+    }
+
+    fn emit_caption_group(&mut self, line: Line<'_>, open_at: usize) {
+        let extra = &self.parser.extra_verbatim_commands;
+        if let Some(close) = find_matching_curly(line.text, open_at, extra) {
+            let inner_start = open_at + 1;
+            if close > inner_start {
+                self.append_prose_slice(line.start + inner_start, &line.text[inner_start..close]);
+            }
+            let after = close + 1;
+            if line.text[after..].trim().is_empty() {
+                self.push_structure(ByteSpan::new(line.start + close, line.end));
+            } else {
+                self.push_structure(ByteSpan::new(line.start + close, line.start + after));
+                if self.in_float_env.is_some() {
+                    self.consume_float_line(rest_line(line, after));
+                } else {
+                    self.consume_body_line(rest_line(line, after));
+                }
+            }
+            return;
+        }
+        let stop = unescaped_percent_with(line.text, extra).unwrap_or(line.text.len());
+        let inner_start = open_at + 1;
+        if stop > inner_start {
+            self.append_prose_slice(line.start + inner_start, &line.text[inner_start..stop]);
+        }
+        self.in_caption = true;
+        self.caption_depth = curly_depth_at(line.text, open_at, stop, extra);
+        if let Some(pct) = unescaped_percent_with(line.text, extra) {
+            self.flush();
+            self.regions.push(SpannedRegion::structure(
+                self.input,
+                ByteSpan::new(line.start + pct, line.end),
+            ));
+        } else {
+            self.extend_prose_to(line.end);
+        }
+    }
+
+    fn consume_caption_line(&mut self, line: Line<'_>) {
+        let extra = &self.parser.extra_verbatim_commands;
+        if self.await_caption_brace {
+            if line.text.trim().is_empty() {
+                self.flush();
+                self.regions
+                    .push(SpannedRegion::blank(self.input, line.span()));
+                return;
+            }
+            if LatexParser::is_comment(line.text) {
+                self.flush();
+                self.regions
+                    .push(SpannedRegion::structure(self.input, line.span()));
+                return;
+            }
+            let stop = unescaped_percent_with(line.text, extra).unwrap_or(line.text.len());
+            let mut j = 0;
+            while j < stop && matches!(line.text.as_bytes()[j], b' ' | b'\t') {
+                j += 1;
+            }
+            if line.text.as_bytes().get(j) == Some(&b'{') {
+                self.await_caption_brace = false;
+                if j > 0 {
+                    self.push_structure(ByteSpan::new(line.start, line.start + j + 1));
+                } else {
+                    self.push_structure(ByteSpan::new(line.start, line.start + 1));
+                }
+                self.emit_caption_group(line, j);
+                return;
+            }
+            self.push_structure(line.span());
+            return;
+        }
+
+        if line.text.trim().is_empty() {
+            if let Some(end) = self.prose_span.as_ref().map(|s| s.end) {
+                self.extend_prose_to(end);
+            }
+            self.append_prose_slice(line.start, "");
+            self.flush();
+            self.regions
+                .push(SpannedRegion::blank(self.input, line.span()));
+            return;
+        }
+
+        let stop = unescaped_percent_with(line.text, extra).unwrap_or(line.text.len());
+        let bytes = line.text.as_bytes();
+        let mut i = 0;
+        let mut depth = self.caption_depth;
+        while i < stop {
+            if bytes[i] == b'\\' {
+                if let Some(end) = latex_verb_span_end_with(line.text, i, extra) {
+                    i = end;
+                    continue;
+                }
+                if i + 1 < stop {
+                    i += 2;
+                    continue;
+                }
+            }
+            match bytes[i] {
+                b'{' => depth += 1,
+                b'}' => {
+                    if depth == 0 {
+                        i += 1;
+                        continue;
+                    }
+                    depth -= 1;
+                    if depth == 0 {
+                        if i > 0 {
+                            self.append_prose_slice(line.start, &line.text[..i]);
+                        }
+                        self.in_caption = false;
+                        self.caption_depth = 0;
+                        let after = i + 1;
+                        if line.text[after..].trim().is_empty() {
+                            self.push_structure(ByteSpan::new(line.start + i, line.end));
+                        } else {
+                            self.push_structure(ByteSpan::new(line.start + i, line.start + after));
+                            if self.in_float_env.is_some() {
+                                self.consume_float_line(rest_line(line, after));
+                            } else {
+                                self.consume_body_line(rest_line(line, after));
+                            }
+                        }
+                        return;
+                    }
+                }
+                _ => {}
+            }
+            i += 1;
+        }
+        if stop > 0 {
+            self.append_prose_slice(line.start, &line.text[..stop]);
+        }
+        self.caption_depth = depth;
+        if let Some(pct) = unescaped_percent_with(line.text, extra) {
+            self.flush();
+            self.regions.push(SpannedRegion::structure(
+                self.input,
+                ByteSpan::new(line.start + pct, line.end),
+            ));
+        } else {
+            self.extend_prose_to(line.end);
+        }
     }
 
     fn consume_code_env_line(&mut self, line: Line<'_>) {
@@ -800,6 +1225,17 @@ impl<'a> ParseState<'a> {
                         return true;
                     }
                     self.enter_code(&hit.name, line, hit.start);
+                    return true;
+                }
+                if hit.is_begin && is_float_env(&hit.name) {
+                    self.flush();
+                    let begin_end = thru_eol_if_blank_rest(line, hit.end);
+                    self.push_structure(ByteSpan::new(line.start + hit.start, begin_end));
+                    self.in_float_env = Some(hit.name);
+                    self.float_depth = 1;
+                    if !line.text[hit.end..].trim().is_empty() {
+                        self.consume_float_line(rest_line(line, hit.end));
+                    }
                     return true;
                 }
                 if hit.is_begin && self.parser.is_non_prose_env(&hit.name) {
@@ -967,6 +1403,11 @@ impl FormatParser for LatexParser {
             prose_span: None,
             in_non_prose_env: None,
             non_prose_depth: 0,
+            in_float_env: None,
+            float_depth: 0,
+            in_caption: false,
+            caption_depth: 0,
+            await_caption_brace: false,
             in_code_env: None,
             code_depth: 0,
             code_lang: None,
@@ -3070,6 +3511,694 @@ Some text.
         assert!(
             out.contains("still prose.\nNext."),
             "\\\\[2ex] must not swallow following prose as math, got:\n{out}"
+        );
+        assert_eq!(format_text(&out, &latex_cfg()).unwrap(), out);
+    }
+
+    #[test]
+    fn leftover_start_indented_bracket_does_not_glue_preceding_prose() {
+        use crate::format_text;
+
+        // snapper-2ixz: 2-space leftover-start `\[` after a prose line.
+        let two = "The formula is\n  \\[\n  E = mc^2\n  \\]\nafter.\n";
+        let two_out = format_text(two, &latex_cfg()).unwrap();
+        assert!(
+            two_out.contains("The formula is\n  \\[\n"),
+            "2-space leftover-start \\[ must keep the sentence break, got:\n{two_out}"
+        );
+        assert!(
+            !two_out.contains("The formula is  \\["),
+            "must not glue preceding prose onto indented \\[, got:\n{two_out}"
+        );
+        assert_eq!(format_text(&two_out, &latex_cfg()).unwrap(), two_out);
+
+        // snapper-zj0u: 4-space leftover-start `\[` after a sentence.
+        let four = "Some sentence. More words.\n    \\[\n    E = m c^2.\n    \\]\nAfter. Next.\n";
+        let four_out = format_text(four, &latex_cfg()).unwrap();
+        assert!(
+            four_out.contains("More words.\n    \\[\n"),
+            "4-space leftover-start \\[ must keep the sentence break, got:\n{four_out}"
+        );
+        assert!(
+            !four_out.contains("More words.    \\["),
+            "must not glue More words. onto indented \\[, got:\n{four_out}"
+        );
+        assert!(
+            four_out.contains("After.\nNext."),
+            "prose after the block must still reflow, got:\n{four_out}"
+        );
+        assert_eq!(format_text(&four_out, &latex_cfg()).unwrap(), four_out);
+    }
+
+    #[test]
+    fn inline_single_dollar_math_is_still_prose() {
+        use crate::format_text;
+
+        let input = "See $x = 1$ here. Next sentence.\n";
+        let regions = LatexParser::default().parse(input);
+        assert!(
+            regions
+                .iter()
+                .any(|r| matches!(r, Region::Prose(p) if p.contains("$x = 1$"))),
+            "inline $...$ must stay Prose, got: {regions:?}"
+        );
+        let out = format_text(input, &latex_cfg()).unwrap();
+        assert!(
+            out.contains("See $x = 1$ here.\nNext sentence."),
+            "inline $...$ must not open display math, got:\n{out}"
+        );
+        assert_eq!(format_text(&out, &latex_cfg()).unwrap(), out);
+    }
+
+    #[test]
+    fn tree_sitter_and_latexindent_math_table_envs_are_structure() {
+        // Names missing on origin/main; each body is Structure, not Prose.
+        let names = [
+            "displaymath",
+            "displaymath*",
+            "math",
+            "aligned",
+            "aligned*",
+            "alignat",
+            "alignat*",
+            "alignedat",
+            "alignedat*",
+            "flalign",
+            "flalign*",
+            "gathered",
+            "gathered*",
+            "split",
+            "split*",
+            "tabularx",
+            "longtable",
+            "tabu",
+            "cases",
+            "cases*",
+            "dcases",
+            "dcases*",
+            "rcases",
+            "rcases*",
+            "drcases",
+            "drcases*",
+            "tblr",
+            "longtblr",
+            "talltblr",
+            "Bmatrix",
+            "vmatrix",
+            "Vmatrix",
+            "array*",
+        ];
+        for name in names {
+            let input = format!(
+                "\\begin{{{name}}}\nThis is a long sentence that must not reflow as prose inside {name}.\n\\end{{{name}}}\n"
+            );
+            let needle = format!("must not reflow as prose inside {name}");
+            let regions = LatexParser::default().parse(&input);
+            assert!(
+                regions
+                    .iter()
+                    .any(|r| matches!(r, Region::Structure(s) if s.contains(&needle))),
+                "{name} body must be Structure, got: {regions:?}"
+            );
+            assert!(
+                !regions
+                    .iter()
+                    .any(|r| matches!(r, Region::Prose(p) if p.contains(&needle))),
+                "{name} body must not be Prose, got: {regions:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn alignat_and_tabularx_bodies_are_structure_not_prose() {
+        let input = "\\begin{document}\n\\begin{alignat}{2}\nThis is a long sentence that must not reflow as prose inside alignat.\n\\end{alignat}\n\\begin{tabularx}{\\textwidth}{l}\nThis is a long sentence that must not reflow as prose inside tabularx.\n\\end{tabularx}\n\\end{document}\n";
+        let regions = LatexParser::default().parse(input);
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Structure(s) if s.contains("must not reflow as prose inside alignat")
+            )),
+            "alignat body must be Structure, got: {regions:?}"
+        );
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Structure(s) if s.contains("must not reflow as prose inside tabularx")
+            )),
+            "tabularx body must be Structure, got: {regions:?}"
+        );
+        assert!(
+            !regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(p)
+                    if p.contains("inside alignat") || p.contains("inside tabularx")
+            )),
+            "alignat/tabularx bodies must not be Prose, got: {regions:?}"
+        );
+    }
+
+    #[test]
+    fn alignat_and_tabularx_two_sentence_bodies_do_not_reflow() {
+        use crate::format_text;
+
+        let input = "\\begin{document}\n\\begin{alignat}{2}\nFirst sentence inside alignat. Second sentence stays put.\n\\end{alignat}\n\\begin{tabularx}{\\textwidth}{l}\nFirst sentence inside tabularx. Second sentence stays put.\n\\end{tabularx}\nAfter the tables. Next.\n\\end{document}\n";
+        let out = format_text(input, &latex_cfg()).unwrap();
+        assert!(
+            out.contains("First sentence inside alignat. Second sentence stays put."),
+            "alignat body must not reflow, got:\n{out}"
+        );
+        assert!(
+            !out.contains("First sentence inside alignat.\nSecond sentence stays put."),
+            "alignat body must stay one source line, got:\n{out}"
+        );
+        assert!(
+            out.contains("First sentence inside tabularx. Second sentence stays put."),
+            "tabularx body must not reflow, got:\n{out}"
+        );
+        assert!(
+            !out.contains("First sentence inside tabularx.\nSecond sentence stays put."),
+            "tabularx body must stay one source line, got:\n{out}"
+        );
+        assert!(
+            out.contains("After the tables.\nNext."),
+            "prose after the envs must still reflow, got:\n{out}"
+        );
+        assert_eq!(format_text(&out, &latex_cfg()).unwrap(), out);
+    }
+
+    /// Ticket fixture (GitHub #97 / snapper-e916): tikzcd is Structure.
+    #[test]
+    fn tikzcd_fixture_is_structure_not_prose() {
+        use crate::format_text;
+
+        let input = concat!(
+            "\\begin{tikzcd}\n",
+            "This is a long sentence that must not reflow as prose inside tikzcd.\n",
+            "\\end{tikzcd}\n",
+        );
+        let regions = LatexParser::default().parse(input);
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Structure(s) if s.contains("must not reflow as prose inside tikzcd")
+            )),
+            "tikzcd body must be Structure, got: {regions:?}"
+        );
+        assert!(
+            !regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(p) if p.contains("must not reflow as prose inside tikzcd")
+            )),
+            "tikzcd body must not be Prose, got: {regions:?}"
+        );
+        let out = format_text(input, &latex_cfg()).unwrap();
+        assert!(
+            out.contains("This is a long sentence that must not reflow as prose inside tikzcd."),
+            "tikzcd body must stay one source line, got:\n{out}"
+        );
+        assert_eq!(out, input, "tikzcd env must be identity, got:\n{out}");
+        assert_eq!(format_text(&out, &latex_cfg()).unwrap(), out);
+    }
+
+    #[test]
+    fn tikzcd_axis_pgfpicture_and_stars_are_structure() {
+        let names = [
+            "tikzcd",
+            "tikzcd*",
+            "axis",
+            "axis*",
+            "pgfpicture",
+            "pgfpicture*",
+        ];
+        for name in names {
+            let input = format!(
+                "\\begin{{{name}}}\nThis is a long sentence that must not reflow as prose inside {name}.\n\\end{{{name}}}\n"
+            );
+            let needle = format!("must not reflow as prose inside {name}");
+            let regions = LatexParser::default().parse(&input);
+            assert!(
+                regions
+                    .iter()
+                    .any(|r| matches!(r, Region::Structure(s) if s.contains(&needle))),
+                "{name} body must be Structure, got: {regions:?}"
+            );
+            assert!(
+                !regions
+                    .iter()
+                    .any(|r| matches!(r, Region::Prose(p) if p.contains(&needle))),
+                "{name} body must not be Prose, got: {regions:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn tikzcd_axis_pgfpicture_two_sentence_bodies_do_not_reflow() {
+        use crate::format_text;
+
+        let input = "\\begin{document}\nBefore the figures. More before.\n\\begin{tikzcd}\nFirst sentence inside tikzcd. Second sentence stays put.\n\\end{tikzcd}\n\\begin{axis}\nFirst sentence inside axis. Second sentence stays put.\n\\end{axis}\n\\begin{pgfpicture}\nFirst sentence inside pgfpicture. Second sentence stays put.\n\\end{pgfpicture}\nAfter the figures. Next.\n\\end{document}\n";
+        let out = format_text(input, &latex_cfg()).unwrap();
+        for fused in [
+            "First sentence inside tikzcd. Second sentence stays put.",
+            "First sentence inside axis. Second sentence stays put.",
+            "First sentence inside pgfpicture. Second sentence stays put.",
+        ] {
+            assert!(
+                out.contains(fused),
+                "tikz/pgf body must not reflow, missing {fused:?}, got:\n{out}"
+            );
+        }
+        assert!(
+            !out.contains("inside tikzcd.\nSecond")
+                && !out.contains("inside axis.\nSecond")
+                && !out.contains("inside pgfpicture.\nSecond"),
+            "tikz/pgf bodies must stay one source line, got:\n{out}"
+        );
+        assert!(
+            out.contains("Before the figures.\nMore before.")
+                && out.contains("After the figures.\nNext."),
+            "prose around tikz/pgf envs must still reflow, got:\n{out}"
+        );
+        assert_eq!(format_text(&out, &latex_cfg()).unwrap(), out);
+    }
+
+    #[test]
+    fn tikzcd_fixture_file_is_structure_not_prose() {
+        let input = include_str!("../../tests/fixtures/tikzcd.tex");
+        let regions = LatexParser::default().parse(input);
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Structure(s) if s.contains("must not reflow as prose inside tikzcd")
+            )),
+            "tests/fixtures/tikzcd.tex body must be Structure, got: {regions:?}"
+        );
+        assert!(
+            !regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(p) if p.contains("inside tikzcd")
+            )),
+            "tikzcd fixture must not be Prose, got: {regions:?}"
+        );
+    }
+
+    #[test]
+    fn comment_fixture_file_is_code_or_structure_not_prose() {
+        let input = include_str!("../../tests/fixtures/comment.tex");
+        let regions = LatexParser::default().parse(input);
+        assert!(
+            regions.iter().any(|r| match r {
+                Region::Code { body, .. } => {
+                    body.contains("must not reflow as prose inside comment")
+                }
+                Region::Structure(s) => s.contains("must not reflow as prose inside comment"),
+                _ => false,
+            }),
+            "tests/fixtures/comment.tex body must be Code or Structure, got: {regions:?}"
+        );
+        assert!(
+            !regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(p) if p.contains("inside comment")
+            )),
+            "comment fixture must not be Prose, got: {regions:?}"
+        );
+    }
+
+    #[test]
+    fn iffalse_fixture_file_is_structure_not_prose() {
+        let input = include_str!("../../tests/fixtures/iffalse.tex");
+        let regions = LatexParser::default().parse(input);
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Structure(s) if s.contains("must not reflow as prose inside iffalse")
+            )),
+            "tests/fixtures/iffalse.tex body must be Structure, got: {regions:?}"
+        );
+        assert!(
+            !regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(p) if p.contains("inside iffalse")
+            )),
+            "iffalse fixture must not be Prose, got: {regions:?}"
+        );
+    }
+
+    #[test]
+    fn comment_environment_body_is_not_prose() {
+        use crate::format_text;
+
+        let input = "\\begin{document}\nBefore.\n\\begin{comment}\nThis is a long sentence that must not reflow as prose inside comment.\n\\end{comment}\nAfter the comment. Next.\n\\end{document}\n";
+        let regions = LatexParser::default().parse(input);
+        assert!(
+            regions.iter().any(|r| match r {
+                Region::Code { body, .. } => {
+                    body.contains("must not reflow as prose inside comment")
+                }
+                Region::Structure(s) => s.contains("must not reflow as prose inside comment"),
+                _ => false,
+            }),
+            "comment env body must be Code or Structure, got: {regions:?}"
+        );
+        assert!(
+            !regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(p) if p.contains("must not reflow as prose inside comment")
+            )),
+            "comment env body must not be Prose, got: {regions:?}"
+        );
+        let out = format_text(input, &latex_cfg()).unwrap();
+        assert!(
+            out.contains("This is a long sentence that must not reflow as prose inside comment."),
+            "comment body must stay one line, got:\n{out}"
+        );
+        assert!(
+            out.contains("After the comment.\nNext."),
+            "prose after comment env must still reflow, got:\n{out}"
+        );
+        assert_eq!(format_text(&out, &latex_cfg()).unwrap(), out);
+    }
+
+    #[test]
+    fn comment_environment_two_sentences_do_not_reflow() {
+        use crate::format_text;
+
+        let input = "\\begin{document}\nBefore.\n\\begin{comment}\nHidden one. Hidden two.\n\\end{comment}\nAfter the comment. Next.\n\\end{document}\n";
+        let out = format_text(input, &latex_cfg()).unwrap();
+        assert!(
+            out.contains("Hidden one. Hidden two."),
+            "comment env two sentences must not reflow, got:\n{out}"
+        );
+        assert!(
+            !out.contains("Hidden one.\nHidden two."),
+            "comment env must stay one source line, got:\n{out}"
+        );
+        assert_eq!(format_text(&out, &latex_cfg()).unwrap(), out);
+    }
+
+    #[test]
+    fn iffalse_block_is_structure_not_prose() {
+        use crate::format_text;
+
+        let input = "\\begin{document}\nBefore.\n\\iffalse\nThis is a long sentence that must not reflow as prose inside iffalse.\n\\fi\nAfter the skip. Next.\n\\end{document}\n";
+        let regions = LatexParser::default().parse(input);
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Structure(s) if s.contains("must not reflow as prose inside iffalse")
+            )),
+            "iffalse body must be Structure, got: {regions:?}"
+        );
+        assert!(
+            !regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(p) if p.contains("must not reflow as prose inside iffalse")
+            )),
+            "iffalse body must not be Prose, got: {regions:?}"
+        );
+        let out = format_text(input, &latex_cfg()).unwrap();
+        assert!(
+            out.contains("This is a long sentence that must not reflow as prose inside iffalse."),
+            "iffalse body must stay one line, got:\n{out}"
+        );
+        assert!(
+            out.contains("After the skip.\nNext."),
+            "prose after \\fi must still reflow, got:\n{out}"
+        );
+        assert_eq!(format_text(&out, &latex_cfg()).unwrap(), out);
+    }
+
+    #[test]
+    fn iffalse_two_sentences_do_not_reflow() {
+        use crate::format_text;
+
+        let input = "\\begin{document}\nBefore.\n\\iffalse\nHidden one. Hidden two.\n\\fi\nAfter the skip. Next.\n\\end{document}\n";
+        let out = format_text(input, &latex_cfg()).unwrap();
+        assert!(
+            out.contains("Hidden one. Hidden two."),
+            "iffalse two sentences must not reflow, got:\n{out}"
+        );
+        assert!(
+            !out.contains("Hidden one.\nHidden two."),
+            "iffalse must stay one source line, got:\n{out}"
+        );
+        assert_eq!(format_text(&out, &latex_cfg()).unwrap(), out);
+    }
+
+    #[test]
+    fn same_line_iffalse_is_structure() {
+        let input = "\\begin{document}\nKeep this. \\iffalse Hidden one. Hidden two. \\fi After. Next.\n\\end{document}\n";
+        let regions = LatexParser::default().parse(input);
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Structure(s) if s.contains(r"\iffalse") && s.contains("Hidden one")
+            )),
+            "same-line iffalse must be Structure, got: {regions:?}"
+        );
+        assert!(
+            !regions
+                .iter()
+                .any(|r| matches!(r, Region::Prose(p) if p.contains("Hidden one"))),
+            "iffalse payload must not be Prose, got: {regions:?}"
+        );
+        assert!(
+            regions
+                .iter()
+                .any(|r| matches!(r, Region::Prose(p) if p.contains("Keep this"))),
+            "text before iffalse stays prose, got: {regions:?}"
+        );
+    }
+
+    #[test]
+    fn same_line_iffalse_before_end_env_is_structure() {
+        use crate::format_text;
+
+        // snapper-d93x: env-first scan leaked the payload as Prose because
+        // `\end{document}` sits later on the same physical line.
+        let input = "\\begin{document}\nKeep this. \\iffalse Hidden one. Hidden two. \\fi After. \\end{document}\n";
+        let regions = LatexParser::default().parse(input);
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Structure(s) if s.contains(r"\iffalse") && s.contains("Hidden one")
+            )),
+            "same-line iffalse before \\end must be Structure, got: {regions:?}"
+        );
+        assert!(
+            !regions
+                .iter()
+                .any(|r| matches!(r, Region::Prose(p) if p.contains("Hidden one"))),
+            "iffalse payload before \\end must not be Prose, got: {regions:?}"
+        );
+        let out = format_text(input, &latex_cfg()).unwrap();
+        assert!(
+            out.contains("Hidden one. Hidden two."),
+            "iffalse two sentences must not reflow, got:\n{out}"
+        );
+        assert!(
+            !out.contains("Hidden one.\nHidden two."),
+            "iffalse payload must stay one source line, got:\n{out}"
+        );
+        assert_eq!(format_text(&out, &latex_cfg()).unwrap(), out);
+    }
+
+    #[test]
+    fn same_line_iffalse_before_begin_env_is_structure() {
+        use crate::format_text;
+
+        let input = "\\begin{document}\nKeep this. \\iffalse Hidden one. Hidden two. \\fi \\begin{equation}x=1.\\end{equation}\nAfter the skip. Next.\n\\end{document}\n";
+        let regions = LatexParser::default().parse(input);
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Structure(s) if s.contains(r"\iffalse") && s.contains("Hidden one")
+            )),
+            "same-line iffalse before \\begin must be Structure, got: {regions:?}"
+        );
+        assert!(
+            !regions
+                .iter()
+                .any(|r| matches!(r, Region::Prose(p) if p.contains("Hidden one"))),
+            "iffalse payload before \\begin must not be Prose, got: {regions:?}"
+        );
+        let out = format_text(input, &latex_cfg()).unwrap();
+        assert!(
+            out.contains("Hidden one. Hidden two."),
+            "iffalse two sentences must not reflow, got:\n{out}"
+        );
+        assert!(
+            !out.contains("Hidden one.\nHidden two."),
+            "iffalse payload must stay one source line, got:\n{out}"
+        );
+        assert!(
+            out.contains("After the skip.\nNext."),
+            "prose after the envs must still reflow, got:\n{out}"
+        );
+        assert_eq!(format_text(&out, &latex_cfg()).unwrap(), out);
+    }
+
+    /// Ticket fixture (GitHub #95 / snapper-t4lj): caption long arg is Prose.
+    fn figure_caption_fixture() -> &'static str {
+        concat!(
+            "\\begin{figure}\n",
+            "\\centering\n",
+            "\\caption{First claim. Second claim about the plot.}\n",
+            "\\end{figure}\n",
+        )
+    }
+
+    #[test]
+    fn figure_caption_long_arg_is_prose_chrome_is_structure() {
+        let input = figure_caption_fixture();
+        let regions = LatexParser::default().parse(input);
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Structure(s) if s.contains(r"\begin{figure}")
+            )),
+            "figure begin must be Structure, got: {regions:?}"
+        );
+        assert!(
+            regions
+                .iter()
+                .any(|r| matches!(r, Region::Structure(s) if s.contains(r"\centering"))),
+            "centering chrome must be Structure, got: {regions:?}"
+        );
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(p) if p.contains("First claim. Second claim about the plot.")
+            )),
+            "caption long argument must be Prose, got: {regions:?}"
+        );
+        assert!(
+            !regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(p) if p.contains(r"\centering") || p.contains(r"\begin{figure}")
+            )),
+            "float chrome must not be Prose, got: {regions:?}"
+        );
+        assert!(
+            !regions.iter().any(|r| matches!(
+                r,
+                Region::Structure(s) if s.contains("First claim. Second claim about the plot.")
+            )),
+            "caption long argument must not stay Structure, got: {regions:?}"
+        );
+    }
+
+    #[test]
+    fn figure_caption_two_sentences_reflow() {
+        use crate::format_text;
+        use crate::oracle;
+
+        let input = figure_caption_fixture();
+        let out = format_text(input, &latex_cfg()).unwrap();
+        assert!(
+            out.contains("\\caption{First claim.\nSecond claim about the plot.}"),
+            "caption long argument must sembr, got:\n{out}"
+        );
+        assert!(
+            out.contains("\\begin{figure}\n\\centering\n"),
+            "float chrome must stay identity, got:\n{out}"
+        );
+        assert!(
+            !out.contains("First claim. Second claim about the plot."),
+            "fused caption must not survive, got:\n{out}"
+        );
+        assert_eq!(format_text(&out, &latex_cfg()).unwrap(), out);
+        assert!(
+            oracle::matches(crate::format::Format::Latex, input, &out),
+            "oracle mismatch\n in={input:?}\n out={out:?}"
+        );
+    }
+
+    #[test]
+    fn table_figure_star_captions_reflow_nested_tabular_stays() {
+        use crate::format_text;
+
+        for name in ["figure", "figure*", "table", "table*"] {
+            let input = format!(
+                "\\begin{{{name}}}\n\\centering\n\\caption{{First claim. Second claim about the plot.}}\n\\end{{{name}}}\n"
+            );
+            let out = format_text(&input, &latex_cfg()).unwrap();
+            assert!(
+                out.contains("\\caption{First claim.\nSecond claim about the plot.}"),
+                "{name} caption must sembr, got:\n{out}"
+            );
+            assert_eq!(format_text(&out, &latex_cfg()).unwrap(), out);
+        }
+
+        let nested = concat!(
+            "\\begin{figure}\n",
+            "\\begin{tabular}{l}\n",
+            "This is a long sentence that must not reflow as prose inside tabular. Another sentence stays put.\n",
+            "\\end{tabular}\n",
+            "\\caption{First claim. Second claim about the plot.}\n",
+            "\\end{figure}\n",
+        );
+        let regions = LatexParser::default().parse(nested);
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Structure(s)
+                    if s.contains("must not reflow as prose inside tabular")
+            )),
+            "nested tabular must stay Structure, got: {regions:?}"
+        );
+        assert!(
+            !regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(p) if p.contains("inside tabular")
+            )),
+            "nested tabular must not be Prose, got: {regions:?}"
+        );
+        let out = format_text(nested, &latex_cfg()).unwrap();
+        assert!(
+            out.contains(
+                "This is a long sentence that must not reflow as prose inside tabular. Another sentence stays put."
+            ),
+            "nested tabular must not reflow, got:\n{out}"
+        );
+        assert!(
+            out.contains("\\caption{First claim.\nSecond claim about the plot.}"),
+            "caption after tabular must still sembr, got:\n{out}"
+        );
+        assert_eq!(format_text(&out, &latex_cfg()).unwrap(), out);
+    }
+
+    #[test]
+    fn caption_optional_short_title_stays_structure() {
+        use crate::format_text;
+
+        let input = concat!(
+            "\\begin{figure}\n",
+            "\\caption[Short. Title.]{First claim. Second claim about the plot.}\n",
+            "\\end{figure}\n",
+        );
+        let regions = LatexParser::default().parse(input);
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Structure(s) if s.contains("[Short. Title.]")
+            )),
+            "optional short title must be Structure, got: {regions:?}"
+        );
+        assert!(
+            !regions
+                .iter()
+                .any(|r| matches!(r, Region::Prose(p) if p.contains("Short. Title"))),
+            "optional short title must not be Prose, got: {regions:?}"
+        );
+        let out = format_text(input, &latex_cfg()).unwrap();
+        assert!(
+            out.contains("\\caption[Short. Title.]{First claim.\nSecond claim about the plot.}"),
+            "short title stays fused; long arg sembrs, got:\n{out}"
+        );
+        assert!(
+            !out.contains("Short.\n"),
+            "must not split the optional short title:\n{out}"
         );
         assert_eq!(format_text(&out, &latex_cfg()).unwrap(), out);
     }
