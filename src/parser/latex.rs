@@ -128,11 +128,13 @@ static LSTLISTING_LANG_RE: LazyLock<Regex> = LazyLock::new(|| {
 /// Beyond minted/lstlisting/verbatim: latexindent `fileContentsEnvironments`
 /// (`filecontents`, `filecontents*`) and tree-sitter-latex raw trivia envs
 /// (`asy`, `asydef`, `pycode`, `luacode`, `luacode*`, `sagesilent`,
-/// `sageblock`) plus fancyvrb `verbatim*` / `Verbatim`, moreverb
-/// `boxedverbatim`, tcolorbox `tcblisting` / `codeexample`, and the
-/// `comment` package env (tree-sitter `comment_environment`: raw through
-/// matching `\end{comment}`). Overleaf `verbatimEnvNames` is Verbatim,
-/// boxedverbatim, tcblisting, codeexample.
+/// `sageblock`) plus fancyvrb `verbatim*` / `Verbatim` / `BVerbatim` /
+/// `LVerbatim`, moreverb `boxedverbatim`, tcolorbox `tcblisting` /
+/// `codeexample`, and the `comment` package env (tree-sitter
+/// `comment_environment`: raw through matching `\end{comment}`).
+/// Overleaf `verbatimEnvNames` is Verbatim, boxedverbatim, tcblisting,
+/// codeexample. fancyvrb `BVerbatim` / `LVerbatim` are the same raw
+/// class as `Verbatim` (GitHub #209).
 fn is_builtin_code_env(name: &str) -> bool {
     matches!(
         name,
@@ -141,6 +143,8 @@ fn is_builtin_code_env(name: &str) -> bool {
             | "verbatim"
             | "verbatim*"
             | "Verbatim"
+            | "BVerbatim"
+            | "LVerbatim"
             | "boxedverbatim"
             | "tcblisting"
             | "codeexample"
@@ -2336,6 +2340,67 @@ Some text.
         );
         assert_eq!(out, input, "Verbatim env must be identity, got:\n{out}");
         assert_eq!(format_text(&out, &latex_cfg()).unwrap(), out);
+    }
+
+    /// Ticket fixture (GitHub #209): fancyvrb BVerbatim and LVerbatim
+    /// are the same raw class as Verbatim.
+    #[test]
+    fn fancyvrb_bverbatim_lverbatim_are_code_not_prose() {
+        use crate::format_text;
+
+        for name in ["BVerbatim", "LVerbatim"] {
+            let input = format!(
+                "\\begin{{document}}\nBefore the listing. More before.\n\\begin{{{name}}}\nThis is a long sentence that must not reflow as prose inside {name}.\n\\end{{{name}}}\nAfter the listing. Second sentence.\n\\end{{document}}\n"
+            );
+            let regions = LatexParser::default().parse(&input);
+            assert!(
+                regions.iter().any(|r| matches!(
+                    r,
+                    Region::Code { body, .. }
+                        if body.contains("This is a long sentence that must not reflow as prose")
+                )),
+                "{name} body must be Code, got: {regions:?}"
+            );
+            assert!(
+                !regions.iter().any(|r| matches!(
+                    r,
+                    Region::Prose(p)
+                        if p.contains("This is a long sentence that must not reflow as prose")
+                )),
+                "{name} body must not leak into Prose, got: {regions:?}"
+            );
+            let out = format_text(&input, &latex_cfg()).unwrap();
+            assert!(
+                out.contains(&format!("\\begin{{{name}}}"))
+                    && out.contains(&format!("\\end{{{name}}}")),
+                "{name} begin/end must stay, got:\n{out}"
+            );
+            assert!(
+                out.contains(&format!(
+                    "This is a long sentence that must not reflow as prose inside {name}."
+                )),
+                "{name} body must not reflow, got:\n{out}"
+            );
+            assert!(
+                !out.contains("This is a long sentence that must not reflow as prose inside\n"),
+                "{name} must stay one source line, got:\n{out}"
+            );
+            assert!(
+                out.contains("After the listing.\nSecond sentence."),
+                "prose after {name} must still split, got:\n{out}"
+            );
+            assert_eq!(format_text(&out, &latex_cfg()).unwrap(), out);
+
+            // Two interior sentences must stay one source line (default
+            // max_width=0 only splits Prose).
+            let two = format!("\\begin{{{name}}}\nFirst line. Second line.\n\\end{{{name}}}\n");
+            let two_out = format_text(&two, &latex_cfg()).unwrap();
+            assert_eq!(two_out, two, "{name} env must be identity, got:\n{two_out}");
+            assert!(
+                !two_out.contains("First line.\nSecond line."),
+                "{name} two-sentence body must not split, got:\n{two_out}"
+            );
+        }
     }
 
     #[test]
