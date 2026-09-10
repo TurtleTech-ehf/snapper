@@ -31,6 +31,20 @@ enum DisplayMathDelim {
     Dollars,
 }
 
+/// Greater-block kind. Quote/verse/center contain paragraphs;
+/// example/export/comment and other names stay literal Structure.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum GreaterKind {
+    Container,
+    Opaque,
+}
+
+#[derive(Debug, Clone)]
+struct OpenGreater {
+    name: String,
+    kind: GreaterKind,
+}
+
 pub struct OrgParser;
 
 impl OrgParser {
@@ -186,6 +200,42 @@ impl OrgParser {
         let trimmed = line.trim();
         EXPORT_SNIPPET_RE.is_match(trimmed) && trimmed.starts_with("@@")
     }
+
+    /// org-element quote-block / verse-block / center-block contain paragraphs.
+    fn is_container_block_name(name: &str) -> bool {
+        matches!(name, "QUOTE" | "VERSE" | "CENTER")
+    }
+
+    fn greater_kind(name: &str) -> GreaterKind {
+        if Self::is_container_block_name(name) {
+            GreaterKind::Container
+        } else {
+            GreaterKind::Opaque
+        }
+    }
+
+    fn inside_opaque(stack: &[OpenGreater]) -> bool {
+        stack.iter().any(|b| b.kind == GreaterKind::Opaque)
+    }
+
+    fn innermost_container(stack: &[OpenGreater]) -> Option<&str> {
+        stack
+            .iter()
+            .rev()
+            .find(|b| b.kind == GreaterKind::Container)
+            .map(|b| b.name.as_str())
+    }
+
+    fn push_greater(stack: &mut Vec<OpenGreater>, name: String) {
+        let kind = Self::greater_kind(&name);
+        stack.push(OpenGreater { name, kind });
+    }
+
+    fn pop_matching_greater(stack: &mut Vec<OpenGreater>, end_name: &str) {
+        if stack.last().is_some_and(|b| b.name == end_name) {
+            stack.pop();
+        }
+    }
 }
 
 impl FormatParser for OrgParser {
@@ -195,7 +245,8 @@ impl FormatParser for OrgParser {
         let mut prose_span: Option<ByteSpan> = None;
         // Open greater-element names. `#+END_NAME` pops only a matching top
         // (org-element / orgize); a mismatched closer stays structure.
-        let mut block_stack: Vec<String> = Vec::new();
+        // Quote/verse/center are containers (inner Prose); other names are opaque.
+        let mut block_stack: Vec<OpenGreater> = Vec::new();
         let mut in_src_block = false;
         let mut src_lang: Option<String> = None;
         let mut src_header = ByteSpan::default();
@@ -245,15 +296,15 @@ impl FormatParser for OrgParser {
                 continue;
             }
 
-            // Inside a non-src block -- everything is structure
-            if !block_stack.is_empty() {
+            // Inside an opaque greater block -- everything is structure.
+            // Quote/verse/center are containers: fall through and parse inner
+            // regions (Prose, SRC, nested opaque blocks).
+            if Self::inside_opaque(&block_stack) {
                 flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
                 if let Some(end_name) = Self::block_end_name(line_text) {
-                    if block_stack.last() == Some(&end_name) {
-                        block_stack.pop();
-                    }
+                    Self::pop_matching_greater(&mut block_stack, &end_name);
                 } else if let Some(begin_name) = Self::block_begin_name(line_text) {
-                    block_stack.push(begin_name);
+                    Self::push_greater(&mut block_stack, begin_name);
                 }
                 regions.push(SpannedRegion::structure(input, line.span()));
                 continue;
@@ -300,10 +351,18 @@ impl FormatParser for OrgParser {
                 continue;
             }
 
-            // Other #+BEGIN_NAME: opaque structure until matching #+END_NAME
+            // #+BEGIN_NAME: container open (quote/verse/center) or opaque.
             if let Some(name) = Self::block_begin_name(line_text) {
                 flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
-                block_stack.push(name);
+                Self::push_greater(&mut block_stack, name);
+                regions.push(SpannedRegion::structure(input, line.span()));
+                continue;
+            }
+
+            // #+END_NAME: matching container closer, or mismatched Structure.
+            if let Some(end_name) = Self::block_end_name(line_text) {
+                flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
+                Self::pop_matching_greater(&mut block_stack, &end_name);
                 regions.push(SpannedRegion::structure(input, line.span()));
                 continue;
             }
@@ -462,8 +521,14 @@ impl FormatParser for OrgParser {
                 list_item_indent = None;
             }
 
-            // Regular prose line -- accumulate
-            push_prose_line(&mut current_prose, &mut prose_span, &line, true, true);
+            // Regular prose line -- accumulate. Verse stays line-preserving.
+            if Self::innermost_container(&block_stack) == Some("VERSE") {
+                flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
+                push_prose_line(&mut current_prose, &mut prose_span, &line, true, true);
+                flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
+            } else {
+                push_prose_line(&mut current_prose, &mut prose_span, &line, true, true);
+            }
         }
 
         // Flush remaining
@@ -981,35 +1046,44 @@ mod tests {
     fn nested_example_does_not_close_quote_by_any_end() {
         let input = quote_with_nested_example();
         let regions = OrgParser.parse(input);
-        let structure: String = regions
-            .iter()
-            .filter_map(|r| match r {
-                Region::Structure(s) => Some(s.as_str()),
-                _ => None,
-            })
-            .collect();
         assert!(
-            structure.contains("#+BEGIN_QUOTE"),
+            regions
+                .iter()
+                .any(|r| matches!(r, Region::Structure(s) if s.contains("#+BEGIN_QUOTE"))),
             "quote opener must stay Structure, got: {regions:?}"
         );
         assert!(
-            structure.contains("#+END_QUOTE"),
+            regions
+                .iter()
+                .any(|r| matches!(r, Region::Structure(s) if s.contains("#+END_QUOTE"))),
             "matching #+END_QUOTE must stay Structure, not prose: {regions:?}"
         );
         assert!(
-            structure.contains("Still quoted. More quoted."),
-            "post-example quote body must stay inside the quote: {regions:?}"
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(p) if p.contains("Quoted one.") && p.contains("Quoted two.")
+            )),
+            "quote body must be Prose, got: {regions:?}"
         );
         assert!(
-            structure.contains("foo. bar."),
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(p) if p.contains("Still quoted") && p.contains("More quoted")
+            )),
+            "post-example quote body must stay Prose inside the quote: {regions:?}"
+        );
+        assert!(
+            regions
+                .iter()
+                .any(|r| matches!(r, Region::Structure(s) if s.contains("foo. bar."))),
             "EXAMPLE body must stay Structure: {regions:?}"
         );
         assert!(
             !regions.iter().any(|r| matches!(
                 r,
-                Region::Prose(p) if p.contains("Still quoted") || p.contains("#+END_QUOTE")
+                Region::Prose(p) if p.contains("#+END_QUOTE") || p.contains("foo. bar.")
             )),
-            "quote closer and inner quote body must not become Prose: {regions:?}"
+            "quote closer and EXAMPLE body must not become Prose: {regions:?}"
         );
         let prose: Vec<_> = regions
             .iter()
@@ -1039,8 +1113,8 @@ mod tests {
         .without_safety_backstops();
         let out = format_text(input, &cfg).unwrap();
         assert!(
-            out.contains("Quoted one. Quoted two."),
-            "quoted sentences must stay inside the quote fence, got:\n{out}"
+            out.contains("Quoted one.\nQuoted two."),
+            "quoted sentences must reflow inside the quote fence, got:\n{out}"
         );
         assert!(
             out.contains("foo. bar."),
@@ -1051,12 +1125,8 @@ mod tests {
             "EXAMPLE must stay literal, got:\n{out}"
         );
         assert!(
-            out.contains("Still quoted. More quoted."),
-            "text after nested EXAMPLE must stay in the quote, got:\n{out}"
-        );
-        assert!(
-            !out.contains("Still quoted.\nMore quoted."),
-            "inner quote body must not become prose (name-blind close), got:\n{out}"
+            out.contains("Still quoted.\nMore quoted."),
+            "text after nested EXAMPLE must reflow inside the quote, got:\n{out}"
         );
         assert!(
             out.contains("#+END_QUOTE\nAfter.\nNext.\n")
@@ -1064,6 +1134,189 @@ mod tests {
             "real closer stays a fence; following prose reflows, got:\n{out}"
         );
         assert_eq!(format_text(&out, &cfg).unwrap(), out);
+    }
+
+    /// Ticket fixture (Format::Org): quote inner is Prose.
+    fn quote_inner_prose_fixture() -> &'static str {
+        concat!(
+            "#+BEGIN_QUOTE\n",
+            "Quoted one. Quoted two.\n",
+            "#+END_QUOTE\n",
+        )
+    }
+
+    /// Ticket fixture (Format::Org): nested SRC inside quote.
+    fn quote_nested_src_fixture() -> &'static str {
+        concat!(
+            "#+BEGIN_QUOTE\n",
+            "Before.\n",
+            "\n",
+            "#+BEGIN_SRC python\n",
+            "print(\"a. b\")\n",
+            "#+END_SRC\n",
+            "\n",
+            "After quote. More.\n",
+            "#+END_QUOTE\n",
+        )
+    }
+
+    #[test]
+    fn quote_block_inner_is_prose_not_structure() {
+        let input = quote_inner_prose_fixture();
+        let regions = OrgParser.parse(input);
+        assert!(
+            regions
+                .iter()
+                .any(|r| matches!(r, Region::Structure(s) if s.contains("#+BEGIN_QUOTE"))),
+            "quote opener must stay Structure, got: {regions:?}"
+        );
+        assert!(
+            regions
+                .iter()
+                .any(|r| matches!(r, Region::Structure(s) if s.contains("#+END_QUOTE"))),
+            "quote closer must stay Structure, got: {regions:?}"
+        );
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(p) if p.contains("Quoted one.") && p.contains("Quoted two.")
+            )),
+            "quote inner must be Prose, got: {regions:?}"
+        );
+        assert!(
+            !regions
+                .iter()
+                .any(|r| matches!(r, Region::Structure(s) if s.contains("Quoted one."))),
+            "quote inner must not be Structure, got: {regions:?}"
+        );
+    }
+
+    #[test]
+    fn quote_block_inner_prose_reflows() {
+        use crate::format_text;
+
+        let input = quote_inner_prose_fixture();
+        let out = format_text(input, &org_cfg()).unwrap();
+        assert!(
+            out.contains("#+BEGIN_QUOTE\nQuoted one.\nQuoted two.\n#+END_QUOTE"),
+            "quoted sentences must reflow, got:\n{out}"
+        );
+        assert_eq!(format_text(&out, &org_cfg()).unwrap(), out);
+    }
+
+    #[test]
+    fn quote_block_nested_src_closes_only_src() {
+        use crate::format_text;
+
+        let input = quote_nested_src_fixture();
+        let regions = OrgParser.parse(input);
+        match regions.iter().find(|r| matches!(r, Region::Code { .. })) {
+            Some(Region::Code {
+                lang,
+                body,
+                header,
+                footer,
+            }) => {
+                assert_eq!(lang.as_deref(), Some("python"));
+                assert!(header.contains("#+BEGIN_SRC"));
+                assert!(body.contains("print(\"a. b\")"));
+                assert!(footer.contains("#+END_SRC"));
+            }
+            other => panic!("nested SRC must be Code, got {regions:?} (found {other:?})"),
+        }
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(p) if p.contains("After quote.") && p.contains("More.")
+            )),
+            "quote prose after SRC must stay Prose, got: {regions:?}"
+        );
+        assert!(
+            !regions
+                .iter()
+                .any(|r| matches!(r, Region::Prose(p) if p.contains("print"))),
+            "SRC body must not leak as Prose, got: {regions:?}"
+        );
+        let out = format_text(input, &org_cfg()).unwrap();
+        assert!(
+            out.contains("print(\"a. b\")"),
+            "SRC body must not reflow, got:\n{out}"
+        );
+        assert!(
+            !out.contains("a.\nb"),
+            "SRC body must not split at the period, got:\n{out}"
+        );
+        assert!(
+            out.contains("After quote.\nMore."),
+            "quote prose after SRC must reflow, got:\n{out}"
+        );
+        assert!(
+            out.contains("#+BEGIN_QUOTE") && out.contains("#+END_QUOTE"),
+            "quote fences must remain, got:\n{out}"
+        );
+        assert_eq!(format_text(&out, &org_cfg()).unwrap(), out);
+    }
+
+    #[test]
+    fn verse_block_inner_is_line_preserving_prose() {
+        use crate::format_text;
+
+        let input = "#+BEGIN_VERSE\nGreat clouds overhead\nTiny black birds rise and fall\n#+END_VERSE\nAfter. Next.\n";
+        let regions = OrgParser.parse(input);
+        assert!(
+            regions
+                .iter()
+                .any(|r| matches!(r, Region::Prose(p) if p.contains("Great clouds overhead"))),
+            "verse inner must be Prose, got: {regions:?}"
+        );
+        assert!(
+            !regions.iter().any(|r| matches!(
+                r,
+                Region::Structure(s) if s.contains("Great clouds overhead")
+            )),
+            "verse inner must not be Structure, got: {regions:?}"
+        );
+        let out = format_text(input, &org_cfg()).unwrap();
+        assert!(
+            out.contains("Great clouds overhead\nTiny black birds rise and fall"),
+            "verse lines must stay separate, got:\n{out}"
+        );
+        assert!(
+            !out.contains("Great clouds overhead Tiny black birds"),
+            "verse must not join lines with a space, got:\n{out}"
+        );
+        assert!(
+            out.contains("#+END_VERSE\nAfter.\nNext."),
+            "prose after verse must reflow, got:\n{out}"
+        );
+        assert_eq!(format_text(&out, &org_cfg()).unwrap(), out);
+    }
+
+    #[test]
+    fn center_block_inner_prose_reflows() {
+        use crate::format_text;
+
+        let input = "#+BEGIN_CENTER\nCentered one. Centered two.\n#+END_CENTER\n";
+        let regions = OrgParser.parse(input);
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(p) if p.contains("Centered one.") && p.contains("Centered two.")
+            )),
+            "center inner must be Prose, got: {regions:?}"
+        );
+        assert!(
+            !regions
+                .iter()
+                .any(|r| matches!(r, Region::Structure(s) if s.contains("Centered one."))),
+            "center inner must not be Structure, got: {regions:?}"
+        );
+        let out = format_text(input, &org_cfg()).unwrap();
+        assert!(
+            out.contains("#+BEGIN_CENTER\nCentered one.\nCentered two.\n#+END_CENTER"),
+            "center inner must reflow, got:\n{out}"
+        );
+        assert_eq!(format_text(&out, &org_cfg()).unwrap(), out);
     }
 
     #[test]
