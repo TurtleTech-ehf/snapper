@@ -177,11 +177,12 @@ fn display_math_is_single_line(s: &str, delim: DisplayMathDelim) -> bool {
     }
 }
 
-/// Sectioning commands whose brace argument is prose (titles can be long).
-/// Captures: (1) command + opening brace prefix, (2) argument body, (3) closing brace + rest.
+/// Sectioning commands: the full physical line is Structure, including an
+/// optional `[short title]` (tree-sitter `_section_part` brack_group then
+/// curly_group). KOMA `\addsec`/`\addchap`/`\addpart` share that shape.
 static SECTION_CMD_RE: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(
-        r"^(\s*\\(?:part|chapter|section|subsection|subsubsection|paragraph|subparagraph)\*?\{)([^}]*)(\}.*)$",
+        r"^(\s*\\(?:part|chapter|section|subsection|subsubsection|paragraph|subparagraph|addsec|addchap|addpart)\*?(?:\[[^\]]*\])?\{)([^}]*)(\}.*)$",
     )
     .unwrap()
 });
@@ -1086,6 +1087,116 @@ mod tests {
             "must not reflow mid-title inside braces:\n{out}"
         );
         assert_eq!(format_text(&out, &cfg).unwrap(), out);
+    }
+
+    #[test]
+    fn section_optional_short_title_is_structure_not_prose() {
+        let input =
+            "\\section[Short. Title.]{A long title. With two sentences.}\nBody. More body.\n";
+        let regions = LatexParser::default().parse(input);
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Structure(s)
+                    if s.contains(r"\section[Short. Title.]{A long title. With two sentences.}")
+            )),
+            "full section line including optional short title must be Structure, got: {regions:?}"
+        );
+        assert!(
+            !regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(p)
+                    if p.contains("Short. Title")
+                        || p.contains("A long title")
+                        || p.contains("With two sentences")
+            )),
+            "optional short title and long title must not be Prose: {regions:?}"
+        );
+        let prose: Vec<_> = regions
+            .iter()
+            .filter_map(|r| match r {
+                Region::Prose(t) => Some(t.as_str()),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(prose, ["Body. More body."]);
+    }
+
+    #[test]
+    fn section_optional_short_title_stays_one_line() {
+        use crate::format::Format;
+        use crate::oracle;
+        use crate::{FormatConfig, format_text};
+
+        let input =
+            "\\section[Short. Title.]{A long title. With two sentences.}\nBody. More body.\n";
+        let cfg = FormatConfig {
+            format: Format::Latex,
+            ..Default::default()
+        }
+        .without_safety_backstops();
+        let out = format_text(input, &cfg).unwrap();
+        assert!(
+            out.contains("\\section[Short. Title.]{A long title. With two sentences.}"),
+            "section line including optional short title must stay one line, got:\n{out}"
+        );
+        assert!(
+            !out.contains("\\section[Short.\n") && !out.contains("Title.]{A long title.\n"),
+            "must not split periods in the short title or long title:\n{out}"
+        );
+        assert!(
+            out.contains("Body.\nMore body."),
+            "body after the section line must still reflow, got:\n{out}"
+        );
+        assert_eq!(format_text(&out, &cfg).unwrap(), out);
+        assert!(
+            oracle::matches(Format::Latex, input, &out),
+            "oracle mismatch\n in={input:?}\n out={out:?}"
+        );
+    }
+
+    #[test]
+    fn koma_addsec_addchap_addpart_optional_short_title_is_structure() {
+        use crate::format::Format;
+        use crate::{FormatConfig, format_text};
+
+        let cfg = FormatConfig {
+            format: Format::Latex,
+            ..Default::default()
+        }
+        .without_safety_backstops();
+        for cmd in [r"\addsec", r"\addchap", r"\addpart", r"\section*"] {
+            let input = format!(
+                "{cmd}[Short. Title.]{{A long title. With two sentences.}}\nBody. More body.\n"
+            );
+            let regions = LatexParser::default().parse(&input);
+            let needle = format!("{cmd}[Short. Title.]{{A long title. With two sentences.}}");
+            assert!(
+                regions.iter().any(|r| matches!(
+                    r,
+                    Region::Structure(s) if s.contains(&needle)
+                )),
+                "{cmd} line including optional short title must be Structure, got: {regions:?}"
+            );
+            assert!(
+                !regions.iter().any(|r| matches!(
+                    r,
+                    Region::Prose(p)
+                        if p.contains("Short. Title") || p.contains("A long title")
+                )),
+                "{cmd} short/long title must not be Prose: {regions:?}"
+            );
+            let out = format_text(&input, &cfg).unwrap();
+            assert!(
+                out.contains(&needle),
+                "{cmd} optional short title must stay one line, got:\n{out}"
+            );
+            assert!(
+                out.contains("Body.\nMore body."),
+                "{cmd} body after section must still reflow, got:\n{out}"
+            );
+            assert_eq!(format_text(&out, &cfg).unwrap(), out);
+        }
     }
 
     #[test]
