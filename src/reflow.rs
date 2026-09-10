@@ -921,6 +921,11 @@ fn suppress_prose_trailing_newline(s: &str) -> bool {
     }
     // Islands may carry a leading space for glue after reflow trims prose.
     let t = s.trim();
+    // Mid-line `\[` / `\[ ... \]` (snapper-ep2t). Start-of-line `\[` has
+    // no glue space, so a preceding sentence still gets its newline.
+    if s.starts_with([' ', '\t']) && s.trim_start().starts_with("\\[") {
+        return true;
+    }
     // Inline math: single-line `$...$` (not display `$$...$$`).
     if t.starts_with('$') && !t.starts_with("$$") && !t.contains('\n') {
         return true;
