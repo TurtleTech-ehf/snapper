@@ -537,7 +537,7 @@ mod tests {
     }
 
     #[test]
-    fn rst_title_and_note_body_are_not_prose() {
+    fn rst_title_is_not_prose_note_body_is_fused() {
         let input = concat!(
             "Title Here. With Period.\n",
             "========================\n",
@@ -554,8 +554,14 @@ mod tests {
         assert_no_kind_on(
             &found,
             DiagnosticKind::Fused,
-            &[1, 4, 6],
-            "rst title and note body must not be fused",
+            &[1, 4],
+            "rst title and note opener must not be fused",
+        );
+        assert!(
+            found
+                .iter()
+                .any(|d| d.line == 6 && d.kind == DiagnosticKind::Fused),
+            "rst note body should be fused prose, got {found:?}"
         );
         assert!(
             found
