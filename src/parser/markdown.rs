@@ -2,8 +2,8 @@ use regex::Regex;
 use std::sync::LazyLock;
 
 use crate::parser::{
-    ByteSpan, FormatParser, Line, SpannedRegion, flush_prose_spanned, iter_lines, join_prose_gap,
-    push_prose_line,
+    ByteSpan, FormatParser, Line, Region, RegionOrigin, SpannedRegion, flush_prose_spanned,
+    iter_lines, join_prose_gap, push_prose_line,
 };
 
 /// CommonMark 0.31.2 §4.2 ATX heading: 0–3 spaces, then 1–6 `#`, then
@@ -148,12 +148,13 @@ fn close_list_item(
     list_hang: &mut Option<usize>,
     current_prose: &mut String,
     prose_span: &mut Option<ByteSpan>,
+    para_span: &mut Option<ByteSpan>,
     list_term: &mut Option<ByteSpan>,
     input: &str,
     regions: &mut Vec<SpannedRegion>,
 ) {
     if *in_list_item {
-        flush_prose_spanned(current_prose, prose_span, regions);
+        end_paragraph(current_prose, prose_span, para_span, regions);
         if let Some(span) = list_term.take() {
             if !span.is_empty() {
                 regions.push(SpannedRegion::structure(input, span));
@@ -161,6 +162,32 @@ fn close_list_item(
         }
         *in_list_item = false;
         *list_hang = None;
+    }
+}
+
+/// Flush a real paragraph close. Hard-break flush must not call this:
+/// CommonMark 4.3 still has an open paragraph after a hard break.
+fn end_paragraph(
+    current_prose: &mut String,
+    prose_span: &mut Option<ByteSpan>,
+    para_span: &mut Option<ByteSpan>,
+    regions: &mut Vec<SpannedRegion>,
+) {
+    flush_prose_spanned(current_prose, prose_span, regions);
+    *para_span = None;
+}
+
+fn extend_para_span(para_span: &mut Option<ByteSpan>, start: usize, end: usize) {
+    match para_span {
+        None => *para_span = Some(ByteSpan::new(start, end)),
+        Some(s) => {
+            if start < s.start {
+                s.start = start;
+            }
+            if end > s.end {
+                s.end = end;
+            }
+        }
     }
 }
 
@@ -172,8 +199,10 @@ fn next_nonblank_indent(lines: &[Line<'_>], start: usize) -> Option<usize> {
         .map(|l| line_indent(l.text))
 }
 
+/// CommonMark 4.6 type-2 HTML comment: at most three spaces of indent.
+/// Four spaces is not a type-2 block (and cannot interrupt a paragraph).
 fn starts_html_comment(line: &str) -> bool {
-    line.trim_start().starts_with("<!--")
+    html_block_rest(line).starts_with("<!--")
 }
 
 fn html_comment_closed(text: &str) -> bool {
@@ -1009,6 +1038,108 @@ fn setext_heading_start(lines: &[Line<'_>], last: usize, prose_span: Option<Byte
         .unwrap_or(last)
 }
 
+/// Body after a quote or list marker so a container line can be a title.
+fn container_title_body(line: &str) -> &str {
+    if let Some(caps) = QUOTE_RE.captures(line) {
+        return caps.get(2).unwrap().as_str();
+    }
+    if let Some(caps) = LIST_ITEM_RE.captures(line) {
+        return caps.get(2).unwrap().as_str();
+    }
+    line
+}
+
+fn quote_body(line: &str) -> Option<&str> {
+    QUOTE_RE.captures(line).map(|c| c.get(2).unwrap().as_str())
+}
+
+/// Last title line plus the following underline form a setext heading.
+///
+/// pulldown `parse_setext_heading` accepts a quoted underline (`> ===`).
+/// A lazy `---` after a quoted paragraph is a thematic break (CM ex. 93),
+/// not a heading; `=======` cannot be a break, so it may still close.
+fn is_setext_pair(title_line: &str, underline: &str) -> bool {
+    let title_quoted = QUOTE_RE.is_match(title_line);
+    let under_body = quote_body(underline).unwrap_or(underline);
+    if !is_setext_title_line(container_title_body(title_line)) || !is_setext_underline(under_body) {
+        return false;
+    }
+    if title_quoted && quote_body(underline).is_none() && is_thematic_break(underline) {
+        return false;
+    }
+    true
+}
+
+/// Promote every physical line of the open CommonMark paragraph to Structure.
+///
+/// Hard-break flush already emitted earlier title text as Prose; list/quote
+/// already split the marker. Convert those regions and fill any source
+/// gaps so the marker is not re-emitted.
+fn promote_setext_title(
+    lines: &[Line<'_>],
+    start: usize,
+    last: usize,
+    input: &str,
+    regions: &mut Vec<SpannedRegion>,
+    current_prose: &mut String,
+    prose_span: &mut Option<ByteSpan>,
+    list_term: &mut Option<ByteSpan>,
+) {
+    let title_lo = lines[start].start;
+    let title_hi = lines[last].end;
+    // Drop pending prose and already-emitted Prose in the title; each
+    // physical line is re-emitted as Structure so a joined paragraph
+    // does not become one multi-line region.
+    current_prose.clear();
+    *prose_span = None;
+    if let Some(term) = list_term.take() {
+        if !term.is_empty() {
+            regions.push(SpannedRegion::structure(input, term));
+        }
+    }
+    regions.retain(|r| match (&r.region, r.origin) {
+        (Region::Prose(_), Some(RegionOrigin::Whole(span))) => {
+            !(span.start >= title_lo && span.start < title_hi)
+        }
+        _ => true,
+    });
+    for row in &lines[start..=last] {
+        fill_structure_gaps(input, row.start, row.end, regions);
+    }
+}
+
+fn fill_structure_gaps(input: &str, lo: usize, hi: usize, regions: &mut Vec<SpannedRegion>) {
+    if lo >= hi {
+        return;
+    }
+    let mut covered: Vec<(usize, usize)> = regions
+        .iter()
+        .filter_map(|r| {
+            let span = r.origin.as_ref()?.whole();
+            let a = span.start.max(lo);
+            let b = span.end.min(hi);
+            (a < b).then_some((a, b))
+        })
+        .collect();
+    covered.sort_unstable();
+    let mut cur = lo;
+    let mut gaps = Vec::new();
+    for (a, b) in covered {
+        if a > cur {
+            gaps.push((cur, a));
+        }
+        if b > cur {
+            cur = b;
+        }
+    }
+    if cur < hi {
+        gaps.push((cur, hi));
+    }
+    for (a, b) in gaps {
+        regions.push(SpannedRegion::structure(input, ByteSpan::new(a, b)));
+    }
+}
+
 /// Pandoc / academic Markdown display math: a line that starts with `$$`.
 fn display_math_open(line: &str) -> bool {
     line.trim().starts_with("$$")
@@ -1091,6 +1222,7 @@ impl FormatParser for MarkdownParser {
         let mut regions: Vec<SpannedRegion> = Vec::new();
         let mut current_prose = String::new();
         let mut prose_span: Option<ByteSpan> = None;
+        let mut para_span: Option<ByteSpan> = None;
         let mut in_fenced_code = false;
         let mut fence_marker = String::new();
         let mut fence_indent = 0usize;
@@ -1126,11 +1258,17 @@ impl FormatParser for MarkdownParser {
                         &mut list_hang,
                         &mut current_prose,
                         &mut prose_span,
+                        &mut para_span,
                         &mut list_term,
                         input,
                         &mut regions,
                     );
-                    flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
+                    end_paragraph(
+                        &mut current_prose,
+                        &mut prose_span,
+                        &mut para_span,
+                        &mut regions,
+                    );
                     pragma_off = !on;
                     regions.push(SpannedRegion::structure(input, line.span()));
                     i += 1;
@@ -1143,11 +1281,17 @@ impl FormatParser for MarkdownParser {
                         &mut list_hang,
                         &mut current_prose,
                         &mut prose_span,
+                        &mut para_span,
                         &mut list_term,
                         input,
                         &mut regions,
                     );
-                    flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
+                    end_paragraph(
+                        &mut current_prose,
+                        &mut prose_span,
+                        &mut para_span,
+                        &mut regions,
+                    );
                     regions.push(SpannedRegion::structure(input, line.span()));
                     i += 1;
                     continue;
@@ -1174,11 +1318,17 @@ impl FormatParser for MarkdownParser {
                     &mut list_hang,
                     &mut current_prose,
                     &mut prose_span,
+                    &mut para_span,
                     &mut list_term,
                     input,
                     &mut regions,
                 );
-                flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
+                end_paragraph(
+                    &mut current_prose,
+                    &mut prose_span,
+                    &mut para_span,
+                    &mut regions,
+                );
                 // Quoted openers close on the same `>` depth (space optional).
                 // Missing prefix falls back to the raw line (unquoted closer).
                 let closer_src =
@@ -1205,11 +1355,17 @@ impl FormatParser for MarkdownParser {
                     &mut list_hang,
                     &mut current_prose,
                     &mut prose_span,
+                    &mut para_span,
                     &mut list_term,
                     input,
                     &mut regions,
                 );
-                flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
+                end_paragraph(
+                    &mut current_prose,
+                    &mut prose_span,
+                    &mut para_span,
+                    &mut regions,
+                );
                 if is_display_math_close(line_text) {
                     in_display_math = false;
                 }
@@ -1229,11 +1385,17 @@ impl FormatParser for MarkdownParser {
                     &mut list_hang,
                     &mut current_prose,
                     &mut prose_span,
+                    &mut para_span,
                     &mut list_term,
                     input,
                     &mut regions,
                 );
-                flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
+                end_paragraph(
+                    &mut current_prose,
+                    &mut prose_span,
+                    &mut para_span,
+                    &mut regions,
+                );
                 fence_marker = caps.get(1).unwrap().as_str().to_string();
                 fence_indent = line_indent(fence_src);
                 fence_quote_depth = quote_depth;
@@ -1266,6 +1428,7 @@ impl FormatParser for MarkdownParser {
                             &mut list_hang,
                             &mut current_prose,
                             &mut prose_span,
+                            &mut para_span,
                             &mut list_term,
                             input,
                             &mut regions,
@@ -1280,11 +1443,17 @@ impl FormatParser for MarkdownParser {
                     &mut list_hang,
                     &mut current_prose,
                     &mut prose_span,
+                    &mut para_span,
                     &mut list_term,
                     input,
                     &mut regions,
                 );
-                flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
+                end_paragraph(
+                    &mut current_prose,
+                    &mut prose_span,
+                    &mut para_span,
+                    &mut regions,
+                );
                 let header = ByteSpan::new(line.start, line.start);
                 let body_start = line.start;
                 let mut body_end = line.end;
@@ -1332,11 +1501,17 @@ impl FormatParser for MarkdownParser {
                     &mut list_hang,
                     &mut current_prose,
                     &mut prose_span,
+                    &mut para_span,
                     &mut list_term,
                     input,
                     &mut regions,
                 );
-                flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
+                end_paragraph(
+                    &mut current_prose,
+                    &mut prose_span,
+                    &mut para_span,
+                    &mut regions,
+                );
                 if !display_math_is_single_line(line_text) {
                     in_display_math = true;
                 }
@@ -1353,7 +1528,12 @@ impl FormatParser for MarkdownParser {
                         next_nonblank_indent(&lines, i + 1).is_some_and(|ind| ind >= hang)
                     });
                 if stay_in_item {
-                    flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
+                    end_paragraph(
+                        &mut current_prose,
+                        &mut prose_span,
+                        &mut para_span,
+                        &mut regions,
+                    );
                     if let Some(span) = list_term.take() {
                         if !span.is_empty() {
                             regions.push(SpannedRegion::structure(input, span));
@@ -1370,11 +1550,17 @@ impl FormatParser for MarkdownParser {
                     &mut list_hang,
                     &mut current_prose,
                     &mut prose_span,
+                    &mut para_span,
                     &mut list_term,
                     input,
                     &mut regions,
                 );
-                flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
+                end_paragraph(
+                    &mut current_prose,
+                    &mut prose_span,
+                    &mut para_span,
+                    &mut regions,
+                );
                 regions.push(SpannedRegion::blank(input, line.span()));
                 i += 1;
                 continue;
@@ -1394,11 +1580,17 @@ impl FormatParser for MarkdownParser {
                     &mut list_hang,
                     &mut current_prose,
                     &mut prose_span,
+                    &mut para_span,
                     &mut list_term,
                     input,
                     &mut regions,
                 );
-                flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
+                end_paragraph(
+                    &mut current_prose,
+                    &mut prose_span,
+                    &mut para_span,
+                    &mut regions,
+                );
                 regions.push(SpannedRegion::structure(input, line.span()));
                 i += 1;
                 continue;
@@ -1407,41 +1599,24 @@ impl FormatParser for MarkdownParser {
             // Setext heading: the whole open paragraph plus the underline.
             // CommonMark 4.3 / pulldown parse_setext_heading promote every
             // title line, not just the one immediately above the underline.
-            // Pairing only i with i+1 left earlier title lines as Prose.
-            // Start from current_prose, not a title-line walk-back: HTML
-            // comments and indented code are already emitted.
-            if i + 1 < total
-                && is_setext_title_line(line_text)
-                && is_setext_underline(lines[i + 1].text)
-            {
-                // List/quote items reuse `in_list_item`; do not walk back
-                // into the marker line. A lazy `---` after `> Foo` is a
-                // break (CM ex. 93), not a heading of the quote.
-                // Empty `current_prose` means the last flush already closed
-                // the paragraph (HTML comment, indented code, …).
-                let start = if in_list_item || current_prose.is_empty() {
-                    i
-                } else {
-                    setext_heading_start(&lines, i, prose_span)
-                };
-                close_list_item(
-                    &mut in_list_item,
-                    &mut list_hang,
+            // `para_span` survives a hard-break flush; `in_list_item` is not
+            // a last-line-only switch. HTML comments and indented code
+            // already closed the paragraph, so they stay out of para_span.
+            if i + 1 < total && is_setext_pair(line_text, lines[i + 1].text) {
+                let start = setext_heading_start(&lines, i, para_span.or(prose_span));
+                promote_setext_title(
+                    &lines,
+                    start,
+                    i,
+                    input,
+                    &mut regions,
                     &mut current_prose,
                     &mut prose_span,
                     &mut list_term,
-                    input,
-                    &mut regions,
                 );
-                if start < i {
-                    current_prose.clear();
-                    prose_span = None;
-                } else {
-                    flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
-                }
-                for row in &lines[start..=i] {
-                    regions.push(SpannedRegion::structure(input, row.span()));
-                }
+                in_list_item = false;
+                list_hang = None;
+                para_span = None;
                 regions.push(SpannedRegion::structure(input, lines[i + 1].span()));
                 i += 2;
                 continue;
@@ -1456,11 +1631,17 @@ impl FormatParser for MarkdownParser {
                     &mut list_hang,
                     &mut current_prose,
                     &mut prose_span,
+                    &mut para_span,
                     &mut list_term,
                     input,
                     &mut regions,
                 );
-                flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
+                end_paragraph(
+                    &mut current_prose,
+                    &mut prose_span,
+                    &mut para_span,
+                    &mut regions,
+                );
                 regions.push(SpannedRegion::structure(input, line.span()));
                 i += 1;
                 continue;
@@ -1474,11 +1655,17 @@ impl FormatParser for MarkdownParser {
                     &mut list_hang,
                     &mut current_prose,
                     &mut prose_span,
+                    &mut para_span,
                     &mut list_term,
                     input,
                     &mut regions,
                 );
-                flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
+                end_paragraph(
+                    &mut current_prose,
+                    &mut prose_span,
+                    &mut para_span,
+                    &mut regions,
+                );
                 let end = footnote_def_end(&lines, i);
                 for row in &lines[i..=end] {
                     regions.push(SpannedRegion::structure(input, row.span()));
@@ -1498,11 +1685,17 @@ impl FormatParser for MarkdownParser {
                     &mut list_hang,
                     &mut current_prose,
                     &mut prose_span,
+                    &mut para_span,
                     &mut list_term,
                     input,
                     &mut regions,
                 );
-                flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
+                end_paragraph(
+                    &mut current_prose,
+                    &mut prose_span,
+                    &mut para_span,
+                    &mut regions,
+                );
                 for row in &lines[i..=end] {
                     regions.push(SpannedRegion::structure(input, row.span()));
                 }
@@ -1519,11 +1712,17 @@ impl FormatParser for MarkdownParser {
                         &mut list_hang,
                         &mut current_prose,
                         &mut prose_span,
+                        &mut para_span,
                         &mut list_term,
                         input,
                         &mut regions,
                     );
-                    flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
+                    end_paragraph(
+                        &mut current_prose,
+                        &mut prose_span,
+                        &mut para_span,
+                        &mut regions,
+                    );
                     for row in &lines[i..=end] {
                         regions.push(SpannedRegion::structure(input, row.span()));
                     }
@@ -1539,11 +1738,17 @@ impl FormatParser for MarkdownParser {
                     &mut list_hang,
                     &mut current_prose,
                     &mut prose_span,
+                    &mut para_span,
                     &mut list_term,
                     input,
                     &mut regions,
                 );
-                flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
+                end_paragraph(
+                    &mut current_prose,
+                    &mut prose_span,
+                    &mut para_span,
+                    &mut regions,
+                );
                 regions.push(SpannedRegion::structure(input, line.span()));
                 i += 1;
                 continue;
@@ -1556,11 +1761,17 @@ impl FormatParser for MarkdownParser {
                     &mut list_hang,
                     &mut current_prose,
                     &mut prose_span,
+                    &mut para_span,
                     &mut list_term,
                     input,
                     &mut regions,
                 );
-                flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
+                end_paragraph(
+                    &mut current_prose,
+                    &mut prose_span,
+                    &mut para_span,
+                    &mut regions,
+                );
                 if html_comment_closed(line_text) {
                     regions.push(SpannedRegion::structure(input, line.span()));
                     i += 1;
@@ -1593,11 +1804,17 @@ impl FormatParser for MarkdownParser {
                         &mut list_hang,
                         &mut current_prose,
                         &mut prose_span,
+                        &mut para_span,
                         &mut list_term,
                         input,
                         &mut regions,
                     );
-                    flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
+                    end_paragraph(
+                        &mut current_prose,
+                        &mut prose_span,
+                        &mut para_span,
+                        &mut regions,
+                    );
                     i = emit_html_block(kind, &lines, i, input, &mut regions);
                     continue;
                 }
@@ -1612,16 +1829,35 @@ impl FormatParser for MarkdownParser {
             // without `>` stay in the open item (`in_list_item`) so
             // hanging_prefix repeats the marker (ex. 228).
             if let Some(caps) = QUOTE_RE.captures(line_text) {
-                close_list_item(
-                    &mut in_list_item,
-                    &mut list_hang,
-                    &mut current_prose,
-                    &mut prose_span,
-                    &mut list_term,
-                    input,
-                    &mut regions,
-                );
-                flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
+                // Another `>` line continues the same CommonMark paragraph.
+                // Flush the previous line for splice, but keep para_span so
+                // a later underline can promote every title line.
+                let quote_para_cont = in_list_item && i > 0 && QUOTE_RE.is_match(lines[i - 1].text);
+                if quote_para_cont {
+                    flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
+                    if let Some(span) = list_term.take() {
+                        if !span.is_empty() {
+                            regions.push(SpannedRegion::structure(input, span));
+                        }
+                    }
+                } else {
+                    close_list_item(
+                        &mut in_list_item,
+                        &mut list_hang,
+                        &mut current_prose,
+                        &mut prose_span,
+                        &mut para_span,
+                        &mut list_term,
+                        input,
+                        &mut regions,
+                    );
+                    end_paragraph(
+                        &mut current_prose,
+                        &mut prose_span,
+                        &mut para_span,
+                        &mut regions,
+                    );
+                }
                 let marker = caps.get(1).unwrap().as_str();
                 let text = caps.get(2).unwrap().as_str();
                 if text.trim().is_empty() {
@@ -1663,6 +1899,7 @@ impl FormatParser for MarkdownParser {
                     input,
                     &mut regions,
                 );
+                extend_para_span(&mut para_span, line.start, line.end);
                 i += 1;
                 continue;
             }
@@ -1675,11 +1912,17 @@ impl FormatParser for MarkdownParser {
                     &mut list_hang,
                     &mut current_prose,
                     &mut prose_span,
+                    &mut para_span,
                     &mut list_term,
                     input,
                     &mut regions,
                 );
-                flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
+                end_paragraph(
+                    &mut current_prose,
+                    &mut prose_span,
+                    &mut para_span,
+                    &mut regions,
+                );
                 let marker = caps.get(1).unwrap().as_str();
                 let marker_span = ByteSpan::new(line.start, line.start + marker.len());
                 regions.push(SpannedRegion::structure(input, marker_span));
@@ -1699,6 +1942,7 @@ impl FormatParser for MarkdownParser {
                     input,
                     &mut regions,
                 );
+                extend_para_span(&mut para_span, line.start, line.end);
                 i += 1;
                 continue;
             }
@@ -1720,6 +1964,7 @@ impl FormatParser for MarkdownParser {
                         &mut list_hang,
                         &mut current_prose,
                         &mut prose_span,
+                        &mut para_span,
                         &mut list_term,
                         input,
                         &mut regions,
@@ -1730,6 +1975,7 @@ impl FormatParser for MarkdownParser {
                         input,
                         &mut regions,
                     );
+                    para_span = None;
                     regions.push(SpannedRegion::structure(input, line.span()));
                     last_was_def_term = true;
                     i += 1;
@@ -1747,11 +1993,17 @@ impl FormatParser for MarkdownParser {
                         &mut list_hang,
                         &mut current_prose,
                         &mut prose_span,
+                        &mut para_span,
                         &mut list_term,
                         input,
                         &mut regions,
                     );
-                    flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
+                    end_paragraph(
+                        &mut current_prose,
+                        &mut prose_span,
+                        &mut para_span,
+                        &mut regions,
+                    );
                     let marker_span = ByteSpan::new(line.start, line.start + marker_len);
                     regions.push(SpannedRegion::structure(input, marker_span));
                     in_list_item = true;
@@ -1770,6 +2022,7 @@ impl FormatParser for MarkdownParser {
                         input,
                         &mut regions,
                     );
+                    extend_para_span(&mut para_span, line.start, line.end);
                     i += 1;
                     continue;
                 }
@@ -1799,6 +2052,7 @@ impl FormatParser for MarkdownParser {
                                 input,
                                 &mut regions,
                             );
+                            extend_para_span(&mut para_span, line.start, line.end);
                             i += 1;
                             continue;
                         }
@@ -1817,6 +2071,7 @@ impl FormatParser for MarkdownParser {
                     input,
                     &mut regions,
                 );
+                extend_para_span(&mut para_span, line.start, line.end);
             } else {
                 append_piece(
                     &mut ProseAcc {
@@ -1831,6 +2086,7 @@ impl FormatParser for MarkdownParser {
                     input,
                     &mut regions,
                 );
+                extend_para_span(&mut para_span, line.start, line.end);
             }
             i += 1;
         }
@@ -1840,11 +2096,17 @@ impl FormatParser for MarkdownParser {
             &mut list_hang,
             &mut current_prose,
             &mut prose_span,
+            &mut para_span,
             &mut list_term,
             input,
             &mut regions,
         );
-        flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
+        end_paragraph(
+            &mut current_prose,
+            &mut prose_span,
+            &mut para_span,
+            &mut regions,
+        );
         // Unclosed fence at EOF: emit a code region with empty footer.
         if in_fenced_code {
             let eof = ByteSpan::new(input.len(), input.len());
@@ -3009,6 +3271,201 @@ mod tests {
                     if p.contains("Still title") || p.contains("lazy title")
             )),
             "lazy setext title must not be Prose: {regions:?}"
+        );
+    }
+
+    /// Four-space `<!--` is not a type-2 HTML block (CM 4.6). In an open
+    /// paragraph it stays title text (snapper-5sck).
+    #[test]
+    fn lazy_four_space_html_comment_stays_setext_title() {
+        let input = concat!(
+            "Foo is the first title line. Still title.\n",
+            "    <!-- toc -->\n",
+            "=======\n",
+            "\n",
+            "Body after setext. Second body.\n",
+        );
+        let regions = MarkdownParser.parse(input);
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Structure(s) if s == "Foo is the first title line. Still title.\n"
+            )),
+            "first title line must be Structure, got: {regions:?}"
+        );
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Structure(s) if s == "    <!-- toc -->\n"
+            )),
+            "4-space comment continuation must be Structure, got: {regions:?}"
+        );
+        assert!(
+            regions
+                .iter()
+                .any(|r| matches!(r, Region::Structure(s) if s.trim() == "=======")),
+            "underline must be Structure, got: {regions:?}"
+        );
+        assert!(
+            !regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(p)
+                    if p.contains("Still title") || p.contains("<!-- toc") || p.contains("=======")
+            )),
+            "4-space comment setext must not leak Prose: {regions:?}"
+        );
+    }
+
+    /// List-item setext promotes the whole open paragraph (snapper-awpt).
+    #[test]
+    fn list_multiline_setext_title_is_structure() {
+        let input = concat!(
+            "- Foo is the first title line. Still title.\n",
+            "  Bar is the second title line.\n",
+            "  =======\n",
+            "\n",
+            "Body after setext. Second body.\n",
+        );
+        let regions = MarkdownParser.parse(input);
+        assert!(
+            !regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(p)
+                    if p.contains("Still title") || p.contains("Foo is the first")
+            )),
+            "list setext first title line must not be Prose: {regions:?}"
+        );
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Structure(s) if s.contains("Bar is the second title line.")
+            )),
+            "list setext second title line must be Structure, got: {regions:?}"
+        );
+        assert!(
+            regions
+                .iter()
+                .any(|r| matches!(r, Region::Structure(s) if s.trim() == "=======")),
+            "list setext underline must be Structure, got: {regions:?}"
+        );
+    }
+
+    /// Lazy quote setext promotes the whole open paragraph (snapper-awpt).
+    #[test]
+    fn quote_multiline_setext_title_is_structure() {
+        let input = concat!(
+            "> Foo is the first title line. Still title.\n",
+            "Bar is the second title line.\n",
+            "=======\n",
+            "\n",
+            "Body after setext. Second body.\n",
+        );
+        let regions = MarkdownParser.parse(input);
+        assert!(
+            !regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(p)
+                    if p.contains("Still title") || p.contains("Foo is the first")
+            )),
+            "quote setext first title line must not be Prose: {regions:?}"
+        );
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Structure(s) if s.contains("Bar is the second title line.")
+            )),
+            "quote setext second title line must be Structure, got: {regions:?}"
+        );
+    }
+
+    /// Quoted underline (`> =======`) is still a setext closer (snapper-awpt).
+    #[test]
+    fn quoted_setext_underline_is_heading() {
+        let input = concat!(
+            "> Foo is the first title line. Still title.\n",
+            "> Bar is the second title line.\n",
+            "> =======\n",
+        );
+        let regions = MarkdownParser.parse(input);
+        assert!(
+            !regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(p)
+                    if p.contains("Still title") || p.contains("Bar is the second")
+            )),
+            "fully marked quote setext must not be Prose: {regions:?}"
+        );
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Structure(s) if s.contains("=======")
+            )),
+            "quoted underline must be Structure, got: {regions:?}"
+        );
+    }
+
+    /// CommonMark ex. 93: lazy `---` after a quote is a break, not a heading.
+    #[test]
+    fn quote_then_lazy_dash_underline_is_thematic_break() {
+        let input = "> foo\n---\n";
+        let regions = MarkdownParser.parse(input);
+        assert!(
+            regions
+                .iter()
+                .any(|r| matches!(r, Region::Prose(p) if p.contains("foo"))),
+            "quoted foo must stay Prose, got: {regions:?}"
+        );
+        assert!(
+            regions
+                .iter()
+                .any(|r| matches!(r, Region::Structure(s) if s.trim() == "---")),
+            "lazy --- after quote must be a break, got: {regions:?}"
+        );
+    }
+
+    /// Hard-break flush is not a paragraph close (snapper-j945).
+    #[test]
+    fn hard_break_multiline_setext_title_is_structure() {
+        let input = concat!(
+            "Foo is the first title line. Still title.  \n",
+            "Bar is the second title line.\n",
+            "=======\n",
+            "\n",
+            "Body after setext. Second body.\n",
+        );
+        let regions = MarkdownParser.parse(input);
+        assert!(
+            !regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(p)
+                    if p.contains("Still title") || p.contains("Foo is the first")
+            )),
+            "hard-break setext first title line must not be Prose: {regions:?}"
+        );
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Structure(s) if s.contains("Bar is the second title line.")
+            )),
+            "hard-break setext second title line must be Structure, got: {regions:?}"
+        );
+    }
+
+    #[test]
+    fn backslash_hard_break_multiline_setext_title_is_structure() {
+        let input = concat!(
+            "Foo is the first title line. Still title.\\\n",
+            "Bar is the second title line.\n",
+            "=======\n",
+        );
+        let regions = MarkdownParser.parse(input);
+        assert!(
+            !regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(p)
+                    if p.contains("Still title") || p.contains("Foo is the first")
+            )),
+            "backslash hard-break setext must not leak Prose: {regions:?}"
         );
     }
 
@@ -4759,7 +5216,7 @@ mod tests {
     #[test]
     fn definition_list_body_hangs_and_splits() {
         use crate::format::Format;
-        use crate::{format_text, FormatConfig};
+        use crate::{FormatConfig, format_text};
 
         let input = ticket_definition_list_fixture();
         let out = format_text(input, &md_cfg()).unwrap();

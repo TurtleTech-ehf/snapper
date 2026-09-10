@@ -114,7 +114,7 @@ These tokens within prose are not split across lines:
 :END:
 - Front matter (=---= or =+++=  delimited at file start)
 - Full ATX heading lines (=#= … =######= including title text)
-- Setext headings (one or more title lines plus ====== or ------ underline)
+- Setext headings (one or more title lines plus ====== or ------ underline, including list/quote items, hard-break title lines, and a 4-space =<!--= continuation)
 - List item markers (=-=, =*=, =+=, =1.=); continuation sentences hang at the marker width
 - Definition-list terms and =: = markers (pulldown =ENABLE_DEFINITION_LIST=); the body hangs at the marker width
 - Blockquote markers (=>= / nested => > =); continuation sentences repeat the quote prefix
