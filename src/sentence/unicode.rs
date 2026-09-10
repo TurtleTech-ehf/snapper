@@ -424,16 +424,28 @@ fn org_scan_lists_same_line(text: &str, open_at: usize, open: u8, close: u8) -> 
 
 /// `\<` in org-element-inline-src-block-parser / inline-babel-call-parser
 /// (`looking-at` `\<src_` / `\<call_`). Word-start, not symbol-start.
-/// Org syntax class of `_` is symbol (`_`), so `foo_src_python{...}` and
-/// `_src_python{...}` are objects. Word characters (`asrc_`, `1src_`) are not.
+///
+/// `org-element--object-lex` matches `[_^][-{(*+.,[:alnum:]]` first, so a
+/// subscript after a word (`foo_src_`, `x_src_`, `foo_call_`) consumes the
+/// underscore and never calls the src/call parser. Leftover braces/parens
+/// stay prose. `_src_` / `_call_` after BOL or whitespace is still an
+/// object (`\<` matches after symbol `_`). `foo-src_python` is an object
+/// (hyphen is not a subscript opener here). Word characters (`asrc_`,
+/// `1src_`) are not.
 fn org_inline_object_start(text: &str, at: usize) -> bool {
     if at == 0 {
         return true;
     }
-    !text[..at]
-        .chars()
-        .next_back()
-        .is_some_and(|c| c.is_ascii_alphanumeric())
+    let mut prevs = text[..at].chars().rev();
+    let prev = prevs.next().expect("at > 0");
+    if prev.is_ascii_alphanumeric() {
+        return false;
+    }
+    if prev == '_' {
+        // Subscript opener after a word: `foo_src_` / `x_src_`.
+        return !prevs.next().is_some_and(|c| c.is_ascii_alphanumeric());
+    }
+    true
 }
 
 /// org-element `scan-lists` on a one-pair syntax table. Newlines are
@@ -832,8 +844,9 @@ pub fn atomic_inline_spans(text: &str) -> Vec<(usize, usize)> {
     for m in INLINE_TOKEN_RE.find_iter(text) {
         let (ms, me) = (m.start(), m.end());
         // Org `\<src_` / `\<call_` wins over the underline regex `_src_` /
-        // `_call_` inside `foo_src_python{...}`. Keep a regex match only
-        // when it wraps the whole object (a link around the src).
+        // `_call_` for `_src_python{...}` after BOL/whitespace. Keep a
+        // regex match only when it wraps the whole object (a link around
+        // the src). `foo_src_` is a subscript, not an object.
         let steals_org = org_src_call_spans
             .iter()
             .any(|&(s, e)| ms < e && me > s && !(ms <= s && me >= e));
@@ -1911,29 +1924,54 @@ mod tests {
     }
 
     #[test]
-    fn inline_org_src_matches_after_underscore() {
-        // org-element `\<src_` is word-start. `_` is symbol, so
-        // `foo_src_python{...}` and `_src_python{...}` are objects.
+    fn inline_org_src_after_word_underscore_is_subscript() {
+        // org-element--object-lex matches subscript `_src` / `_python`
+        // first. `foo_src_` / `x_src_` are not inline-src-block.
+        let src = "src_python{print(1. 2)}";
+        for text in [
+            "See foo_src_python{print(1. 2)} today. Next sentence.",
+            "See x_src_python{print(1. 2)} today. Next sentence.",
+        ] {
+            let (_, placeholders) = protect_inline_tokens(text);
+            assert!(
+                !placeholders.iter().any(|p| p == src || p.contains(src)),
+                "src_ after word-underscore is a subscript, not a token, got {placeholders:?} for {text:?}"
+            );
+            let spans = atomic_inline_spans(text);
+            assert!(
+                !spans.iter().any(|&(s, e)| &text[s..e] == src),
+                "src_ after word-underscore must not be an atomic wrap span, got {:?} for {text:?}",
+                spans.iter().map(|&(s, e)| &text[s..e]).collect::<Vec<_>>()
+            );
+            let parts = split(text);
+            assert_eq!(parts.last().map(String::as_str), Some("Next sentence."));
+        }
+    }
+
+    #[test]
+    fn inline_org_src_matches_after_leading_underscore() {
+        // `_src_python{...}` after BOL/whitespace is still an object.
+        // `foo-src_python` is an object (hyphen is not a subscript opener).
         let src = "src_python{print(1. 2)}";
         for (text, first) in [
             (
-                "See foo_src_python{print(1. 2)} today. Next sentence.",
-                "See foo_src_python{print(1. 2)} today.",
-            ),
-            (
                 "See _src_python{print(1. 2)} today. Next sentence.",
                 "See _src_python{print(1. 2)} today.",
+            ),
+            (
+                "See foo-src_python{print(1. 2)} today. Next sentence.",
+                "See foo-src_python{print(1. 2)} today.",
             ),
         ] {
             let (_, placeholders) = protect_inline_tokens(text);
             assert!(
                 placeholders.iter().any(|p| p == src),
-                "src_ after underscore must be one token, got {placeholders:?} for {text:?}"
+                "src_ after leading _ or hyphen must be one token, got {placeholders:?} for {text:?}"
             );
             let spans = atomic_inline_spans(text);
             assert!(
                 spans.iter().any(|&(s, e)| &text[s..e] == src),
-                "src_ after underscore must be an atomic wrap span, got {:?} for {text:?}",
+                "src_ after leading _ or hyphen must be an atomic wrap span, got {:?} for {text:?}",
                 spans.iter().map(|&(s, e)| &text[s..e]).collect::<Vec<_>>()
             );
             assert_eq!(
@@ -1963,34 +2001,46 @@ mod tests {
     }
 
     #[test]
-    fn inline_org_call_matches_after_underscore() {
+    fn inline_org_call_after_word_underscore_is_subscript() {
         let call = "call_name(1. 2)";
-        for (text, first) in [
-            (
-                "See foo_call_name(1. 2) today. Next sentence.",
-                "See foo_call_name(1. 2) today.",
-            ),
-            (
-                "See _call_name(1. 2) today. Next sentence.",
-                "See _call_name(1. 2) today.",
-            ),
-        ] {
-            let (_, placeholders) = protect_inline_tokens(text);
-            assert!(
-                placeholders.iter().any(|p| p == call),
-                "call_ after underscore must be one token, got {placeholders:?} for {text:?}"
-            );
-            let spans = atomic_inline_spans(text);
-            assert!(
-                spans.iter().any(|&(s, e)| &text[s..e] == call),
-                "call_ after underscore must be an atomic wrap span, got {:?} for {text:?}",
-                spans.iter().map(|&(s, e)| &text[s..e]).collect::<Vec<_>>()
-            );
-            assert_eq!(
-                split(text),
-                vec![first.to_string(), "Next sentence.".to_string()]
-            );
-        }
+        let text = "See foo_call_name(1. 2) today. Next sentence.";
+        let (_, placeholders) = protect_inline_tokens(text);
+        assert!(
+            !placeholders.iter().any(|p| p == call || p.contains(call)),
+            "call_ after word-underscore is a subscript, not a token, got {placeholders:?}"
+        );
+        let spans = atomic_inline_spans(text);
+        assert!(
+            !spans.iter().any(|&(s, e)| &text[s..e] == call),
+            "call_ after word-underscore must not be an atomic wrap span, got {:?}",
+            spans.iter().map(|&(s, e)| &text[s..e]).collect::<Vec<_>>()
+        );
+        let parts = split(text);
+        assert_eq!(parts.last().map(String::as_str), Some("Next sentence."));
+    }
+
+    #[test]
+    fn inline_org_call_matches_after_leading_underscore() {
+        let call = "call_name(1. 2)";
+        let text = "See _call_name(1. 2) today. Next sentence.";
+        let (_, placeholders) = protect_inline_tokens(text);
+        assert!(
+            placeholders.iter().any(|p| p == call),
+            "call_ after leading underscore must be one token, got {placeholders:?}"
+        );
+        let spans = atomic_inline_spans(text);
+        assert!(
+            spans.iter().any(|&(s, e)| &text[s..e] == call),
+            "call_ after leading underscore must be an atomic wrap span, got {:?}",
+            spans.iter().map(|&(s, e)| &text[s..e]).collect::<Vec<_>>()
+        );
+        assert_eq!(
+            split(text),
+            vec![
+                "See _call_name(1. 2) today.".to_string(),
+                "Next sentence.".to_string()
+            ]
+        );
     }
 
     #[test]

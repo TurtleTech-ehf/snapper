@@ -101,9 +101,10 @@ fn inline_src_headers_stay_one_span() {
 }
 
 #[test]
-fn inline_src_after_underscore_stays_one_span() {
-    // org-element `\<src_` is word-start. `_` is symbol, so
-    // `foo_src_python{...}` is still an object. `asrc_python` is not.
+fn inline_src_after_word_underscore_is_not_an_object() {
+    // org-element--object-lex matches subscript first, so
+    // `foo_src_python{...}` is not an inline-src-block. `_src_python`
+    // after whitespace still is. `asrc_python` is not.
     let input = "See foo_src_python{print(1. 2)} today. Next sentence.\n";
     let src = "src_python{print(1. 2)}";
     let regions = OrgParser.parse(input);
@@ -112,22 +113,40 @@ fn inline_src_after_underscore_stays_one_span() {
             r,
             Region::Prose(s) if s.contains(src) && s.contains("Next sentence.")
         )),
-        "src after underscore must stay Prose, got {regions:?}"
+        "foo_src_ must stay Prose, got {regions:?}"
     );
     let out = format_text(input, &org_cfg()).unwrap();
-    assert!(
-        out.contains("src_python{print(1. 2)}"),
-        "src_ after underscore must stay one token, got:\n{out}"
-    );
-    assert!(
-        !out.contains("print(1.\n2)}") && !out.contains("src_python{print(1.\n"),
-        "must not split inside src_ after underscore, got:\n{out}"
-    );
     assert!(
         out.contains("today.\nNext sentence."),
         "following sentence must still split, got:\n{out}"
     );
     assert_eq!(format_text(&out, &org_cfg()).unwrap(), out);
+
+    let wrap_cfg = FormatConfig {
+        format: Format::Org,
+        max_width: 20,
+        ..Default::default()
+    }
+    .without_safety_backstops();
+    let wrapped = format_text(input, &wrap_cfg).unwrap();
+    assert!(
+        !wrapped.lines().any(|l| l.contains(src)),
+        "foo_src_ leftover braces must not stay one wrap token, got:\n{wrapped}"
+    );
+    assert!(
+        wrapped.contains("1.\n2"),
+        "interior period in leftover braces may wrap, got:\n{wrapped}"
+    );
+
+    let leading = format_text(
+        "See _src_python{print(1. 2)} today. Next sentence.\n",
+        &org_cfg(),
+    )
+    .unwrap();
+    assert!(
+        leading.contains("See _src_python{print(1. 2)} today.\nNext sentence."),
+        "_src_ after whitespace is still an object, got:\n{leading}"
+    );
 
     let unmatched = format_text(
         "asrc_python{print(1. 2)} today. Next sentence.\n",

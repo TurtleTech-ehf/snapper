@@ -2809,7 +2809,7 @@ mod tests {
     }
 
     #[test]
-    fn org_inline_src_after_underscore_is_not_a_sentence_boundary() {
+    fn org_inline_src_after_word_underscore_is_not_an_object() {
         use crate::format_text;
 
         let src = "src_python{print(1. 2)}";
@@ -2821,18 +2821,30 @@ mod tests {
                 Region::Prose(p)
                     if p.contains(src) && p.contains("Next sentence.")
             )),
-            "src after underscore stays inline Prose, got: {regions:?}"
+            "foo_src_ stays inline Prose, got: {regions:?}"
         );
         let out = format_text(input, &org_cfg()).unwrap();
         assert!(
-            out.contains("See foo_src_python{print(1. 2)} today.\nNext sentence."),
-            "sentence after src-after-underscore must reflow, got:\n{out}"
-        );
-        assert!(
-            !out.contains("1.\n") && !out.contains("print(1.\n2)"),
-            "must not split inside src after underscore, got:\n{out}"
+            out.contains("today.\nNext sentence."),
+            "following sentence must still split, got:\n{out}"
         );
         assert_eq!(format_text(&out, &org_cfg()).unwrap(), out);
+
+        let wrap_cfg = crate::FormatConfig {
+            format: crate::format::Format::Org,
+            max_width: 20,
+            ..Default::default()
+        }
+        .without_safety_backstops();
+        let wrapped = format_text(input, &wrap_cfg).unwrap();
+        assert!(
+            !wrapped.lines().any(|l| l.contains(src)),
+            "foo_src_ leftover braces must not stay one wrap token, got:\n{wrapped}"
+        );
+        assert!(
+            wrapped.contains("1.\n2"),
+            "interior period in leftover braces may wrap, got:\n{wrapped}"
+        );
     }
 
     /// Ticket fixture (Format::Org / GitHub #231): org-element inline

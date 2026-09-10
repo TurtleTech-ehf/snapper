@@ -2396,15 +2396,34 @@ They are endowed with reason and conscience and should act towards one another i
     }
 
     #[test]
-    fn max_width_keeps_org_inline_src_after_underscore_atomic() {
+    fn max_width_may_wrap_org_src_after_word_underscore() {
+        // `foo_src_` is a subscript. Leftover `{print(1. 2)}` is prose,
+        // so wrap may break on the interior space.
         let token = "src_python{print(1. 2)}";
         let sentence = "See foo_src_python{print(1. 2)} today. Next sentence.";
+        for clause in [false, true] {
+            let wrapped = wrap_sentence(sentence, 20, clause);
+            assert!(
+                !wrapped.lines().any(|l| l.contains(token)),
+                "foo_src_ must not stay one wrap token, got:\n{wrapped}"
+            );
+            assert!(
+                wrapped.contains("1.\n2"),
+                "interior period in leftover braces may wrap, got:\n{wrapped}"
+            );
+        }
+    }
+
+    #[test]
+    fn max_width_keeps_org_inline_src_after_leading_underscore_atomic() {
+        let token = "src_python{print(1. 2)}";
+        let sentence = "See _src_python{print(1. 2)} today. Next sentence.";
         for clause in [false, true] {
             let wrapped = wrap_sentence(sentence, 20, clause);
             assert_atomic_token(&wrapped, token);
             assert!(
                 !wrapped.contains("1.\n2"),
-                "must not wrap on the interior period after underscore, got:\n{wrapped}"
+                "must not wrap on the interior period after leading _, got:\n{wrapped}"
             );
         }
     }
