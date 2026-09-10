@@ -20,7 +20,8 @@ impl FormatParser for RstParser {
 }
 
 /// Line-based RST parser. Handles directives, literal blocks, sections,
-/// field lists, comments, tables, and definition lists as structure regions.
+/// field lists, comments, tables, definition lists, and block-quote hangs
+/// as structure regions.
 fn parse_line_based(input: &str) -> Vec<SpannedRegion> {
     let mut regions = Vec::new();
     let mut current_prose = String::new();
@@ -37,6 +38,8 @@ fn parse_line_based(input: &str) -> Vec<SpannedRegion> {
     // Hang column of the current list item (`- ` → 2). Continuation
     // paragraphs after a blank stay in the item when indented this far.
     let mut list_hang: Option<usize> = None;
+    // True while the open Prose is a block-quote body (indent is Structure).
+    let mut in_quote = false;
     let mut pragma_off = false;
 
     // Code-block directive bookkeeping. Mutually exclusive with `in_directive`.
@@ -352,6 +355,46 @@ fn parse_line_based(input: &str) -> Vec<SpannedRegion> {
                 continue;
             }
             list_hang = None;
+        }
+
+        // Block quote: indented paragraph that is not a list/directive/etc.
+        // Hang spaces stay Structure so splice does not outdent them.
+        // Compact wrap (no blank) is the same paragraph; join into the open
+        // Prose so a reflow hang reparses as the source quote.
+        let leading = line_text.len() - line_text.trim_start().len();
+        if leading > 0 {
+            let after_blank = regions
+                .last()
+                .is_some_and(|r| matches!(r.region, Region::BlankLines(_)));
+            if after_blank || current_prose.is_empty() {
+                flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
+                in_quote = true;
+                regions.push(SpannedRegion::structure(
+                    input,
+                    ByteSpan::new(line.start, line.start + leading),
+                ));
+                if line_text.len() > leading {
+                    current_prose.push_str(line_text[leading..].trim());
+                    prose_span = Some(ByteSpan::new(line.start + leading, line.end));
+                }
+            } else if line_text.len() > leading {
+                if !current_prose.is_empty() {
+                    current_prose.push(' ');
+                }
+                current_prose.push_str(line_text[leading..].trim());
+                match prose_span.as_mut() {
+                    Some(span) => span.end = line.end,
+                    None => {
+                        prose_span = Some(ByteSpan::new(line.start + leading, line.end));
+                    }
+                }
+            }
+            i += 1;
+            continue;
+        }
+        if in_quote {
+            flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
+            in_quote = false;
         }
 
         // Regular prose
@@ -999,6 +1042,104 @@ mod tests {
         assert!(
             out.contains("\n  Body."),
             "body must keep two-space indent, got:\n{out}"
+        );
+    }
+
+    #[test]
+    fn block_quote_indent_is_structure() {
+        let input = "Before.\n\n   First sentence.\n   Second sentence.\n\nAfter.\n";
+        let regions = RstParser.parse(input);
+        assert!(
+            regions
+                .iter()
+                .any(|r| matches!(r, Region::Structure(s) if s == "   ")),
+            "quote hang must be Structure, got {regions:?}"
+        );
+        let prose: Vec<_> = regions
+            .iter()
+            .filter_map(|r| match r {
+                Region::Prose(s) => Some(s.as_str()),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(
+            prose,
+            ["Before.", "First sentence. Second sentence.", "After."],
+            "quote lines must join into one Prose, got {regions:?}"
+        );
+    }
+
+    #[test]
+    fn reporter_block_quote_is_identity_under_format() {
+        use crate::format::Format;
+        use crate::{FormatConfig, format_text};
+
+        let cfg = FormatConfig {
+            format: Format::Rst,
+            max_width: 0,
+            ..Default::default()
+        };
+        let input = "Before.\n\n   First sentence.\n   Second sentence.\n\nAfter.\n";
+        let out = format_text(input, &cfg).unwrap();
+        assert_eq!(
+            out, input,
+            "reporter block quote must stay identity under format, got:\n{out}"
+        );
+        assert!(
+            out.contains("\n   First sentence."),
+            "first quote line must keep indent, got:\n{out}"
+        );
+        assert!(
+            out.contains("\n   Second sentence."),
+            "second quote line must keep indent, got:\n{out}"
+        );
+    }
+
+    #[test]
+    fn surrounding_unquoted_paragraphs_still_reflow() {
+        use crate::format::Format;
+        use crate::{FormatConfig, format_text};
+
+        let cfg = FormatConfig {
+            format: Format::Rst,
+            max_width: 0,
+            ..Default::default()
+        };
+        let input = "Before is one. Before is two.\n\n   First sentence.\n   Second sentence.\n\nAfter is one. After is two.\n";
+        let out = format_text(input, &cfg).unwrap();
+        assert_eq!(
+            out,
+            "Before is one.\nBefore is two.\n\n   First sentence.\n   Second sentence.\n\nAfter is one.\nAfter is two.\n",
+            "unquoted paragraphs must reflow; quote indent must stay, got:\n{out}"
+        );
+    }
+
+    #[test]
+    fn fused_block_quote_splits_and_keeps_indent() {
+        use crate::format::Format;
+        use crate::oracle;
+        use crate::{FormatConfig, format_text};
+
+        let cfg = FormatConfig {
+            format: Format::Rst,
+            max_width: 0,
+            ..Default::default()
+        }
+        .without_safety_backstops();
+        let input = "   First sentence. Second sentence.\n";
+        let out = format_text(input, &cfg).expect("format_text");
+        assert_eq!(
+            out, "   First sentence.\n   Second sentence.\n",
+            "fused quote must split and keep indent, got:\n{out}"
+        );
+        assert_eq!(
+            format_text(&out, &cfg).expect("second pass"),
+            out,
+            "split quote must be idempotent"
+        );
+        assert!(
+            oracle::matches(Format::Rst, input, &out),
+            "oracle mismatch\n in={input:?}\n out={out:?}"
         );
     }
 }
