@@ -446,14 +446,17 @@ fn rst_list_marker_len(line: &str) -> Option<usize> {
 }
 
 /// Check if a line is a section underline (2+ repeated punctuation chars).
+/// Includes `' . _ < >` in addition to the common `= - ~ ^ " # * +` set.
 fn is_underline(line: &str) -> bool {
     let trimmed = line.trim();
     if trimmed.len() < 2 {
         return false;
     }
     let first = trimmed.as_bytes()[0];
-    matches!(first, b'=' | b'-' | b'~' | b'^' | b'"' | b'#' | b'*' | b'+')
-        && trimmed.bytes().all(|b| b == first)
+    matches!(
+        first,
+        b'=' | b'-' | b'~' | b'^' | b'"' | b'#' | b'*' | b'+' | b'\'' | b'.' | b'_' | b'<' | b'>'
+    ) && trimmed.bytes().all(|b| b == first)
 }
 
 /// RST simple-table border: `=` column groups separated by spaces
@@ -567,6 +570,55 @@ mod tests {
                 .iter()
                 .any(|r| matches!(r, Region::Structure(s) if s.contains("====")))
         );
+    }
+
+    #[test]
+    fn apostrophe_section_adornment_is_structure() {
+        let input = "Input\n'''''\n";
+        let regions = RstParser.parse(input);
+        assert!(
+            regions
+                .iter()
+                .any(|r| matches!(r, Region::Structure(s) if s.contains("Input"))),
+            "title must be Structure, got {regions:?}"
+        );
+        assert!(
+            regions
+                .iter()
+                .any(|r| matches!(r, Region::Structure(s) if s.contains("'''''"))),
+            "apostrophe underline must be Structure, got {regions:?}"
+        );
+        assert!(
+            !regions.iter().any(
+                |r| matches!(r, Region::Prose(s) if s.contains("Input") || s.contains("'''''"))
+            ),
+            "apostrophe section must not be Prose, got {regions:?}"
+        );
+    }
+
+    #[test]
+    fn reporter_section_adornments_are_identity_under_format() {
+        use crate::format::Format;
+        use crate::{FormatConfig, format_text};
+
+        let cfg = FormatConfig {
+            format: Format::Rst,
+            max_width: 0,
+            ..Default::default()
+        };
+        for (adornment, n) in [('\'', 5), ('\'', 2), ('.', 5), ('_', 5), ('<', 5), ('>', 5)] {
+            let rule = adornment.to_string().repeat(n);
+            let input = format!("Input\n{rule}\n");
+            let out = format_text(&input, &cfg).unwrap();
+            assert_eq!(
+                out, input,
+                "section adornment {adornment:?} x{n} must stay two lines, got:\n{out}"
+            );
+            assert!(
+                !out.contains(&format!("Input {rule}")),
+                "must not glue {adornment:?} adornment onto title, got:\n{out}"
+            );
+        }
     }
 
     #[test]
