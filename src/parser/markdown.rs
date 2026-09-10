@@ -1084,36 +1084,23 @@ fn is_interrupting_setext_opener(line: &str, in_quote: bool, open_quote_depth: u
 /// when the title is already in that quote. CommonMark 4.3: the underline
 /// cannot be a lazy continuation in a list item or block quote, so a
 /// quoted paragraph plus an unquoted `=======` is still one quote
-/// paragraph (ex. 93), not a heading. Do not strip `quote_body` from an
-/// underline that opens a new blockquote (`Foo` then `> =======`).
-/// A list item plus a column-0 underline is not inside the item.
-/// `in_quote` is true when the open paragraph started in a blockquote
-/// (lazy title lines have no `>`).
-/// A list opener has left the quote (snapper-6g55), so do not apply the
-/// ex. 93 unquoted-underline reject to that opener. A quoted list marker
-/// plus a quoted hung underline is the same heading: strip both layers
-/// before `is_setext_title_line`.
-fn is_setext_pair(title_line: &str, underline: &str, in_quote: bool) -> bool {
-    let title_quoted = QUOTE_RE.is_match(title_line);
-    let under_quoted = quote_body(underline).is_some();
+/// paragraph (ex. 93), not a heading. A shallower `>` is the same lazy
+/// case at nested depth (snapper-p70e). Extra markers open a nested
+/// quote, not a closer (snapper-5aef / snapper-l3rg). Strip only
+/// `heading_quote_depth` markers; do not use `quote_body` (it strips
+/// every `>`). A list item plus a column-0 underline is not inside
+/// the item. A quoted list marker plus a quoted hung underline is the
+/// same heading: strip the list layer after the matching quote depth.
+fn is_setext_pair(title_line: &str, underline: &str, heading_quote_depth: usize) -> bool {
     let title_is_list = is_list_opener_line(title_line);
-    // A list opener is not heading_in_quote even when the still-open
-    // paragraph is a quote (snapper-6g55).
-    let heading_in_quote = (title_quoted || in_quote) && !title_is_list;
-    // Strip the quote marker when the underline is in the same quote as
-    // the title. A quoted list opener is still a quoted line, so its
-    // matching quoted underline is a closer, not a new blockquote.
-    let under_body = if under_quoted && (heading_in_quote || title_quoted) {
-        quote_body(underline).unwrap_or(underline)
-    } else if under_quoted {
+    let Some(under_body) = strip_quote_markers(underline, heading_quote_depth) else {
         return false;
-    } else {
-        underline
     };
-    if !is_setext_title_line(container_title_body(title_line)) || !is_setext_underline(under_body) {
+    // Leftover `>` after the heading depth is a deeper nested quote.
+    if quote_marker_depth(under_body) > 0 {
         return false;
     }
-    if heading_in_quote && !under_quoted {
+    if !is_setext_title_line(container_title_body(title_line)) || !is_setext_underline(under_body) {
         return false;
     }
     // Column-0 underline (after stripping a shared quote prefix) is
@@ -1122,6 +1109,24 @@ fn is_setext_pair(title_line: &str, underline: &str, in_quote: bool) -> bool {
         return false;
     }
     true
+}
+
+/// Quote depth of the heading container for an underline check.
+/// An interrupting last title line (nested `>` or a list opener) is
+/// its own container; otherwise the open paragraph's depth.
+fn heading_container_quote_depth(
+    last_line: &str,
+    in_quote: bool,
+    open_quote_depth: usize,
+    interrupting: bool,
+) -> usize {
+    if interrupting {
+        quote_marker_depth(last_line)
+    } else if in_quote {
+        open_quote_depth
+    } else {
+        quote_marker_depth(last_line)
+    }
 }
 
 /// Promote every physical line of the open CommonMark paragraph to Structure.
@@ -1669,15 +1674,16 @@ impl FormatParser for MarkdownParser {
             // the heading at that opener, the same way the quote/list arms
             // call end_paragraph.
             let in_quote = in_list_item && list_hang.is_none();
-            if i + 1 < total && is_setext_pair(line_text, lines[i + 1].text, in_quote) {
-                let para_start = setext_heading_start(&lines, i, para_span.or(prose_span));
-                let open_quote_depth = if para_start < i {
-                    quote_marker_depth(lines[para_start].text)
-                } else {
-                    0
-                };
-                let interrupting =
-                    is_interrupting_setext_opener(line_text, in_quote, open_quote_depth);
+            let para_start = setext_heading_start(&lines, i, para_span.or(prose_span));
+            let open_quote_depth = if para_start < i {
+                quote_marker_depth(lines[para_start].text)
+            } else {
+                0
+            };
+            let interrupting = is_interrupting_setext_opener(line_text, in_quote, open_quote_depth);
+            let heading_quote_depth =
+                heading_container_quote_depth(line_text, in_quote, open_quote_depth, interrupting);
+            if i + 1 < total && is_setext_pair(line_text, lines[i + 1].text, heading_quote_depth) {
                 if interrupting {
                     close_list_item(
                         &mut in_list_item,
@@ -1709,8 +1715,9 @@ impl FormatParser for MarkdownParser {
                     && !QUOTE_RE.is_match(lines[start].text);
                 // CM 4.3 / ex. 93: underline cannot be a lazy continuation
                 // of a quote even when the last title line itself is lazy.
-                let quote_lazy_under =
-                    QUOTE_RE.is_match(lines[start].text) && quote_body(lines[i + 1].text).is_none();
+                // Shallower or deeper `>` is the same reject at nested depth.
+                let quote_lazy_under = heading_quote_depth > 0
+                    && quote_marker_depth(lines[i + 1].text) != heading_quote_depth;
                 if !list_col0 && !quote_lazy_under {
                     promote_setext_title(
                         &lines,
@@ -1972,6 +1979,20 @@ impl FormatParser for MarkdownParser {
                 let marker = caps.get(1).unwrap().as_str();
                 let text = caps.get(2).unwrap().as_str();
                 if text.trim().is_empty() {
+                    // CommonMark 5.1 / snapper-3y8u: `>` / `> ` / `>   `
+                    // is a blank inside the blockquote (ex. 237) and
+                    // closes the paragraph. Keep the quote item open.
+                    end_paragraph(
+                        &mut current_prose,
+                        &mut prose_span,
+                        &mut para_span,
+                        &mut regions,
+                    );
+                    if let Some(span) = list_term.take() {
+                        if !span.is_empty() {
+                            regions.push(SpannedRegion::structure(input, span));
+                        }
+                    }
                     regions.push(SpannedRegion::structure(input, line.span()));
                     i += 1;
                     continue;
@@ -3844,6 +3865,273 @@ mod tests {
         assert!(
             out.contains("Body after setext.\nSecond body."),
             "body Prose must still split, got:\n{out}"
+        );
+    }
+
+    /// snapper-3y8u: `>` / `> ` / `>   ` closes the quote paragraph
+    /// (CommonMark 5.1 ex. 237). Later same-depth setext is a new heading.
+    #[test]
+    fn empty_quote_line_closes_paragraph_before_later_setext() {
+        let input = concat!(
+            "> Foo is the first title line. Still title.\n",
+            ">\n",
+            "> Bar is the second title line.\n",
+            "> =======\n",
+            "\n",
+            "Body after setext. Second body.\n",
+        );
+        let regions = MarkdownParser.parse(input);
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(p)
+                    if p.contains("Still title") || p.contains("Foo is the first")
+            )),
+            "empty quote line must leave Foo as Prose, got: {regions:?}"
+        );
+        assert!(
+            !regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(p) if p.contains("Bar is the second")
+            )),
+            "Bar plus underline must be the new setext, got: {regions:?}"
+        );
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Structure(s) if s.contains("Bar is the second title line.")
+            )),
+            "Bar must be Structure, got: {regions:?}"
+        );
+        let out = crate::format_text(input, &md_cfg()).unwrap();
+        assert!(
+            out.contains("first title line.\n"),
+            "Foo must still split, got:\n{out}"
+        );
+        assert!(
+            out.contains("Body after setext.\nSecond body."),
+            "body Prose must still split, got:\n{out}"
+        );
+
+        let spaced = concat!(
+            "> Foo is the first title line. Still title.\n",
+            ">   \n",
+            "> Bar is the second title line.\n",
+            "> =======\n",
+        );
+        let regions = MarkdownParser.parse(spaced);
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(p)
+                    if p.contains("Still title") || p.contains("Foo is the first")
+            )),
+            ">   blank must leave Foo as Prose, got: {regions:?}"
+        );
+    }
+
+    /// snapper-5aef / snapper-l3rg: a deeper underline is a nested quote,
+    /// not a setext closer.
+    #[test]
+    fn deeper_quoted_underline_is_not_setext() {
+        let one_line = concat!(
+            "> Foo is the first title line. Still title.\n",
+            ">> =======\n",
+            "\n",
+            "Body after setext. Second body.\n",
+        );
+        let regions = MarkdownParser.parse(one_line);
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(p)
+                    if p.contains("Still title") || p.contains("Foo is the first")
+            )),
+            "deeper >> ======= must leave Foo as Prose, got: {regions:?}"
+        );
+        let out = crate::format_text(one_line, &md_cfg()).unwrap();
+        assert!(
+            out.contains("first title line.\n"),
+            "Foo must still split under a deeper underline, got:\n{out}"
+        );
+        assert!(
+            out.contains("Body after setext.\nSecond body."),
+            "body Prose must still split, got:\n{out}"
+        );
+
+        let multi = concat!(
+            "> Foo is the first title line. Still title.\n",
+            "> Bar is the second title line.\n",
+            ">> =======\n",
+            "\n",
+            "Body after setext. Second body.\n",
+        );
+        let regions = MarkdownParser.parse(multi);
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(p)
+                    if p.contains("Still title") || p.contains("Foo is the first")
+            )),
+            "multi-line title plus >> ======= must stay Prose, got: {regions:?}"
+        );
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(p) if p.contains("Bar is the second")
+            )),
+            "Bar must stay Prose when the underline is deeper, got: {regions:?}"
+        );
+
+        let spaced = concat!(
+            "> Foo is the first title line. Still title.\n",
+            "> > =======\n",
+        );
+        let regions = MarkdownParser.parse(spaced);
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(p)
+                    if p.contains("Still title") || p.contains("Foo is the first")
+            )),
+            "> > ======= is the same deeper opener, got: {regions:?}"
+        );
+    }
+
+    /// snapper-p70e / snapper-l3rg: a shallower underline is lazy (ex. 93
+    /// at nested depth), not a heading.
+    #[test]
+    fn shallower_quoted_underline_is_not_setext() {
+        let multi = concat!(
+            ">> Foo is the first title line. Still title.\n",
+            ">> Bar is the second title line.\n",
+            "> =======\n",
+            "\n",
+            "Body after setext. Second body.\n",
+        );
+        let regions = MarkdownParser.parse(multi);
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(p)
+                    if p.contains("Still title") || p.contains("Foo is the first")
+            )),
+            "shallower > ======= must leave Foo as Prose, got: {regions:?}"
+        );
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(p) if p.contains("Bar is the second")
+            )),
+            "Bar must stay Prose when the underline is shallower, got: {regions:?}"
+        );
+        let out = crate::format_text(multi, &md_cfg()).unwrap();
+        assert!(
+            out.contains("first title line.\n"),
+            "Foo must still split under a shallower underline, got:\n{out}"
+        );
+        assert!(
+            out.contains("Body after setext.\nSecond body."),
+            "body Prose must still split, got:\n{out}"
+        );
+
+        let one_line = concat!(
+            ">> Foo is the first title line. Still title.\n",
+            "> =======\n",
+        );
+        let regions = MarkdownParser.parse(one_line);
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(p)
+                    if p.contains("Still title") || p.contains("Foo is the first")
+            )),
+            "one-line >> Foo plus > ======= must stay Prose, got: {regions:?}"
+        );
+
+        let lazy_inner = concat!(
+            ">>> Foo is the first title line. Still title.\n",
+            ">> Bar is the second title line.\n",
+            ">> =======\n",
+        );
+        let regions = MarkdownParser.parse(lazy_inner);
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(p)
+                    if p.contains("Still title") || p.contains("Foo is the first")
+            )),
+            ">>> Foo plus shallower >> ======= must stay Prose, got: {regions:?}"
+        );
+    }
+
+    /// After a 0772 interrupt, a shallower underline is still lazy for Bar.
+    #[test]
+    fn interrupting_nested_title_then_shallower_underline_is_not_setext() {
+        let input = concat!(
+            "> Foo is the first title line. Still title.\n",
+            ">> Bar is the second title line.\n",
+            "> =======\n",
+            "\n",
+            "Body after setext. Second body.\n",
+        );
+        let regions = MarkdownParser.parse(input);
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(p)
+                    if p.contains("Still title") || p.contains("Foo is the first")
+            )),
+            "outer Foo must stay Prose, got: {regions:?}"
+        );
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(p) if p.contains("Bar is the second")
+            )),
+            "Bar plus shallower > ======= must stay inner quote Prose, got: {regions:?}"
+        );
+        let out = crate::format_text(input, &md_cfg()).unwrap();
+        assert!(
+            out.contains("first title line.\n"),
+            "Foo must still split, got:\n{out}"
+        );
+        assert!(
+            out.contains("Body after setext.\nSecond body."),
+            "body Prose must still split, got:\n{out}"
+        );
+        assert!(
+            !regions.iter().any(|r| matches!(
+                r,
+                Region::Structure(s) if s.contains("Bar is the second title line.")
+            )),
+            "shallower underline must not promote Bar, got: {regions:?}"
+        );
+    }
+
+    /// Matching-depth nested quote setext still holds (snapper-5aef).
+    #[test]
+    fn matching_nested_quote_setext_is_heading() {
+        let input = concat!(
+            ">> Foo is the first title line. Still title.\n",
+            ">> Bar is the second title line.\n",
+            ">> =======\n",
+        );
+        let regions = MarkdownParser.parse(input);
+        assert!(
+            !regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(p)
+                    if p.contains("Still title") || p.contains("Bar is the second")
+            )),
+            "same-depth >> setext must not be Prose: {regions:?}"
+        );
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Structure(s) if s.contains("=======")
+            )),
+            "same-depth >> underline must be Structure, got: {regions:?}"
         );
     }
 
