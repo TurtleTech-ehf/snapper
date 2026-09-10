@@ -20,6 +20,7 @@ The classification depends on the format.
 :END:
 - Non-source =#+BEGIN_*= ...
 =#+END_*= fences, and the bodies of literal blocks (example, export, comment)
+- Dynamic blocks (=#+BEGIN: NAME= ... =#+END:=), including the generated body
 - Quote, verse, and center open/close lines; verse inner lines stay unjoined
 - =:PROPERTIES:= ...
 =:END:= drawers
