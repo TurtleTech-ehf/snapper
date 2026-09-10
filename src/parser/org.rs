@@ -2808,6 +2808,23 @@ mod tests {
         assert_eq!(format_text(&out, &org_cfg()).unwrap(), out);
     }
 
+    #[test]
+    fn org_inline_src_after_underscore_is_not_a_sentence_boundary() {
+        use crate::format_text;
+
+        let src = "src_python{print(1. 2)}";
+        let input = "See foo_src_python{print(1. 2)} today. Next sentence.\n";
+        let out = format_text(input, &org_cfg()).unwrap();
+        assert!(
+            out.contains(src) && out.contains("today.\nNext sentence."),
+            "src_ after underscore must stay one token, got:\n{out}"
+        );
+        assert!(
+            !out.contains("1.\n") && !out.contains("print(1.\n2)"),
+            "must not split inside src_ after underscore, got:\n{out}"
+        );
+    }
+
     /// Ticket fixture (Format::Org / GitHub #169): `file:\S+` must not
     /// swallow trailing `.!?` so `See file:/tmp/foo. Next` is two sentences.
     #[test]
