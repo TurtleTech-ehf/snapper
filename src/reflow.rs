@@ -251,10 +251,7 @@ fn reflow_prose(
             );
             output.push_str(&wrapped);
         } else {
-            if hanging > 0 && i > 0 {
-                output.push_str(&hang);
-            }
-            output.push_str(sentence);
+            emit_sentence_with_hang(&mut output, sentence, &hang, i == 0);
         }
         if i + 1 < nsent {
             output.push('\n');
@@ -289,6 +286,24 @@ fn reflow_prose(
         }
     }
     output
+}
+
+/// Emit `sentence` after a hanging marker.
+///
+/// The first line of the first sentence sits after the marker. Every later
+/// line — a later sentence, or a source newline kept because an open quote
+/// blocked the split — repeats `hang` so RST/Docutils still sees a list
+/// continuation (GitHub #130).
+fn emit_sentence_with_hang(output: &mut String, sentence: &str, hang: &str, first_sentence: bool) {
+    for (li, line) in sentence.split('\n').enumerate() {
+        if li > 0 {
+            output.push('\n');
+        }
+        if !hang.is_empty() && (li > 0 || !first_sentence) {
+            output.push_str(hang);
+        }
+        output.push_str(line);
+    }
 }
 
 /// True when `word` ends with independent-clause punctuation (sembr rule 5),
@@ -1666,6 +1681,24 @@ They are endowed with reason and conscience and should act towards one another i
             Region::Structure("\n".to_string()),
         ]);
         assert_eq!(result, "- One.\n  Two.\n");
+    }
+
+    #[test]
+    fn rst_open_quote_list_keeps_hang_on_internal_newline() {
+        // GitHub #130: `"First sentence.` stays one sentence, so the
+        // compact-hang newline must still get the two-space prefix.
+        let result = reflow_regions(vec![
+            Region::Structure("* ".to_string()),
+            Region::Prose("\"First sentence.\nSecond sentence.\"".to_string()),
+            Region::Structure("\n".to_string()),
+            Region::Structure("* ".to_string()),
+            Region::Prose("Next item.".to_string()),
+            Region::Structure("\n".to_string()),
+        ]);
+        assert_eq!(
+            result,
+            "* \"First sentence.\n  Second sentence.\"\n* Next item.\n"
+        );
     }
 
     #[test]

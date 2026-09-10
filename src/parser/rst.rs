@@ -1382,6 +1382,43 @@ mod tests {
     }
 
     #[test]
+    fn reporter_open_quote_list_continuation_keeps_two_space_hang() {
+        use crate::format::Format;
+        use crate::oracle;
+        use crate::{FormatConfig, format_text};
+
+        let cfg = FormatConfig {
+            format: Format::Rst,
+            max_width: 0,
+            ..Default::default()
+        }
+        .without_safety_backstops();
+        let input = "* \"First sentence.\n  Second sentence.\"\n* Next item.\n";
+        let out = format_text(input, &cfg).unwrap();
+        assert_eq!(
+            out, input,
+            "open-quote list continuation must keep two-space hang, got:\n{out}"
+        );
+        assert!(
+            out.contains("\n  Second sentence.\""),
+            "continuation must stay hung, got:\n{out}"
+        );
+        assert!(
+            !out.contains("\nSecond sentence."),
+            "must not outdent inside the open quote, got:\n{out}"
+        );
+        let twice = format_text(&out, &cfg).unwrap();
+        assert_eq!(
+            out, twice,
+            "hung open-quote list must be identity, got:\n{twice}"
+        );
+        assert!(
+            oracle::matches(Format::Rst, input, &out),
+            "oracle mismatch\n in={input:?}\n out={out:?}"
+        );
+    }
+
+    #[test]
     fn reporter_list_continuation_paragraph_is_identity_under_format() {
         use crate::format::Format;
         use crate::{FormatConfig, format_text};
