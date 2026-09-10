@@ -254,7 +254,11 @@ fn reflow_prose(
             if hanging > 0 && i > 0 {
                 output.push_str(&hang);
             }
-            output.push_str(sentence);
+            if hanging > 0 {
+                output.push_str(&hang_internal_newlines(sentence, &hang));
+            } else {
+                output.push_str(sentence);
+            }
         }
         if i + 1 < nsent {
             output.push('\n');
@@ -911,6 +915,26 @@ fn wrap_atomic_words(
         start = break_at;
     }
     lines
+}
+
+/// Repeat list/quote hang after source newlines left inside one sentence.
+///
+/// Compact RST list joins insert a newline after sentence punct (`No.`,
+/// `etc.`); abbreviation merge then keeps that as one sentence, so splice
+/// would otherwise emit the continuation flush-left (GitHub #129).
+fn hang_internal_newlines(text: &str, hang: &str) -> String {
+    if hang.is_empty() || !text.contains('\n') {
+        return text.to_string();
+    }
+    let mut out = String::with_capacity(text.len() + hang.len());
+    let bytes = text.as_bytes();
+    for (i, c) in text.char_indices() {
+        out.push(c);
+        if c == '\n' && i + 1 < bytes.len() {
+            out.push_str(hang);
+        }
+    }
+    out
 }
 
 /// True when `s` is a list or quote marker that continuation lines hang from.
@@ -1597,6 +1621,27 @@ They are endowed with reason and conscience and should act towards one another i
             Region::Structure("\n".to_string()),
         ]);
         assert_eq!(result, "- One.\n  Two.\n");
+    }
+
+    #[test]
+    fn rst_abbrev_list_internal_newline_keeps_hang() {
+        let result = reflow_regions(vec![
+            Region::Structure("* ".to_string()),
+            Region::Prose("**Answer**: No.\nA second sentence.".to_string()),
+            Region::Structure("\n".to_string()),
+            Region::Structure("* ".to_string()),
+            Region::Prose("Uses queues, caches, etc.\nAnother sentence.".to_string()),
+            Region::Structure("\n".to_string()),
+        ]);
+        assert_eq!(
+            result,
+            concat!(
+                "* **Answer**: No.\n",
+                "  A second sentence.\n",
+                "* Uses queues, caches, etc.\n",
+                "  Another sentence.\n",
+            )
+        );
     }
 
     #[test]
