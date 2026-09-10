@@ -437,6 +437,36 @@ fn is_setext_underline(line: &str) -> bool {
     SETEXT_UNDERLINE_RE.is_match(trimmed)
 }
 
+/// CommonMark 4.1 thematic break: 0–3 spaces of indent, then three or more
+/// matching `-` / `*` / `_`, each optionally followed by spaces or tabs.
+fn is_thematic_break(line: &str) -> bool {
+    let trimmed = line.trim_end();
+    let bytes = trimmed.as_bytes();
+    let mut i = 0;
+    while i < bytes.len() && i < 3 && bytes[i] == b' ' {
+        i += 1;
+    }
+    if i >= bytes.len() {
+        return false;
+    }
+    let marker = bytes[i];
+    if !matches!(marker, b'-' | b'*' | b'_') {
+        return false;
+    }
+    let mut count = 0;
+    while i < bytes.len() {
+        if bytes[i] == marker {
+            count += 1;
+            i += 1;
+        } else if bytes[i] == b' ' || bytes[i] == b'\t' {
+            i += 1;
+        } else {
+            return false;
+        }
+    }
+    count >= 3
+}
+
 /// Leading whitespace width in bytes (`trim_start` prefix).
 fn line_indent(line: &str) -> usize {
     line.len() - line.trim_start().len()
@@ -633,6 +663,10 @@ fn is_setext_title_line(line: &str) -> bool {
         return false;
     }
     if LIST_ITEM_RE.is_match(line) || QUOTE_RE.is_match(line) {
+        return false;
+    }
+    // A thematic-break line is Structure, not setext text (`***` / `---`).
+    if is_thematic_break(line) {
         return false;
     }
     if FENCED_CODE_RE.is_match(line.trim_start()) {
@@ -1007,6 +1041,24 @@ impl FormatParser for MarkdownParser {
                 continue;
             }
 
+            // CommonMark 4.1 thematic break. After setext so `Foo\n---` stays
+            // a heading; before LIST_ITEM_RE so `* * *` / `- - -` are not lists.
+            if is_thematic_break(line_text) {
+                close_list_item(
+                    &mut in_list_item,
+                    &mut list_hang,
+                    &mut current_prose,
+                    &mut prose_span,
+                    &mut list_term,
+                    input,
+                    &mut regions,
+                );
+                flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
+                regions.push(SpannedRegion::structure(input, line.span()));
+                i += 1;
+                continue;
+            }
+
             // GFM table: header + delimiter (leading/trailing pipes optional).
             // Pipe-less rows are Structure only when a separator is present.
             if i + 1 < total {
@@ -1126,6 +1178,7 @@ impl FormatParser for MarkdownParser {
                 if HEADING_RE.is_match(text)
                     || TABLE_ROW_RE.is_match(text)
                     || FENCED_CODE_RE.is_match(text.trim_start())
+                    || is_thematic_break(text)
                 {
                     regions.push(SpannedRegion::structure(input, line.span()));
                     i += 1;
@@ -2006,6 +2059,153 @@ mod tests {
                 .iter()
                 .any(|r| matches!(r, Region::Structure(s) if s == "Heading Here\n"))
         );
+    }
+
+    /// GitHub #105 / snapper-ojf8: CommonMark 4.1 thematic break is Structure.
+    fn ticket_thematic_breaks_fixture() -> &'static str {
+        "Hello world. Next sentence.\n\n---\nStill going. More text.\n\nIntro. Text.\n***\n"
+    }
+
+    #[test]
+    fn thematic_break_predicate_matches_commonmark_4_1() {
+        assert!(is_thematic_break("***"));
+        assert!(is_thematic_break("---"));
+        assert!(is_thematic_break("___"));
+        assert!(is_thematic_break("* * *"));
+        assert!(is_thematic_break("- - -"));
+        assert!(is_thematic_break("_ _ _"));
+        assert!(is_thematic_break(" ***"));
+        assert!(is_thematic_break("  ***"));
+        assert!(is_thematic_break("   ***"));
+        assert!(!is_thematic_break("    ***"));
+        assert!(!is_thematic_break("**"));
+        assert!(!is_thematic_break("--"));
+        assert!(!is_thematic_break("==="));
+        assert!(!is_thematic_break("*-*"));
+        assert!(!is_thematic_break("+++"));
+    }
+
+    #[test]
+    fn thematic_break_after_blank_is_structure() {
+        let input = ticket_thematic_breaks_fixture();
+        let regions = MarkdownParser.parse(input);
+        assert!(
+            regions
+                .iter()
+                .any(|r| matches!(r, Region::Structure(s) if s.trim() == "---")),
+            "--- after a blank must be Structure, got: {regions:?}"
+        );
+        assert!(
+            regions
+                .iter()
+                .any(|r| matches!(r, Region::Structure(s) if s.trim() == "***")),
+            "*** must be Structure, got: {regions:?}"
+        );
+        assert!(
+            !regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(p) if p.contains("---") || p.contains("***")
+            )),
+            "thematic breaks must not join prose, got: {regions:?}"
+        );
+    }
+
+    #[test]
+    fn spaced_thematic_breaks_are_not_list_items() {
+        for line in ["* * *", "- - -", "_ _ _"] {
+            let input = format!("{line}\n");
+            let regions = MarkdownParser.parse(&input);
+            assert!(
+                regions
+                    .iter()
+                    .any(|r| matches!(r, Region::Structure(s) if s.trim() == line)),
+                "{line} must be Structure (HR), not a list, got: {regions:?}"
+            );
+            assert!(
+                !regions.iter().any(|r| matches!(r, Region::Prose(_))),
+                "{line} must not leave Prose, got: {regions:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn foo_dash_underline_stays_setext() {
+        let input = "Foo\n---\n";
+        let regions = MarkdownParser.parse(input);
+        assert_eq!(regions[0], Region::Structure("Foo\n".to_string()));
+        assert!(matches!(&regions[1], Region::Structure(s) if s.starts_with("---")));
+        assert!(
+            !regions.iter().any(|r| matches!(r, Region::Prose(_))),
+            "Foo\\n--- must stay setext, got: {regions:?}"
+        );
+    }
+
+    #[test]
+    fn foo_blank_dash_is_paragraph_plus_hr() {
+        let input = "Foo\n\n---\n";
+        let regions = MarkdownParser.parse(input);
+        assert!(
+            regions
+                .iter()
+                .any(|r| matches!(r, Region::Prose(p) if p.contains("Foo"))),
+            "Foo must stay Prose, got: {regions:?}"
+        );
+        assert!(
+            regions
+                .iter()
+                .any(|r| matches!(r, Region::Structure(s) if s.trim() == "---")),
+            "--- after blank must be HR Structure, got: {regions:?}"
+        );
+    }
+
+    #[test]
+    fn thematic_breaks_ticket_fixture_does_not_reflow() {
+        use crate::format::Format;
+        use crate::{FormatConfig, format_text};
+
+        let input = ticket_thematic_breaks_fixture();
+        let cfg = FormatConfig {
+            format: Format::Markdown,
+            ..Default::default()
+        };
+        let out = format_text(input, &cfg).unwrap();
+        assert!(
+            out.contains("Hello world.\nNext sentence."),
+            "surrounding prose must still reflow, got:\n{out}"
+        );
+        assert!(
+            out.contains("\n---\n"),
+            "--- must stay a thematic-break line, got:\n{out}"
+        );
+        assert!(
+            !out.contains("--- Still going") && !out.contains("---Still"),
+            "--- must not join the next line, got:\n{out}"
+        );
+        assert!(
+            out.contains("Still going.\nMore text."),
+            "prose after --- must reflow independently, got:\n{out}"
+        );
+        assert!(
+            out.contains("Intro.\nText."),
+            "prose before *** must reflow, got:\n{out}"
+        );
+        assert!(
+            out.trim_end().ends_with("***"),
+            "*** must stay a thematic-break line, got:\n{out}"
+        );
+        assert!(
+            !out.contains("Text. ***") && !out.contains("Text.***"),
+            "*** must not join the previous sentence, got:\n{out}"
+        );
+        assert_eq!(format_text(&out, &cfg).unwrap(), out);
+
+        let raw = cfg.without_safety_backstops();
+        let raw_out = format_text(input, &raw).unwrap();
+        assert_eq!(
+            raw_out, out,
+            "oracle-silent path must match, got:\n{raw_out}"
+        );
+        assert_eq!(format_text(&raw_out, &raw).unwrap(), raw_out);
     }
 
     #[test]
