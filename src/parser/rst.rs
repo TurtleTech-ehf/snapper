@@ -343,6 +343,22 @@ fn parse_line_based(input: &str) -> Vec<SpannedRegion> {
                 input,
                 ByteSpan::new(line.start, line.start + marker_len),
             ));
+            // Next line indented past the hang is a nested definition
+            // (GitHub #132). Joining it as compact hang collapses five
+            // spaces to four and Docutils loses the definition list.
+            if list_item_opens_definition(&lines, i, marker_len) {
+                if line_text.len() > marker_len {
+                    regions.push(SpannedRegion::structure(
+                        input,
+                        ByteSpan::new(line.start + marker_len, line.end),
+                    ));
+                }
+                let next = lines[i + 1].text;
+                definition_indent = next.len() - next.trim_start().len();
+                in_definition = true;
+                i += 1;
+                continue;
+            }
             if line_text.len() > marker_len {
                 current_prose.push_str(line_text[marker_len..].trim());
                 prose_span = Some(ByteSpan::new(line.start + marker_len, line.end));
@@ -430,6 +446,13 @@ fn parse_line_based(input: &str) -> Vec<SpannedRegion> {
                         current_prose.push_str(line_text[leading..].trim());
                         prose_span = Some(ByteSpan::new(line.start + leading, line.end));
                     }
+                } else if leading > hang {
+                    // Compact over-indent is a nested definition, not a
+                    // hang wrap (GitHub #132).
+                    flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
+                    regions.push(SpannedRegion::structure(input, line.span()));
+                    definition_indent = leading;
+                    in_definition = true;
                 } else if line_text.len() > leading {
                     if !current_prose.is_empty() {
                         join_prose_gap(&mut current_prose);
@@ -741,6 +764,20 @@ fn is_simple_table_border(line: &str) -> bool {
         }
     }
     saw_space_between && groups >= 2
+}
+
+/// True when the line after list item `i` is indented past `hang`.
+/// Docutils then parses the item text as a definition term (GitHub #132).
+fn list_item_opens_definition(lines: &[Line<'_>], i: usize, hang: usize) -> bool {
+    let next = match lines.get(i + 1) {
+        Some(line) => line.text,
+        None => return false,
+    };
+    if next.trim().is_empty() {
+        return false;
+    }
+    let next_indent = next.len() - next.trim_start().len();
+    next_indent > hang
 }
 
 /// True when `lines[i]` is a definition-list term: the next physical line
@@ -1250,6 +1287,71 @@ mod tests {
         assert!(
             out.contains("\n   Definition sentence."),
             "definition must keep indent, got:\n{out}"
+        );
+    }
+
+    #[test]
+    fn nested_list_overindent_is_definition_structure() {
+        let input = concat!(
+            "* Parent\n",
+            "\n",
+            "  * Check all paths.\n",
+            "     If a node is visited again, push it.\n",
+        );
+        let regions = RstParser.parse(input);
+        assert!(
+            regions
+                .iter()
+                .any(|r| matches!(r, Region::Structure(s) if s.contains("Check all paths."))),
+            "nested item term must be Structure, got {regions:?}"
+        );
+        assert!(
+            regions.iter().any(|r| {
+                matches!(r, Region::Structure(s) if s.contains("If a node is visited again"))
+            }),
+            "five-space definition must be Structure, got {regions:?}"
+        );
+        assert!(
+            !regions.iter().any(|r| {
+                matches!(
+                    r,
+                    Region::Prose(s)
+                        if s.contains("Check all paths.")
+                            || s.contains("If a node is visited again")
+                )
+            }),
+            "nested definition must not join as Prose, got {regions:?}"
+        );
+    }
+
+    #[test]
+    fn reporter_nested_list_overindent_keeps_five_spaces() {
+        use crate::format::Format;
+        use crate::{FormatConfig, format_text};
+
+        let cfg = FormatConfig {
+            format: Format::Rst,
+            max_width: 0,
+            ..Default::default()
+        };
+        let input = concat!(
+            "* Parent\n",
+            "\n",
+            "  * Check all paths.\n",
+            "     If a node is visited again, push it.\n",
+        );
+        let out = format_text(input, &cfg).unwrap();
+        assert_eq!(
+            out, input,
+            "five-space definition indent must stay, got:\n{out}"
+        );
+        assert!(
+            out.contains("\n     If a node is visited again, push it."),
+            "continuation must stay five spaces, got:\n{out}"
+        );
+        assert!(
+            !out.contains("\n    If a node is visited again, push it."),
+            "continuation must not collapse to four spaces, got:\n{out}"
         );
     }
 
