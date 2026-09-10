@@ -329,6 +329,28 @@ impl OrgParser {
     }
 }
 
+/// org-footnote-definition-re: `^\[fn:LABEL\]` at column 0.
+/// LABEL is `[-_[:word:]]+`. Trailing spaces after `]` belong to the
+/// hang marker so the body stays a hung paragraph (GitHub #180).
+pub(crate) fn org_footnote_definition_marker_len(line: &str) -> Option<usize> {
+    let rest = line.strip_prefix("[fn:")?;
+    let close = rest.find(']')?;
+    let label = &rest[..close];
+    if label.is_empty()
+        || !label
+            .chars()
+            .all(|c| c.is_alphanumeric() || c == '-' || c == '_')
+    {
+        return None;
+    }
+    let mut end = "[fn:".len() + close + 1;
+    let bytes = line.as_bytes();
+    while end < bytes.len() && (bytes[end] == b' ' || bytes[end] == b'\t') {
+        end += 1;
+    }
+    Some(end)
+}
+
 impl FormatParser for OrgParser {
     fn parse_full(&self, input: &str) -> Vec<SpannedRegion> {
         let mut regions: Vec<SpannedRegion> = Vec::new();
@@ -573,6 +595,26 @@ impl FormatParser for OrgParser {
             if Self::is_planning_or_clock(line_text) {
                 flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
                 regions.push(SpannedRegion::structure(input, line.span()));
+                continue;
+            }
+
+            // org-footnote-definition-re: column-0 `[fn:LABEL]`. Marker is
+            // Structure; same-line body is hung Prose (GitHub #180).
+            if let Some(marker_len) = org_footnote_definition_marker_len(line_text) {
+                flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
+                list_item_indent = Some(marker_len);
+                let marker_span = ByteSpan::new(line.start, line.start + marker_len);
+                regions.push(SpannedRegion::structure(input, marker_span));
+                if line_text.len() > marker_len {
+                    regions.push(SpannedRegion::prose(
+                        line_text[marker_len..].to_string(),
+                        ByteSpan::new(line.start + marker_len, line.start + line_text.len()),
+                    ));
+                }
+                let term = line.terminator_span();
+                if !term.is_empty() {
+                    regions.push(SpannedRegion::structure(input, term));
+                }
                 continue;
             }
 
@@ -2449,5 +2491,97 @@ mod tests {
             "bare # stays a comment; following prose reflows, got:\n{out}"
         );
         assert_eq!(format_text(&out, &org_cfg()).unwrap(), out);
+    }
+
+    /// Ticket fixture (Format::Org / GitHub #180): org-footnote-definition-re.
+    fn footnote_definition_fixture() -> &'static str {
+        concat!(
+            "See the claim.[fn:1]\n",
+            "\n",
+            "[fn:1] This is a long footnote sentence that must stay inside the definition. Second sentence.\n",
+        )
+    }
+
+    #[test]
+    fn footnote_definition_marker_follows_org_element() {
+        assert_eq!(org_footnote_definition_marker_len("[fn:1] "), Some(7));
+        assert_eq!(org_footnote_definition_marker_len("[fn:1]"), Some(6));
+        assert_eq!(
+            org_footnote_definition_marker_len("[fn:note] text"),
+            Some(10)
+        );
+        assert_eq!(
+            org_footnote_definition_marker_len("[fn:foo-bar] x"),
+            Some(13)
+        );
+        assert_eq!(org_footnote_definition_marker_len("  [fn:1] text"), None);
+        assert_eq!(org_footnote_definition_marker_len("[fn::inline]"), None);
+        assert_eq!(org_footnote_definition_marker_len("[fn:1:inline]"), None);
+        assert_eq!(
+            org_footnote_definition_marker_len("See the claim.[fn:1]"),
+            None
+        );
+        assert_eq!(org_footnote_definition_marker_len("[fn:]"), None);
+    }
+
+    #[test]
+    fn footnote_opener_is_structure_body_is_hung_prose() {
+        let regions = OrgParser.parse(footnote_definition_fixture());
+        assert!(
+            regions
+                .iter()
+                .any(|r| matches!(r, Region::Structure(s) if s == "[fn:1] ")),
+            "[fn:1] must be Structure, got {regions:?}"
+        );
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(s)
+                    if s.contains("This is a long footnote sentence that must stay inside the definition.")
+                        && s.contains("Second sentence.")
+            )),
+            "footnote body must be Prose, got {regions:?}"
+        );
+        assert!(
+            !regions.iter().any(|r| matches!(
+                r,
+                Region::Structure(s) if s.contains("This is a long footnote sentence")
+            )),
+            "footnote body must not stay Structure, got {regions:?}"
+        );
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(s) if s.contains("See the claim.[fn:1]")
+            )),
+            "inline [fn:1] reference must stay Prose, got {regions:?}"
+        );
+    }
+
+    #[test]
+    fn footnote_fixture_body_splits_and_hangs() {
+        use crate::format_text;
+
+        let input = footnote_definition_fixture();
+        let out = format_text(input, &org_cfg()).unwrap();
+        assert_eq!(
+            out,
+            concat!(
+                "See the claim.[fn:1]\n",
+                "\n",
+                "[fn:1] This is a long footnote sentence that must stay inside the definition.\n",
+                "       Second sentence.\n",
+            ),
+            "footnote opener stays; body hangs and splits, got:\n{out}"
+        );
+        assert!(
+            !out.contains("\nSecond sentence."),
+            "split body must not become a column-0 paragraph, got:\n{out}"
+        );
+        assert_eq!(
+            format_text(&out, &org_cfg()).unwrap(),
+            out,
+            "hung footnote must be identity, got:\n{out}"
+        );
     }
 }
