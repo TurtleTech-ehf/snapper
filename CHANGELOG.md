@@ -4,6 +4,7 @@ All notable changes to this project will be documented in this file. See [conven
 - - -
 ## Unreleased (main)
 #### Bug Fixes
+- (**markdown**) a quoted list plus a column-0-in-quote `=======` is not a setext heading; four spaces or a tab before `>` is not a quote marker so it cannot close a setext; a nested `>>` or quoted list opener closes the outer paragraph when first seen so a later matching-depth setext promotes only the new container (#208)
 - (**latex**) tokenize fancyvrb `\\Verb` / `\\Verb*` like `\\verb` so inner `%` / `.!?` stay one token (#243)
 - (**latex**) treat fancyvrb `Verbatim*`, `BVerbatim*`, and `LVerbatim*` as code so listing bodies do not reflow as prose (#244)
 - (**latex**) treat spverbatim.sty `spverbatim` as code and tokenize `\\spverb` like `\\verb` so listing bodies and inner `%` / `.!?` do not reflow as prose (#235)
