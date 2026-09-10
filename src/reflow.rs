@@ -589,6 +589,11 @@ fn latex_opens_block(line: &str) -> bool {
     if t.starts_with("\\begin{") || t.starts_with("\\end{") || t.starts_with("\\[") {
         return true;
     }
+    if let Some(after) = t.strip_prefix("\\item") {
+        if !after.starts_with(|c: char| c.is_ascii_alphabetic()) {
+            return true;
+        }
+    }
     const CMDS: &[&str] = &[
         "\\part",
         "\\chapter",
@@ -864,11 +869,26 @@ fn hanging_indent_width(s: &str) -> usize {
     let is_ordered = (core.ends_with('.') || core.ends_with(')'))
         && core.len() > 1
         && core[..core.len() - 1].bytes().all(|b| b.is_ascii_digit());
-    if is_bullet || is_ordered || is_rst_autoenum {
+    // LaTeX `\item` / `\item[label]` (not `\itemize`).
+    if is_bullet || is_ordered || is_rst_autoenum || is_latex_item_core(core) {
         s.chars().count()
     } else {
         0
     }
+}
+
+fn is_latex_item_core(core: &str) -> bool {
+    let rest = match core.strip_prefix("\\item") {
+        Some(r) => r,
+        None => return false,
+    };
+    if rest.starts_with(|c: char| c.is_ascii_alphabetic()) {
+        return false;
+    }
+    if rest.is_empty() {
+        return true;
+    }
+    rest.starts_with('[') && rest.ends_with(']') && !rest[1..rest.len() - 1].contains(['[', ']'])
 }
 
 /// Markdown hard break payloads: two or more spaces plus newline, or `\\\n`.
@@ -983,11 +1003,13 @@ mod tests {
         assert_eq!(hanging_prefix("- "), "  ");
         assert_eq!(hanging_prefix("1. "), "   ");
         assert_eq!(hanging_prefix("#. "), "   ");
+        assert_eq!(hanging_prefix("\\item "), "      ");
         assert_eq!(hanging_prefix("  "), "  ");
         assert_eq!(hanging_indent_width("  "), 0);
         assert_eq!(hanging_indent_width("> "), 0);
         assert_eq!(hanging_indent_width("- "), 2);
         assert_eq!(hanging_indent_width("#. "), 3);
+        assert_eq!(hanging_indent_width("\\item "), 6);
     }
 
     #[test]
@@ -1426,6 +1448,7 @@ They are endowed with reason and conscience and should act towards one another i
         assert_eq!(hanging_prefix("- "), "  ");
         assert_eq!(hanging_prefix("1. "), "   ");
         assert_eq!(hanging_prefix("#. "), "   ");
+        assert_eq!(hanging_prefix("\\item "), "      ");
         assert_eq!(hanging_prefix("  "), "  ");
         assert_eq!(hanging_indent_width("  "), 0);
         assert_eq!(hanging_indent_width("\n"), 0);
@@ -1433,6 +1456,9 @@ They are endowed with reason and conscience and should act towards one another i
         assert_eq!(hanging_indent_width("$x$"), 0);
         assert_eq!(hanging_indent_width("`code`"), 0);
         assert_eq!(hanging_indent_width("## heading\n"), 0);
+        assert_eq!(hanging_indent_width("\\item "), 6);
+        assert_eq!(hanging_indent_width("\\item[Term] "), 12);
+        assert_eq!(hanging_indent_width("\\itemize "), 0);
     }
 
     #[test]
@@ -1473,6 +1499,16 @@ They are endowed with reason and conscience and should act towards one another i
             Region::Structure("\n".to_string()),
         ]);
         assert_eq!(result, "#. First sentence.\n   Second sentence.\n");
+    }
+
+    #[test]
+    fn latex_item_list_hanging_indent() {
+        let result = reflow_regions(vec![
+            Region::Structure("\\item ".to_string()),
+            Region::Prose("One. Two.".to_string()),
+            Region::Structure("\n".to_string()),
+        ]);
+        assert_eq!(result, "\\item One.\n      Two.\n");
     }
 
     #[test]
@@ -1978,6 +2014,17 @@ They are endowed with reason and conscience and should act towards one another i
         assert!(
             section.contains("apples \\section"),
             "\\section is not an MD escape:\n{section}"
+        );
+
+        let item = wrap_fmt(
+            "The options are apples \\item extra words here.",
+            23,
+            crate::format::Format::Latex,
+        );
+        assert_no_col0_block(&item, &["\\item", "\\item "]);
+        assert!(
+            item.contains("apples \\item"),
+            "\\item is not an MD escape; skip-cut must keep it:\n{item}"
         );
     }
 
