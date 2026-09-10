@@ -9,9 +9,10 @@ use crate::sentence::unicode::latex_verb_span_end_with;
 // Environments whose content is NOT prose (math, code, tables, pictures).
 // Extra names are tree-sitter-latex `math_environment` plus latexindent
 // `lookForAlignDelims` (amsmath / mathtools / tabularray), not a GPL copy.
-// Overleaf `equationEnvNames` includes `tikzcd`; pgfplots `axis` /
-// `pgfpicture` are the same class (and starred variants). Not every
-// pgfplots name.
+// Overleaf `equationEnvNames` includes `tikzcd` / `math*`;
+// `equationArrayEnvNames` leftover IEEEeqnarray / subeqnarray (and stars);
+// `tabularEnvNames` leftover `xltabular`. pgfplots `axis` / `pgfpicture`
+// are the same class (and starred variants). Not every pgfplots name.
 //
 // `figure` / `table` (and stars) are not here: Overleaf FigureEnvironment
 // is Content<Text>, tree-sitter caption curly_group is text. Float chrome
@@ -37,14 +38,20 @@ static NON_PROSE_ENVS: &[&str] = &[
     "multline*",
     "eqnarray",
     "eqnarray*",
+    "IEEEeqnarray",
+    "IEEEeqnarray*",
+    "subeqnarray",
+    "subeqnarray*",
     "split",
     "split*",
     "displaymath",
     "displaymath*",
     "math",
+    "math*",
     "tabular",
     "tabular*",
     "tabularx",
+    "xltabular",
     "longtable",
     "tabu",
     "tblr",
@@ -3024,6 +3031,143 @@ Some text.
             )),
             "tikzcd fixture must not be Prose, got: {regions:?}"
         );
+    }
+
+    /// Ticket fixture (GitHub #181 / snapper-twmw): IEEEeqnarray is Structure.
+    #[test]
+    fn ieeeeqnarray_fixture_is_structure_not_prose() {
+        use crate::format_text;
+
+        let input = concat!(
+            "\\begin{IEEEeqnarray}{rCl}\n",
+            "This is a long sentence that must stay inside IEEEeqnarray and must not reflow as prose.\n",
+            "\\end{IEEEeqnarray}\n",
+            "After the array. Second sentence.\n",
+        );
+        let regions = LatexParser::default().parse(input);
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Structure(s)
+                    if s.contains("must stay inside IEEEeqnarray and must not reflow as prose")
+            )),
+            "IEEEeqnarray body must be Structure, got: {regions:?}"
+        );
+        assert!(
+            !regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(p)
+                    if p.contains("must stay inside IEEEeqnarray and must not reflow as prose")
+            )),
+            "IEEEeqnarray body must not be Prose, got: {regions:?}"
+        );
+        let out = format_text(input, &latex_cfg()).unwrap();
+        assert!(
+            out.contains(
+                "This is a long sentence that must stay inside IEEEeqnarray and must not reflow as prose."
+            ),
+            "IEEEeqnarray body must stay one source line, got:\n{out}"
+        );
+        assert!(
+            !out.contains("must stay inside IEEEeqnarray.\n")
+                && !out.contains("and must not reflow as prose.\nAfter"),
+            "must not split the IEEEeqnarray body into prose sentences, got:\n{out}"
+        );
+        assert!(
+            out.contains("After the array.\nSecond sentence."),
+            "prose after IEEEeqnarray must still reflow, got:\n{out}"
+        );
+        assert_eq!(format_text(&out, &latex_cfg()).unwrap(), out);
+    }
+
+    #[test]
+    fn leftover_overleaf_array_tabular_math_envs_are_structure() {
+        let names = [
+            "IEEEeqnarray",
+            "IEEEeqnarray*",
+            "subeqnarray",
+            "subeqnarray*",
+            "xltabular",
+            "math*",
+        ];
+        for name in names {
+            let input = format!(
+                "\\begin{{{name}}}\nThis is a long sentence that must not reflow as prose inside {name}.\n\\end{{{name}}}\n"
+            );
+            let needle = format!("must not reflow as prose inside {name}");
+            let regions = LatexParser::default().parse(&input);
+            assert!(
+                regions
+                    .iter()
+                    .any(|r| matches!(r, Region::Structure(s) if s.contains(&needle))),
+                "{name} body must be Structure, got: {regions:?}"
+            );
+            assert!(
+                !regions
+                    .iter()
+                    .any(|r| matches!(r, Region::Prose(p) if p.contains(&needle))),
+                "{name} body must not be Prose, got: {regions:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn leftover_overleaf_array_tabular_math_two_sentence_bodies_do_not_reflow() {
+        use crate::format_text;
+
+        let input = concat!(
+            "\\begin{document}\n",
+            "Before the array. More before.\n",
+            "\\begin{IEEEeqnarray}{rCl}\n",
+            "First sentence inside IEEEeqnarray. Second sentence stays put.\n",
+            "\\end{IEEEeqnarray}\n",
+            "\\begin{IEEEeqnarray*}\n",
+            "First sentence inside IEEEeqnarray*. Second sentence stays put.\n",
+            "\\end{IEEEeqnarray*}\n",
+            "\\begin{subeqnarray}\n",
+            "First sentence inside subeqnarray. Second sentence stays put.\n",
+            "\\end{subeqnarray}\n",
+            "\\begin{subeqnarray*}\n",
+            "First sentence inside subeqnarray*. Second sentence stays put.\n",
+            "\\end{subeqnarray*}\n",
+            "\\begin{xltabular}{\\textwidth}{l}\n",
+            "First sentence inside xltabular. Second sentence stays put.\n",
+            "\\end{xltabular}\n",
+            "\\begin{math*}\n",
+            "First sentence inside math*. Second sentence stays put.\n",
+            "\\end{math*}\n",
+            "After the array. Second sentence.\n",
+            "\\end{document}\n",
+        );
+        let out = format_text(input, &latex_cfg()).unwrap();
+        for fused in [
+            "First sentence inside IEEEeqnarray. Second sentence stays put.",
+            "First sentence inside IEEEeqnarray*. Second sentence stays put.",
+            "First sentence inside subeqnarray. Second sentence stays put.",
+            "First sentence inside subeqnarray*. Second sentence stays put.",
+            "First sentence inside xltabular. Second sentence stays put.",
+            "First sentence inside math*. Second sentence stays put.",
+        ] {
+            assert!(
+                out.contains(fused),
+                "leftover Overleaf env body must not reflow, missing {fused:?}, got:\n{out}"
+            );
+        }
+        assert!(
+            !out.contains("inside IEEEeqnarray.\nSecond")
+                && !out.contains("inside IEEEeqnarray*.\nSecond")
+                && !out.contains("inside subeqnarray.\nSecond")
+                && !out.contains("inside subeqnarray*.\nSecond")
+                && !out.contains("inside xltabular.\nSecond")
+                && !out.contains("inside math*.\nSecond"),
+            "leftover Overleaf env bodies must stay one source line, got:\n{out}"
+        );
+        assert!(
+            out.contains("Before the array.\nMore before.")
+                && out.contains("After the array.\nSecond sentence."),
+            "prose around leftover Overleaf envs must still reflow, got:\n{out}"
+        );
+        assert_eq!(format_text(&out, &latex_cfg()).unwrap(), out);
     }
 
     #[test]
