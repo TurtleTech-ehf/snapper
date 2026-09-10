@@ -771,6 +771,7 @@ fn merge_abbreviation_splits(
     for &segment in segments {
         let should_merge = if let Some(prev) = result.last() {
             is_abbreviation_ending(prev, abbrev_re, multi_re, extra)
+                && !abbreviation_break_is_line_break(prev, segment)
         } else {
             false
         };
@@ -1083,6 +1084,12 @@ pub fn newlines_respect_delimiter_spans(formatted: &str) -> bool {
     true
 }
 
+/// A source newline after `No.` / `etc.` is already a sentence break
+/// (RST list hang). Do not glue the next line back on.
+fn abbreviation_break_is_line_break(prev: &str, next: &str) -> bool {
+    prev.contains('\n') || next.starts_with('\n')
+}
+
 fn is_abbreviation_ending(
     s: &str,
     abbrev_re: &Regex,
@@ -1150,6 +1157,19 @@ mod tests {
             split("See Fig. 3 for details. The results are clear."),
             vec!["See Fig. 3 for details.", "The results are clear."]
         );
+    }
+
+    #[test]
+    fn abbreviation_line_break_after_no_or_etc_is_a_sentence() {
+        assert_eq!(
+            split("**Answer**: No.\nA second sentence."),
+            vec!["**Answer**: No.", "A second sentence."]
+        );
+        assert_eq!(
+            split("Uses queues, caches, etc.\nAnother sentence."),
+            vec!["Uses queues, caches, etc.", "Another sentence."]
+        );
+        assert_eq!(split("See No. 5 below."), vec!["See No. 5 below."]);
     }
 
     #[test]

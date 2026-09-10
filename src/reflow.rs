@@ -251,10 +251,7 @@ fn reflow_prose(
             );
             output.push_str(&wrapped);
         } else {
-            if hanging > 0 && i > 0 {
-                output.push_str(&hang);
-            }
-            output.push_str(sentence);
+            push_hung_sentence(&mut output, sentence, &hang, hanging, i);
         }
         if i + 1 < nsent {
             output.push('\n');
@@ -289,6 +286,35 @@ fn reflow_prose(
         }
     }
     output
+}
+
+/// Emit one splitter sentence after a list/quote marker.
+///
+/// Continuation lines hang at marker width, including a source newline
+/// left inside one sentence (abbreviation merge after `No.` / `etc.`).
+fn push_hung_sentence(
+    output: &mut String,
+    sentence: &str,
+    hang: &str,
+    hanging: usize,
+    sent_i: usize,
+) {
+    if hanging == 0 {
+        output.push_str(sentence);
+        return;
+    }
+    let mut lines = sentence.split('\n');
+    if let Some(first) = lines.next() {
+        if sent_i > 0 {
+            output.push_str(hang);
+        }
+        output.push_str(first);
+        for line in lines {
+            output.push('\n');
+            output.push_str(hang);
+            output.push_str(line);
+        }
+    }
 }
 
 /// True when `word` ends with independent-clause punctuation (sembr rule 5),
@@ -1666,6 +1692,27 @@ They are endowed with reason and conscience and should act towards one another i
             Region::Structure("\n".to_string()),
         ]);
         assert_eq!(result, "- One.\n  Two.\n");
+    }
+
+    #[test]
+    fn rst_abbrev_list_continuation_keeps_two_space_hang() {
+        let result = reflow_regions(vec![
+            Region::Structure("* ".to_string()),
+            Region::Prose("**Answer**: No.\nA second sentence.".to_string()),
+            Region::Structure("\n".to_string()),
+            Region::Structure("* ".to_string()),
+            Region::Prose("Uses queues, caches, etc.\nAnother sentence.".to_string()),
+            Region::Structure("\n".to_string()),
+        ]);
+        assert_eq!(
+            result,
+            concat!(
+                "* **Answer**: No.\n",
+                "  A second sentence.\n",
+                "* Uses queues, caches, etc.\n",
+                "  Another sentence.\n",
+            )
+        );
     }
 
     #[test]
