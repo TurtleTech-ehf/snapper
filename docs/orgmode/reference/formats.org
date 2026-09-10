@@ -65,6 +65,8 @@ These tokens within prose are not split across lines:
 - Radio targets: =<<<contents>>>= (org-element-radio-target-parser)
 - Angle targets: =<<contents>>= (org-element-target-parser)
 - Macros: ={{{name}}}= / ={{{name(args)}}}= (org-element-macro-parser)
+- Inline source: =src_lang{...}= / =src_lang[headers]{...}= (org-element-inline-src-block-parser)
+- Inline babel call: =call_name(...)= / =call_name[inside](...)[end]= (org-element-inline-babel-call-parser)
 - URLs: =https://...= (trailing sentence punctuation not swallowed)
 
 ** LaTeX (=--format latex=)

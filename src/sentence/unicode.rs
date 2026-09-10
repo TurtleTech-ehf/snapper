@@ -154,7 +154,10 @@ pub fn protect_inline_tokens_with(
 ) -> (String, Vec<String>) {
     let mut placeholders: Vec<String> = Vec::new();
     let after_verb = protect_latex_verbatim(text, &mut placeholders, extra_verbatim_commands);
-    let after_spans = protect_paired_spans(&after_verb, &mut placeholders);
+    // org-element inline src / babel-call before paired `=`/`~` so a body
+    // like `src_python{~x~}` stays one object, not an Org code span.
+    let after_org = protect_org_inline_src_and_call(&after_verb, &mut placeholders);
+    let after_spans = protect_paired_spans(&after_org, &mut placeholders);
     let protected = INLINE_TOKEN_RE.replace_all(&after_spans, |caps: &regex::Captures| {
         let idx = placeholders.len();
         placeholders.push(caps[0].to_string());
@@ -332,6 +335,123 @@ fn find_unescaped_brace_close(text: &str, mut i: usize) -> Option<usize> {
         i += 1;
     }
     None
+}
+
+/// org-element-inline-src-block-parser / org-element-inline-babel-call-parser.
+/// `src_LANG[headers]{body}` and `call_NAME[inside](args)[end]` stay one
+/// object so an interior period is not a sentence or wrap boundary.
+fn protect_org_inline_src_and_call(text: &str, placeholders: &mut Vec<String>) -> String {
+    let mut out = String::with_capacity(text.len());
+    let mut i = 0;
+    while i < text.len() {
+        if let Some(end) = org_inline_src_or_call_span_end(text, i) {
+            push_placeholder(&mut out, placeholders, &text[i..end]);
+            i = end;
+            continue;
+        }
+        let ch = text[i..].chars().next().expect("i is in range");
+        out.push(ch);
+        i += ch.len_utf8();
+    }
+    out
+}
+
+fn org_inline_src_or_call_span_end(text: &str, at: usize) -> Option<usize> {
+    org_inline_src_span_end(text, at).or_else(|| org_inline_call_span_end(text, at))
+}
+
+/// `\<` in `org-element-inline-src-block-regexp`: start of text or a
+/// non-identifier character. Underscore stays inside the identifier so
+/// `foo_src_python{...}` is not an object (`asrc_python{...}` neither).
+fn org_inline_object_start(text: &str, at: usize) -> bool {
+    if at == 0 {
+        return true;
+    }
+    !text[..at]
+        .chars()
+        .next_back()
+        .is_some_and(|c| c.is_ascii_alphanumeric() || c == '_')
+}
+
+/// org-element `scan-lists` on a one-pair syntax table. Newlines are
+/// allowed (org-element 2015). Unmatched opener is not an object.
+fn org_scan_lists(text: &str, open_at: usize, open: u8, close: u8) -> Option<usize> {
+    let bytes = text.as_bytes();
+    if bytes.get(open_at) != Some(&open) {
+        return None;
+    }
+    let mut depth = 1usize;
+    let mut i = open_at + 1;
+    while i < bytes.len() {
+        let b = bytes[i];
+        if b == open {
+            depth += 1;
+        } else if b == close {
+            depth -= 1;
+            if depth == 0 {
+                return Some(i + 1);
+            }
+        }
+        i += 1;
+    }
+    None
+}
+
+/// `src_LANG` then optional `[parameters]` then required `{body}`.
+/// `case-fold-search` is nil; language is `[^ \t\n[{]+`.
+fn org_inline_src_span_end(text: &str, at: usize) -> Option<usize> {
+    let rest = text.get(at..)?;
+    if !rest.starts_with("src_") || !org_inline_object_start(text, at) {
+        return None;
+    }
+    let bytes = text.as_bytes();
+    let mut i = at + 4;
+    let lang_start = i;
+    while i < bytes.len() && !matches!(bytes[i], b' ' | b'\t' | b'\n' | b'[' | b'{') {
+        i += 1;
+    }
+    if i == lang_start {
+        return None;
+    }
+    if i < bytes.len() && bytes[i] == b'[' {
+        i = org_scan_lists(text, i, b'[', b']')?;
+    }
+    if i >= bytes.len() || bytes[i] != b'{' {
+        return None;
+    }
+    org_scan_lists(text, i, b'{', b'}')
+}
+
+/// `call_NAME` then optional `[inside-header]`, required `(arguments)`,
+/// optional `[end-header]`. Name is `[^ \t\n[(]+`. An unmatched end-header
+/// is not part of the object (org-element looking-at).
+fn org_inline_call_span_end(text: &str, at: usize) -> Option<usize> {
+    let rest = text.get(at..)?;
+    if !rest.starts_with("call_") || !org_inline_object_start(text, at) {
+        return None;
+    }
+    let bytes = text.as_bytes();
+    let mut i = at + 5;
+    let name_start = i;
+    while i < bytes.len() && !matches!(bytes[i], b' ' | b'\t' | b'\n' | b'[' | b'(') {
+        i += 1;
+    }
+    if i == name_start {
+        return None;
+    }
+    if i < bytes.len() && bytes[i] == b'[' {
+        i = org_scan_lists(text, i, b'[', b']')?;
+    }
+    if i >= bytes.len() || bytes[i] != b'(' {
+        return None;
+    }
+    i = org_scan_lists(text, i, b'(', b')')?;
+    if i < bytes.len() && bytes[i] == b'[' {
+        if let Some(end) = org_scan_lists(text, i, b'[', b']') {
+            i = end;
+        }
+    }
+    Some(i)
 }
 
 /// Org `=`/`~`, Markdown backtick spans, CommonMark `*`/`**`, and GFM `~~`,
@@ -607,7 +727,7 @@ fn find_md_code_span(text: &str, open_at: usize) -> Option<usize> {
 /// Byte ranges of inline tokens that wrapping must not split (links, images,
 /// reference links `[text][ref]`, inline code, autolinks, math, Org `[[...]]`,
 /// Org `[cite...]`, Org `<<<...>>>` / `<<...>>`, Org `{{{name}}}` /
-/// `{{{name(args)}}}`, paired spans).
+/// `{{{name(args)}}}`, Org `src_lang{...}` / `call_name(...)`, paired spans).
 ///
 /// Ranges are half-open `[start, end)`, sorted, non-overlapping, and merged
 /// when a regex match wraps a paired span.
@@ -616,6 +736,11 @@ pub fn atomic_inline_spans(text: &str) -> Vec<(usize, usize)> {
     let bytes = text.as_bytes();
     let mut i = 0;
     while i < text.len() {
+        if let Some(end) = org_inline_src_or_call_span_end(text, i) {
+            spans.push((i, end));
+            i = end;
+            continue;
+        }
         if bytes[i] == b'`' {
             if let Some(end) = find_md_code_span(text, i) {
                 spans.push((i, end));
@@ -1589,6 +1714,135 @@ mod tests {
                 "Next sentence.".to_string()
             ]
         );
+    }
+
+    #[test]
+    fn inline_org_src_interior_punct_is_not_a_sentence_boundary() {
+        // GitHub #214 / snapper-pdtw: org-element-inline-src-block-parser
+        // `src_lang{...}` stays one token. `Next sentence.` still splits.
+        let src = "src_python{print(1. 2)}";
+        let text = "Use src_python{print(1. 2)} today. Next sentence.";
+        let (_, placeholders) = protect_inline_tokens(text);
+        assert!(
+            placeholders.iter().any(|p| p == src),
+            "inline src must be one token, got {placeholders:?}"
+        );
+        let spans = atomic_inline_spans(text);
+        assert!(
+            spans.iter().any(|&(s, e)| &text[s..e] == src),
+            "inline src must be an atomic wrap span, got {:?}",
+            spans.iter().map(|&(s, e)| &text[s..e]).collect::<Vec<_>>()
+        );
+        assert_eq!(
+            split(text),
+            vec![
+                "Use src_python{print(1. 2)} today.".to_string(),
+                "Next sentence.".to_string()
+            ]
+        );
+    }
+
+    #[test]
+    fn inline_org_src_headers_and_nested_braces_stay_one_token() {
+        let src = "src_python[:results output]{d = {1. 2}}";
+        let text = "Use src_python[:results output]{d = {1. 2}} today. Next sentence.";
+        let (_, placeholders) = protect_inline_tokens(text);
+        assert!(
+            placeholders.iter().any(|p| p == src),
+            "header + nested braces must stay one token, got {placeholders:?}"
+        );
+        assert_eq!(
+            split(text),
+            vec![
+                "Use src_python[:results output]{d = {1. 2}} today.".to_string(),
+                "Next sentence.".to_string()
+            ]
+        );
+    }
+
+    #[test]
+    fn inline_org_call_interior_punct_is_not_a_sentence_boundary() {
+        // Same class: org-element-inline-babel-call-parser `call_name(...)`.
+        let call = "call_name(1. 2)";
+        let text = "Use call_name(1. 2) today. Next sentence.";
+        let (_, placeholders) = protect_inline_tokens(text);
+        assert!(
+            placeholders.iter().any(|p| p == call),
+            "inline babel call must be one token, got {placeholders:?}"
+        );
+        let spans = atomic_inline_spans(text);
+        assert!(
+            spans.iter().any(|&(s, e)| &text[s..e] == call),
+            "inline babel call must be an atomic wrap span, got {:?}",
+            spans.iter().map(|&(s, e)| &text[s..e]).collect::<Vec<_>>()
+        );
+        assert_eq!(
+            split(text),
+            vec![
+                "Use call_name(1. 2) today.".to_string(),
+                "Next sentence.".to_string()
+            ]
+        );
+    }
+
+    #[test]
+    fn inline_org_call_headers_and_nested_parens_stay_one_token() {
+        let call = "call_name[:results output](f(1. 2))[:results html]";
+        let text = "Use call_name[:results output](f(1. 2))[:results html] today. Next sentence.";
+        let (_, placeholders) = protect_inline_tokens(text);
+        assert!(
+            placeholders.iter().any(|p| p == call),
+            "call headers + nested parens must stay one token, got {placeholders:?}"
+        );
+        assert_eq!(
+            split(text),
+            vec![
+                "Use call_name[:results output](f(1. 2))[:results html] today.".to_string(),
+                "Next sentence.".to_string()
+            ]
+        );
+    }
+
+    #[test]
+    fn ordinary_call_parens_are_not_an_inline_org_call() {
+        // `call_name(...)` is the babel object. Bare `print(1. 2)` is prose
+        // and must not become an atomic wrap span.
+        let text = "Use print(1. 2) today. Next sentence.";
+        let (_, placeholders) = protect_inline_tokens(text);
+        assert!(
+            !placeholders.iter().any(|p| p.contains("print(1. 2)")),
+            "ordinary parens must not be an inline call, got {placeholders:?}"
+        );
+        let spans = atomic_inline_spans(text);
+        assert!(
+            !spans
+                .iter()
+                .any(|&(s, e)| text[s..e].contains("print(1. 2)")),
+            "ordinary parens must not be an atomic wrap span, got {:?}",
+            spans.iter().map(|&(s, e)| &text[s..e]).collect::<Vec<_>>()
+        );
+        let parts = split(text);
+        assert_eq!(parts.last().map(String::as_str), Some("Next sentence."));
+        assert!(
+            parts.iter().any(|p| p.contains("today.")),
+            "prose after the parens must stay in the first sentence, got {parts:?}"
+        );
+    }
+
+    #[test]
+    fn inline_org_src_requires_identifier_boundary() {
+        for text in [
+            "asrc_python{print(1. 2)} today. Next sentence.",
+            "foo_src_python{print(1. 2)} today. Next sentence.",
+        ] {
+            let (_, placeholders) = protect_inline_tokens(text);
+            assert!(
+                !placeholders
+                    .iter()
+                    .any(|p| p.contains("src_python{print(1. 2)}")),
+                "src_ must not match inside an identifier, got {placeholders:?} for {text:?}"
+            );
+        }
     }
 
     #[test]

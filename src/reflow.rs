@@ -2368,6 +2368,34 @@ They are endowed with reason and conscience and should act towards one another i
     }
 
     #[test]
+    fn max_width_keeps_org_inline_src_atomic() {
+        let token = "src_python{print(1. 2)}";
+        let sentence = "Use src_python{print(1. 2)} today. Next sentence.";
+        for clause in [false, true] {
+            let wrapped = wrap_sentence(sentence, 20, clause);
+            assert_atomic_token(&wrapped, token);
+            assert!(
+                !wrapped.contains("1.\n2"),
+                "must not wrap on the interior period, got:\n{wrapped}"
+            );
+        }
+    }
+
+    #[test]
+    fn max_width_keeps_org_inline_call_atomic() {
+        let token = "call_name(1. 2)";
+        let sentence = "Use call_name(1. 2) today. Next sentence.";
+        for clause in [false, true] {
+            let wrapped = wrap_sentence(sentence, 16, clause);
+            assert_atomic_token(&wrapped, token);
+            assert!(
+                !wrapped.contains("1.\n2"),
+                "must not wrap on the interior period, got:\n{wrapped}"
+            );
+        }
+    }
+
+    #[test]
     fn max_width_keeps_math_atomic() {
         let token = "$E = m c^{2}$";
         let sentence = "The identity $E = m c^{2}$ holds in this frame.";

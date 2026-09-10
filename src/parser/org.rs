@@ -2725,6 +2725,89 @@ mod tests {
         assert_eq!(format_text(&wrapped, &wrap_cfg).unwrap(), wrapped);
     }
 
+    /// Ticket fixture (Format::Org / GitHub #214): org-element inline
+    /// `src_lang{...}` stays one token so an interior period is not a
+    /// sentence boundary. `Next sentence.` still splits. Same class:
+    /// `call_name(...)`.
+    fn inline_src_fixture() -> &'static str {
+        "Use src_python{print(1. 2)} today. Next sentence.\n"
+    }
+
+    #[test]
+    fn org_inline_src_interior_punct_is_not_a_sentence_boundary() {
+        use crate::format_text;
+
+        let src = "src_python{print(1. 2)}";
+        let input = inline_src_fixture();
+        let regions = OrgParser.parse(input);
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(p)
+                    if p.contains(src) && p.contains("Next sentence.")
+            )),
+            "inline src stays inline Prose, got: {regions:?}"
+        );
+        let out = format_text(input, &org_cfg()).unwrap();
+        assert!(
+            out.contains("Use src_python{print(1. 2)} today.\nNext sentence."),
+            "sentence after the inline src must reflow, got:\n{out}"
+        );
+        assert!(
+            !out.contains("1.\n") && !out.contains("print(1.\n2)"),
+            "must not split inside the inline src, got:\n{out}"
+        );
+        assert_eq!(format_text(&out, &org_cfg()).unwrap(), out);
+
+        let wrap_cfg = crate::FormatConfig {
+            format: crate::format::Format::Org,
+            max_width: 20,
+            ..Default::default()
+        }
+        .without_safety_backstops();
+        let wrapped = format_text(input, &wrap_cfg).unwrap();
+        assert!(
+            wrapped.lines().any(|l| l.contains(src)),
+            "wrap must not cut inside the inline src, got:\n{wrapped}"
+        );
+        assert!(
+            !wrapped.contains("1.\n2"),
+            "must not wrap on the interior period, got:\n{wrapped}"
+        );
+        assert!(
+            wrapped.contains("Next sentence."),
+            "sentence after the inline src must still reflow, got:\n{wrapped}"
+        );
+        assert_eq!(format_text(&wrapped, &wrap_cfg).unwrap(), wrapped);
+    }
+
+    #[test]
+    fn org_inline_call_interior_punct_is_not_a_sentence_boundary() {
+        use crate::format_text;
+
+        let call = "call_name(1. 2)";
+        let input = "Use call_name(1. 2) today. Next sentence.\n";
+        let regions = OrgParser.parse(input);
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(p)
+                    if p.contains(call) && p.contains("Next sentence.")
+            )),
+            "inline babel call stays inline Prose, got: {regions:?}"
+        );
+        let out = format_text(input, &org_cfg()).unwrap();
+        assert!(
+            out.contains("Use call_name(1. 2) today.\nNext sentence."),
+            "sentence after the inline call must reflow, got:\n{out}"
+        );
+        assert!(
+            !out.contains("1.\n") && !out.contains("call_name(1.\n2)"),
+            "must not split inside the inline call, got:\n{out}"
+        );
+        assert_eq!(format_text(&out, &org_cfg()).unwrap(), out);
+    }
+
     /// Ticket fixture (Format::Org / GitHub #169): `file:\S+` must not
     /// swallow trailing `.!?` so `See file:/tmp/foo. Next` is two sentences.
     #[test]

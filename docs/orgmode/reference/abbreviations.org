@@ -126,6 +126,7 @@ Periods inside inline tokens never trigger sentence breaks, regardless of abbrev
 - Org links: =[[https://example.com][Ex. Site]]=
 - Org macros: ={{{cite(Smith. 2020)}}}=, ={{{title}}}=
 - Org radio / angle targets: =<<<the Fourier. transform>>>=, =<<sec. intro>>=
+- Org inline src / babel call: =src_python{print(1. 2)}=, =call_name(1. 2)=
 - LaTeX math: =$x = 3.14$=
 - LaTeX commands: =\cite{smith.2024}=
 - Markdown links: =[Example Inc.](url)=, =[the Fourier. transform][wiki]=
