@@ -2215,6 +2215,20 @@ They are endowed with reason and conscience and should act towards one another i
     }
 
     #[test]
+    fn max_width_keeps_rst_substitution_ref_atomic() {
+        let token = "|fig. 1|";
+        let sentence = "See |fig. 1| in the caption. Next sentence.";
+        for clause in [false, true] {
+            let wrapped = wrap_sentence(sentence, 16, clause);
+            assert_atomic_token(&wrapped, token);
+            assert!(
+                !wrapped.contains("fig.\n1"),
+                "must not wrap on the interior period, got:\n{wrapped}"
+            );
+        }
+    }
+
+    #[test]
     fn max_width_does_not_glue_shortcut_to_full_reference() {
         let token = "[See also][ref]";
         let sentence = "See [important] [See also][ref] for details today.";

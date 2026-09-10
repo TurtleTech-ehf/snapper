@@ -34,13 +34,19 @@ static INLINE_TOKEN_RE: LazyLock<Regex> = LazyLock::new(|| {
             // [a-zA-Z][-a-zA-Z0-9_]*; args are non-greedy and may
             // span lines. Two-brace {{...}} is not a macro (GitHub #212).
             r"\{\{\{[a-zA-Z][-a-zA-Z0-9_]*(?:\((?:.|\n)*?\))?\}\}\}",
-            r"\[[^\]]+\]\([^)]+\)",    // Markdown links: [text](url)
-            r"!\[[^\]]*\]\([^)]+\)",   // Markdown images: ![alt](url)
+            r"\[[^\]]+\]\([^)]+\)",  // Markdown links: [text](url)
+            r"!\[[^\]]*\]\([^)]+\)", // Markdown images: ![alt](url)
             // CommonMark 0.31.2 §6.3 full / collapsed reference links.
             // The label must follow the text immediately. Shortcut `[text]`
             // is not matched: that would swallow every bracket group.
             r"!\[[^\]]*\]\[[^\]]*\]", // Markdown reference images: ![alt][ref]
             r"\[[^\]]+\]\[[^\]]*\]",  // Markdown reference links: [text][ref]
+            // Docutils Inliner.substitution_ref: |text| / |text|_ / |text|__.
+            // Start is `|(?!|)` then non-whitespace; closer is `|` preceded
+            // by non-whitespace. Line-block `| ` (pipe plus space) does not
+            // match. Interior punctuation is not a sentence boundary
+            // (GitHub #233 / snapper-15i9).
+            r"\|[^\s|](?:[^|\n]*[^\s|])?\|(?:_{1,2})?",
             r"\$\$[^$\n]+\$\$",        // Display math: $$...$$
             r"\$[^$\n]+\$",            // Inline math: $...$
             r"\\\([^\\\n]+\\\)",       // LaTeX inline math: \(...\)
@@ -1875,6 +1881,101 @@ mod tests {
         assert!(
             !placeholders.iter().any(|p| p.contains("[wiki]:")),
             "LRD must not be swallowed as [text][ref], got {placeholders:?}"
+        );
+    }
+
+    #[test]
+    fn inline_rst_substitution_ref_interior_punct_is_not_a_sentence_boundary() {
+        // GitHub #233 / snapper-15i9: Docutils Inliner.substitution_ref
+        // `|fig. 1|` stays one token so an interior period is not a
+        // sentence boundary. `Next sentence.` still splits.
+        let sub = "|fig. 1|";
+        let text = "See |fig. 1| in the caption. Next sentence.";
+        let (_, placeholders) = protect_inline_tokens(text);
+        assert!(
+            placeholders.iter().any(|p| p == sub),
+            "substitution ref must be one token, got {placeholders:?}"
+        );
+        let spans = atomic_inline_spans(text);
+        assert!(
+            spans.iter().any(|&(s, e)| &text[s..e] == sub),
+            "substitution ref must be an atomic wrap span, got {:?}",
+            spans.iter().map(|&(s, e)| &text[s..e]).collect::<Vec<_>>()
+        );
+        assert_eq!(
+            split(text),
+            vec![
+                "See |fig. 1| in the caption.".to_string(),
+                "Next sentence.".to_string()
+            ]
+        );
+    }
+
+    #[test]
+    fn rst_substitution_ref_hyperlink_suffix_is_one_token() {
+        for sub in ["|fig. 1|_", "|fig. 1|__"] {
+            let text = format!("See {sub} in the caption. Next sentence.");
+            let (_, placeholders) = protect_inline_tokens(&text);
+            assert!(
+                placeholders.iter().any(|p| p == sub),
+                "{sub} must be one token, got {placeholders:?}"
+            );
+            assert_eq!(
+                split(&text),
+                vec![
+                    format!("See {sub} in the caption."),
+                    "Next sentence.".to_string()
+                ]
+            );
+        }
+    }
+
+    #[test]
+    fn rst_line_block_pipe_space_is_not_a_substitution_ref() {
+        // Docutils Body.line_block is `|` plus space or EOL, not
+        // substitution_ref. Do not swallow the line as `|...|`.
+        let text = "| This is a line. Another sentence.";
+        let (_, placeholders) = protect_inline_tokens(text);
+        assert!(
+            !placeholders.iter().any(|p| p.starts_with('|')),
+            "line-block `| ` must not be a substitution token, got {placeholders:?}"
+        );
+        assert_eq!(
+            split(text),
+            vec![
+                "| This is a line.".to_string(),
+                "Another sentence.".to_string()
+            ]
+        );
+    }
+
+    #[test]
+    fn unclosed_rst_substitution_ref_is_not_an_inline_token() {
+        let text = "See |fig. 1 in the caption. Next sentence.";
+        let (_, placeholders) = protect_inline_tokens(text);
+        assert!(
+            !placeholders.iter().any(|p| p.contains("|fig.")),
+            "unclosed substitution must not swallow the sentence, got {placeholders:?}"
+        );
+    }
+
+    #[test]
+    fn rst_version_substitution_ref_is_one_token_and_still_splits() {
+        // snapper-t0th: `|version|` stays Prose. The closer period is
+        // still a sentence end.
+        let sub = "|version|";
+        let text = "The current release is |version|. Next sentence.";
+        let (_, placeholders) = protect_inline_tokens(text);
+        assert!(
+            placeholders.iter().any(|p| p == sub),
+            "|version| must be one token, got {placeholders:?}"
+        );
+        assert_eq!(
+            split(text),
+            vec![
+                "The current release is |version|.".to_string(),
+                "Next sentence.".to_string()
+            ]
         );
     }
 
