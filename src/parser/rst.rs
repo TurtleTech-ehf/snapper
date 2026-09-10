@@ -447,14 +447,18 @@ fn rst_list_marker_len(line: &str) -> Option<usize> {
 }
 
 /// Check if a line is a section underline (2+ repeated punctuation chars).
+/// Docutils also allows `' . _ < >` (GitHub #59); those used to fall
+/// through as Prose and splice onto the title.
 fn is_underline(line: &str) -> bool {
     let trimmed = line.trim();
     if trimmed.len() < 2 {
         return false;
     }
     let first = trimmed.as_bytes()[0];
-    matches!(first, b'=' | b'-' | b'~' | b'^' | b'"' | b'#' | b'*' | b'+')
-        && trimmed.bytes().all(|b| b == first)
+    matches!(
+        first,
+        b'=' | b'-' | b'~' | b'^' | b'"' | b'#' | b'*' | b'+' | b'\'' | b'.' | b'_' | b'<' | b'>'
+    ) && trimmed.bytes().all(|b| b == first)
 }
 
 /// RST simple-table border: `=` column groups separated by spaces
@@ -1000,5 +1004,58 @@ mod tests {
             out.contains("\n  Body."),
             "body must keep two-space indent, got:\n{out}"
         );
+    }
+
+    #[test]
+    fn extra_adornment_title_and_bar_are_structure() {
+        for mark in ['\'', '.', '_', '<', '>'] {
+            let bar = mark.to_string().repeat(5);
+            let input = format!("Input\n{bar}\n");
+            let regions = RstParser.parse(&input);
+            assert!(
+                regions
+                    .iter()
+                    .any(|r| matches!(r, Region::Structure(s) if s.contains("Input"))),
+                "title must be Structure for {mark}, got {regions:?}"
+            );
+            assert!(
+                regions
+                    .iter()
+                    .any(|r| matches!(r, Region::Structure(s) if s.contains(&bar))),
+                "adornment must be Structure for {mark}, got {regions:?}"
+            );
+            assert!(
+                !regions
+                    .iter()
+                    .any(|r| matches!(r, Region::Prose(s) if s.contains("Input"))),
+                "title must not be Prose for {mark}, got {regions:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn reporter_section_adornments_are_identity_under_format() {
+        use crate::format::Format;
+        use crate::{FormatConfig, format_text};
+
+        let cfg = FormatConfig {
+            format: Format::Rst,
+            max_width: 0,
+            ..Default::default()
+        };
+        for mark in ['\'', '.', '_', '<', '>'] {
+            let bar = mark.to_string().repeat(5);
+            let input = format!("Input\n{bar}\n");
+            let out = format_text(&input, &cfg).unwrap();
+            assert_eq!(
+                out, input,
+                "title plus {mark} adornment must stay two lines, got:\n{out}"
+            );
+            assert_eq!(
+                out.lines().count(),
+                2,
+                "must stay two lines for {mark}, got:\n{out}"
+            );
+        }
     }
 }
