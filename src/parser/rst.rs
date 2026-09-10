@@ -336,6 +336,16 @@ fn parse_line_based(input: &str) -> Vec<SpannedRegion> {
         if let Some(marker_len) = rst_list_marker_len(line_text) {
             flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
             list_hang = Some(marker_len);
+            // A next line indented past the hang is a definition of this
+            // item (GitHub #132), not a compact wrap. Keep term+marker as
+            // Structure so reflow does not rehang the body at hang width.
+            if let Some(def_indent) = list_item_definition_indent(&lines, i, marker_len) {
+                regions.push(SpannedRegion::structure(input, line.span()));
+                definition_indent = def_indent;
+                in_definition = true;
+                i += 1;
+                continue;
+            }
             regions.push(SpannedRegion::structure(
                 input,
                 ByteSpan::new(line.start, line.start + marker_len),
@@ -755,6 +765,24 @@ fn is_simple_table_border(line: &str) -> bool {
         }
     }
     saw_space_between && groups >= 2
+}
+
+/// Indent of a definition immediately under a list item, if any.
+///
+/// Docutils treats a line indented past the item hang as a definition of
+/// the item text (`  * Term` + five-space body), not a continuation
+/// paragraph. A hang-width wrap (`    body` after `  * `) is not a
+/// definition. A following list marker is a nested item, not a body.
+fn list_item_definition_indent(lines: &[Line<'_>], i: usize, hang: usize) -> Option<usize> {
+    let next = lines.get(i + 1)?.text;
+    if next.trim().is_empty() {
+        return None;
+    }
+    if rst_list_marker_len(next).is_some() {
+        return None;
+    }
+    let next_indent = next.len() - next.trim_start().len();
+    (next_indent > hang).then_some(next_indent)
 }
 
 /// True when `lines[i]` is a definition-list term: the next physical line
@@ -1357,6 +1385,43 @@ mod tests {
         assert!(
             out.contains("\n   Definition sentence."),
             "definition must keep indent, got:\n{out}"
+        );
+    }
+
+    #[test]
+    fn nested_list_item_overindent_is_definition_structure() {
+        let input = concat!(
+            "* Parent\n",
+            "\n",
+            "  * Check all paths.\n",
+            "     If a node is visited again, push it.\n",
+        );
+        let regions = RstParser.parse(input);
+        assert!(
+            regions
+                .iter()
+                .any(|r| { matches!(r, Region::Structure(s) if s.contains("Check all paths.")) }),
+            "over-indented term must be Structure, got {regions:?}"
+        );
+        assert!(
+            regions.iter().any(|r| {
+                matches!(
+                    r,
+                    Region::Structure(s) if s.contains("If a node is visited again, push it.")
+                )
+            }),
+            "five-space definition must be Structure, got {regions:?}"
+        );
+        assert!(
+            !regions.iter().any(|r| {
+                matches!(
+                    r,
+                    Region::Prose(s)
+                        if s.contains("Check all paths.")
+                            || s.contains("If a node is visited again")
+                )
+            }),
+            "definition inside a list item must not join as Prose, got {regions:?}"
         );
     }
 
