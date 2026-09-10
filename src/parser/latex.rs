@@ -2367,6 +2367,64 @@ Some text.
     }
 
     #[test]
+    fn indented_leftover_start_bracket_keeps_preceding_newline() {
+        use crate::format_text;
+
+        // snapper-2ixz / snapper-zj0u: leftover-start indent on `\[` is
+        // not mid-line glue. Fails on 6d9dd93 (prose glued onto opener).
+        let two_space = "The formula is\n  \\[\n  E = mc^2\n  \\]\nafter.\n";
+        let two_out = format_text(two_space, &latex_cfg()).unwrap();
+        assert!(
+            two_out.contains("The formula is\n  \\[\n"),
+            "newline must stay before indented leftover-start \\[, got:\n{two_out}"
+        );
+        assert!(
+            !two_out.contains("The formula is  \\["),
+            "must not glue preceding prose onto indented \\[, got:\n{two_out}"
+        );
+        assert!(
+            two_out.contains("  \\[\n  E = mc^2\n  \\]"),
+            "indented \\[ block must stay unchanged, got:\n{two_out}"
+        );
+        assert_eq!(format_text(&two_out, &latex_cfg()).unwrap(), two_out);
+
+        let four_space =
+            "Some sentence. More words.\n    \\[\n    E = m c^2.\n    \\]\nAfter. Next.\n";
+        let four_regions = LatexParser::default().parse(four_space);
+        assert!(
+            four_regions.iter().any(|r| matches!(
+                r,
+                Region::Structure(s) if s.contains("E = m c^2.")
+            )),
+            "indented leftover-start \\[ body must be Structure, got: {four_regions:?}"
+        );
+        assert!(
+            !four_regions
+                .iter()
+                .any(|r| matches!(r, Region::Prose(p) if p.contains("E = m c^2."))),
+            "indented leftover-start \\[ body must not be Prose, got: {four_regions:?}"
+        );
+        let four_out = format_text(four_space, &latex_cfg()).unwrap();
+        assert!(
+            four_out.contains("More words.\n    \\[\n"),
+            "More words. must stay on its own line, got:\n{four_out}"
+        );
+        assert!(
+            !four_out.contains("More words.    \\["),
+            "must not splice More words. onto indented \\[, got:\n{four_out}"
+        );
+        assert!(
+            four_out.contains("    \\[\n    E = m c^2.\n    \\]"),
+            "four-space indented \\[ block must stay unchanged, got:\n{four_out}"
+        );
+        assert!(
+            four_out.contains("After.\nNext."),
+            "prose after indented \\] must still reflow, got:\n{four_out}"
+        );
+        assert_eq!(format_text(&four_out, &latex_cfg()).unwrap(), four_out);
+    }
+
+    #[test]
     fn inline_single_dollar_math_is_still_prose() {
         use crate::format_text;
 
