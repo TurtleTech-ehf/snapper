@@ -638,6 +638,9 @@ fn rst_opens_block(line: &str) -> bool {
     if t.starts_with(':') && t[1..].contains(':') {
         return true;
     }
+    if crate::parser::rst::rst_option_column_len(t).is_some() {
+        return true;
+    }
     ordered_list_start(t)
 }
 
@@ -869,6 +872,11 @@ fn hanging_indent_width(s: &str) -> usize {
     let trimmed = s.trim_start();
     if trimmed.len() < 2 {
         return 0;
+    }
+    // RST option column (`-a            `, `--long        `): hang at
+    // the full column so the description stays aligned (GitHub #89).
+    if crate::parser::rst::rst_option_column_len(s) == Some(s.len()) {
+        return s.chars().count();
     }
     // Parser markers are `core` plus one trailing space; leading indent is
     // part of the hang so nested `   - ` continues at column 5. RST `#.`
@@ -1474,6 +1482,10 @@ They are endowed with reason and conscience and should act towards one another i
         assert_eq!(hanging_indent_width("\\item "), 6);
         assert_eq!(hanging_indent_width("\\item[Term] "), 12);
         assert_eq!(hanging_indent_width("\\itemize "), 0);
+        assert_eq!(hanging_indent_width("-a            "), 14);
+        assert_eq!(hanging_indent_width("--long        "), 14);
+        assert_eq!(hanging_prefix("-a            "), "              ");
+        assert_eq!(hanging_prefix("--long        "), "              ");
     }
 
     #[test]
@@ -1524,6 +1536,19 @@ They are endowed with reason and conscience and should act towards one another i
             Region::Structure("\n".to_string()),
         ]);
         assert_eq!(result, "\\item One.\n      Two.\n");
+    }
+
+    #[test]
+    fn rst_option_list_hanging_indent() {
+        let result = reflow_regions(vec![
+            Region::Structure("-a            ".to_string()),
+            Region::Prose("Output all. Keep this aligned.".to_string()),
+            Region::Structure("\n".to_string()),
+        ]);
+        assert_eq!(
+            result,
+            "-a            Output all.\n              Keep this aligned.\n"
+        );
     }
 
     #[test]
