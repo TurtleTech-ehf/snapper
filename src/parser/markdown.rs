@@ -721,6 +721,40 @@ fn line_indent(line: &str) -> usize {
     line.len() - line.trim_start().len()
 }
 
+/// pulldown `ENABLE_DEFINITION_LIST` /
+/// `scan_definition_list_definition_marker_with_indent`.
+///
+/// A definition marker is a single `:`, preceded by at most three spaces
+/// (a tab or four spaces is indented code) and followed by the same
+/// 1-or-upto-5 space rule as list items. Returns the marker width so
+/// reflow hangs the `<dd>` body. `None` when the line is not a marker.
+pub(crate) fn md_definition_list_marker_len(line: &str) -> Option<usize> {
+    let bytes = line.as_bytes();
+    if bytes.first() == Some(&b'\t') {
+        return None;
+    }
+    let mut i = 0;
+    while i < bytes.len() && i < 3 && bytes[i] == b' ' {
+        i += 1;
+    }
+    if i < bytes.len() && bytes[i] == b'\t' {
+        return None;
+    }
+    if i >= bytes.len() || bytes[i] != b':' {
+        return None;
+    }
+    i += 1;
+    let mut spaces = 0usize;
+    while i + spaces < bytes.len() && bytes[i + spaces] == b' ' {
+        spaces += 1;
+        if spaces >= 5 {
+            break;
+        }
+    }
+    let pad = if spaces >= 5 { 1 } else { spaces };
+    Some(i + pad)
+}
+
 /// CommonMark 4.4 indented-code line: a tab, or at least four spaces, then
 /// non-whitespace. Blank lines are not openers; they end or continue a block.
 fn is_indented_code_line(line: &str) -> bool {
@@ -1044,6 +1078,7 @@ impl FormatParser for MarkdownParser {
         let mut list_hang: Option<usize> = None;
         let mut list_after_blank = false;
         let mut list_term: Option<ByteSpan> = None;
+        let mut pending_definition_term = false;
         let mut in_display_math = false;
         let mut pragma_off = false;
 
@@ -1624,6 +1659,63 @@ impl FormatParser for MarkdownParser {
                 continue;
             }
 
+            // pulldown ENABLE_DEFINITION_LIST: a flush line whose next
+            // physical line is a `: ` marker is a new term (tight list).
+            if in_list_item
+                && i + 1 < total
+                && md_definition_list_marker_len(lines[i + 1].text).is_some()
+                && list_hang.is_some_and(|hang| line_indent(line_text) < hang)
+            {
+                close_list_item(
+                    &mut in_list_item,
+                    &mut list_hang,
+                    &mut current_prose,
+                    &mut prose_span,
+                    &mut list_term,
+                    input,
+                    &mut regions,
+                );
+                regions.push(SpannedRegion::structure(input, line.span()));
+                pending_definition_term = true;
+                i += 1;
+                continue;
+            }
+
+            // Definition marker after a term paragraph or a pending term.
+            // Term stays Structure; `: ` is Structure; the body hangs.
+            if let Some(marker_len) = md_definition_list_marker_len(line_text) {
+                if pending_definition_term || (!in_list_item && !current_prose.is_empty()) {
+                    if !current_prose.is_empty() {
+                        if let Some(span) = prose_span.take() {
+                            regions.push(SpannedRegion::structure(input, span));
+                        }
+                        current_prose.clear();
+                        list_term = None;
+                    }
+                    pending_definition_term = false;
+                    let marker_span = ByteSpan::new(line.start, line.start + marker_len);
+                    regions.push(SpannedRegion::structure(input, marker_span));
+                    in_list_item = true;
+                    list_hang = Some(marker_len);
+                    list_after_blank = false;
+                    append_piece(
+                        &mut ProseAcc {
+                            text: &mut current_prose,
+                            span: &mut prose_span,
+                            term: &mut list_term,
+                        },
+                        line,
+                        marker_len,
+                        false,
+                        false,
+                        input,
+                        &mut regions,
+                    );
+                    i += 1;
+                    continue;
+                }
+            }
+
             // Regular prose (also serves as list-item continuation when in_list_item)
             if in_list_item {
                 // After a blank, hang spaces stay Structure so splice
@@ -1723,6 +1815,18 @@ mod tests {
                 "Hello world. This is a test.\nAnother line here.".to_string()
             )]
         );
+    }
+
+    #[test]
+    fn definition_list_marker_len_matches_pulldown() {
+        assert_eq!(md_definition_list_marker_len(": "), Some(2));
+        assert_eq!(md_definition_list_marker_len(": This is a body"), Some(2));
+        assert_eq!(md_definition_list_marker_len("  : def"), Some(4));
+        assert_eq!(md_definition_list_marker_len(":"), Some(1));
+        assert_eq!(md_definition_list_marker_len("    : code"), None);
+        assert_eq!(md_definition_list_marker_len("\t: tab"), None);
+        assert_eq!(md_definition_list_marker_len("Term"), None);
+        assert_eq!(md_definition_list_marker_len("- item"), None);
     }
 
     #[test]
