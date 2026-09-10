@@ -19,19 +19,19 @@ static INLINE_TOKEN_RE: LazyLock<Regex> = LazyLock::new(|| {
             // org-element 5.5 citation: [cite/style:prefix;@key p. 7;suffix]
             // Must be atomic so a page locator is not a sentence boundary.
             r"\[cite(?:/[-a-zA-Z0-9_/]*)?:[^\]]*\]",
-            r"\[[^\]]+\]\([^)]+\)",    // Markdown links: [text](url)
-            r"!\[[^\]]*\]\([^)]+\)",   // Markdown images: ![alt](url)
+            r"\[[^\]]+\]\([^)]+\)",  // Markdown links: [text](url)
+            r"!\[[^\]]*\]\([^)]+\)", // Markdown images: ![alt](url)
             // CommonMark 0.31.2 §6.3 full / collapsed reference links.
             // Optional whitespace (including a line ending) may sit between
             // the text and the label. Shortcut `[text]` is not matched: that
             // would swallow every bracket group.
             r"!\[[^\]]*\]\s*\[[^\]]*\]", // Markdown reference images: ![alt][ref]
             r"\[[^\]]+\]\s*\[[^\]]*\]",  // Markdown reference links: [text][ref]
-            r"\$\$[^$\n]+\$\$",        // Display math: $$...$$
-            r"\$[^$\n]+\$",            // Inline math: $...$
-            r"\\\([^\\\n]+\\\)",       // LaTeX inline math: \(...\)
-            r"\\\[[^\n]+?\\\]",        // Org / LaTeX display math fragment: \[...\]
-            r"\\([a-zA-Z]+)\{[^}]*\}", // LaTeX commands: \cmd{arg}
+            r"\$\$[^$\n]+\$\$",          // Display math: $$...$$
+            r"\$[^$\n]+\$",              // Inline math: $...$
+            r"\\\([^\\\n]+\\\)",         // LaTeX inline math: \(...\)
+            r"\\\[[^\n]+?\\\]",          // Org / LaTeX display math fragment: \[...\]
+            r"\\([a-zA-Z]+)\{[^}]*\}",   // LaTeX commands: \cmd{arg}
             // Org emphasis must be protected before sentence splits so a line
             // cannot begin with `*rest` (false headline) or leave markers open.
             // Org requires a non-space immediately after the opener and before
