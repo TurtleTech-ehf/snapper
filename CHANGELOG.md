@@ -4,6 +4,7 @@ All notable changes to this project will be documented in this file. See [conven
 - - -
 ## Unreleased (main)
 #### Bug Fixes
+- (**org**) reflow `#+CAPTION:` values as hung prose; `#+NAME:` and `#+ATTR_*` stay structure (#204)
 - (**rst**) keep consecutive Jinja `{% ... %}` statements on their own lines (#196)
 
 - - -

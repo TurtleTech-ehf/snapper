@@ -2,8 +2,8 @@ use regex::Regex;
 use std::sync::LazyLock;
 
 use crate::parser::{
-    ByteSpan, FormatParser, Line, Region, RegionOrigin, SpannedRegion, flush_prose_spanned,
-    iter_lines, join_prose_gap, push_prose_line,
+    flush_prose_spanned, iter_lines, join_prose_gap, push_prose_line, ByteSpan, FormatParser, Line,
+    Region, RegionOrigin, SpannedRegion,
 };
 
 static HEADLINE_RE: LazyLock<Regex> =
@@ -36,6 +36,34 @@ static FOOTNOTE_DEFINITION_RE: LazyLock<Regex> =
 /// (`[fn:: …]` / `[fn:name: …]` inline notes, indented lines, prose).
 pub(crate) fn org_footnote_definition_marker_len(line: &str) -> Option<usize> {
     FOOTNOTE_DEFINITION_RE.find(line).map(|m| m.end())
+}
+
+/// org-element-parsed-keywords is CAPTION only. Dual form allows
+/// `#+CAPTION[short]:`. Returns the byte length of the Structure opener
+/// through `:` and any following spaces/tabs. `None` when the line is
+/// not that keyword (`#+NAME:`, `#+ATTR_*`, `#+CAPTIONS:`).
+pub(crate) fn org_caption_opener_len(line: &str) -> Option<usize> {
+    let indent = line.len() - line.trim_start_matches([' ', '\t']).len();
+    let rest = &line[indent..];
+    const KEY: &str = "#+CAPTION";
+    if rest.len() < KEY.len() || !rest[..KEY.len()].eq_ignore_ascii_case(KEY) {
+        return None;
+    }
+    let tail = &rest[KEY.len()..];
+    let after_opt = if let Some(inner) = tail.strip_prefix('[') {
+        let close = inner.find(']')?;
+        &inner[close + 1..]
+    } else {
+        tail
+    };
+    let after_ws = after_opt.trim_start_matches([' ', '\t']);
+    if !after_ws.starts_with(':') {
+        return None;
+    }
+    let colon_in_rest = rest.len() - after_ws.len();
+    let after_colon = &after_ws[1..];
+    let pad = after_colon.len() - after_colon.trim_start_matches([' ', '\t']).len();
+    Some(indent + colon_in_rest + 1 + pad)
 }
 
 /// org-element / org-mode display math (`$$` or `\[`).
@@ -194,6 +222,27 @@ impl OrgParser {
             && !Self::is_block_begin(line)
             && !Self::is_block_end(line)
             && !Self::is_dynamic_block_begin(line)
+    }
+
+    /// A line that is only an org bracket link (`[[file:plot.png]]`).
+    /// Figure payloads stay Structure so following prose does not join.
+    fn is_standalone_org_link(line: &str) -> bool {
+        let t = line.trim();
+        let Some(inner) = t.strip_prefix("[[").and_then(|s| s.strip_suffix("]]")) else {
+            return false;
+        };
+        if inner.is_empty() {
+            return false;
+        }
+        match inner.split_once("][") {
+            None => !inner.contains(['[', ']']),
+            Some((link, desc)) => {
+                !link.is_empty()
+                    && !desc.is_empty()
+                    && !link.contains(['[', ']'])
+                    && !desc.contains(['[', ']'])
+            }
+        }
     }
 
     /// org.el `org-comment-regexp`: `^[ \t]*#(?: |$)`.
@@ -591,6 +640,28 @@ impl FormatParser for OrgParser {
                 continue;
             }
 
+            // org-element-parsed-keywords is CAPTION only (GitHub #204).
+            // `#+CAPTION:` / `#+CAPTION[short]:` opener is Structure; the
+            // value hangs and splits. `#+NAME:` / `#+ATTR_*` stay whole-line.
+            if let Some(opener_len) = org_caption_opener_len(line_text) {
+                if opener_len < line_text.len() {
+                    flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
+                    list_item_indent = Some(opener_len);
+                    let opener_span = ByteSpan::new(line.start, line.start + opener_len);
+                    regions.push(SpannedRegion::structure(input, opener_span));
+                    let text = &line_text[opener_len..];
+                    regions.push(SpannedRegion::prose(
+                        text.to_string(),
+                        ByteSpan::new(line.start + opener_len, line.start + line_text.len()),
+                    ));
+                    let term = line.terminator_span();
+                    if !term.is_empty() {
+                        regions.push(SpannedRegion::structure(input, term));
+                    }
+                    continue;
+                }
+            }
+
             // Keyword/directive
             if Self::is_keyword(line_text) {
                 flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
@@ -616,8 +687,10 @@ impl FormatParser for OrgParser {
             if line_text.trim_start().starts_with("file:")
                 || line_text.trim_start().starts_with("http://")
                 || line_text.trim_start().starts_with("https://")
+                || Self::is_standalone_org_link(line_text)
             {
                 flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
+                list_item_indent = None;
                 regions.push(SpannedRegion::structure(input, line.span()));
                 continue;
             }
@@ -819,7 +892,7 @@ mod tests {
     #[test]
     fn multi_sentence_headline_stays_one_line() {
         use crate::format::Format;
-        use crate::{FormatConfig, format_text};
+        use crate::{format_text, FormatConfig};
 
         let input = "** Multi sentence. Second sentence in title\nbody prose. Second body.\n";
         let cfg = FormatConfig {
@@ -843,7 +916,7 @@ mod tests {
     #[test]
     fn headline_trailing_angle_bracket_round_trips() {
         use crate::format::Format;
-        use crate::{FormatConfig, format_text};
+        use crate::{format_text, FormatConfig};
 
         let input = "* TODO R4 :: snapshot field is Box[T], not Vec[T]\nbody\n";
         let cfg = FormatConfig {
@@ -862,7 +935,7 @@ mod tests {
     #[test]
     fn verbatim_inner_equals_does_not_orphan_closer() {
         use crate::format::Format;
-        use crate::{FormatConfig, format_text};
+        use crate::{format_text, FormatConfig};
 
         // The period after `note.` is inside the first span. Closing on the
         // inner `=` would emit a line that starts with `=` and leave the
@@ -888,7 +961,7 @@ mod tests {
     #[test]
     fn bold_emphasis_with_period_does_not_become_headline() {
         use crate::format::Format;
-        use crate::{FormatConfig, format_text};
+        use crate::{format_text, FormatConfig};
 
         let input = "End of first. *Bold spans period. Continues* after.\n";
         let cfg = FormatConfig {
@@ -1034,7 +1107,7 @@ mod tests {
     #[test]
     fn dollar_dollar_display_math_does_not_reflow_as_prose() {
         use crate::format::Format;
-        use crate::{FormatConfig, format_text};
+        use crate::{format_text, FormatConfig};
 
         let input = "$$\nThis is a long sentence that must stay inside display math and must not reflow as prose.\n$$\n";
         let cfg = FormatConfig {
@@ -1185,7 +1258,7 @@ mod tests {
     #[test]
     fn list_multi_sentence_hangs_and_rejoins() {
         use crate::format::Format;
-        use crate::{FormatConfig, format_text};
+        use crate::{format_text, FormatConfig};
 
         let input = "- One. Two.\n";
         let cfg = FormatConfig {
@@ -1207,7 +1280,7 @@ mod tests {
     #[test]
     fn nested_list_stays_two_items_after_reflow() {
         use crate::format::Format;
-        use crate::{FormatConfig, format_text};
+        use crate::{format_text, FormatConfig};
 
         let input = "1. Parent one. Parent two.\n   - Child one. Child two.\n";
         let cfg = FormatConfig {
@@ -1272,7 +1345,7 @@ mod tests {
     #[test]
     fn indented_star_list_hangs_and_rejoins() {
         use crate::format::Format;
-        use crate::{FormatConfig, format_text};
+        use crate::{format_text, FormatConfig};
 
         let input = wci8_indented_star_list_fixture();
         let cfg = FormatConfig {
@@ -1427,7 +1500,7 @@ mod tests {
     #[test]
     fn nested_example_in_quote_closes_by_name_only() {
         use crate::format::Format;
-        use crate::{FormatConfig, format_text};
+        use crate::{format_text, FormatConfig};
 
         let input = quote_with_nested_example();
         let cfg = FormatConfig {
@@ -1467,7 +1540,7 @@ mod tests {
     #[test]
     fn example_export_comment_do_not_reflow() {
         use crate::format::Format;
-        use crate::{FormatConfig, format_text};
+        use crate::{format_text, FormatConfig};
 
         let cfg = FormatConfig {
             format: Format::Org,
@@ -2859,6 +2932,199 @@ mod tests {
         assert_eq!(
             out, "[fn:note] Footnote text.\n          Second sentence.\n",
             "[fn:note] body must hang and split, got:\n{out}"
+        );
+        assert_eq!(format_text(&out, &org_cfg()).unwrap(), out);
+    }
+
+    /// Ticket fixture (Format::Org / GitHub #204): org-element-parsed-keywords.
+    fn caption_keyword_fixture() -> &'static str {
+        concat!(
+            "#+CAPTION: This is a long figure caption that must reflow as prose. Second sentence.\n",
+            "[[file:plot.png]]\n",
+            "After the figure. More.\n",
+        )
+    }
+
+    #[test]
+    fn caption_opener_follows_org_element_parsed_keywords() {
+        assert_eq!(org_caption_opener_len("#+CAPTION: "), Some(11));
+        assert_eq!(
+            org_caption_opener_len(
+                "#+CAPTION: This is a long figure caption that must reflow as prose."
+            ),
+            Some(11)
+        );
+        assert_eq!(
+            org_caption_opener_len("#+CAPTION[Short. Title.]: Long caption."),
+            Some(26)
+        );
+        assert_eq!(org_caption_opener_len("#+caption: value"), Some(11));
+        assert_eq!(org_caption_opener_len("  #+CAPTION: value"), Some(13));
+        assert_eq!(org_caption_opener_len("#+CAPTION:"), Some(10));
+        assert_eq!(org_caption_opener_len("#+NAME: fig:plot"), None);
+        assert_eq!(org_caption_opener_len("#+ATTR_LATEX: :width 1"), None);
+        assert_eq!(org_caption_opener_len("#+TITLE: x"), None);
+        assert_eq!(org_caption_opener_len("#+CAPTIONS: x"), None);
+        assert_eq!(org_caption_opener_len("#+BEGIN_SRC python"), None);
+    }
+
+    #[test]
+    fn caption_opener_is_structure_value_is_hung_prose() {
+        let regions = OrgParser.parse(caption_keyword_fixture());
+        assert!(
+            regions
+                .iter()
+                .any(|r| matches!(r, Region::Structure(s) if s == "#+CAPTION: ")),
+            "#+CAPTION: must be Structure, got {regions:?}"
+        );
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(s)
+                    if s.contains("This is a long figure caption that must reflow as prose.")
+                        && s.contains("Second sentence.")
+            )),
+            "CAPTION value must be Prose, got {regions:?}"
+        );
+        assert!(
+            !regions.iter().any(|r| matches!(
+                r,
+                Region::Structure(s) if s.contains("must reflow as prose")
+            )),
+            "CAPTION value must not stay Structure, got {regions:?}"
+        );
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Structure(s) if s.contains("[[file:plot.png]]")
+            )),
+            "standalone file link must be Structure, got {regions:?}"
+        );
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(s) if s.contains("After the figure.") && s.contains("More.")
+            )),
+            "following prose must stay Prose, got {regions:?}"
+        );
+    }
+
+    #[test]
+    fn caption_fixture_value_splits_and_hangs() {
+        use crate::format_text;
+
+        let input = caption_keyword_fixture();
+        let out = format_text(input, &org_cfg()).unwrap();
+        assert_eq!(
+            out,
+            concat!(
+                "#+CAPTION: This is a long figure caption that must reflow as prose.\n",
+                "           Second sentence.\n",
+                "[[file:plot.png]]\n",
+                "After the figure.\n",
+                "More.\n",
+            ),
+            "CAPTION opener stays; value hangs and splits, got:\n{out}"
+        );
+        assert!(
+            !out.lines().any(|l| l == "Second sentence."),
+            "must not emit a column-0 second caption sentence, got:\n{out}"
+        );
+        assert!(
+            !out.contains("[[file:plot.png]] After the figure."),
+            "link line must not join following prose, got:\n{out}"
+        );
+        assert_eq!(
+            format_text(&out, &org_cfg()).unwrap(),
+            out,
+            "hung CAPTION must be identity, got:\n{out}"
+        );
+    }
+
+    #[test]
+    fn caption_dual_short_title_stays_structure() {
+        use crate::format_text;
+
+        let input = "#+CAPTION[Short. Title.]: Long caption. Second.\n";
+        let regions = OrgParser.parse(input);
+        assert!(
+            regions
+                .iter()
+                .any(|r| matches!(r, Region::Structure(s) if s == "#+CAPTION[Short. Title.]: ")),
+            "dual CAPTION opener including short title must be Structure, got {regions:?}"
+        );
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(s) if s.contains("Long caption.") && s.contains("Second.")
+            )),
+            "dual CAPTION long value must be Prose, got {regions:?}"
+        );
+        assert!(
+            !regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(s) if s.contains("Short. Title.")
+            )),
+            "short title must not be Prose, got {regions:?}"
+        );
+        let out = format_text(input, &org_cfg()).unwrap();
+        assert_eq!(
+            out, "#+CAPTION[Short. Title.]: Long caption.\n                          Second.\n",
+            "dual CAPTION long value must hang and split, got:\n{out}"
+        );
+        assert!(
+            out.contains("#+CAPTION[Short. Title.]:"),
+            "short title must stay on the opener, got:\n{out}"
+        );
+        assert_eq!(format_text(&out, &org_cfg()).unwrap(), out);
+    }
+
+    #[test]
+    fn name_and_attr_keywords_stay_whole_line_structure() {
+        use crate::format_text;
+
+        let input = concat!(
+            "#+NAME: First sentence. Second sentence.\n",
+            "#+ATTR_LATEX: :width 0.9 :alt First sentence. Second sentence.\n",
+            "#+ATTR_HTML: :alt First sentence. Second sentence.\n",
+            "#+CAPTION: Long caption. Second.\n",
+            "[[file:plot.png]]\n",
+        );
+        let regions = OrgParser.parse(input);
+        for needle in [
+            "#+NAME: First sentence. Second sentence.",
+            "#+ATTR_LATEX: :width 0.9 :alt First sentence. Second sentence.",
+            "#+ATTR_HTML: :alt First sentence. Second sentence.",
+        ] {
+            assert!(
+                regions
+                    .iter()
+                    .any(|r| matches!(r, Region::Structure(s) if s.contains(needle))),
+                "{needle} must stay Structure, got {regions:?}"
+            );
+            assert!(
+                !regions
+                    .iter()
+                    .any(|r| matches!(r, Region::Prose(s) if s.contains(needle))),
+                "{needle} must not be Prose, got {regions:?}"
+            );
+        }
+        let out = format_text(input, &org_cfg()).unwrap();
+        assert!(
+            out.contains("#+NAME: First sentence. Second sentence.\n"),
+            "NAME must stay whole-line, got:\n{out}"
+        );
+        assert!(
+            out.contains("#+ATTR_LATEX: :width 0.9 :alt First sentence. Second sentence.\n"),
+            "ATTR_LATEX must stay whole-line, got:\n{out}"
+        );
+        assert!(
+            out.contains("#+ATTR_HTML: :alt First sentence. Second sentence.\n"),
+            "ATTR_HTML must stay whole-line, got:\n{out}"
+        );
+        assert!(
+            out.contains("#+CAPTION: Long caption.\n           Second.\n"),
+            "CAPTION value must still hang, got:\n{out}"
         );
         assert_eq!(format_text(&out, &org_cfg()).unwrap(), out);
     }
