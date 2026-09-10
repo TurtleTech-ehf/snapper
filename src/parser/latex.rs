@@ -105,8 +105,6 @@ fn is_builtin_code_env(name: &str) -> bool {
     )
 }
 
-static DISPLAY_MATH_CLOSE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\\\]\s*$").unwrap());
-
 /// tree-sitter `displayed_equation` (`$$` or `\[`) / latexindent `displayMath` + `displayMathTeX`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum DisplayMathDelim {
@@ -114,28 +112,57 @@ enum DisplayMathDelim {
     Dollars,
 }
 
-fn display_math_open(s: &str) -> Option<DisplayMathDelim> {
-    let t = s.trim_start();
-    if t.starts_with("\\[") {
-        Some(DisplayMathDelim::Bracket)
-    } else if t.starts_with("$$") {
-        Some(DisplayMathDelim::Dollars)
-    } else {
-        None
+/// latexindent `displayMath` begin/end `(?<!\\)\\\[` / `(?<!\\)\\\]`.
+/// `\\[2ex]` is a linebreak skip: the `[` sits after `\`, so it is not `\[`.
+fn find_unescaped_display_bracket(
+    s: &str,
+    from: usize,
+    closer: u8,
+    extra_cmds: &[String],
+) -> Option<usize> {
+    let bytes = s.as_bytes();
+    let mut i = from;
+    while i < bytes.len() {
+        if bytes[i] == b'\\' {
+            if let Some(end) = latex_verb_span_end_with(s, i, extra_cmds) {
+                i = end;
+                continue;
+            }
+            if i + 1 < bytes.len() && bytes[i + 1] == closer && (i == 0 || bytes[i - 1] != b'\\') {
+                return Some(i);
+            }
+        }
+        i += 1;
     }
+    None
 }
 
-fn display_math_closes(s: &str, delim: DisplayMathDelim) -> bool {
+/// `$$` still opens only at leftover start (guev). `\[` may sit mid-line.
+fn display_math_open_at(s: &str, extra_cmds: &[String]) -> Option<(usize, DisplayMathDelim)> {
+    let t = s.trim_start();
+    let lead = s.len() - t.len();
+    if t.starts_with("$$") {
+        return Some((lead, DisplayMathDelim::Dollars));
+    }
+    find_unescaped_display_bracket(s, 0, b'[', extra_cmds)
+        .map(|pos| (pos, DisplayMathDelim::Bracket))
+}
+
+fn display_math_closes(s: &str, delim: DisplayMathDelim, extra_cmds: &[String]) -> Option<usize> {
     match delim {
-        DisplayMathDelim::Bracket => DISPLAY_MATH_CLOSE.is_match(s),
-        DisplayMathDelim::Dollars => s.trim_end().ends_with("$$"),
+        DisplayMathDelim::Bracket => find_unescaped_display_bracket(s, 0, b']', extra_cmds),
+        DisplayMathDelim::Dollars => {
+            let t = s.trim_end();
+            t.ends_with("$$").then_some(t.len() - 2)
+        }
     }
 }
 
 /// A line that is only `$$` is an opener, not a one-line `$$...$$` block.
+/// Bracket same-line `\[...\]` is closed in `consume_code_span`, not here.
 fn display_math_is_single_line(s: &str, delim: DisplayMathDelim) -> bool {
     match delim {
-        DisplayMathDelim::Bracket => DISPLAY_MATH_CLOSE.is_match(s),
+        DisplayMathDelim::Bracket => false,
         DisplayMathDelim::Dollars => {
             let t = s.trim();
             t != "$$" && t.ends_with("$$")
@@ -566,8 +593,20 @@ impl<'a> ParseState<'a> {
 
         if let Some(delim) = self.in_display_math {
             self.flush();
-            if display_math_closes(line.text, delim) {
+            if let Some(close_at) =
+                display_math_closes(line.text, delim, &self.parser.extra_verbatim_commands)
+            {
+                let after = close_at + 2;
+                let end = thru_eol_if_blank_rest(line, after);
+                self.regions.push(SpannedRegion::structure(
+                    self.input,
+                    ByteSpan::new(line.start, end),
+                ));
                 self.in_display_math = None;
+                if !line.text[after..].trim().is_empty() {
+                    self.consume_body_line(rest_line(line, after));
+                }
+                return;
             }
             self.regions
                 .push(SpannedRegion::structure(self.input, line.span()));
@@ -813,14 +852,55 @@ impl<'a> ParseState<'a> {
                 self.push_structure(ByteSpan::new(line.start + i, line.end));
                 return false;
             }
-            if let Some(delim) = display_math_open(rest) {
+            if let Some((rel, delim)) =
+                display_math_open_at(rest, &self.parser.extra_verbatim_commands)
+            {
+                self.append_item_or_prose(line.start + i, &rest[..rel]);
                 self.flush();
-                if !display_math_is_single_line(rest, delim) {
-                    self.in_display_math = Some(delim);
+                if delim == DisplayMathDelim::Dollars {
+                    if !display_math_is_single_line(&rest[rel..], delim) {
+                        self.in_display_math = Some(delim);
+                    }
+                    self.regions.push(SpannedRegion::structure(
+                        self.input,
+                        ByteSpan::new(line.start + i + rel, line.end),
+                    ));
+                    return false;
                 }
+                // Glue space stays on the `\[` island so reflow does not
+                // break `inducing \[` / `See also \[ a = 1. \]`.
+                // Pure indent before leftover-start `\[` stays on the island.
+                let open_rel = if rest[..rel].trim().is_empty() {
+                    0
+                } else {
+                    let prefix = &rest[..rel];
+                    let glue = prefix.len() - prefix.trim_end_matches([' ', '\t']).len();
+                    rel - glue
+                };
+                let after_open = rel + 2;
+                if let Some(close_rel) = find_unescaped_display_bracket(
+                    rest,
+                    after_open,
+                    b']',
+                    &self.parser.extra_verbatim_commands,
+                ) {
+                    let after_close = close_rel + 2;
+                    let end = if rest[after_close..].trim().is_empty() {
+                        thru_eol_if_blank_rest(line, i + after_close)
+                    } else {
+                        line.start + i + after_close
+                    };
+                    self.regions.push(SpannedRegion::structure(
+                        self.input,
+                        ByteSpan::new(line.start + i + open_rel, end),
+                    ));
+                    i += after_close;
+                    continue;
+                }
+                self.in_display_math = Some(delim);
                 self.regions.push(SpannedRegion::structure(
                     self.input,
-                    ByteSpan::new(line.start + i, line.end),
+                    ByteSpan::new(line.start + i + open_rel, line.end),
                 ));
                 return false;
             }
@@ -2553,4 +2633,107 @@ Some text.
         );
         assert_eq!(format_text(&out, &latex_cfg()).unwrap(), out);
     }
+    #[test]
+    fn mid_line_bracket_display_math_is_structure_not_prose() {
+        use crate::format_text;
+
+        // snapper-ep2t / GitHub #85: latexindent `(?<!\\)\\\[` — mid-line `\[`
+        // opens display math; `\\[2ex]` is a linebreak skip.
+        let input = "inducing \\[\nE = m c^2.\n\\] more words. Next.\nSee also \\[ a = 1. \\] done. Next.\nfoo \\\\[2ex]\nstill prose. Next.\n";
+        let regions = LatexParser::default().parse(input);
+        assert!(
+            regions
+                .iter()
+                .any(|r| matches!(r, Region::Prose(p) if p.contains("inducing"))),
+            "leading words before mid-line \\[ must be Prose, got: {regions:?}"
+        );
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Structure(s) if s.contains("E = m c^2.")
+            )),
+            "inducing \\[ body must be Structure, got: {regions:?}"
+        );
+        assert!(
+            !regions
+                .iter()
+                .any(|r| matches!(r, Region::Prose(p) if p.contains("E = m c^2."))),
+            "inducing \\[ body must not be Prose, got: {regions:?}"
+        );
+        assert!(
+            regions
+                .iter()
+                .any(|r| matches!(r, Region::Prose(p) if p.contains("more words"))),
+            "words after \\] must resume Prose, got: {regions:?}"
+        );
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Structure(s) if s.contains("a = 1.")
+            )),
+            "same-line \\[ a = 1. \\] must be Structure, got: {regions:?}"
+        );
+        assert!(
+            !regions
+                .iter()
+                .any(|r| matches!(r, Region::Prose(p) if p.contains("a = 1."))),
+            "same-line \\[ body must not be Prose, got: {regions:?}"
+        );
+        assert!(
+            regions
+                .iter()
+                .any(|r| matches!(r, Region::Prose(p) if p.contains("done"))),
+            "words after same-line \\] must be Prose, got: {regions:?}"
+        );
+        assert!(
+            regions
+                .iter()
+                .any(|r| matches!(r, Region::Prose(p) if p.contains("\\\\[2ex]"))),
+            "\\\\[2ex] linebreak skip must stay Prose, got: {regions:?}"
+        );
+        assert!(
+            !regions.iter().any(|r| {
+                matches!(r, Region::Structure(s) if s.contains("\\\\[2ex]") || s.contains("[2ex]"))
+            }),
+            "\\\\[2ex] must not open display math, got: {regions:?}"
+        );
+        assert!(
+            regions
+                .iter()
+                .any(|r| matches!(r, Region::Prose(p) if p.contains("still prose"))),
+            "line after \\\\[2ex] must stay Prose, got: {regions:?}"
+        );
+
+        let out = format_text(input, &latex_cfg()).unwrap();
+        assert!(
+            out.contains("inducing \\[\nE = m c^2.\n\\]"),
+            "mid-line \\[ must not join into the math body, got:\n{out}"
+        );
+        assert!(
+            !out.contains("inducing \\[ E = m c^2."),
+            "must not join inducing \\[ onto the next line, got:\n{out}"
+        );
+        assert!(
+            out.contains("\\] more words.\nNext."),
+            "prose after \\] must still reflow, got:\n{out}"
+        );
+        assert!(
+            out.contains("See also \\[ a = 1. \\] done.\nNext."),
+            "same-line \\[ a = 1. \\] must stay intact and trailing prose reflow, got:\n{out}"
+        );
+        assert!(
+            !out.contains("\\[ a = 1.\n"),
+            "must not split inside same-line display math, got:\n{out}"
+        );
+        assert!(
+            out.contains("\\\\[2ex]"),
+            "\\\\[2ex] must remain in the output, got:\n{out}"
+        );
+        assert!(
+            out.contains("still prose.\nNext."),
+            "\\\\[2ex] must not swallow following prose as math, got:\n{out}"
+        );
+        assert_eq!(format_text(&out, &latex_cfg()).unwrap(), out);
+    }
+
 }
