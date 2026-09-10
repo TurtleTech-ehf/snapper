@@ -468,6 +468,281 @@ fn is_thematic_break(line: &str) -> bool {
     count >= 3
 }
 
+/// Strip 0–3 leading spaces. A leading tab is indent ≥ 4, so not a
+/// CommonMark 4.7 / pulldown footnote opener.
+fn skip_indent_0_3(line: &str) -> Option<&str> {
+    let bytes = line.as_bytes();
+    let mut i = 0;
+    while i < bytes.len() && i < 3 && bytes[i] == b' ' {
+        i += 1;
+    }
+    if i < bytes.len() && bytes[i] == b'\t' {
+        return None;
+    }
+    Some(&line[i..])
+}
+
+fn skip_spaces_tabs(s: &str) -> &str {
+    s.trim_start_matches([' ', '\t'])
+}
+
+/// Scan a CommonMark link label after the opening `[` (or after `[^` for
+/// footnotes). Unescaped `[` is illegal; the label must contain a
+/// non-whitespace character and at most 999 characters.
+fn scan_md_link_label(after_open: &str) -> Option<(&str, &str)> {
+    let bytes = after_open.as_bytes();
+    let mut i = 0;
+    let mut escaped = false;
+    let mut visible = false;
+    let mut count = 0usize;
+    while i < bytes.len() {
+        let b = bytes[i];
+        if escaped {
+            escaped = false;
+            visible = true;
+            count += 1;
+            i += 1;
+            continue;
+        }
+        if b == b'\\' {
+            escaped = true;
+            i += 1;
+            continue;
+        }
+        if b == b'[' {
+            return None;
+        }
+        if b == b']' {
+            if !visible {
+                return None;
+            }
+            return Some((&after_open[..i], &after_open[i + 1..]));
+        }
+        if b == b'\n' || b == b'\r' {
+            return None;
+        }
+        if !b.is_ascii_whitespace() {
+            visible = true;
+        }
+        count += 1;
+        if count > 999 {
+            return None;
+        }
+        i += 1;
+    }
+    None
+}
+
+/// CommonMark link destination: `<...>` or a non-empty run of
+/// non-whitespace with balanced parentheses.
+fn scan_md_link_dest(s: &str) -> Option<(&str, &str)> {
+    let bytes = s.as_bytes();
+    if bytes.first() == Some(&b'<') {
+        let mut i = 1;
+        while i < bytes.len() {
+            match bytes[i] {
+                b'\n' | b'\r' | b'<' => return None,
+                b'>' => return Some((&s[1..i], &s[i + 1..])),
+                b'\\' if i + 1 < bytes.len() => i += 2,
+                _ => i += 1,
+            }
+        }
+        return None;
+    }
+    let mut i = 0;
+    let mut nest = 0i32;
+    while i < bytes.len() {
+        match bytes[i] {
+            0x00..=0x20 => break,
+            b'(' => {
+                nest += 1;
+                i += 1;
+            }
+            b')' => {
+                if nest == 0 {
+                    break;
+                }
+                nest -= 1;
+                i += 1;
+            }
+            b'\\' if i + 1 < bytes.len() => i += 2,
+            _ => i += 1,
+        }
+    }
+    if nest != 0 || i == 0 {
+        return None;
+    }
+    Some((&s[..i], &s[i..]))
+}
+
+/// Same-line title `"..."` / `'...'` / `(...)`. Returns the suffix after
+/// the closing delimiter.
+fn scan_md_link_title(s: &str) -> Option<&str> {
+    let bytes = s.as_bytes();
+    let closer = match bytes.first()? {
+        b'"' => b'"',
+        b'\'' => b'\'',
+        b'(' => b')',
+        _ => return None,
+    };
+    let mut i = 1;
+    while i < bytes.len() {
+        match bytes[i] {
+            b'\n' | b'\r' => return None,
+            b'\\' if i + 1 < bytes.len() => i += 2,
+            c if c == closer => return Some(skip_spaces_tabs(&s[i + 1..])),
+            b'(' if closer == b')' => return None,
+            _ => i += 1,
+        }
+    }
+    None
+}
+
+fn rest_is_blank(s: &str) -> bool {
+    skip_spaces_tabs(s).is_empty()
+}
+
+fn line_is_link_title_only(line: &str) -> bool {
+    match scan_md_link_title(line.trim_start()) {
+        Some(rest) => rest_is_blank(rest),
+        None => false,
+    }
+}
+
+/// pulldown `ENABLE_FOOTNOTES`: 0–3 spaces, `[^id]:`.
+fn is_footnote_opener(line: &str) -> bool {
+    let Some(rest) = skip_indent_0_3(line) else {
+        return false;
+    };
+    let Some(after) = rest.strip_prefix("[^") else {
+        return false;
+    };
+    let Some((label, after_label)) = scan_md_link_label(after) else {
+        return false;
+    };
+    !label.is_empty() && after_label.starts_with(':')
+}
+
+/// Last line of a GFM footnote: opener plus 4-space (or tab) continuation.
+/// Interior blanks stay in the definition when the next non-blank is
+/// indented; trailing blanks after the block are left for the blank arm.
+fn footnote_def_end(lines: &[Line<'_>], i: usize) -> Option<usize> {
+    if !is_footnote_opener(lines[i].text) {
+        return None;
+    }
+    let mut end = i;
+    let mut j = i + 1;
+    while j < lines.len() {
+        if lines[j].text.trim().is_empty() {
+            let mut k = j + 1;
+            while k < lines.len() && lines[k].text.trim().is_empty() {
+                k += 1;
+            }
+            if k < lines.len() && is_indented_code_line(lines[k].text) {
+                end = k;
+                j = k + 1;
+                continue;
+            }
+            break;
+        }
+        if is_indented_code_line(lines[j].text) {
+            end = j;
+            j += 1;
+            continue;
+        }
+        break;
+    }
+    Some(end)
+}
+
+/// How far a CommonMark 4.7 first line got.
+#[derive(Clone, Copy)]
+enum LrdHead {
+    /// `[label]:` only; dest must be on the next line.
+    NeedDest,
+    /// dest present; a title may still sit on the next line.
+    Dest,
+    /// dest and title both present; definition is complete.
+    DestTitle,
+}
+
+/// CommonMark 0.31.2 §4.7 first line: 0–3 spaces, `[label]:` dest, and
+/// leftover that is either empty or a complete title. `[^id]:` is a
+/// footnote, not a link-reference definition.
+fn is_link_reference_opener(line: &str) -> bool {
+    matches!(
+        link_reference_first_line(line),
+        Some(LrdHead::Dest | LrdHead::DestTitle)
+    )
+}
+
+fn link_reference_first_line(line: &str) -> Option<LrdHead> {
+    let rest = skip_indent_0_3(line)?;
+    if rest.starts_with("[^") {
+        return None;
+    }
+    let after_bracket = rest.strip_prefix('[')?;
+    let (_label, after_label) = scan_md_link_label(after_bracket)?;
+    let after_colon = after_label.strip_prefix(':')?;
+    let dest_here = skip_spaces_tabs(after_colon);
+    if dest_here.is_empty() {
+        return Some(LrdHead::NeedDest);
+    }
+    let (_dest, after_dest) = scan_md_link_dest(dest_here)?;
+    let after = skip_spaces_tabs(after_dest);
+    if after.is_empty() {
+        return Some(LrdHead::Dest);
+    }
+    let rest = scan_md_link_title(after)?;
+    if rest_is_blank(rest) {
+        Some(LrdHead::DestTitle)
+    } else {
+        None
+    }
+}
+
+/// Last line index of a link-reference definition (dest / title may sit
+/// on the following line). None when leftover after dest is not a title.
+fn link_reference_def_end(lines: &[Line<'_>], i: usize) -> Option<usize> {
+    match link_reference_first_line(lines[i].text)? {
+        LrdHead::DestTitle => Some(i),
+        LrdHead::Dest => {
+            if lines
+                .get(i + 1)
+                .is_some_and(|l| line_is_link_title_only(l.text))
+            {
+                Some(i + 1)
+            } else {
+                Some(i)
+            }
+        }
+        LrdHead::NeedDest => {
+            let next = lines.get(i + 1)?;
+            if next.text.trim().is_empty() {
+                return None;
+            }
+            let dest_src = next.text.trim_start();
+            let (_dest, after_dest) = scan_md_link_dest(dest_src)?;
+            let after = skip_spaces_tabs(after_dest);
+            if after.is_empty() {
+                if lines
+                    .get(i + 2)
+                    .is_some_and(|l| line_is_link_title_only(l.text))
+                {
+                    return Some(i + 2);
+                }
+                return Some(i + 1);
+            }
+            let rest = scan_md_link_title(after)?;
+            if rest_is_blank(rest) {
+                Some(i + 1)
+            } else {
+                None
+            }
+        }
+    }
+}
+
 /// Leading whitespace width in bytes (`trim_start` prefix).
 fn line_indent(line: &str) -> usize {
     line.len() - line.trim_start().len()
@@ -674,6 +949,10 @@ fn is_setext_title_line(line: &str) -> bool {
     }
     // Pandoc / academic MD display math is not a setext title.
     if line.trim().starts_with("$$") {
+        return false;
+    }
+    // Link-reference / footnote definitions are not setext titles.
+    if is_footnote_opener(line) || is_link_reference_opener(line) {
         return false;
     }
     true
@@ -1018,6 +1297,50 @@ impl FormatParser for MarkdownParser {
                 continue;
             }
 
+            // pulldown ENABLE_FOOTNOTES: `[^id]:` interrupts a paragraph.
+            // The opener plus 4-space continuation is Structure so a
+            // sentence split cannot shorten the footnote (oracle veto).
+            if let Some(end) = footnote_def_end(&lines, i) {
+                close_list_item(
+                    &mut in_list_item,
+                    &mut list_hang,
+                    &mut current_prose,
+                    &mut prose_span,
+                    &mut list_term,
+                    input,
+                    &mut regions,
+                );
+                flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
+                for row in &lines[i..=end] {
+                    regions.push(SpannedRegion::structure(input, row.span()));
+                }
+                i = end + 1;
+                continue;
+            }
+
+            // CommonMark 0.31.2 §4.7 link-reference definition. Does not
+            // interrupt a paragraph: only when prose is empty (start of
+            // file, after a blank, or after another block).
+            if current_prose.is_empty() {
+                if let Some(end) = link_reference_def_end(&lines, i) {
+                    close_list_item(
+                        &mut in_list_item,
+                        &mut list_hang,
+                        &mut current_prose,
+                        &mut prose_span,
+                        &mut list_term,
+                        input,
+                        &mut regions,
+                    );
+                    flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
+                    for row in &lines[i..=end] {
+                        regions.push(SpannedRegion::structure(input, row.span()));
+                    }
+                    i = end + 1;
+                    continue;
+                }
+            }
+
             // Setext heading: title line + underline of `=` or `-`.
             // Without this, title text is Prose and the underline is glued on
             // (or mid-title periods reflow), collapsing the heading.
@@ -1180,6 +1503,8 @@ impl FormatParser for MarkdownParser {
                     || TABLE_ROW_RE.is_match(text)
                     || FENCED_CODE_RE.is_match(text.trim_start())
                     || is_thematic_break(text)
+                    || is_footnote_opener(text)
+                    || is_link_reference_opener(text)
                 {
                     regions.push(SpannedRegion::structure(input, line.span()));
                     i += 1;
@@ -3233,5 +3558,267 @@ mod tests {
             );
             assert_eq!(format_text(&out, &md_cfg()).unwrap(), out);
         }
+    }
+
+    /// Ticket fixture (Format::Markdown / GitHub #106 / snapper-5m2a).
+    fn ticket_5m2a_fixture() -> &'static str {
+        concat!(
+            "See [foo]. Next sentence.\n",
+            "[foo]: https://example.com/a.b\n",
+            "\n",
+            "See [^1]. Next.\n",
+            "\n",
+            "[^1]: Footnote text. Second sentence.\n",
+        )
+    }
+
+    #[test]
+    fn link_reference_and_footnote_openers_match_spec() {
+        assert!(is_link_reference_opener("[foo]: https://example.com/a.b"));
+        assert!(is_link_reference_opener("   [foo]: /url \"title\""));
+        assert!(is_link_reference_opener("[foo]: </url>"));
+        assert!(!is_link_reference_opener("[foo]: /url extra"));
+        assert!(!is_link_reference_opener("[foo]:"));
+        assert!(!is_link_reference_opener("[^1]: Footnote text."));
+        assert!(!is_link_reference_opener("    [foo]: /url"));
+        assert!(is_footnote_opener("[^1]: Footnote text. Second sentence."));
+        assert!(is_footnote_opener("   [^note]: body"));
+        assert!(!is_footnote_opener("[^]: empty"));
+        assert!(!is_footnote_opener("[foo]: /url"));
+        assert!(!is_footnote_opener("    [^1]: indented-code"));
+    }
+
+    #[test]
+    fn link_reference_definition_is_structure_not_prose() {
+        use crate::format_text;
+
+        let input = "See [foo]. Next sentence.\n\n[foo]: https://example.com/a.b\n";
+        let regions = MarkdownParser.parse(input);
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Structure(s) if s.contains("[foo]: https://example.com/a.b")
+            )),
+            "standalone [foo]: dest must be Structure, got: {regions:?}"
+        );
+        assert!(
+            !regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(p) if p.contains("[foo]:") || p.contains("example.com")
+            )),
+            "link-reference dest must not be Prose, got: {regions:?}"
+        );
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(p) if p.contains("See [foo].") && p.contains("Next sentence.")
+            )),
+            "paragraph before the definition must stay Prose, got: {regions:?}"
+        );
+        let out = format_text(input, &md_cfg()).unwrap();
+        assert!(
+            out.contains("See [foo].\nNext sentence."),
+            "surrounding prose must still reflow, got:\n{out}"
+        );
+        assert!(
+            out.contains("[foo]: https://example.com/a.b"),
+            "destination a.b must not sentence-split, got:\n{out}"
+        );
+        assert!(
+            !out.contains("example.com/a.\n"),
+            "period in dest must not become a sentence break, got:\n{out}"
+        );
+        assert_eq!(format_text(&out, &md_cfg()).unwrap(), out);
+    }
+
+    #[test]
+    fn link_reference_definition_does_not_interrupt_paragraph() {
+        use crate::format_text;
+
+        let input = "See [foo]. Next sentence.\n[foo]: https://example.com/a.b\n";
+        let regions = MarkdownParser.parse(input);
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(p)
+                    if p.contains("See [foo].") && p.contains("[foo]: https://example.com/a.b")
+            )),
+            "LRD must not interrupt a paragraph, got: {regions:?}"
+        );
+        assert!(
+            !regions.iter().any(|r| matches!(
+                r,
+                Region::Structure(s) if s.contains("[foo]:")
+            )),
+            "in-paragraph [foo]: must stay Prose, got: {regions:?}"
+        );
+        let out = format_text(input, &md_cfg()).unwrap();
+        assert!(
+            out.contains("See [foo].\nNext sentence."),
+            "paragraph must still reflow, got:\n{out}"
+        );
+        assert!(
+            out.contains("[foo]: https://example.com/a.b"),
+            "wrapped dest must stay intact, got:\n{out}"
+        );
+        assert_eq!(format_text(&out, &md_cfg()).unwrap(), out);
+    }
+
+    #[test]
+    fn footnote_definition_is_structure_not_prose() {
+        use crate::format_text;
+
+        let input = "See [^1]. Next.\n\n[^1]: Footnote text. Second sentence.\n";
+        let regions = MarkdownParser.parse(input);
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Structure(s)
+                    if s.contains("[^1]: Footnote text. Second sentence.")
+            )),
+            "[^1]: plus body must be Structure, got: {regions:?}"
+        );
+        assert!(
+            !regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(p) if p.contains("[^1]:") || p.contains("Footnote text.")
+            )),
+            "footnote definition must not be Prose, got: {regions:?}"
+        );
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(p) if p.contains("See [^1].") && p.contains("Next.")
+            )),
+            "reference paragraph must stay Prose, got: {regions:?}"
+        );
+        let out = format_text(input, &md_cfg()).unwrap();
+        assert!(
+            out.contains("See [^1].\nNext."),
+            "prose before the footnote must still reflow, got:\n{out}"
+        );
+        assert!(
+            out.contains("[^1]: Footnote text. Second sentence."),
+            "footnote body must not sentence-split, got:\n{out}"
+        );
+        assert!(
+            !out.contains("[^1]: Footnote text.\nSecond sentence."),
+            "split footnote would drop the second sentence, got:\n{out}"
+        );
+        assert_eq!(format_text(&out, &md_cfg()).unwrap(), out);
+    }
+
+    #[test]
+    fn footnote_definition_interrupts_paragraph() {
+        use crate::format_text;
+
+        let input = "See [^1]. Next.\n[^1]: Footnote text. Second sentence.\n";
+        let regions = MarkdownParser.parse(input);
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Structure(s) if s.contains("[^1]: Footnote text. Second sentence.")
+            )),
+            "pulldown footnotes interrupt a paragraph, got: {regions:?}"
+        );
+        let out = format_text(input, &md_cfg()).unwrap();
+        assert!(
+            out.contains("See [^1].\nNext.\n[^1]: Footnote text. Second sentence."),
+            "footnote must interrupt and stay intact, got:\n{out}"
+        );
+        assert_eq!(format_text(&out, &md_cfg()).unwrap(), out);
+    }
+
+    #[test]
+    fn footnote_indented_continuation_is_structure() {
+        use crate::format_text;
+
+        let input = concat!(
+            "See [^1]. Next.\n",
+            "\n",
+            "[^1]: Footnote text.\n",
+            "    Indented continuation. More words.\n",
+        );
+        let regions = MarkdownParser.parse(input);
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Structure(s) if s.contains("[^1]: Footnote text.")
+            )),
+            "footnote opener must be Structure, got: {regions:?}"
+        );
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Structure(s) if s.contains("Indented continuation. More words.")
+            )),
+            "indented footnote continuation must be Structure, got: {regions:?}"
+        );
+        assert!(
+            !regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(p) if p.contains("Indented continuation")
+            )),
+            "continuation must not become Prose, got: {regions:?}"
+        );
+        let out = format_text(input, &md_cfg()).unwrap();
+        assert!(
+            out.contains("[^1]: Footnote text.\n    Indented continuation. More words."),
+            "indented continuation must not reflow, got:\n{out}"
+        );
+        assert_eq!(format_text(&out, &md_cfg()).unwrap(), out);
+    }
+
+    #[test]
+    fn ticket_5m2a_link_ref_and_footnote_stay_structure() {
+        use crate::format_text;
+
+        let input = ticket_5m2a_fixture();
+        let regions = MarkdownParser.parse(input);
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Structure(s)
+                    if s.contains("[^1]: Footnote text. Second sentence.")
+            )),
+            "ticket footnote must be Structure, got: {regions:?}"
+        );
+        assert!(
+            !regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(p) if p.contains("Footnote text.")
+            )),
+            "ticket footnote must not be Prose, got: {regions:?}"
+        );
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(p)
+                    if p.contains("See [foo].") && p.contains("[foo]: https://example.com/a.b")
+            )),
+            "ticket LRD follows a paragraph so it stays Prose, got: {regions:?}"
+        );
+        let out = format_text(input, &md_cfg()).unwrap();
+        assert!(
+            out.contains("See [foo].\nNext sentence."),
+            "ticket prose before the LRD must reflow, got:\n{out}"
+        );
+        assert!(
+            out.contains("[foo]: https://example.com/a.b"),
+            "ticket dest must stay intact, got:\n{out}"
+        );
+        assert!(
+            out.contains("See [^1].\nNext."),
+            "ticket prose before the footnote must reflow, got:\n{out}"
+        );
+        assert!(
+            out.contains("[^1]: Footnote text. Second sentence."),
+            "ticket footnote must not split, got:\n{out}"
+        );
+        assert!(
+            !out.contains("[^1]: Footnote text.\nSecond sentence."),
+            "ticket footnote must not lose its second sentence, got:\n{out}"
+        );
+        assert_eq!(format_text(&out, &md_cfg()).unwrap(), out);
     }
 }
