@@ -657,6 +657,9 @@ fn latex_opens_block(line: &str) -> bool {
 
 fn rst_opens_block(line: &str) -> bool {
     let t = line.trim_start();
+    if crate::parser::rst::is_rst_doctest_opener(t) {
+        return true;
+    }
     if t == ".." || t.starts_with(".. ") || t.starts_with("..\t") {
         return true;
     }
