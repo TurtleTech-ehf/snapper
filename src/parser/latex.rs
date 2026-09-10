@@ -9,6 +9,8 @@ use crate::sentence::unicode::latex_verb_span_end_with;
 // Environments whose content is NOT prose (math, code, figures, tables).
 // Extra names are tree-sitter-latex `math_environment` plus latexindent
 // `lookForAlignDelims` (amsmath / mathtools / tabularray), not a GPL copy.
+// Overleaf `equationEnvNames` includes `tikzcd`; pgfplots `axis` /
+// `pgfpicture` are the same class as `tikzpicture`. Starred forms only.
 static NON_PROSE_ENVS: &[&str] = &[
     "equation",
     "equation*",
@@ -51,6 +53,12 @@ static NON_PROSE_ENVS: &[&str] = &[
     "verbatim",
     "minted",
     "tikzpicture",
+    "tikzcd",
+    "tikzcd*",
+    "pgfpicture",
+    "pgfpicture*",
+    "axis",
+    "axis*",
     "array",
     "array*",
     "matrix",
@@ -2345,6 +2353,134 @@ Some text.
         );
         assert!(
             out.contains("After the tables.\nNext."),
+            "prose after the envs must still reflow, got:\n{out}"
+        );
+        assert_eq!(format_text(&out, &latex_cfg()).unwrap(), out);
+    }
+
+    /// Ticket fixture (GitHub #97 / snapper-e916): tikzcd body is Structure.
+    #[test]
+    fn tikzcd_fixture_body_is_structure_not_prose() {
+        use crate::format_text;
+
+        let input = concat!(
+            "\\begin{tikzcd}\n",
+            "This is a long sentence that must not reflow as prose inside tikzcd.\n",
+            "\\end{tikzcd}\n",
+        );
+        let regions = LatexParser::default().parse(input);
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Structure(s)
+                    if s.contains("must not reflow as prose inside tikzcd")
+            )),
+            "tikzcd body must be Structure, got: {regions:?}"
+        );
+        assert!(
+            !regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(p) if p.contains("must not reflow as prose inside tikzcd")
+            )),
+            "tikzcd body must not be Prose, got: {regions:?}"
+        );
+        let out = format_text(input, &latex_cfg()).unwrap();
+        assert_eq!(out, input, "tikzcd env must be identity, got:\n{out}");
+        assert_eq!(format_text(&out, &latex_cfg()).unwrap(), out);
+    }
+
+    #[test]
+    fn pgfpicture_and_axis_bodies_are_structure_not_prose() {
+        use crate::format_text;
+
+        for name in ["pgfpicture", "axis"] {
+            let input = format!(
+                "\\begin{{{name}}}\nThis is a long sentence that must not reflow as prose inside {name}.\n\\end{{{name}}}\nAfter the picture. Next.\n"
+            );
+            let needle = format!("must not reflow as prose inside {name}");
+            let regions = LatexParser::default().parse(&input);
+            assert!(
+                regions
+                    .iter()
+                    .any(|r| matches!(r, Region::Structure(s) if s.contains(&needle))),
+                "{name} body must be Structure, got: {regions:?}"
+            );
+            assert!(
+                !regions
+                    .iter()
+                    .any(|r| matches!(r, Region::Prose(p) if p.contains(&needle))),
+                "{name} body must not be Prose, got: {regions:?}"
+            );
+            let out = format_text(&input, &latex_cfg()).unwrap();
+            assert!(
+                out.contains(&format!(
+                    "This is a long sentence that must not reflow as prose inside {name}."
+                )),
+                "{name} body must not reflow, got:\n{out}"
+            );
+            assert!(
+                out.contains("After the picture.\nNext."),
+                "prose after {name} must still reflow, got:\n{out}"
+            );
+            assert_eq!(format_text(&out, &latex_cfg()).unwrap(), out);
+        }
+    }
+
+    #[test]
+    fn tikzcd_axis_pgfpicture_starred_are_structure() {
+        for name in ["tikzcd*", "pgfpicture*", "axis*"] {
+            let input = format!(
+                "\\begin{{{name}}}\nThis is a long sentence that must not reflow as prose inside {name}.\n\\end{{{name}}}\n"
+            );
+            let needle = format!("must not reflow as prose inside {name}");
+            let regions = LatexParser::default().parse(&input);
+            assert!(
+                regions
+                    .iter()
+                    .any(|r| matches!(r, Region::Structure(s) if s.contains(&needle))),
+                "{name} body must be Structure, got: {regions:?}"
+            );
+            assert!(
+                !regions
+                    .iter()
+                    .any(|r| matches!(r, Region::Prose(p) if p.contains(&needle))),
+                "{name} body must not be Prose, got: {regions:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn tikzcd_axis_pgfpicture_two_sentence_bodies_do_not_reflow() {
+        use crate::format_text;
+
+        let input = "\\begin{document}\n\\begin{tikzcd}\nFirst sentence inside tikzcd. Second sentence stays put.\n\\end{tikzcd}\n\\begin{axis}\nFirst sentence inside axis. Second sentence stays put.\n\\end{axis}\n\\begin{pgfpicture}\nFirst sentence inside pgfpicture. Second sentence stays put.\n\\end{pgfpicture}\nAfter the pictures. Next.\n\\end{document}\n";
+        let out = format_text(input, &latex_cfg()).unwrap();
+        assert!(
+            out.contains("First sentence inside tikzcd. Second sentence stays put."),
+            "tikzcd body must not reflow, got:\n{out}"
+        );
+        assert!(
+            !out.contains("First sentence inside tikzcd.\nSecond sentence stays put."),
+            "tikzcd body must stay one source line, got:\n{out}"
+        );
+        assert!(
+            out.contains("First sentence inside axis. Second sentence stays put."),
+            "axis body must not reflow, got:\n{out}"
+        );
+        assert!(
+            !out.contains("First sentence inside axis.\nSecond sentence stays put."),
+            "axis body must stay one source line, got:\n{out}"
+        );
+        assert!(
+            out.contains("First sentence inside pgfpicture. Second sentence stays put."),
+            "pgfpicture body must not reflow, got:\n{out}"
+        );
+        assert!(
+            !out.contains("First sentence inside pgfpicture.\nSecond sentence stays put."),
+            "pgfpicture body must stay one source line, got:\n{out}"
+        );
+        assert!(
+            out.contains("After the pictures.\nNext."),
             "prose after the envs must still reflow, got:\n{out}"
         );
         assert_eq!(format_text(&out, &latex_cfg()).unwrap(), out);
