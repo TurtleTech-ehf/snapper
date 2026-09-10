@@ -26,7 +26,7 @@ pub struct FormatOverrides {
     pub structure_envs: Vec<String>,
     /// Extra LaTeX command names tokenized like `\verb` before split.
     /// Meaningful under `[latex]` only. Missing or empty keeps
-    /// verb/lstinline/spverb/mintinline/mint.
+    /// verb/lstinline/spverb/Verb/mintinline/mint.
     pub verbatim_commands: Vec<String>,
 }
 

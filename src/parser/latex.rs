@@ -279,8 +279,8 @@ impl LatexParser {
     }
 
     /// Byte offset of the first `%` that is not escaped as `\%` and is not
-    /// inside `\verb` / `\lstinline` / `\spverb` / `\mintinline` / `\mint` /
-    /// configured verbatim commands.
+    /// inside `\verb` / `\lstinline` / `\spverb` / `\Verb` / `\mintinline` /
+    /// `\mint` / configured verbatim commands.
     fn unescaped_percent(&self, line: &str) -> Option<usize> {
         unescaped_percent_with(line, &self.extra_verbatim_commands)
     }
@@ -652,7 +652,7 @@ fn find_tex_cs(line: &str, from: usize, cs: &str) -> Option<usize> {
 }
 
 /// `\iffalse` in ordinary TeX, skipping `\verb` / `\lstinline` /
-/// `\spverb` / `\mintinline` / `\mint` spans.
+/// `\spverb` / `\Verb` / `\mintinline` / `\mint` spans.
 fn find_iffalse_at(line: &str, from: usize, extra_cmds: &[String]) -> Option<usize> {
     let bytes = line.as_bytes();
     let mut i = from;
@@ -3036,31 +3036,32 @@ Some text.
     fn configured_verbatim_command_is_tokenized_like_verb() {
         use crate::format_text;
 
-        let input = "\\begin{document}\nUse \\Verb|a.b! c| here. Next sentence.\n\\end{document}\n";
+        let input =
+            "\\begin{document}\nUse \\MyVerb|a.b! c| here. Next sentence.\n\\end{document}\n";
         let default_out = format_text(input, &latex_cfg()).unwrap();
         assert!(
-            !default_out.contains("Use \\Verb|a.b! c| here.\nNext sentence."),
-            "unlisted Verb must not stay atomic like verb, got:\n{default_out}"
+            !default_out.contains("Use \\MyVerb|a.b! c| here.\nNext sentence."),
+            "unlisted MyVerb must not stay atomic like verb, got:\n{default_out}"
         );
 
         let cfg = crate::FormatConfig {
             format: crate::format::Format::Latex,
-            latex_verbatim_commands: vec!["Verb".into()],
+            latex_verbatim_commands: vec!["MyVerb".into()],
             ..Default::default()
         }
         .without_safety_backstops();
         let out = format_text(input, &cfg).unwrap();
         assert!(
-            out.contains(r"\Verb|a.b! c|"),
-            "configured Verb must stay intact, got:\n{out}"
+            out.contains(r"\MyVerb|a.b! c|"),
+            "configured MyVerb must stay intact, got:\n{out}"
         );
         assert!(
-            !out.contains("\\Verb|a.\n") && !out.contains("\\Verb|a.b!\n"),
-            "inner .!? must not split configured Verb, got:\n{out}"
+            !out.contains("\\MyVerb|a.\n") && !out.contains("\\MyVerb|a.b!\n"),
+            "inner .!? must not split configured MyVerb, got:\n{out}"
         );
         assert!(
-            out.contains("Use \\Verb|a.b! c| here.\nNext sentence."),
-            "configured Verb must tokenize like verb before split, got:\n{out}"
+            out.contains("Use \\MyVerb|a.b! c| here.\nNext sentence."),
+            "configured MyVerb must tokenize like verb before split, got:\n{out}"
         );
         assert_eq!(format_text(&out, &cfg).unwrap(), out);
     }
@@ -3123,10 +3124,10 @@ Some text.
     fn configured_verb_inner_percent_is_not_a_comment() {
         use crate::format_text;
 
-        let input = "\\begin{document}\nCode \\Verb!%! here. Next sentence.\n\\end{document}\n";
+        let input = "\\begin{document}\nCode \\MyVerb!%! here. Next sentence.\n\\end{document}\n";
         let cfg = crate::FormatConfig {
             format: crate::format::Format::Latex,
-            latex_verbatim_commands: vec!["Verb".into()],
+            latex_verbatim_commands: vec!["MyVerb".into()],
             ..Default::default()
         };
         assert!(
@@ -3135,15 +3136,15 @@ Some text.
         );
         let out = format_text(input, &cfg).unwrap();
         assert!(
-            out.contains(r"\Verb!%!"),
-            "configured Verb with inner % must stay intact, got:\n{out}"
+            out.contains(r"\MyVerb!%!"),
+            "configured MyVerb with inner % must stay intact, got:\n{out}"
         );
         assert!(
-            out.contains("Code \\Verb!%! here.\nNext sentence."),
+            out.contains("Code \\MyVerb!%! here.\nNext sentence."),
             "production backstops must not revert the whole file, got:\n{out}"
         );
         assert!(
-            !out.contains("Code \\Verb!%! here. Next sentence."),
+            !out.contains("Code \\MyVerb!%! here. Next sentence."),
             "inner % is not a comment; the fused line must split, got:\n{out}"
         );
         assert_eq!(format_text(&out, &cfg).unwrap(), out);
@@ -3155,12 +3156,7 @@ Some text.
 
         let input =
             "\\begin{document}\nUse \\Verbatim|x.y| here. Next sentence.\n\\end{document}\n";
-        let cfg = crate::FormatConfig {
-            format: crate::format::Format::Latex,
-            latex_verbatim_commands: vec!["Verb".into()],
-            ..Default::default()
-        };
-        let out = format_text(input, &cfg).unwrap();
+        let out = format_text(input, &latex_cfg()).unwrap();
         assert!(
             out.contains("Use \\Verbatim|x.y| here.\nNext sentence."),
             "\\Verb must not consume \\Verbatim, so the next sentence must split, got:\n{out}"
@@ -3169,7 +3165,7 @@ Some text.
             out.contains(r"\Verbatim|x.y|"),
             "\\Verbatim must remain in the source, got:\n{out}"
         );
-        assert_eq!(format_text(&out, &cfg).unwrap(), out);
+        assert_eq!(format_text(&out, &latex_cfg()).unwrap(), out);
     }
 
     #[test]

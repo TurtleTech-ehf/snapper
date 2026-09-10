@@ -176,7 +176,7 @@ pub fn protect_inline_tokens_with(
     (protected.into_owned(), placeholders)
 }
 
-/// `\verb|...|` / `\lstinline[...]!...!` / `\spverb|...|` /
+/// `\verb|...|` / `\lstinline[...]!...!` / `\spverb|...|` / `\Verb|...|` /
 /// `\mintinline{lang}|...|` / `\mint{lang}{...}` so inner `.!?%` cannot
 /// split or comment.
 fn protect_latex_verbatim(
@@ -202,10 +202,11 @@ fn protect_latex_verbatim(
     out
 }
 
-/// Byte end of a `\verb` / `\lstinline` / `\spverb` / `\mintinline` /
+/// Byte end of a `\verb` / `\lstinline` / `\spverb` / `\Verb` / `\mintinline` /
 /// `\mint` / extra-name span starting at `at`.
 ///
-/// `\verb` / `\verb*` / `\spverb` / `\spverb*`: next character is the
+/// `\verb` / `\verb*` / `\spverb` / `\spverb*` / `\Verb` / `\Verb*`: next
+/// character is the
 /// delimiter; content runs to the same character. `\lstinline` /
 /// `\lstinline*` may take optional `[...]` before a delimiter or a
 /// `{...}` brace body. `\mintinline` / `\mint` (and stars) take optional
@@ -240,6 +241,11 @@ pub(crate) fn latex_verb_span_end_with(
             return None;
         }
         (after_bs + "spverb".len(), VerbKind::Delim)
+    } else if let Some(stripped) = tail.strip_prefix("Verb") {
+        if stripped.starts_with(|c: char| c.is_ascii_alphabetic()) {
+            return None;
+        }
+        (after_bs + "Verb".len(), VerbKind::Delim)
     } else if let Some(stripped) = tail.strip_prefix("mint") {
         if stripped.starts_with(|c: char| c.is_ascii_alphabetic()) {
             return None;
@@ -331,6 +337,7 @@ fn match_extra_verb_command<'a>(tail: &'a str, extras: &'a [String]) -> Option<&
             || name == "verb"
             || name == "lstinline"
             || name == "spverb"
+            || name == "Verb"
             || name == "mintinline"
             || name == "mint"
         {
