@@ -2396,15 +2396,38 @@ They are endowed with reason and conscience and should act towards one another i
     }
 
     #[test]
-    fn max_width_keeps_org_inline_src_after_underscore_atomic() {
+    fn max_width_keeps_org_inline_src_after_leading_underscore_atomic() {
+        let token = "src_python{print(1. 2)}";
+        for sentence in [
+            "See _src_python{print(1. 2)} today. Next sentence.",
+            "See foo-src_python{print(1. 2)} today. Next sentence.",
+        ] {
+            for clause in [false, true] {
+                let wrapped = wrap_sentence(sentence, 20, clause);
+                assert_atomic_token(&wrapped, token);
+                assert!(
+                    !wrapped.contains("1.\n2"),
+                    "must not wrap on the interior period after leading _ or hyphen, got:\n{wrapped}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn max_width_may_wrap_org_src_after_word_underscore() {
+        // Subscript `_src` leaves `{print(1. 2)}` as prose, so wrap may
+        // cut on the interior period. Inverse of the leading-`_` object.
         let token = "src_python{print(1. 2)}";
         let sentence = "See foo_src_python{print(1. 2)} today. Next sentence.";
         for clause in [false, true] {
             let wrapped = wrap_sentence(sentence, 20, clause);
-            assert_atomic_token(&wrapped, token);
             assert!(
-                !wrapped.contains("1.\n2"),
-                "must not wrap on the interior period after underscore, got:\n{wrapped}"
+                !wrapped.lines().any(|l| l.contains(token)),
+                "foo_src_ leftover braces must not stay atomic, got:\n{wrapped}"
+            );
+            assert!(
+                wrapped.contains("1.\n2"),
+                "interior period may wrap after word-underscore subscript, got:\n{wrapped}"
             );
         }
     }
@@ -2412,13 +2435,35 @@ They are endowed with reason and conscience and should act towards one another i
     #[test]
     fn max_width_keeps_org_inline_call_atomic() {
         let token = "call_name(1. 2)";
-        let sentence = "Use call_name(1. 2) today. Next sentence.";
+        for sentence in [
+            "Use call_name(1. 2) today. Next sentence.",
+            "See _call_name(1. 2) today. Next sentence.",
+            "See foo-call_name(1. 2) today. Next sentence.",
+        ] {
+            for clause in [false, true] {
+                let wrapped = wrap_sentence(sentence, 16, clause);
+                assert_atomic_token(&wrapped, token);
+                assert!(
+                    !wrapped.contains("1.\n2"),
+                    "must not wrap on the interior period, got:\n{wrapped}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn max_width_may_wrap_org_call_after_word_underscore() {
+        let token = "call_name(1. 2)";
+        let sentence = "See foo_call_name(1. 2) today. Next sentence.";
         for clause in [false, true] {
             let wrapped = wrap_sentence(sentence, 16, clause);
-            assert_atomic_token(&wrapped, token);
             assert!(
-                !wrapped.contains("1.\n2"),
-                "must not wrap on the interior period, got:\n{wrapped}"
+                !wrapped.lines().any(|l| l.contains(token)),
+                "foo_call leftover parens must not stay atomic, got:\n{wrapped}"
+            );
+            assert!(
+                wrapped.contains("1.\n2"),
+                "interior period may wrap after word-underscore subscript, got:\n{wrapped}"
             );
         }
     }
