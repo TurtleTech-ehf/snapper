@@ -814,6 +814,38 @@ mod tests {
     }
 
     #[test]
+    fn auto_enumerated_item_hangs_next_sentence() {
+        use crate::format::Format;
+        use crate::{FormatConfig, format_text};
+
+        let cfg = FormatConfig {
+            format: Format::Rst,
+            max_width: 0,
+            ..Default::default()
+        };
+        let input = "#. First sentence. Second sentence.";
+        let out = format_text(input, &cfg).unwrap();
+        assert_eq!(
+            out, "#. First sentence.\n   Second sentence.",
+            "auto-enum must hang at `#. ` width, got:\n{out}"
+        );
+        let twice = format_text(&out, &cfg).unwrap();
+        assert_eq!(out, twice, "hung auto-enum must be identity, got:\n{twice}");
+
+        let bullet = "* First sentence. Second sentence.";
+        let bullet_out = format_text(bullet, &cfg).unwrap();
+        assert_eq!(
+            bullet_out, "* First sentence.\n  Second sentence.",
+            "bullet hang from #51 must stay, got:\n{bullet_out}"
+        );
+        let bullet_twice = format_text(&bullet_out, &cfg).unwrap();
+        assert_eq!(
+            bullet_out, bullet_twice,
+            "hung bullet must be identity, got:\n{bullet_twice}"
+        );
+    }
+
+    #[test]
     fn reporter_list_continuation_paragraph_is_identity_under_format() {
         use crate::format::Format;
         use crate::{FormatConfig, format_text};
