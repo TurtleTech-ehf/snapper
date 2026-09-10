@@ -57,6 +57,7 @@ The classification depends on the format.
 :END:
 These tokens within prose are not split across lines:
 - Links: =[[url][description]]=
+- Radio targets: =<<<the Fourier. transform>>>=; angle targets: =<<sec. intro>>=
 - Emphasis: =*bold*=, =/italic/=, =_underline_=, =+strike+=
 - Inline code: =~code~=, ===verbatim===
 - A =~code~= or ===verbatim=== span may contain the marker character; pairing matches pandoc's org reader, so =x = 1= stays one span

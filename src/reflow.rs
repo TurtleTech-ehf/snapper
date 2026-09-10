@@ -2225,6 +2225,26 @@ They are endowed with reason and conscience and should act towards one another i
     }
 
     #[test]
+    fn max_width_keeps_org_radio_target_atomic() {
+        let token = "<<<the Fourier. transform>>>";
+        let sentence = "See <<<the Fourier. transform>>> in the text.";
+        for clause in [false, true] {
+            let wrapped = wrap_sentence(sentence, 24, clause);
+            assert_atomic_token(&wrapped, token);
+        }
+    }
+
+    #[test]
+    fn max_width_keeps_org_angle_target_atomic() {
+        let token = "<<sec. intro>>";
+        let sentence = "See <<sec. intro>> in the text.";
+        for clause in [false, true] {
+            let wrapped = wrap_sentence(sentence, 16, clause);
+            assert_atomic_token(&wrapped, token);
+        }
+    }
+
+    #[test]
     fn max_width_keeps_markdown_reference_link_atomic() {
         let token = "[the Fourier. transform][wiki]";
         let sentence = "See [the Fourier. transform][wiki] for details.";
