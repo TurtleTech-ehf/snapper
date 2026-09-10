@@ -27,10 +27,33 @@ static EXPORT_SNIPPET_RE: LazyLock<Regex> =
 pub struct OrgParser;
 
 impl OrgParser {
+    /// NAME token after `#+BEGIN_` / `#+END_`, uppercased. org-element and
+    /// orgize close only `#+end_NAME` for the currently open NAME.
+    fn block_affix_name(line: &str, prefix: &str) -> Option<String> {
+        let trimmed = line.trim_start();
+        let upper = trimmed.to_ascii_uppercase();
+        if !upper.starts_with(prefix) {
+            return None;
+        }
+        let rest = trimmed.get(prefix.len()..)?;
+        let name = rest.split_whitespace().next()?;
+        if name.is_empty() {
+            return None;
+        }
+        Some(name.to_ascii_uppercase())
+    }
+
+    fn block_begin_name(line: &str) -> Option<String> {
+        Self::block_affix_name(line, "#+BEGIN_")
+    }
+
+    fn block_end_name(line: &str) -> Option<String> {
+        Self::block_affix_name(line, "#+END_")
+    }
+
     /// Check if a line starts a block (#+BEGIN_...)
     fn is_block_begin(line: &str) -> bool {
-        let trimmed = line.trim_start();
-        trimmed.to_ascii_uppercase().starts_with("#+BEGIN_")
+        Self::block_begin_name(line).is_some()
     }
 
     /// Check if a line starts a source code block (#+BEGIN_SRC LANG ARGS...).
@@ -52,10 +75,13 @@ impl OrgParser {
         Some(lang)
     }
 
-    /// Check if a line ends a block (#+END_...)
+    /// Check if a line ends a block (#+END_NAME)
     fn is_block_end(line: &str) -> bool {
-        let trimmed = line.trim_start();
-        trimmed.to_ascii_uppercase().starts_with("#+END_")
+        Self::block_end_name(line).is_some()
+    }
+
+    fn is_matching_block_end(line: &str, name: &str) -> bool {
+        Self::block_end_name(line).is_some_and(|end| end == name)
     }
 
     /// Check if a line ends a source code block (#+END_SRC).
@@ -127,8 +153,10 @@ impl FormatParser for OrgParser {
         let mut regions: Vec<SpannedRegion> = Vec::new();
         let mut current_prose = String::new();
         let mut prose_span: Option<ByteSpan> = None;
-        let mut in_block = false;
-        // Source block bookkeeping; `in_src_block` implies `in_block`.
+        // Open greater/lesser blocks by NAME. Close only `#+END_NAME` for
+        // the innermost open NAME (org-element / orgize). `in_src_block`
+        // is a separate code-region path and is not stacked here.
+        let mut block_stack: Vec<String> = Vec::new();
         let mut in_src_block = false;
         let mut src_lang: Option<String> = None;
         let mut src_header = ByteSpan::default();
@@ -167,7 +195,6 @@ impl FormatParser for OrgParser {
                 flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
                 if Self::is_src_end(line_text) {
                     in_src_block = false;
-                    in_block = false;
                     regions.push(SpannedRegion::code(
                         input,
                         src_lang.take(),
@@ -179,11 +206,15 @@ impl FormatParser for OrgParser {
                 continue;
             }
 
-            // Inside a non-src block -- everything is structure
-            if in_block {
+            // Inside a non-src block -- everything is structure until the
+            // matching #+END_NAME. A nested #+BEGIN_INNER pushes so
+            // #+END_INNER cannot drop the outer fence.
+            if let Some(open) = block_stack.last().cloned() {
                 flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
-                if Self::is_block_end(line_text) {
-                    in_block = false;
+                if Self::is_matching_block_end(line_text, &open) {
+                    block_stack.pop();
+                } else if let Some(inner) = Self::block_begin_name(line_text) {
+                    block_stack.push(inner);
                 }
                 regions.push(SpannedRegion::structure(input, line.span()));
                 continue;
@@ -223,7 +254,6 @@ impl FormatParser for OrgParser {
             // Source block begin (#+BEGIN_SRC LANG ...)
             if let Some(lang) = Self::is_src_begin(line_text) {
                 flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
-                in_block = true;
                 in_src_block = true;
                 src_lang = lang;
                 src_header = line.span();
@@ -231,10 +261,10 @@ impl FormatParser for OrgParser {
                 continue;
             }
 
-            // Other #+BEGIN_ block: opaque structure
-            if Self::is_block_begin(line_text) {
+            // Other #+BEGIN_ block: opaque structure until #+END_NAME
+            if let Some(name) = Self::block_begin_name(line_text) {
                 flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
-                in_block = true;
+                block_stack.push(name);
                 regions.push(SpannedRegion::structure(input, line.span()));
                 continue;
             }
@@ -705,5 +735,86 @@ mod tests {
         );
         assert_eq!(regions[5], Region::Structure("\n".to_string()));
         assert_eq!(regions.len(), 6);
+    }
+
+    #[test]
+    fn nested_example_end_does_not_close_quote_by_any_end() {
+        use crate::format::Format;
+        use crate::{FormatConfig, format_text};
+
+        // GitHub #107 / snapper-zyjn: org-element closes only #+end_NAME
+        // for the open NAME. A name-blind #+END_ would drop the quote at
+        // #+END_EXAMPLE and turn the real closer plus remaining quote
+        // lines into prose.
+        let input = concat!(
+            "#+BEGIN_QUOTE\n",
+            "Quoted one. Quoted two.\n",
+            "#+BEGIN_EXAMPLE\n",
+            "foo. bar.\n",
+            "#+END_EXAMPLE\n",
+            "Still quoted. More quoted.\n",
+            "#+END_QUOTE\n",
+            "After. Next.\n",
+        );
+        let cfg = FormatConfig {
+            format: Format::Org,
+            ..Default::default()
+        }
+        .without_safety_backstops();
+        let out = format_text(input, &cfg).unwrap();
+
+        assert!(
+            out.contains("#+BEGIN_EXAMPLE\nfoo. bar.\n#+END_EXAMPLE\n"),
+            "EXAMPLE body must stay literal, got:\n{out}"
+        );
+        assert!(
+            !out.contains("foo.\nbar."),
+            "must not reflow EXAMPLE/EXPORT/COMMENT, got:\n{out}"
+        );
+
+        let still = out.find("Still quoted").expect("missing Still quoted");
+        let end_quote = out.find("#+END_QUOTE").expect("missing #+END_QUOTE closer");
+        let after = out.find("After.").expect("missing After.");
+        assert!(
+            still < end_quote && end_quote < after,
+            "inner quote lines must stay before #+END_QUOTE, got:\n{out}"
+        );
+        assert!(
+            out.lines().any(|l| l.eq_ignore_ascii_case("#+END_QUOTE")),
+            "#+END_QUOTE must remain a fence, not prose, got:\n{out}"
+        );
+        assert!(
+            out.contains("Still quoted. More quoted."),
+            "quote body after the nested EXAMPLE must stay inside the fence, got:\n{out}"
+        );
+        assert!(
+            !out.contains("Still quoted.\nMore quoted."),
+            "name-blind close would reflow leftover quote lines as prose, got:\n{out}"
+        );
+        assert!(
+            out.contains("After.\nNext."),
+            "prose after #+END_QUOTE must still reflow, got:\n{out}"
+        );
+
+        let regions = OrgParser.parse(input);
+        assert!(
+            !regions
+                .iter()
+                .any(|r| matches!(r, Region::Prose(p) if p.contains("Still quoted"))),
+            "Still quoted must stay inside the quote fence, got: {regions:?}"
+        );
+        assert!(
+            !regions
+                .iter()
+                .any(|r| matches!(r, Region::Prose(p) if p.contains("foo. bar."))),
+            "EXAMPLE body must not become prose, got: {regions:?}"
+        );
+        assert!(
+            regions
+                .iter()
+                .any(|r| matches!(r, Region::Prose(p) if p.contains("After. Next."))),
+            "text after #+END_QUOTE must be prose, got: {regions:?}"
+        );
+        assert_eq!(format_text(&out, &cfg).unwrap(), out);
     }
 }
