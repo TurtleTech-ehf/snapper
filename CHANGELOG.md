@@ -6,7 +6,7 @@ All notable changes to this project will be documented in this file. See [conven
 #### Bug Fixes
 - (**latex**) treat standard `alltt` as code so listing bodies do not reflow as prose (#230)
 - (**org**) inline footnote references (`[fn:: …]` / `[fn:name: …]`) stay one token so interior punctuation is not a sentence or wrap boundary (#231)
-- (**org**) inline `src_lang{...}` and `call_name(...)` stay one token so interior punctuation is not a sentence or wrap boundary (#214)
+- (**org**) inline `src_lang{...}` and `call_name(...)` stay one token so interior punctuation is not a sentence or wrap boundary; org-element `\<` is word-start, so `foo_src_python{...}` still matches (#214)
 - (**org**) macros (`{{{name}}}` / `{{{name(args)}}}`) stay one token so interior punctuation is not a sentence or wrap boundary (#212)
 - (**markdown**) setext titles promote the open CommonMark paragraph: list/quote items, hard-break lines, and a 4-space `<!--` continuation stay title text (#208)
 - (**markdown**) setext titles promote only the open paragraph so a preceding HTML comment or indented code block is not re-emitted (#208)

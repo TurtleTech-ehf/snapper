@@ -2808,6 +2808,33 @@ mod tests {
         assert_eq!(format_text(&out, &org_cfg()).unwrap(), out);
     }
 
+    #[test]
+    fn org_inline_src_after_underscore_is_not_a_sentence_boundary() {
+        use crate::format_text;
+
+        let src = "src_python{print(1. 2)}";
+        let input = "See foo_src_python{print(1. 2)} today. Next sentence.\n";
+        let regions = OrgParser.parse(input);
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(p)
+                    if p.contains(src) && p.contains("Next sentence.")
+            )),
+            "src after underscore stays inline Prose, got: {regions:?}"
+        );
+        let out = format_text(input, &org_cfg()).unwrap();
+        assert!(
+            out.contains("See foo_src_python{print(1. 2)} today.\nNext sentence."),
+            "sentence after src-after-underscore must reflow, got:\n{out}"
+        );
+        assert!(
+            !out.contains("1.\n") && !out.contains("print(1.\n2)"),
+            "must not split inside src after underscore, got:\n{out}"
+        );
+        assert_eq!(format_text(&out, &org_cfg()).unwrap(), out);
+    }
+
     /// Ticket fixture (Format::Org / GitHub #231): org-element inline
     /// footnote references stay one token so an interior period is not
     /// a sentence boundary. `Next sentence.` still splits.

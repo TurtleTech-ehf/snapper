@@ -422,9 +422,10 @@ fn org_scan_lists_same_line(text: &str, open_at: usize, open: u8, close: u8) -> 
     None
 }
 
-/// `\<` in `org-element-inline-src-block-regexp`: start of text or a
-/// non-identifier character. Underscore stays inside the identifier so
-/// `foo_src_python{...}` is not an object (`asrc_python{...}` neither).
+/// `\<` in org-element-inline-src-block-parser / inline-babel-call-parser
+/// (`looking-at` `\<src_` / `\<call_`). Word-start, not symbol-start.
+/// Org syntax class of `_` is symbol (`_`), so `foo_src_python{...}` and
+/// `_src_python{...}` are objects. Word characters (`asrc_`, `1src_`) are not.
 fn org_inline_object_start(text: &str, at: usize) -> bool {
     if at == 0 {
         return true;
@@ -432,7 +433,7 @@ fn org_inline_object_start(text: &str, at: usize) -> bool {
     !text[..at]
         .chars()
         .next_back()
-        .is_some_and(|c| c.is_ascii_alphanumeric() || c == '_')
+        .is_some_and(|c| c.is_ascii_alphanumeric())
 }
 
 /// org-element `scan-lists` on a one-pair syntax table. Newlines are
@@ -796,12 +797,17 @@ fn find_md_code_span(text: &str, open_at: usize) -> Option<usize> {
 /// when a regex match wraps a paired span.
 pub fn atomic_inline_spans(text: &str) -> Vec<(usize, usize)> {
     let mut spans = Vec::new();
+    let mut org_src_call_spans = Vec::new();
     let bytes = text.as_bytes();
     let mut i = 0;
     while i < text.len() {
-        if let Some(end) = org_inline_src_or_call_span_end(text, i)
-            .or_else(|| org_footnote_reference_span_end(text, i))
-        {
+        if let Some(end) = org_inline_src_or_call_span_end(text, i) {
+            spans.push((i, end));
+            org_src_call_spans.push((i, end));
+            i = end;
+            continue;
+        }
+        if let Some(end) = org_footnote_reference_span_end(text, i) {
             spans.push((i, end));
             i = end;
             continue;
@@ -824,7 +830,17 @@ pub fn atomic_inline_spans(text: &str) -> Vec<(usize, usize)> {
         i += ch.len_utf8();
     }
     for m in INLINE_TOKEN_RE.find_iter(text) {
-        spans.push((m.start(), m.end()));
+        let (ms, me) = (m.start(), m.end());
+        // Org `\<src_` / `\<call_` wins over the underline regex `_src_` /
+        // `_call_` inside `foo_src_python{...}`. Keep a regex match only
+        // when it wraps the whole object (a link around the src).
+        let steals_org = org_src_call_spans
+            .iter()
+            .any(|&(s, e)| ms < e && me > s && !(ms <= s && me >= e));
+        if steals_org {
+            continue;
+        }
+        spans.push((ms, me));
     }
     merge_byte_ranges(spans)
 }
@@ -1895,17 +1911,98 @@ mod tests {
     }
 
     #[test]
-    fn inline_org_src_requires_identifier_boundary() {
+    fn inline_org_src_matches_after_underscore() {
+        // org-element `\<src_` is word-start. `_` is symbol, so
+        // `foo_src_python{...}` and `_src_python{...}` are objects.
+        let src = "src_python{print(1. 2)}";
+        for (text, first) in [
+            (
+                "See foo_src_python{print(1. 2)} today. Next sentence.",
+                "See foo_src_python{print(1. 2)} today.",
+            ),
+            (
+                "See _src_python{print(1. 2)} today. Next sentence.",
+                "See _src_python{print(1. 2)} today.",
+            ),
+        ] {
+            let (_, placeholders) = protect_inline_tokens(text);
+            assert!(
+                placeholders.iter().any(|p| p == src),
+                "src_ after underscore must be one token, got {placeholders:?} for {text:?}"
+            );
+            let spans = atomic_inline_spans(text);
+            assert!(
+                spans.iter().any(|&(s, e)| &text[s..e] == src),
+                "src_ after underscore must be an atomic wrap span, got {:?} for {text:?}",
+                spans.iter().map(|&(s, e)| &text[s..e]).collect::<Vec<_>>()
+            );
+            assert_eq!(
+                split(text),
+                vec![first.to_string(), "Next sentence.".to_string()]
+            );
+        }
+    }
+
+    #[test]
+    fn inline_org_src_requires_word_boundary() {
+        // Word char before `s` is not `\<`. `case-fold-search` is nil.
         for text in [
             "asrc_python{print(1. 2)} today. Next sentence.",
-            "foo_src_python{print(1. 2)} today. Next sentence.",
+            "1src_python{print(1. 2)} today. Next sentence.",
+            "SRC_python{print(1. 2)} today. Next sentence.",
         ] {
             let (_, placeholders) = protect_inline_tokens(text);
             assert!(
                 !placeholders
                     .iter()
-                    .any(|p| p.contains("src_python{print(1. 2)}")),
-                "src_ must not match inside an identifier, got {placeholders:?} for {text:?}"
+                    .any(|p| p.contains("src_python{print(1. 2)}")
+                        || p.contains("SRC_python{print(1. 2)}")),
+                "src_ must not match after a word char or when folded, got {placeholders:?} for {text:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn inline_org_call_matches_after_underscore() {
+        let call = "call_name(1. 2)";
+        for (text, first) in [
+            (
+                "See foo_call_name(1. 2) today. Next sentence.",
+                "See foo_call_name(1. 2) today.",
+            ),
+            (
+                "See _call_name(1. 2) today. Next sentence.",
+                "See _call_name(1. 2) today.",
+            ),
+        ] {
+            let (_, placeholders) = protect_inline_tokens(text);
+            assert!(
+                placeholders.iter().any(|p| p == call),
+                "call_ after underscore must be one token, got {placeholders:?} for {text:?}"
+            );
+            let spans = atomic_inline_spans(text);
+            assert!(
+                spans.iter().any(|&(s, e)| &text[s..e] == call),
+                "call_ after underscore must be an atomic wrap span, got {:?} for {text:?}",
+                spans.iter().map(|&(s, e)| &text[s..e]).collect::<Vec<_>>()
+            );
+            assert_eq!(
+                split(text),
+                vec![first.to_string(), "Next sentence.".to_string()]
+            );
+        }
+    }
+
+    #[test]
+    fn inline_org_call_requires_word_boundary() {
+        for text in [
+            "acall_name(1. 2) today. Next sentence.",
+            "1call_name(1. 2) today. Next sentence.",
+        ] {
+            let (_, placeholders) = protect_inline_tokens(text);
+            assert!(
+                !placeholders.iter().any(|p| p.contains("call_name(1. 2)")),
+                "call_ must not match after a word char, got {placeholders:?} for {text:?}"
             );
         }
     }
