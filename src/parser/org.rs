@@ -9,8 +9,11 @@ use crate::parser::{
 static HEADLINE_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"^(\*+\s+(?:TODO\s+|DONE\s+|NEXT\s+|WAIT\s+)?)(.*)$").unwrap());
 
+/// Org unordered/ordered marker plus a trailing space.
+/// org-syntax 4.2.6 / orgize: `*` is a bullet only when indent > 0;
+/// column-0 `*` is a headline (`HEADLINE_RE` is matched first).
 static LIST_ITEM_RE: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"^(\s*(?:[-+]|\d+[.)]) )(.*)$").unwrap());
+    LazyLock::new(|| Regex::new(r"^(\s*(?:[-+]|\d+[.)]) |[ \t]+\* )(.*)$").unwrap());
 
 /// Matches LaTeX \begin{env} lines embedded in org prose.
 static LATEX_BEGIN_RE: LazyLock<Regex> =
@@ -1217,6 +1220,118 @@ mod tests {
         );
         assert_eq!(regions[5], Region::Structure("\n".to_string()));
         assert_eq!(regions.len(), 6);
+    }
+
+    /// Ticket fixture (Format::Org / GitHub #110): indented `* ` is a child
+    /// list item (Structure marker + Prose hang), not a parent continuation.
+    fn wci8_indented_star_list_fixture() -> &'static str {
+        "- Parent one. Parent two.\n  * Child one. Child two.\n"
+    }
+
+    #[test]
+    fn indented_star_list_is_not_parent_continuation() {
+        let input = wci8_indented_star_list_fixture();
+        let regions = OrgParser.parse(input);
+        assert_eq!(regions[0], Region::Structure("- ".to_string()));
+        assert_eq!(
+            regions[1],
+            Region::Prose("Parent one. Parent two.".to_string())
+        );
+        assert_eq!(regions[2], Region::Structure("\n".to_string()));
+        assert_eq!(regions[3], Region::Structure("  * ".to_string()));
+        assert_eq!(
+            regions[4],
+            Region::Prose("Child one. Child two.".to_string())
+        );
+        assert_eq!(regions[5], Region::Structure("\n".to_string()));
+        assert_eq!(regions.len(), 6);
+        assert!(
+            !regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(p) if p.contains("* Child")
+            )),
+            "indented * child must not join the parent Prose, got: {regions:?}"
+        );
+    }
+
+    #[test]
+    fn indented_star_list_hangs_and_rejoins() {
+        use crate::format::Format;
+        use crate::{FormatConfig, format_text};
+
+        let input = wci8_indented_star_list_fixture();
+        let cfg = FormatConfig {
+            format: Format::Org,
+            ..Default::default()
+        };
+        let out = format_text(input, &cfg).unwrap();
+        assert_eq!(
+            out,
+            "- Parent one.\n  Parent two.\n  * Child one.\n    Child two.\n"
+        );
+        assert_eq!(format_text(&out, &cfg).unwrap(), out);
+
+        let regions = OrgParser.parse(&out);
+        assert_eq!(regions[0], Region::Structure("- ".to_string()));
+        assert_eq!(
+            regions[1],
+            Region::Prose("Parent one.\nParent two.".to_string())
+        );
+        assert_eq!(regions[2], Region::Structure("\n".to_string()));
+        assert_eq!(regions[3], Region::Structure("  * ".to_string()));
+        assert_eq!(
+            regions[4],
+            Region::Prose("Child one.\nChild two.".to_string())
+        );
+        assert_eq!(regions[5], Region::Structure("\n".to_string()));
+        assert_eq!(regions.len(), 6);
+    }
+
+    #[test]
+    fn column_zero_star_stays_headline_not_list() {
+        let input = "* Child one. Child two.\n";
+        let regions = OrgParser.parse(input);
+        assert_eq!(
+            regions,
+            vec![Region::Structure("* Child one. Child two.\n".to_string())]
+        );
+        assert!(
+            !regions
+                .iter()
+                .any(|r| matches!(r, Region::Prose(p) if p.contains("Child"))),
+            "column-0 * must stay a headline, got: {regions:?}"
+        );
+    }
+
+    #[test]
+    fn column_zero_star_headline_keeps_indented_star_child() {
+        use crate::format_text;
+
+        let input = "* Parent one. Parent two.\n  * Child one. Child two.\n";
+        let regions = OrgParser.parse(input);
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Structure(s) if s.trim_end() == "* Parent one. Parent two."
+            )),
+            "column-0 * must stay a headline, got: {regions:?}"
+        );
+        assert!(
+            regions
+                .iter()
+                .any(|r| matches!(r, Region::Structure(s) if s == "  * ")),
+            "indented * under a headline is still a list, got: {regions:?}"
+        );
+        let out = format_text(input, &org_cfg()).unwrap();
+        assert!(
+            out.lines().any(|l| l == "* Parent one. Parent two."),
+            "headline must not reflow as a list, got:\n{out}"
+        );
+        assert!(
+            out.contains("  * Child one.\n    Child two."),
+            "indented * child must hang, got:\n{out}"
+        );
+        assert_eq!(format_text(&out, &org_cfg()).unwrap(), out);
     }
 
     /// Quote containing example: `#+END_EXAMPLE` must not close the quote.
