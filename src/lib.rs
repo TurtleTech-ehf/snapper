@@ -114,10 +114,10 @@ pub struct FormatConfig {
     /// and assert the oracle themselves.
     pub render_backstop: bool,
     /// Extra LaTeX environments treated as code (no reflow), added to
-    /// minted/lstlisting/verbatim/comment, filecontents, tree-sitter
-    /// trivia, Overleaf Verbatim/boxedverbatim/tcblisting/codeexample,
-    /// fancyvrb BVerbatim/LVerbatim/SaveVerbatim/VerbatimOut, and
-    /// alltt. Empty keeps the built-in list.
+    /// minted/lstlisting/lstlisting*/verbatim/comment, filecontents,
+    /// tree-sitter trivia, Overleaf Verbatim/boxedverbatim/tcblisting/
+    /// codeexample, fancyvrb BVerbatim/LVerbatim/SaveVerbatim/VerbatimOut,
+    /// and alltt. Empty keeps the built-in list.
     pub latex_verbatim_envs: Vec<String>,
     /// Extra LaTeX environments treated as structure (no reflow), added
     /// to `NON_PROSE_ENVS`. Empty keeps the built-in list.

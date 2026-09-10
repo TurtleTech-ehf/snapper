@@ -3,6 +3,8 @@ All notable changes to this project will be documented in this file. See [conven
 
 - - -
 ## Unreleased (main)
+#### Bug Fixes
+- (**latex**) treat listings `lstlisting*` as code so listing bodies do not reflow as prose (#234)
 
 - - -
 

@@ -117,9 +117,10 @@ fn is_float_env(name: &str) -> bool {
 static MINTED_LANG_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"\\begin\{minted\}\s*(?:\[[^\]]*\])?\s*\{([^}]+)\}").unwrap());
 
-/// `\begin{lstlisting}[language=LANG, ...]` -- language is an option key.
+/// `\begin{lstlisting}[language=LANG, ...]` / `\begin{lstlisting*}[...]`
+/// -- language is an option key on both listings.sty names.
 static LSTLISTING_LANG_RE: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"\\begin\{lstlisting\}\s*\[[^\]]*language\s*=\s*([A-Za-z0-9_+.\-]+)").unwrap()
+    Regex::new(r"\\begin\{lstlisting\*?\}\s*\[[^\]]*language\s*=\s*([A-Za-z0-9_+.\-]+)").unwrap()
 });
 
 /// Built-in source-code environments whose body is `Region::Code`.
@@ -131,17 +132,20 @@ static LSTLISTING_LANG_RE: LazyLock<Regex> = LazyLock::new(|| {
 /// `LVerbatim` / `SaveVerbatim` / `VerbatimOut`, moreverb
 /// `boxedverbatim`, tcolorbox `tcblisting` / `codeexample`, the
 /// standard `alltt` package env (raw line breaks, some macros still
-/// expand; GitHub #230), and the `comment` package env (tree-sitter
-/// `comment_environment`: raw through matching `\end{comment}`).
-/// Overleaf `verbatimEnvNames` is Verbatim, boxedverbatim, tcblisting,
-/// codeexample. fancyvrb `BVerbatim` / `LVerbatim` are the same raw
-/// class as `Verbatim` (GitHub #209). `SaveVerbatim` / `VerbatimOut`
-/// are the same `FV@Scan` class (GitHub #213).
+/// expand; GitHub #230), listings.sty `lstlisting*` (`\lstnewenvironment`
+/// sibling of `lstlisting`; same raw `\begin`/`\end` scan; GitHub #234),
+/// and the `comment` package env (tree-sitter `comment_environment`:
+/// raw through matching `\end{comment}`). Overleaf `verbatimEnvNames`
+/// is Verbatim, boxedverbatim, tcblisting, codeexample. fancyvrb
+/// `BVerbatim` / `LVerbatim` are the same raw class as `Verbatim`
+/// (GitHub #209). `SaveVerbatim` / `VerbatimOut` are the same
+/// `FV@Scan` class (GitHub #213).
 fn is_builtin_code_env(name: &str) -> bool {
     matches!(
         name,
         "minted"
             | "lstlisting"
+            | "lstlisting*"
             | "verbatim"
             | "verbatim*"
             | "Verbatim"
@@ -745,7 +749,7 @@ impl<'a> ParseState<'a> {
             MINTED_LANG_RE
                 .captures(header_src)
                 .map(|c| c.get(1).unwrap().as_str().to_string())
-        } else if env_name == "lstlisting" {
+        } else if env_name == "lstlisting" || env_name == "lstlisting*" {
             LSTLISTING_LANG_RE
                 .captures(header_src)
                 .map(|c| c.get(1).unwrap().as_str().to_string())
@@ -2546,6 +2550,108 @@ Some text.
             "prose after alltt must still split, got:\n{two_out}"
         );
         assert_eq!(format_text(&two_out, &latex_cfg()).unwrap(), two_out);
+    }
+
+    /// Ticket fixture (GitHub #234): listings.sty `lstlisting*` is the
+    /// starred sibling of `lstlisting`. Same raw scan. Body stays Code;
+    /// following prose still splits.
+    #[test]
+    fn lstlisting_star_is_code_not_prose() {
+        use crate::format_text;
+
+        let input = concat!(
+            "\\begin{lstlisting*}\n",
+            "First line. Second line.\n",
+            "\\end{lstlisting*}\n",
+            "After the block. Next.\n",
+        );
+        let regions = LatexParser::default().parse(input);
+        let code = regions.iter().find_map(|r| match r {
+            Region::Code {
+                header,
+                body,
+                footer,
+                ..
+            } => Some((header.as_str(), body.as_str(), footer.as_str())),
+            _ => None,
+        });
+        let Some((header, body, footer)) = code else {
+            panic!("lstlisting* must be Code, got: {regions:?}");
+        };
+        assert!(
+            header.contains(r"\begin{lstlisting*}"),
+            "header must be \\begin{{lstlisting*}}, got header={header:?}"
+        );
+        assert!(
+            body.contains("First line. Second line."),
+            "lstlisting* body must be Code, got body={body:?}"
+        );
+        assert!(
+            footer.contains(r"\end{lstlisting*}"),
+            "footer must be \\end{{lstlisting*}}, got footer={footer:?}"
+        );
+        assert!(
+            !regions
+                .iter()
+                .any(|r| matches!(r, Region::Prose(p) if p.contains("First line"))),
+            "lstlisting* body must not leak into Prose, got: {regions:?}"
+        );
+        assert!(
+            regions
+                .iter()
+                .any(|r| matches!(r, Region::Prose(p) if p.contains("After the block"))),
+            "prose after lstlisting* must resume, got: {regions:?}"
+        );
+        let out = format_text(input, &latex_cfg()).unwrap();
+        assert!(
+            out.contains("\\begin{lstlisting*}") && out.contains("\\end{lstlisting*}"),
+            "lstlisting* begin/end must stay, got:\n{out}"
+        );
+        assert!(
+            out.contains("First line. Second line."),
+            "lstlisting* body must stay one source line, got:\n{out}"
+        );
+        assert!(
+            !out.contains("First line.\nSecond line."),
+            "lstlisting* must not reflow as prose, got:\n{out}"
+        );
+        assert!(
+            out.contains("After the block.\nNext."),
+            "prose after lstlisting* must still split, got:\n{out}"
+        );
+        assert_eq!(format_text(&out, &latex_cfg()).unwrap(), out);
+
+        // Same raw scan as lstlisting: `%` does not hide `\end{lstlisting*}`.
+        let raw = concat!(
+            "\\begin{lstlisting*}\n",
+            "print(1) % \\end{lstlisting*}\n",
+            "After the listing. Next.\n",
+        );
+        let raw_regions = LatexParser::default().parse(raw);
+        let raw_code = raw_regions.iter().find_map(|r| match r {
+            Region::Code { body, footer, .. } => Some((body.as_str(), footer.as_str())),
+            _ => None,
+        });
+        let (raw_body, raw_footer) =
+            raw_code.expect(&format!("lstlisting* must be Code, got: {raw_regions:?}"));
+        assert!(
+            !raw_body.contains("After the listing"),
+            "% must not hide \\end{{lstlisting*}}; after-text is not listing body, got body={raw_body:?}"
+        );
+        assert!(
+            raw_footer.contains(r"\end{lstlisting*}"),
+            "footer must be \\end{{lstlisting*}} even after %, got footer={raw_footer:?}"
+        );
+
+        let lang_input = "\\begin{lstlisting*}[language=Python]\nprint(1)\n\\end{lstlisting*}\n";
+        let lang_regions = LatexParser::default().parse(lang_input);
+        assert!(
+            lang_regions.iter().any(|r| matches!(
+                r,
+                Region::Code { lang: Some(lang), .. } if lang == "Python"
+            )),
+            "lstlisting* language= must set Code lang, got: {lang_regions:?}"
+        );
     }
 
     #[test]
