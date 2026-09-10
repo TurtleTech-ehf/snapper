@@ -19,7 +19,7 @@ The classification depends on the format.
 :CUSTOM_ID: org-structure
 :END:
 - Non-source =#+BEGIN_*= ...
-=#+END_*= blocks (example, quote, etc.)
+=#+END_*= fences, and literal bodies (example, export, comment, unknown names)
 - =:PROPERTIES:= ...
 =:END:= drawers
 - =#+KEYWORD:= directives (TITLE, AUTHOR, DATE, OPTIONS, etc.)
@@ -45,6 +45,7 @@ The classification depends on the format.
 :CUSTOM_ID: org-prose
 :END:
 - Paragraph text
+- Quote, verse, and center block interiors (open/close lines stay structure; verse keeps physical lines)
 - List item text (after the marker); continuation sentences hang at the marker width so Org rejoins the item
 
 *** Inline tokens (kept atomic)
