@@ -4,7 +4,9 @@ use std::sync::LazyLock;
 use crate::parser::{ByteSpan, FormatParser, Line, SpannedRegion, flush_prose_spanned, iter_lines};
 use crate::sentence::unicode::latex_verb_span_end_with;
 
-// Environments whose content is NOT prose (math, code, figures, tables)
+// Environments whose content is NOT prose (math, code, figures, tables).
+// Extra names are tree-sitter-latex `math_environment` plus latexindent
+// `lookForAlignDelims` (amsmath / mathtools / tabularray), not a GPL copy.
 static NON_PROSE_ENVS: &[&str] = &[
     "equation",
     "equation*",
@@ -27,9 +29,42 @@ static NON_PROSE_ENVS: &[&str] = &[
     "minted",
     "tikzpicture",
     "array",
+    "array*",
     "matrix",
     "pmatrix",
     "bmatrix",
+    "displaymath",
+    "displaymath*",
+    "math",
+    "aligned",
+    "aligned*",
+    "alignat",
+    "alignat*",
+    "alignedat",
+    "alignedat*",
+    "flalign",
+    "flalign*",
+    "gathered",
+    "gathered*",
+    "split",
+    "split*",
+    "tabularx",
+    "longtable",
+    "tabu",
+    "cases",
+    "cases*",
+    "dcases",
+    "dcases*",
+    "rcases",
+    "rcases*",
+    "drcases",
+    "drcases*",
+    "tblr",
+    "longtblr",
+    "talltblr",
+    "Bmatrix",
+    "vmatrix",
+    "Vmatrix",
 ];
 
 /// `\begin{minted}{LANG}` -- the language is the brace argument after the env.
@@ -1546,5 +1581,97 @@ Some text.
             "\\Verbatim must remain in the source, got:\n{out}"
         );
         assert_eq!(format_text(&out, &cfg).unwrap(), out);
+    }
+
+    #[test]
+    fn alignat_and_tabularx_bodies_are_structure_not_prose() {
+        use crate::format_text;
+
+        let alignat = "\\begin{alignat}{2}\nThis is a long sentence that must not reflow as prose inside alignat.\n\\end{alignat}\n";
+        let tabularx = "\\begin{tabularx}{\\textwidth}{l}\nThis is a long sentence that must not reflow as prose inside tabularx.\n\\end{tabularx}\n";
+        for (input, needle) in [
+            (alignat, "must not reflow as prose inside alignat"),
+            (tabularx, "must not reflow as prose inside tabularx"),
+        ] {
+            let regions = LatexParser::default().parse(input);
+            assert!(
+                regions
+                    .iter()
+                    .any(|r| matches!(r, Region::Structure(s) if s.contains(needle))),
+                "env body must be Structure, got: {regions:?}"
+            );
+            assert!(
+                !regions
+                    .iter()
+                    .any(|r| matches!(r, Region::Prose(p) if p.contains(needle))),
+                "env body must not be Prose, got: {regions:?}"
+            );
+            let out = format_text(input, &latex_cfg()).unwrap();
+            assert!(
+                out.contains(needle),
+                "structure body text must survive, got:\n{out}"
+            );
+            assert_eq!(out, input, "structure body must not reflow, got:\n{out}");
+            assert_eq!(format_text(&out, &latex_cfg()).unwrap(), out);
+        }
+    }
+
+    #[test]
+    fn tree_sitter_and_latexindent_math_table_envs_are_structure() {
+        // Names missing on origin/main; each body is Structure, not Prose.
+        let names = [
+            "displaymath",
+            "displaymath*",
+            "math",
+            "aligned",
+            "aligned*",
+            "alignat",
+            "alignat*",
+            "alignedat",
+            "alignedat*",
+            "flalign",
+            "flalign*",
+            "gathered",
+            "gathered*",
+            "split",
+            "split*",
+            "tabularx",
+            "longtable",
+            "tabu",
+            "cases",
+            "cases*",
+            "dcases",
+            "dcases*",
+            "rcases",
+            "rcases*",
+            "drcases",
+            "drcases*",
+            "tblr",
+            "longtblr",
+            "talltblr",
+            "Bmatrix",
+            "vmatrix",
+            "Vmatrix",
+            "array*",
+        ];
+        for name in names {
+            let input = format!(
+                "\\begin{{{name}}}\nThis is a long sentence that must not reflow as prose inside {name}.\n\\end{{{name}}}\n"
+            );
+            let needle = format!("must not reflow as prose inside {name}");
+            let regions = LatexParser::default().parse(&input);
+            assert!(
+                regions
+                    .iter()
+                    .any(|r| matches!(r, Region::Structure(s) if s.contains(&needle))),
+                "{name} body must be Structure, got: {regions:?}"
+            );
+            assert!(
+                !regions
+                    .iter()
+                    .any(|r| matches!(r, Region::Prose(p) if p.contains(&needle))),
+                "{name} body must not be Prose, got: {regions:?}"
+            );
+        }
     }
 }
