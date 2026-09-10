@@ -1721,6 +1721,30 @@ mod tests {
     }
 
     #[test]
+    fn compact_quoted_list_hang_joins_into_one_prose_region() {
+        let input = "* \"First sentence.\n  Second sentence.\"\n";
+        let regions = RstParser.parse(input);
+        let prose: Vec<_> = regions
+            .iter()
+            .filter_map(|r| match r {
+                Region::Prose(s) => Some(s.as_str()),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(
+            prose,
+            ["\"First sentence.\nSecond sentence.\""],
+            "compact open-quote hang must join into one Prose, got {regions:?}"
+        );
+        assert!(
+            !regions
+                .iter()
+                .any(|r| matches!(r, Region::Structure(s) if s == "  ")),
+            "compact open-quote hang must not be Structure, got {regions:?}"
+        );
+    }
+
+    #[test]
     fn compact_open_paren_list_hang_joins_into_one_prose_region() {
         let input = concat!(
             "- Ordering (smaller indices mean higher priority.\n",
@@ -1746,6 +1770,43 @@ mod tests {
                 .iter()
                 .any(|r| matches!(r, Region::Structure(s) if s == "  ")),
             "compact open-paren hang must not be Structure, got {regions:?}"
+        );
+    }
+
+    #[test]
+    fn reporter_open_quote_list_continuation_keeps_two_space_hang() {
+        use crate::format::Format;
+        use crate::oracle;
+        use crate::{FormatConfig, format_text};
+
+        let cfg = FormatConfig {
+            format: Format::Rst,
+            max_width: 0,
+            ..Default::default()
+        }
+        .without_safety_backstops();
+        let input = "* \"First sentence.\n  Second sentence.\"\n* Next item.\n";
+        let out = format_text(input, &cfg).unwrap();
+        assert_eq!(
+            out, input,
+            "open-quote list continuation must keep two-space hang, got:\n{out}"
+        );
+        assert!(
+            out.contains("\n  Second sentence.\""),
+            "continuation must stay hung, got:\n{out}"
+        );
+        assert!(
+            !out.contains("\nSecond sentence."),
+            "must not outdent inside the open quote, got:\n{out}"
+        );
+        let twice = format_text(&out, &cfg).unwrap();
+        assert_eq!(
+            out, twice,
+            "hung open-quote list must be identity, got:\n{twice}"
+        );
+        assert!(
+            oracle::matches(Format::Rst, input, &out),
+            "oracle mismatch\n in={input:?}\n out={out:?}"
         );
     }
 
