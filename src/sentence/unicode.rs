@@ -681,7 +681,12 @@ impl SentenceSplitter for UnicodeSentenceSplitter {
             return vec![text.to_string()];
         }
 
-        let merged = self.refine_segments_from_strs(&raw_segments);
+        // UAX SB8 will not break after ATerm when the next letter is
+        // lowercase. Split same-line `iCloud` starts before abbreviation
+        // merge so `e.g. iCloud` can rejoin.
+        let expanded = split_before_lowercase_proper_nouns(raw_segments.iter().copied());
+        let refs: Vec<&str> = expanded.iter().map(String::as_str).collect();
+        let merged = self.refine_segments_from_strs(&refs);
         let restored = restore_inline_tokens(merged, &placeholders);
         split_after_markup_sentence_end(restored)
     }
@@ -758,6 +763,48 @@ fn merge_tail_punctuation(text: &str) -> Vec<&str> {
     }
 
     merged.into_iter().map(|(s, e)| &text[s..e]).collect()
+}
+
+/// UAX SB8 refuses a break after ATerm when the next letter is lowercase.
+/// A lowercase-starting proper noun (`iCloud`, `eBay`) is still a new
+/// sentence. Split after `.!?` plus whitespace when the next token starts
+/// lowercase and contains a later uppercase letter. Inline spans stay
+/// protected, so this must run before placeholder restore.
+fn split_before_lowercase_proper_nouns<'a, I>(segments: I) -> Vec<String>
+where
+    I: IntoIterator<Item = &'a str>,
+{
+    let mut out = Vec::new();
+    for seg in segments {
+        push_lowercase_proper_noun_splits(&mut out, seg);
+    }
+    out.into_iter().filter(|s| !s.is_empty()).collect()
+}
+
+fn push_lowercase_proper_noun_splits(out: &mut Vec<String>, seg: &str) {
+    // Match on the trimmed view so leading/trailing wrap space does not
+    // hide `iCloud`. Keep the original bytes when there is no split so
+    // abbreviation merge still sees UAX trailing space before `~` / `$`.
+    if let Some((head, rest)) = take_lowercase_proper_noun_sentence(seg.trim()) {
+        out.push(head);
+        push_lowercase_proper_noun_splits(out, &rest);
+    } else if !seg.is_empty() {
+        out.push(seg.to_string());
+    }
+}
+
+fn take_lowercase_proper_noun_sentence(seg: &str) -> Option<(String, String)> {
+    static CAP: LazyLock<Regex> = LazyLock::new(|| {
+        Regex::new(r"(?s)^(.*?[.!?])\s+([a-z]+[A-Z][A-Za-z0-9]*[\s\S]*)$")
+            .expect("valid lowercase-proper-noun sentence regex")
+    });
+    let c = CAP.captures(seg)?;
+    let head = c.get(1)?.as_str().trim();
+    let rest = c.get(2)?.as_str().trim();
+    if head.is_empty() || rest.is_empty() {
+        return None;
+    }
+    Some((head.to_string(), rest.to_string()))
 }
 
 fn merge_abbreviation_splits(
@@ -2058,6 +2105,67 @@ mod tests {
             assert_eq!(
                 out, input,
                 "{format:?} must keep the break before iCloud, got:\n{out}"
+            );
+            assert_eq!(format_text(&out, &cfg).unwrap(), out);
+        }
+    }
+
+    #[test]
+    fn splits_same_line_lowercase_proper_noun() {
+        use crate::format::Format;
+        use crate::{FormatConfig, format_text};
+
+        assert_eq!(
+            split("First sentence. iCloud starts the second sentence."),
+            vec![
+                "First sentence.".to_string(),
+                "iCloud starts the second sentence.".to_string()
+            ]
+        );
+        assert_eq!(
+            split("Stop! iCloud starts now."),
+            vec!["Stop!".to_string(), "iCloud starts now.".to_string()]
+        );
+        assert_eq!(
+            split("Ready? iPhone is here."),
+            vec!["Ready?".to_string(), "iPhone is here.".to_string()]
+        );
+        // UAX SB8: all-lowercase continuation stays one sentence.
+        assert_eq!(
+            split("First sentence. icloud starts the second sentence."),
+            vec!["First sentence. icloud starts the second sentence.".to_string()]
+        );
+        assert_eq!(
+            split("Use e.g. iCloud for storage."),
+            vec!["Use e.g. iCloud for storage.".to_string()]
+        );
+        assert_eq!(
+            split("`First sentence. iCloud stays.`"),
+            vec!["`First sentence. iCloud stays.`".to_string()]
+        );
+        assert_eq!(
+            split("This is **the end. iCloud still** after."),
+            vec!["This is **the end. iCloud still** after.".to_string()]
+        );
+
+        let input = "First sentence. iCloud starts the second sentence.";
+        let expected = "First sentence.\niCloud starts the second sentence.";
+        for format in [
+            Format::Markdown,
+            Format::Plaintext,
+            Format::Org,
+            Format::Latex,
+            Format::Rst,
+        ] {
+            let cfg = FormatConfig {
+                format,
+                max_width: 0,
+                ..Default::default()
+            };
+            let out = format_text(input, &cfg).unwrap();
+            assert_eq!(
+                out, expected,
+                "{format:?} must split the same-line iCloud fixture, got:\n{out}"
             );
             assert_eq!(format_text(&out, &cfg).unwrap(), out);
         }
