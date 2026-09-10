@@ -1779,6 +1779,24 @@ They are endowed with reason and conscience and should act towards one another i
     }
 
     #[test]
+    fn rst_open_quote_list_keeps_hang_on_internal_newline() {
+        // GitHub #130: `"First sentence.` stays one sentence, so the
+        // compact-hang newline must still get the two-space prefix.
+        let result = reflow_regions(vec![
+            Region::Structure("* ".to_string()),
+            Region::Prose("\"First sentence.\nSecond sentence.\"".to_string()),
+            Region::Structure("\n".to_string()),
+            Region::Structure("* ".to_string()),
+            Region::Prose("Next item.".to_string()),
+            Region::Structure("\n".to_string()),
+        ]);
+        assert_eq!(
+            result,
+            "* \"First sentence.\n  Second sentence.\"\n* Next item.\n"
+        );
+    }
+
+    #[test]
     fn space_hang_structure_continues_sentences() {
         let result = reflow_regions(vec![
             Region::Structure("  ".to_string()),
