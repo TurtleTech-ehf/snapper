@@ -62,6 +62,8 @@ These tokens within prose are not split across lines:
 - A =~code~= or ===verbatim=== span may contain the marker character; pairing matches pandoc's org reader, so =x = 1= stays one span
 - Markdown inline code: a run of =n= backticks closes on the next run of the same length (CommonMark / pandoc), so a double span can hold a single backtick
 - Inline export snippets: =@@backend:value@@=
+- Radio targets: =<<<contents>>>= (org-element-radio-target-parser)
+- Angle targets: =<<contents>>= (org-element-target-parser)
 - URLs: =https://...= (trailing sentence punctuation not swallowed)
 
 ** LaTeX (=--format latex=)
