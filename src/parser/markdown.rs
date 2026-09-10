@@ -732,6 +732,27 @@ fn is_indented_code_line(line: &str) -> bool {
     prefix.contains('\t') || prefix.len() >= 4
 }
 
+/// pulldown `ENABLE_GFM` `scan_blockquote_tag`: after the `>` prefix, a
+/// line that is only `[!NOTE]` / `[!TIP]` / `[!IMPORTANT]` / `[!WARNING]` /
+/// `[!CAUTION]` (case-insensitive, trailing space ok). Extra text on the
+/// same line is a regular quote, not an alert.
+fn is_gfm_alert_marker(text: &str) -> bool {
+    let t = text.trim();
+    let Some(rest) = t.strip_prefix("[!") else {
+        return false;
+    };
+    let Some(close) = rest.find(']') else {
+        return false;
+    };
+    if close + 1 != rest.len() {
+        return false;
+    }
+    matches!(
+        rest[..close].to_ascii_uppercase().as_str(),
+        "NOTE" | "TIP" | "IMPORTANT" | "WARNING" | "CAUTION"
+    )
+}
+
 /// Count CommonMark blockquote markers at the start of `line`.
 /// Each marker is `>` plus an optional space. Leading whitespace is skipped.
 fn quote_marker_depth(line: &str) -> usize {
@@ -1525,6 +1546,13 @@ impl FormatParser for MarkdownParser {
                 let marker = caps.get(1).unwrap().as_str();
                 let text = caps.get(2).unwrap().as_str();
                 if text.trim().is_empty() {
+                    regions.push(SpannedRegion::structure(input, line.span()));
+                    i += 1;
+                    continue;
+                }
+                // pulldown ENABLE_GFM: the type marker is not quote Prose.
+                // Whole line stays Structure so it is not joined onto the body.
+                if is_gfm_alert_marker(text) {
                     regions.push(SpannedRegion::structure(input, line.span()));
                     i += 1;
                     continue;
@@ -2605,6 +2633,73 @@ mod tests {
         assert_eq!(regions[2], Region::Structure("\n".to_string()));
         assert_eq!(regions[3], Region::Structure("> ".to_string()));
         assert_eq!(regions[4], Region::Prose("Two.".to_string()));
+    }
+
+    #[test]
+    fn gfm_alert_type_marker_is_structure() {
+        let input = concat!(
+            "> [!NOTE]\n",
+            "> This is a long alert sentence that must reflow. Second sentence.\n",
+            "\n",
+            "After the alert. Next.\n",
+        );
+        let regions = MarkdownParser.parse(input);
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Structure(s) if s.contains("[!NOTE]")
+            )),
+            "[!NOTE] must stay Structure, got: {regions:?}"
+        );
+        assert!(
+            !regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(p) if p.contains("[!NOTE]")
+            )),
+            "[!NOTE] must not join quote Prose, got: {regions:?}"
+        );
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(p)
+                    if p.contains("This is a long alert sentence that must reflow.")
+                        && p.contains("Second sentence.")
+            )),
+            "alert body must stay Prose, got: {regions:?}"
+        );
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(p) if p.contains("After the alert.") && p.contains("Next.")
+            )),
+            "prose after the alert must stay Prose, got: {regions:?}"
+        );
+    }
+
+    #[test]
+    fn gfm_alert_same_line_extra_is_not_a_marker() {
+        // pulldown scan_blockquote_tag: text after `]` is a regular quote.
+        let regions = MarkdownParser.parse("> [!NOTE] Extra sentence. Another.\n");
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(p) if p.contains("[!NOTE]") && p.contains("Extra sentence.")
+            )),
+            "same-line body is quote Prose, not an alert marker, got: {regions:?}"
+        );
+    }
+
+    #[test]
+    fn gfm_alert_marker_matches_pulldown_scan() {
+        assert!(is_gfm_alert_marker("[!NOTE]"));
+        assert!(is_gfm_alert_marker("  [!tip]  "));
+        assert!(is_gfm_alert_marker("[!Important]"));
+        assert!(is_gfm_alert_marker("[!WARNING]"));
+        assert!(is_gfm_alert_marker("[!CAUTION]"));
+        assert!(!is_gfm_alert_marker("[!NOTE] extra"));
+        assert!(!is_gfm_alert_marker("[!FIXME]"));
+        assert!(!is_gfm_alert_marker("[NOTE]"));
+        assert!(!is_gfm_alert_marker("NOTE"));
     }
 
     #[test]
