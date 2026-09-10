@@ -2,8 +2,8 @@ use regex::Regex;
 use std::sync::LazyLock;
 
 use crate::parser::{
-    ByteSpan, FormatParser, Line, SpannedRegion, flush_prose_spanned, iter_lines, join_prose_gap,
-    push_prose_line,
+    ByteSpan, FormatParser, Line, Region, SpannedRegion, flush_prose_spanned, iter_lines,
+    join_prose_gap, push_prose_line,
 };
 
 static HEADING_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^(#{1,6}\s+)(.*)$").unwrap());
@@ -128,6 +128,7 @@ pub struct MarkdownParser;
 /// Close an open list item: flush accumulated prose and emit the trailing newline.
 fn close_list_item(
     in_list_item: &mut bool,
+    list_hang: &mut Option<usize>,
     current_prose: &mut String,
     prose_span: &mut Option<ByteSpan>,
     list_term: &mut Option<ByteSpan>,
@@ -143,6 +144,7 @@ fn close_list_item(
         }
         *in_list_item = false;
     }
+    list_hang.take();
 }
 
 fn starts_html_comment(line: &str) -> bool {
@@ -530,6 +532,7 @@ impl FormatParser for MarkdownParser {
         let mut in_frontmatter = false;
         let mut frontmatter_fence = String::new();
         let mut in_list_item = false;
+        let mut list_hang: Option<usize> = None;
         let mut list_term: Option<ByteSpan> = None;
         let mut in_display_math = false;
         let mut pragma_off = false;
@@ -552,6 +555,7 @@ impl FormatParser for MarkdownParser {
                 if let Some(on) = super::check_pragma(line_text) {
                     close_list_item(
                         &mut in_list_item,
+                        &mut list_hang,
                         &mut current_prose,
                         &mut prose_span,
                         &mut list_term,
@@ -568,6 +572,7 @@ impl FormatParser for MarkdownParser {
                 if pragma_off {
                     close_list_item(
                         &mut in_list_item,
+                        &mut list_hang,
                         &mut current_prose,
                         &mut prose_span,
                         &mut list_term,
@@ -603,6 +608,7 @@ impl FormatParser for MarkdownParser {
             if in_fenced_code {
                 close_list_item(
                     &mut in_list_item,
+                    &mut list_hang,
                     &mut current_prose,
                     &mut prose_span,
                     &mut list_term,
@@ -633,6 +639,7 @@ impl FormatParser for MarkdownParser {
             if in_display_math {
                 close_list_item(
                     &mut in_list_item,
+                    &mut list_hang,
                     &mut current_prose,
                     &mut prose_span,
                     &mut list_term,
@@ -656,6 +663,7 @@ impl FormatParser for MarkdownParser {
             if let Some(caps) = FENCED_CODE_RE.captures(fence_src.trim_start()) {
                 close_list_item(
                     &mut in_list_item,
+                    &mut list_hang,
                     &mut current_prose,
                     &mut prose_span,
                     &mut list_term,
@@ -680,9 +688,32 @@ impl FormatParser for MarkdownParser {
             // boundary), 4 spaces or a tab is Code through the blank that
             // ends the block. Cannot interrupt a paragraph or list item.
             // Fences above still win so `    ```lang` stays a nested fence.
+            //
+            // GitHub #102: after a blank inside an open list, 4 spaces that
+            // look like a nested list (or hang+4 of indent) is Code, not a
+            // new list. Close the item so the document-level arm below runs.
+            // Do not change that arm: snapper-tupp already covers Code
+            // outside lists.
+            if let Some(hang) = list_hang {
+                if current_prose.is_empty() && is_indented_code_line(line_text) {
+                    let leading = line_indent(line_text);
+                    if LIST_ITEM_RE.is_match(line_text) || leading >= hang + 4 {
+                        close_list_item(
+                            &mut in_list_item,
+                            &mut list_hang,
+                            &mut current_prose,
+                            &mut prose_span,
+                            &mut list_term,
+                            input,
+                            &mut regions,
+                        );
+                    }
+                }
+            }
             if current_prose.is_empty() && !in_list_item && is_indented_code_line(line_text) {
                 close_list_item(
                     &mut in_list_item,
+                    &mut list_hang,
                     &mut current_prose,
                     &mut prose_span,
                     &mut list_term,
@@ -734,6 +765,7 @@ impl FormatParser for MarkdownParser {
             if display_math_open(line_text) {
                 close_list_item(
                     &mut in_list_item,
+                    &mut list_hang,
                     &mut current_prose,
                     &mut prose_span,
                     &mut list_term,
@@ -749,16 +781,28 @@ impl FormatParser for MarkdownParser {
                 continue;
             }
 
-            // Blank line
+            // Blank line. A list item stays open: CommonMark keeps a later
+            // hang-indented line in the same item. Quotes (in_list_item
+            // without list_hang) still close.
             if line_text.trim().is_empty() {
-                close_list_item(
-                    &mut in_list_item,
-                    &mut current_prose,
-                    &mut prose_span,
-                    &mut list_term,
-                    input,
-                    &mut regions,
-                );
+                if list_hang.is_some() {
+                    flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
+                    if let Some(span) = list_term.take() {
+                        if !span.is_empty() {
+                            regions.push(SpannedRegion::structure(input, span));
+                        }
+                    }
+                } else {
+                    close_list_item(
+                        &mut in_list_item,
+                        &mut list_hang,
+                        &mut current_prose,
+                        &mut prose_span,
+                        &mut list_term,
+                        input,
+                        &mut regions,
+                    );
+                }
                 flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
                 regions.push(SpannedRegion::blank(input, line.span()));
                 i += 1;
@@ -775,6 +819,7 @@ impl FormatParser for MarkdownParser {
             if HEADING_RE.is_match(line_text) {
                 close_list_item(
                     &mut in_list_item,
+                    &mut list_hang,
                     &mut current_prose,
                     &mut prose_span,
                     &mut list_term,
@@ -796,6 +841,7 @@ impl FormatParser for MarkdownParser {
             {
                 close_list_item(
                     &mut in_list_item,
+                    &mut list_hang,
                     &mut current_prose,
                     &mut prose_span,
                     &mut list_term,
@@ -813,6 +859,7 @@ impl FormatParser for MarkdownParser {
             if TABLE_ROW_RE.is_match(line_text) {
                 close_list_item(
                     &mut in_list_item,
+                    &mut list_hang,
                     &mut current_prose,
                     &mut prose_span,
                     &mut list_term,
@@ -829,6 +876,7 @@ impl FormatParser for MarkdownParser {
             if starts_html_comment(line_text) {
                 close_list_item(
                     &mut in_list_item,
+                    &mut list_hang,
                     &mut current_prose,
                     &mut prose_span,
                     &mut list_term,
@@ -865,6 +913,7 @@ impl FormatParser for MarkdownParser {
                 if kind.can_interrupt() || !in_paragraph {
                     close_list_item(
                         &mut in_list_item,
+                        &mut list_hang,
                         &mut current_prose,
                         &mut prose_span,
                         &mut list_term,
@@ -885,6 +934,7 @@ impl FormatParser for MarkdownParser {
             if let Some(caps) = QUOTE_RE.captures(line_text) {
                 close_list_item(
                     &mut in_list_item,
+                    &mut list_hang,
                     &mut current_prose,
                     &mut prose_span,
                     &mut list_term,
@@ -932,6 +982,7 @@ impl FormatParser for MarkdownParser {
             if let Some(caps) = LIST_ITEM_RE.captures(line_text) {
                 close_list_item(
                     &mut in_list_item,
+                    &mut list_hang,
                     &mut current_prose,
                     &mut prose_span,
                     &mut list_term,
@@ -943,6 +994,7 @@ impl FormatParser for MarkdownParser {
                 let marker_span = ByteSpan::new(line.start, line.start + marker.len());
                 regions.push(SpannedRegion::structure(input, marker_span));
                 in_list_item = true;
+                list_hang = Some(marker.len());
                 append_piece(
                     &mut ProseAcc {
                         text: &mut current_prose,
@@ -962,19 +1014,70 @@ impl FormatParser for MarkdownParser {
 
             // Regular prose (also serves as list-item continuation when in_list_item)
             if in_list_item {
-                append_piece(
-                    &mut ProseAcc {
-                        text: &mut current_prose,
-                        span: &mut prose_span,
-                        term: &mut list_term,
-                    },
-                    line,
-                    0,
-                    true,
-                    false,
-                    input,
-                    &mut regions,
-                );
+                let hang = list_hang.unwrap_or(0);
+                let leading = line_indent(line_text);
+                let after_blank = regions
+                    .last()
+                    .is_some_and(|r| matches!(r.region, Region::BlankLines(_)));
+                if after_blank && hang > 0 && leading >= hang {
+                    // New paragraph in the same item. Hang spaces stay
+                    // Structure so splice does not outdent them.
+                    flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
+                    regions.push(SpannedRegion::structure(
+                        input,
+                        ByteSpan::new(line.start, line.start + leading),
+                    ));
+                    append_piece(
+                        &mut ProseAcc {
+                            text: &mut current_prose,
+                            span: &mut prose_span,
+                            term: &mut list_term,
+                        },
+                        line,
+                        leading,
+                        false,
+                        false,
+                        input,
+                        &mut regions,
+                    );
+                } else if after_blank && hang > 0 && leading < hang {
+                    close_list_item(
+                        &mut in_list_item,
+                        &mut list_hang,
+                        &mut current_prose,
+                        &mut prose_span,
+                        &mut list_term,
+                        input,
+                        &mut regions,
+                    );
+                    append_piece(
+                        &mut ProseAcc {
+                            text: &mut current_prose,
+                            span: &mut prose_span,
+                            term: &mut list_term,
+                        },
+                        line,
+                        0,
+                        true,
+                        true,
+                        input,
+                        &mut regions,
+                    );
+                } else {
+                    append_piece(
+                        &mut ProseAcc {
+                            text: &mut current_prose,
+                            span: &mut prose_span,
+                            term: &mut list_term,
+                        },
+                        line,
+                        0,
+                        true,
+                        false,
+                        input,
+                        &mut regions,
+                    );
+                }
             } else {
                 append_piece(
                     &mut ProseAcc {
@@ -995,6 +1098,7 @@ impl FormatParser for MarkdownParser {
 
         close_list_item(
             &mut in_list_item,
+            &mut list_hang,
             &mut current_prose,
             &mut prose_span,
             &mut list_term,
@@ -1266,6 +1370,160 @@ mod tests {
         assert_eq!(regions[3], Region::Structure("- ".to_string()));
         assert_eq!(regions[4], Region::Prose("Second item".to_string()));
         assert_eq!(regions.len(), 5);
+    }
+
+    /// GitHub #102 / snapper-3hed: blank + indent stays in the item;
+    /// 4-space after a blank is indented code, not a nested list.
+    fn ticket_list_container_fixture() -> &'static str {
+        concat!(
+            "- Item one. Item two.\n",
+            "\n",
+            "  Still the same item. More here.\n",
+            "\n",
+            "Para.\n",
+            "\n",
+            "    - looks like a list, is indented code\n",
+        )
+    }
+
+    #[test]
+    fn list_blank_indent_stays_in_item() {
+        let regions = MarkdownParser.parse(ticket_list_container_fixture());
+        assert!(
+            regions
+                .iter()
+                .any(|r| matches!(r, Region::Structure(s) if s == "- ")),
+            "list marker must be Structure, got {regions:?}"
+        );
+        assert!(
+            regions
+                .iter()
+                .any(|r| matches!(r, Region::Prose(s) if s.contains("Item one."))),
+            "item text must be Prose, got {regions:?}"
+        );
+        assert!(
+            regions
+                .iter()
+                .any(|r| matches!(r, Region::Structure(s) if s == "  ")),
+            "blank+indent hang must be Structure, got {regions:?}"
+        );
+        assert!(
+            regions
+                .iter()
+                .any(|r| matches!(r, Region::Prose(s) if s.contains("Still the same item"))),
+            "hang-indented line must stay Prose in the item, got {regions:?}"
+        );
+        assert!(
+            regions
+                .iter()
+                .any(|r| matches!(r, Region::Prose(s) if s.contains("Para."))),
+            "flush paragraph after the list must be Prose, got {regions:?}"
+        );
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Code { body, .. } if body.contains("- looks like a list, is indented code")
+            )),
+            "4-space list-looking line must be Code, got {regions:?}"
+        );
+        assert!(
+            !regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(p) if p.contains("looks like a list")
+            )),
+            "4-space list-looking line must not be Prose, got {regions:?}"
+        );
+        assert!(
+            !regions.iter().any(|r| matches!(
+                r,
+                Region::Structure(s) if s.contains("looks like a list")
+            )),
+            "4-space list-looking line must not be a list Structure, got {regions:?}"
+        );
+    }
+
+    #[test]
+    fn list_blank_indent_continuation_is_identity_under_format() {
+        use crate::format::Format;
+        use crate::{FormatConfig, format_text};
+
+        let input = "- Item one.\n\n  Still the same item.\n";
+        let cfg = FormatConfig {
+            format: Format::Markdown,
+            max_width: 0,
+            ..Default::default()
+        }
+        .without_safety_backstops();
+        let out = format_text(input, &cfg).unwrap();
+        assert_eq!(
+            out, input,
+            "blank+indent must stay in the item, got:\n{out}"
+        );
+        assert!(
+            out.contains("\n  Still the same item.\n"),
+            "continuation must keep two-space hang, got:\n{out}"
+        );
+    }
+
+    #[test]
+    fn list_container_fixture_keeps_hang_and_indented_code() {
+        use crate::format::Format;
+        use crate::oracle;
+        use crate::{FormatConfig, format_text};
+
+        let input = ticket_list_container_fixture();
+        let cfg = FormatConfig {
+            format: Format::Markdown,
+            ..Default::default()
+        };
+        let out = format_text(input, &cfg).unwrap();
+        assert!(
+            out.contains("\n  Still the same item.\n  More here.\n"),
+            "blank+indent must stay in the item and hang, got:\n{out}"
+        );
+        assert!(
+            out.contains("    - looks like a list, is indented code\n"),
+            "4-space line must stay indented code, got:\n{out}"
+        );
+        assert!(
+            !out.contains("\n- looks like a list"),
+            "must not promote indented code to a list, got:\n{out}"
+        );
+        assert_eq!(format_text(&out, &cfg).unwrap(), out);
+        assert!(
+            oracle::matches(Format::Markdown, input, &out),
+            "oracle must accept the fixture\n in={input:?}\n out={out:?}"
+        );
+
+        let raw = format_text(input, &cfg.without_safety_backstops()).unwrap();
+        assert!(
+            raw.contains("\n  Still the same item.\n  More here.\n"),
+            "without backstops, hang must stay, got:\n{raw}"
+        );
+        assert!(
+            raw.contains("    - looks like a list, is indented code\n"),
+            "without backstops, 4-space line must stay code, got:\n{raw}"
+        );
+    }
+
+    #[test]
+    fn four_space_list_looking_after_blank_is_code_not_nested_list() {
+        let input = "- Item one.\n\n    - looks like a list, is indented code\n";
+        let regions = MarkdownParser.parse(input);
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Code { body, .. } if body.contains("- looks like a list, is indented code")
+            )),
+            "4-space after blank must be Code, not a nested list, got {regions:?}"
+        );
+        assert!(
+            !regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(p) if p.contains("looks like a list")
+            )),
+            "4-space list-looking line must not be Prose, got {regions:?}"
+        );
     }
 
     #[test]
