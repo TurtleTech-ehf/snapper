@@ -264,7 +264,10 @@ impl OrgParser {
             };
             // Prose span must stop before the glue space; splice copies
             // Structure from source and overlapping ranges drop the space.
-            if prefix.len() > lead_glue {
+            // Whitespace-only leftover-start indent is not prose: pushing
+            // it writes prose_span then flush skips take(), so the next
+            // line extends over the math and splice drops it.
+            if !prefix.trim().is_empty() && prefix.len() > lead_glue {
                 let lead = Line {
                     start: line.start + rel,
                     end: line.start + open_abs - lead_glue,
@@ -1829,5 +1832,73 @@ mod tests {
             "fixture env must close; following prose reflows, got:\n{out}"
         );
         assert_eq!(format_text(&out, &org_cfg()).unwrap(), out);
+    }
+
+    #[test]
+    fn leftover_start_same_line_bracket_does_not_splice_drop() {
+        use crate::format_text;
+
+        // Leftover-start indent stays on the Structure island so splice
+        // cannot delete the math line.
+        let input = "  \\[ x = a.b \\]\nThis must stay prose. Second sentence.\n";
+        let regions = OrgParser.parse(input);
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Structure(s)
+                    if s.contains("\\[ x = a.b \\]") && s.starts_with("  \\[")
+            )),
+            "indented same-line \\[...\\] must be Structure with indent on the island, got: {regions:?}"
+        );
+        assert!(
+            !regions
+                .iter()
+                .any(|r| matches!(r, Region::Prose(p) if p.contains("x = a.b"))),
+            "leftover-start math must not be Prose, got: {regions:?}"
+        );
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(p)
+                    if p.contains("This must stay prose") && p.contains("Second sentence")
+            )),
+            "following sentences must stay Prose, got: {regions:?}"
+        );
+
+        let spanned = OrgParser.parse_full(input);
+        assert!(
+            !spanned.iter().any(|sr| {
+                matches!(sr.region, Region::Prose(_))
+                    && sr.origin.is_some_and(|o| o.whole().start == 0)
+            }),
+            "prose_span must not leak over leftover-start indent, got: {spanned:?}"
+        );
+
+        let out = format_text(input, &org_cfg()).unwrap();
+        assert!(
+            out.contains("  \\[ x = a.b \\]\nThis must stay prose.\nSecond sentence."),
+            "math line must remain; following prose reflows, got:\n{out}"
+        );
+        assert!(
+            !out.contains("This must stay prose. Second sentence.\nThis must stay prose."),
+            "splice must not replace the math line with following prose, got:\n{out}"
+        );
+        assert_eq!(format_text(&out, &org_cfg()).unwrap(), out);
+
+        let after_prose = "The formula is\n  \\[ x = a.b \\]\nAfter. Next.\n";
+        let after_out = format_text(after_prose, &org_cfg()).unwrap();
+        assert!(
+            after_out.contains("The formula is\n  \\[ x = a.b \\]\n"),
+            "preceding prose must not glue onto leftover-start \\[, got:\n{after_out}"
+        );
+        assert!(
+            !after_out.contains("The formula is  \\["),
+            "must not glue preceding prose onto indented \\[, got:\n{after_out}"
+        );
+        assert!(
+            after_out.contains("After.\nNext."),
+            "prose after leftover-start \\[ must still reflow, got:\n{after_out}"
+        );
+        assert_eq!(format_text(&after_out, &org_cfg()).unwrap(), after_out);
     }
 }
