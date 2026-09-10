@@ -105,7 +105,7 @@ These tokens within prose are not split across lines:
 - spverbatim.sty =spverbatim= is a built-in code region (raw line breaks)
 - Extra names from =[latex].verbatim_envs= are code regions too
 - Body follows the same comment-reflow and optional =--format-code= rules as other formats when language is known (=minted= language arg, =lstlisting= / =lstlisting*= =language== option)
-- Inline =\verb= / =\lstinline= / =\spverb= (and extra =[latex].verbatim_commands=, for example =\Verb=) stay atomic; inner =.!?%= do not split or comment
+- Inline =\verb= / =\lstinline= / =\spverb= / =\mintinline= / =\mint= (and extra =[latex].verbatim_commands=, for example =\Verb=) stay atomic; inner =.!?%= do not split or comment
 
 *** Prose regions (reflowed)
 :PROPERTIES:
