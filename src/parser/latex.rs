@@ -130,13 +130,15 @@ static LSTLISTING_LANG_RE: LazyLock<Regex> = LazyLock::new(|| {
 /// (`asy`, `asydef`, `pycode`, `luacode`, `luacode*`, `sagesilent`,
 /// `sageblock`) plus fancyvrb `verbatim*` / `Verbatim` / `BVerbatim` /
 /// `LVerbatim` / `SaveVerbatim` / `VerbatimOut`, moreverb
-/// `boxedverbatim`, tcolorbox `tcblisting` / `codeexample`, and the
+/// `boxedverbatim`, tcolorbox `tcblisting` / `codeexample`, standard
+/// `alltt` (alltt.sty: macros still apply, line breaks stay raw), and the
 /// `comment` package env (tree-sitter `comment_environment`: raw
 /// through matching `\end{comment}`). Overleaf `verbatimEnvNames` is
 /// Verbatim, boxedverbatim, tcblisting, codeexample. fancyvrb
 /// `BVerbatim` / `LVerbatim` are the same raw class as `Verbatim`
 /// (GitHub #209). `SaveVerbatim` / `VerbatimOut` are the same
-/// `FV@Scan` class (GitHub #213).
+/// `FV@Scan` class (GitHub #213). `alltt` is the same verbatim-like
+/// class (GitHub #230).
 fn is_builtin_code_env(name: &str) -> bool {
     matches!(
         name,
@@ -152,6 +154,7 @@ fn is_builtin_code_env(name: &str) -> bool {
             | "boxedverbatim"
             | "tcblisting"
             | "codeexample"
+            | "alltt"
             | "filecontents"
             | "filecontents*"
             | "asy"
@@ -2475,6 +2478,55 @@ Some text.
             );
             assert_eq!(format_text(&out, &latex_cfg()).unwrap(), out);
         }
+    }
+
+    /// Ticket fixture (GitHub #230 / snapper-lbn5): standard alltt.sty
+    /// is verbatim-like (macros still apply, line breaks stay raw).
+    #[test]
+    fn alltt_fixture_is_code_not_prose() {
+        use crate::format_text;
+
+        let input = concat!(
+            "\\begin{document}\n",
+            "Before. More.\n",
+            "\\begin{alltt}\n",
+            "First line. Second line.\n",
+            "\\end{alltt}\n",
+            "After the block. Next.\n",
+            "\\end{document}\n",
+        );
+        let regions = LatexParser::default().parse(input);
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Code { body, .. } if body.contains("First line. Second line.")
+            )),
+            "alltt body must be Code, got: {regions:?}"
+        );
+        assert!(
+            !regions
+                .iter()
+                .any(|r| matches!(r, Region::Prose(p) if p.contains("First line"))),
+            "alltt body must not leak into Prose, got: {regions:?}"
+        );
+        let out = format_text(input, &latex_cfg()).unwrap();
+        assert!(
+            out.contains("\\begin{alltt}") && out.contains("\\end{alltt}"),
+            "alltt begin/end must stay, got:\n{out}"
+        );
+        assert!(
+            out.contains("First line. Second line."),
+            "alltt body must stay one source line, got:\n{out}"
+        );
+        assert!(
+            !out.contains("First line.\nSecond line."),
+            "alltt must not reflow as prose, got:\n{out}"
+        );
+        assert!(
+            out.contains("After the block.\nNext."),
+            "prose after alltt must still split, got:\n{out}"
+        );
+        assert_eq!(format_text(&out, &latex_cfg()).unwrap(), out);
     }
 
     #[test]
