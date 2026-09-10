@@ -19,8 +19,14 @@ static INLINE_TOKEN_RE: LazyLock<Regex> = LazyLock::new(|| {
             // org-element 5.5 citation: [cite/style:prefix;@key p. 7;suffix]
             // Must be atomic so a page locator is not a sentence boundary.
             r"\[cite(?:/[-a-zA-Z0-9_/]*)?:[^\]]*\]",
-            r"\[[^\]]+\]\([^)]+\)",    // Markdown links: [text](url)
-            r"!\[[^\]]*\]\([^)]+\)",   // Markdown images: ![alt](url)
+            r"\[[^\]]+\]\([^)]+\)",  // Markdown links: [text](url)
+            r"!\[[^\]]*\]\([^)]+\)", // Markdown images: ![alt](url)
+            // CommonMark 0.31.2 §6.3 reference links. Full / collapsed
+            // must beat shortcut so `[text][ref]` is one token.
+            r"\[[^\]]+\]\[[^\]]*\]",   // [text][ref] / [text][]
+            r"!\[[^\]]*\]\[[^\]]*\]",  // ![alt][ref] / ![alt][]
+            r"\[[^\]]+\]",             // shortcut [text]
+            r"!\[[^\]]*\]",            // shortcut ![alt]
             r"\$\$[^$\n]+\$\$",        // Display math: $$...$$
             r"\$[^$\n]+\$",            // Inline math: $...$
             r"\\\([^\\\n]+\\\)",       // LaTeX inline math: \(...\)
@@ -1470,6 +1476,77 @@ mod tests {
     }
 
     #[test]
+    fn inline_markdown_reference_link_preserved() {
+        let text = "See [the Fourier. transform][wiki] for details. Next sentence.";
+        let (_, placeholders) = protect_inline_tokens(text);
+        assert!(
+            placeholders
+                .iter()
+                .any(|p| p == "[the Fourier. transform][wiki]"),
+            "full reference link must be one token, got {placeholders:?}"
+        );
+        assert_eq!(
+            split(text),
+            vec![
+                "See [the Fourier. transform][wiki] for details.".to_string(),
+                "Next sentence.".to_string(),
+            ]
+        );
+    }
+
+    #[test]
+    fn inline_markdown_collapsed_and_shortcut_reference_preserved() {
+        let collapsed = "See [the Fourier. transform][] for details. Next sentence.";
+        let (_, placeholders) = protect_inline_tokens(collapsed);
+        assert!(
+            placeholders
+                .iter()
+                .any(|p| p == "[the Fourier. transform][]"),
+            "collapsed reference must be one token, got {placeholders:?}"
+        );
+        assert_eq!(
+            split(collapsed),
+            vec![
+                "See [the Fourier. transform][] for details.".to_string(),
+                "Next sentence.".to_string(),
+            ]
+        );
+
+        let shortcut = "See [the Fourier. transform] for details. Next sentence.";
+        let (_, placeholders) = protect_inline_tokens(shortcut);
+        assert!(
+            placeholders.iter().any(|p| p == "[the Fourier. transform]"),
+            "shortcut reference must be one token, got {placeholders:?}"
+        );
+        assert_eq!(
+            split(shortcut),
+            vec![
+                "See [the Fourier. transform] for details.".to_string(),
+                "Next sentence.".to_string(),
+            ]
+        );
+    }
+
+    #[test]
+    fn inline_markdown_reference_image_preserved() {
+        let text = "See ![the Fourier. transform][wiki] now. Next sentence.";
+        let (_, placeholders) = protect_inline_tokens(text);
+        assert!(
+            placeholders
+                .iter()
+                .any(|p| p == "![the Fourier. transform][wiki]"),
+            "reference image must be one token, got {placeholders:?}"
+        );
+        assert_eq!(
+            split(text),
+            vec![
+                "See ![the Fourier. transform][wiki] now.".to_string(),
+                "Next sentence.".to_string(),
+            ]
+        );
+    }
+
+    #[test]
     fn inline_code_preserved() {
         assert_eq!(
             split("Use `std.io.Read` for input. Then process."),
@@ -1495,6 +1572,19 @@ mod tests {
                 .iter()
                 .any(|t| *t == "[the example site](https://ex.com)"),
             "markdown link: {tokens:?}"
+        );
+        let ref_text = "See [the Fourier. transform][wiki] and ![alt. img][pic].";
+        let ref_spans = atomic_inline_spans(ref_text);
+        let ref_tokens: Vec<&str> = ref_spans.iter().map(|&(s, e)| &ref_text[s..e]).collect();
+        assert!(
+            ref_tokens
+                .iter()
+                .any(|t| *t == "[the Fourier. transform][wiki]"),
+            "markdown reference link: {ref_tokens:?}"
+        );
+        assert!(
+            ref_tokens.iter().any(|t| *t == "![alt. img][pic]"),
+            "markdown reference image: {ref_tokens:?}"
         );
         assert!(
             tokens.iter().any(|t| *t == "`some long code`"),
