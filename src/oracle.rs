@@ -392,17 +392,25 @@ mod tests {
     fn configured_verb_percent_tree_matches_across_split() {
         let original = "\\begin{document}\nCode \\Verb!%! here. Next sentence.\n\\end{document}\n";
         let output = "\\begin{document}\nCode \\Verb!%! here.\nNext sentence.\n\\end{document}\n";
+        assert!(
+            matches(Format::Latex, original, output),
+            "built-in Verb must parse the same region tree as format_once"
+        );
+        let extra_in =
+            "\\begin{document}\nCode \\MyVerb!%! here. Next sentence.\n\\end{document}\n";
+        let extra_out =
+            "\\begin{document}\nCode \\MyVerb!%! here.\nNext sentence.\n\\end{document}\n";
         let cfg = crate::FormatConfig {
             format: Format::Latex,
-            latex_verbatim_commands: vec!["Verb".into()],
+            latex_verbatim_commands: vec!["MyVerb".into()],
             ..Default::default()
         };
         assert!(
-            !matches(Format::Latex, original, output),
-            "built-in lists treat inner % as a comment, so the trees diverge"
+            !matches(Format::Latex, extra_in, extra_out),
+            "unlisted MyVerb treats inner % as a comment, so the trees diverge"
         );
         assert!(
-            matches_ex(Format::Latex, original, output, false, Some(&cfg)),
+            matches_ex(Format::Latex, extra_in, extra_out, false, Some(&cfg)),
             "extras must parse the same region tree as format_once"
         );
     }
