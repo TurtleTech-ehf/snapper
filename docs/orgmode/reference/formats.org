@@ -31,6 +31,7 @@ The classification depends on the format.
 - List item markers (=-=, =+=, =1.=); continuation sentences hang at the marker width
 - LaTeX environments (=\begin{equation}= ... =\end{equation}=, =\begin{align}=, etc.)
 - Display math (=\[= ... =\]=)
+- Line breaks (org-element-line-break-parser: =\\= plus optional spaces or tabs at end of line)
 - Inline export snippets (=@@latex:\newpage@@=, =@@html:<br>@@=)
 
 *** Code regions (=#+BEGIN_SRC= ... =#+END_SRC=)
