@@ -148,10 +148,31 @@ impl OrgParser {
             || t.starts_with("CLOCK:")
     }
 
+    /// org-element-dynamic-block-open-re: `#+BEGIN:` + blank + NAME.
+    /// `#+BEGIN:` alone is a keyword, not a dynamic block.
+    fn is_dynamic_block_begin(line: &str) -> bool {
+        let trimmed = line.trim_start_matches([' ', '\t']);
+        let upper = trimmed.to_ascii_uppercase();
+        if !upper.starts_with("#+BEGIN:") {
+            return false;
+        }
+        !trimmed["#+BEGIN:".len()..]
+            .trim_start_matches([' ', '\t'])
+            .is_empty()
+    }
+
+    /// org-element-dynamic-block-parser closer: `#+END:` on its own line.
+    fn is_dynamic_block_end(line: &str) -> bool {
+        line.trim().eq_ignore_ascii_case("#+END:")
+    }
+
     /// Check if a line is a keyword/directive (#+KEYWORD:)
     fn is_keyword(line: &str) -> bool {
         let trimmed = line.trim_start();
-        trimmed.starts_with("#+") && !Self::is_block_begin(line) && !Self::is_block_end(line)
+        trimmed.starts_with("#+")
+            && !Self::is_block_begin(line)
+            && !Self::is_block_end(line)
+            && !Self::is_dynamic_block_begin(line)
     }
 
     /// Check if a line is a comment (starts with #, but not #+)
@@ -341,6 +362,7 @@ impl FormatParser for OrgParser {
         let mut src_header = ByteSpan::default();
         let mut src_body_start = 0usize;
         let mut in_drawer = false;
+        let mut in_dynamic_block = false;
         let mut in_latex_env: Option<String> = None;
         let mut in_display_math: Option<DisplayMathDelim> = None;
         let mut pragma_off = false;
@@ -418,6 +440,16 @@ impl FormatParser for OrgParser {
                 }
             }
 
+            // Dynamic block body is opaque Structure through #+END:.
+            if in_dynamic_block {
+                flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
+                if Self::is_dynamic_block_end(line_text) {
+                    in_dynamic_block = false;
+                }
+                regions.push(SpannedRegion::structure(input, line.span()));
+                continue;
+            }
+
             // Inside a drawer -- everything is structure
             if in_drawer {
                 flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
@@ -456,6 +488,14 @@ impl FormatParser for OrgParser {
                 src_lang = lang;
                 src_header = line.span();
                 src_body_start = line.end;
+                continue;
+            }
+
+            // org-element `#+BEGIN: NAME` ... `#+END:` (clocktable, columnview).
+            if Self::is_dynamic_block_begin(line_text) {
+                flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
+                in_dynamic_block = true;
+                regions.push(SpannedRegion::structure(input, line.span()));
                 continue;
             }
 
@@ -2338,6 +2378,105 @@ mod tests {
         let bang = "See file:/tmp/foo!\nNext sentence.\n";
         let out = format_text("See file:/tmp/foo! Next sentence.\n", &org_cfg()).unwrap();
         assert_eq!(out, bang, "same-line file: bang must split, got:\n{out}");
+        assert_eq!(format_text(&out, &org_cfg()).unwrap(), out);
+    }
+
+    /// Ticket fixture (Format::Org / GitHub #178): `#+BEGIN: NAME` ...
+    /// `#+END:` is a dynamic block. The body stays Structure.
+    fn dynamic_block_clocktable_fixture() -> &'static str {
+        concat!(
+            "#+BEGIN: clocktable :scope file\n",
+            "This is a long sentence inside a dynamic block that must stay frozen. Second sentence.\n",
+            "#+END:\n",
+            "Following paragraph. Another sentence.\n",
+        )
+    }
+
+    #[test]
+    fn dynamic_block_begin_requires_name() {
+        assert!(OrgParser::is_dynamic_block_begin(
+            "#+BEGIN: clocktable :scope file"
+        ));
+        assert!(OrgParser::is_dynamic_block_begin("  #+begin: columnview"));
+        assert!(!OrgParser::is_dynamic_block_begin("#+BEGIN:"));
+        assert!(!OrgParser::is_dynamic_block_begin("#+BEGIN:   "));
+        assert!(!OrgParser::is_dynamic_block_begin("#+BEGIN_SRC python"));
+        assert!(!OrgParser::is_dynamic_block_begin("#+BEGIN_QUOTE"));
+        assert!(OrgParser::is_dynamic_block_end("#+END:"));
+        assert!(OrgParser::is_dynamic_block_end("  #+end:  "));
+        assert!(!OrgParser::is_dynamic_block_end("#+END_SRC"));
+        assert!(!OrgParser::is_dynamic_block_end("#+END_QUOTE"));
+    }
+
+    #[test]
+    fn dynamic_block_body_is_structure_not_prose() {
+        let input = dynamic_block_clocktable_fixture();
+        let regions = OrgParser.parse(input);
+        let structure: String = regions
+            .iter()
+            .filter_map(|r| match r {
+                Region::Structure(s) => Some(s.as_str()),
+                _ => None,
+            })
+            .collect();
+        assert!(
+            structure.contains("#+BEGIN: clocktable :scope file"),
+            "dynamic opener must stay Structure, got: {regions:?}"
+        );
+        assert!(
+            structure.contains(
+                "This is a long sentence inside a dynamic block that must stay frozen. Second sentence."
+            ),
+            "dynamic body must stay Structure, got: {regions:?}"
+        );
+        assert!(
+            structure.contains("#+END:"),
+            "dynamic closer must stay Structure, got: {regions:?}"
+        );
+        assert!(
+            !regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(p)
+                    if p.contains("must stay frozen") || p.contains("Second sentence.")
+            )),
+            "dynamic body must not leak as Prose, got: {regions:?}"
+        );
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(p)
+                    if p.contains("Following paragraph.") && p.contains("Another sentence.")
+            )),
+            "following paragraph must stay Prose, got: {regions:?}"
+        );
+    }
+
+    #[test]
+    fn dynamic_block_body_stays_frozen_following_prose_splits() {
+        use crate::format_text;
+
+        let input = dynamic_block_clocktable_fixture();
+        let out = format_text(input, &org_cfg()).unwrap();
+        assert!(
+            out.contains(concat!(
+                "#+BEGIN: clocktable :scope file\n",
+                "This is a long sentence inside a dynamic block that must stay frozen. Second sentence.\n",
+                "#+END:\n",
+            )),
+            "dynamic block must stay frozen, got:\n{out}"
+        );
+        assert!(
+            !out.contains("must stay frozen.\nSecond sentence."),
+            "dynamic body must not reflow, got:\n{out}"
+        );
+        assert!(
+            out.contains("#+END:\nFollowing paragraph.\nAnother sentence."),
+            "following paragraph must still split, got:\n{out}"
+        );
+        assert!(
+            !out.contains("Following paragraph. Another sentence."),
+            "following paragraph must not stay fused, got:\n{out}"
+        );
         assert_eq!(format_text(&out, &org_cfg()).unwrap(), out);
     }
 }
