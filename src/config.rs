@@ -25,7 +25,8 @@ pub struct FormatOverrides {
     /// `NON_PROSE_ENVS`; entries are added to that list.
     pub structure_envs: Vec<String>,
     /// Extra LaTeX command names tokenized like `\verb` before split.
-    /// Meaningful under `[latex]` only. Missing or empty keeps verb/lstinline/spverb.
+    /// Meaningful under `[latex]` only. Missing or empty keeps
+    /// verb/lstinline/spverb/mintinline/mint.
     pub verbatim_commands: Vec<String>,
 }
 

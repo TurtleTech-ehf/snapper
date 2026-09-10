@@ -277,7 +277,8 @@ impl LatexParser {
     }
 
     /// Byte offset of the first `%` that is not escaped as `\%` and is not
-    /// inside `\verb` / `\lstinline` / `\spverb` / configured verbatim commands.
+    /// inside `\verb` / `\lstinline` / `\spverb` / `\mintinline` / `\mint` /
+    /// configured verbatim commands.
     fn unescaped_percent(&self, line: &str) -> Option<usize> {
         unescaped_percent_with(line, &self.extra_verbatim_commands)
     }
@@ -648,7 +649,8 @@ fn find_tex_cs(line: &str, from: usize, cs: &str) -> Option<usize> {
     None
 }
 
-/// `\iffalse` in ordinary TeX, skipping `\verb` / `\lstinline` / `\spverb` spans.
+/// `\iffalse` in ordinary TeX, skipping `\verb` / `\lstinline` /
+/// `\spverb` / `\mintinline` / `\mint` spans.
 fn find_iffalse_at(line: &str, from: usize, extra_cmds: &[String]) -> Option<usize> {
     let bytes = line.as_bytes();
     let mut i = from;
@@ -1914,6 +1916,78 @@ Some text.
     }
 
     #[test]
+    fn fancyvrb_verb_with_inner_punct_round_trips() {
+        use crate::format_text;
+
+        // GitHub #243 fixture: `\Verb|a.b! c|` is one token; Next sentence. splits.
+        let input = "\\begin{document}\nUse \\Verb|a.b! c| here. Next sentence.\n\\end{document}\n";
+        let out = format_text(input, &latex_cfg()).unwrap();
+        assert!(
+            out.contains(r"\Verb|a.b! c|"),
+            "Verb must stay intact, got:\n{out}"
+        );
+        assert!(
+            !out.contains("\\Verb|a.\n") && !out.contains("\\Verb|a.b!\n"),
+            "inner .!? must not split Verb, got:\n{out}"
+        );
+        assert!(
+            out.contains("Use \\Verb|a.b! c| here.\nNext sentence."),
+            "prose after Verb must still split, got:\n{out}"
+        );
+        assert_eq!(format_text(&out, &latex_cfg()).unwrap(), out);
+    }
+
+    #[test]
+    fn fancyvrb_verb_star_with_inner_punct_round_trips() {
+        use crate::format_text;
+
+        let input =
+            "\\begin{document}\nUse \\Verb*|a.b! c| here. Next sentence.\n\\end{document}\n";
+        let out = format_text(input, &latex_cfg()).unwrap();
+        assert!(
+            out.contains(r"\Verb*|a.b! c|"),
+            "Verb* must stay intact, got:\n{out}"
+        );
+        assert!(
+            !out.contains("\\Verb*|a.\n") && !out.contains("\\Verb*|a.b!\n"),
+            "inner .!? must not split Verb*, got:\n{out}"
+        );
+        assert!(
+            out.contains("Use \\Verb*|a.b! c| here.\nNext sentence."),
+            "prose after Verb* must still split, got:\n{out}"
+        );
+        assert_eq!(format_text(&out, &latex_cfg()).unwrap(), out);
+    }
+
+    #[test]
+    fn fancyvrb_verb_inner_percent_is_not_a_comment() {
+        use crate::format_text;
+
+        let input = "\\begin{document}\nCode \\Verb!%! here. Next sentence.\n\\end{document}\n";
+        let out = format_text(input, &latex_cfg()).unwrap();
+        assert!(
+            out.contains(r"\Verb!%!"),
+            "Verb with inner % must stay intact, got:\n{out}"
+        );
+        assert!(
+            out.contains("here."),
+            "text after Verb must not be commented out, got:\n{out}"
+        );
+        assert!(
+            out.contains("Code \\Verb!%! here.\nNext sentence."),
+            "prose after Verb must still split, got:\n{out}"
+        );
+        let regions = LatexParser::default().parse(input);
+        assert!(
+            !regions.iter().any(
+                |r| matches!(r, Region::Structure(s) if s.contains("%!") || s.trim() == "%!\n")
+            ),
+            "inner % of Verb must not be a comment, got: {regions:?}"
+        );
+        assert_eq!(format_text(&out, &latex_cfg()).unwrap(), out);
+    }
+
+    #[test]
     fn lstinline_inner_percent_is_not_a_comment() {
         use crate::format_text;
 
@@ -1955,6 +2029,89 @@ Some text.
         assert!(
             out.contains("please."),
             "prose after lstinline must remain, got:\n{out}"
+        );
+        assert_eq!(format_text(&out, &latex_cfg()).unwrap(), out);
+    }
+
+    /// Ticket fixture (GitHub #245): minted `\mintinline{lang}|body|` is
+    /// one token; following `Next sentence.` still splits.
+    #[test]
+    fn mintinline_lang_delim_round_trips() {
+        use crate::format_text;
+
+        let input = "\\begin{document}\nUse \\mintinline{python}|a.b! c| here. Next sentence.\n\\end{document}\n";
+        let out = format_text(input, &latex_cfg()).unwrap();
+        assert!(
+            out.contains(r"\mintinline{python}|a.b! c|"),
+            "mintinline lang+delim must stay intact, got:\n{out}"
+        );
+        assert!(
+            !out.contains("\\mintinline{python}|a.\n")
+                && !out.contains("\\mintinline{python}|a.b!\n"),
+            "inner .!? must not split mintinline, got:\n{out}"
+        );
+        assert!(
+            out.contains("Use \\mintinline{python}|a.b! c| here.\nNext sentence."),
+            "prose after mintinline must still split, got:\n{out}"
+        );
+        assert_eq!(format_text(&out, &latex_cfg()).unwrap(), out);
+    }
+
+    #[test]
+    fn mintinline_lang_brace_body_round_trips() {
+        use crate::format_text;
+
+        let input = "\\begin{document}\nUse \\mintinline{python}{a.b! c} here. Next sentence.\n\\end{document}\n";
+        let out = format_text(input, &latex_cfg()).unwrap();
+        assert!(
+            out.contains(r"\mintinline{python}{a.b! c}"),
+            "mintinline lang+brace body must stay intact, got:\n{out}"
+        );
+        assert!(
+            out.contains("Use \\mintinline{python}{a.b! c} here.\nNext sentence."),
+            "prose after mintinline brace body must still split, got:\n{out}"
+        );
+        assert_eq!(format_text(&out, &latex_cfg()).unwrap(), out);
+    }
+
+    #[test]
+    fn mint_lang_delim_round_trips() {
+        use crate::format_text;
+
+        let input =
+            "\\begin{document}\nUse \\mint{python}|a.b! c| here. Next sentence.\n\\end{document}\n";
+        let out = format_text(input, &latex_cfg()).unwrap();
+        assert!(
+            out.contains(r"\mint{python}|a.b! c|"),
+            "mint lang+delim must stay intact, got:\n{out}"
+        );
+        assert!(
+            out.contains("Use \\mint{python}|a.b! c| here.\nNext sentence."),
+            "prose after mint must still split, got:\n{out}"
+        );
+        assert_eq!(format_text(&out, &latex_cfg()).unwrap(), out);
+    }
+
+    #[test]
+    fn mintinline_inner_percent_is_not_a_comment() {
+        use crate::format_text;
+
+        let input = "\\begin{document}\nCode \\mintinline{python}|a%b| here. Next sentence.\n\\end{document}\n";
+        let out = format_text(input, &latex_cfg()).unwrap();
+        assert!(
+            out.contains(r"\mintinline{python}|a%b|"),
+            "mintinline with inner % must stay intact, got:\n{out}"
+        );
+        assert!(
+            out.contains("here."),
+            "text after mintinline must not be commented out, got:\n{out}"
+        );
+        let regions = LatexParser::default().parse(input);
+        assert!(
+            !regions.iter().any(
+                |r| matches!(r, Region::Structure(s) if s.contains("%b|") || s.trim() == "%b|\n")
+            ),
+            "inner % of mintinline must not be a comment, got: {regions:?}"
         );
         assert_eq!(format_text(&out, &latex_cfg()).unwrap(), out);
     }
