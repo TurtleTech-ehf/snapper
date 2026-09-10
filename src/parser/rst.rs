@@ -11,6 +11,20 @@ static CODE_DIRECTIVE_RE: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"^\s*\.\.\s+(?:code-block|sourcecode|code)::\s*([A-Za-z0-9_+.\-]+)?\s*$").unwrap()
 });
 
+/// Docutils `Body.patterns['option_marker']`: short `-a`/`+v`, long
+/// `--long`/`/V`, optional arg (`--input=file`, `-b file`, `<file>`),
+/// comma groups, then two-or-more spaces or end of line.
+static OPTION_MARKER_RE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(concat!(
+        r"^((-|\+)[a-zA-Z0-9]( ?([a-zA-Z][a-zA-Z0-9_-]*|<[^<>]+>))?",
+        r"|(--|/)[a-zA-Z0-9][a-zA-Z0-9_-]*([ =]([a-zA-Z][a-zA-Z0-9_-]*|<[^<>]+>))?)",
+        r"(, ((-|\+)[a-zA-Z0-9]( ?([a-zA-Z][a-zA-Z0-9_-]*|<[^<>]+>))?",
+        r"|(--|/)[a-zA-Z0-9][a-zA-Z0-9_-]*([ =]([a-zA-Z][a-zA-Z0-9_-]*|<[^<>]+>))?))*",
+        r"(  +| ?$)",
+    ))
+    .unwrap()
+});
+
 pub struct RstParser;
 
 impl FormatParser for RstParser {
@@ -20,8 +34,8 @@ impl FormatParser for RstParser {
 }
 
 /// Line-based RST parser. Handles directives, literal blocks, sections,
-/// field lists, comments, tables, definition lists, and block-quote
-/// hang spaces as structure regions.
+/// field lists, option lists, comments, tables, definition lists, and
+/// block-quote hang spaces as structure regions.
 fn parse_line_based(input: &str) -> Vec<SpannedRegion> {
     let mut regions = Vec::new();
     let mut current_prose = String::new();
@@ -281,6 +295,24 @@ fn parse_line_based(input: &str) -> Vec<SpannedRegion> {
             continue;
         }
 
+        // Option list: option column (marker + 2+ spaces) is Structure
+        // so wrap cannot eat the alignment. Description is Prose and
+        // hangs at the column width like a list item (GitHub #89).
+        if let Some(col_len) = rst_option_column_len(line_text) {
+            flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
+            list_hang = Some(col_len);
+            regions.push(SpannedRegion::structure(
+                input,
+                ByteSpan::new(line.start, line.start + col_len),
+            ));
+            if line_text.len() > col_len {
+                current_prose.push_str(line_text[col_len..].trim());
+                prose_span = Some(ByteSpan::new(line.start + col_len, line.end));
+            }
+            i += 1;
+            continue;
+        }
+
         // Grid table rows (`| cell |` / `+---+---+`)
         if trimmed.starts_with('|') || trimmed.starts_with('+') {
             flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
@@ -430,6 +462,15 @@ pub(crate) fn source_has_dropped_rst_comments(input: &str) -> bool {
     input
         .lines()
         .any(|line| is_rst_dropped_comment_opener(line.trim_start()))
+}
+
+/// Byte length of the RST option column on `line`, including leading
+/// indent and the two-or-more spaces (or EOL) after the last option.
+/// Docutils `Body.option_marker`: `-a`, `--long`, `--input=file`, `/V`.
+pub(crate) fn rst_option_column_len(line: &str) -> Option<usize> {
+    let indent = line.len() - line.trim_start().len();
+    let t = &line[indent..];
+    OPTION_MARKER_RE.find(t).map(|m| indent + m.end())
 }
 
 /// Byte length of a compact RST list opener on `line`, including the
@@ -1295,5 +1336,138 @@ mod tests {
             "double-backtick literal must stay split, got:\n{out}"
         );
         assert_eq!(format_text(&out, &cfg).unwrap(), out);
+    }
+
+    #[test]
+    fn option_column_len_matches_docutils_forms() {
+        assert_eq!(
+            rst_option_column_len("-a            Output all. Keep this aligned."),
+            Some(14)
+        );
+        assert_eq!(
+            rst_option_column_len("--long        Long option. Another sentence."),
+            Some(14)
+        );
+        assert_eq!(rst_option_column_len("--input=file  Input file."), Some(14));
+        assert_eq!(rst_option_column_len("/V            VMS option."), Some(14));
+        assert_eq!(rst_option_column_len("-a, --all     Output all."), Some(14));
+        assert_eq!(rst_option_column_len("- First item"), None);
+        assert_eq!(rst_option_column_len("Hello world."), None);
+    }
+
+    #[test]
+    fn option_list_column_is_structure_description_is_prose() {
+        let input = concat!(
+            "-a            Output all. Keep this aligned.\n",
+            "--long        Long option. Another sentence.\n",
+        );
+        let regions = RstParser.parse(input);
+        assert!(
+            regions
+                .iter()
+                .any(|r| matches!(r, Region::Structure(s) if s == "-a            ")),
+            "short option column must be Structure, got {regions:?}"
+        );
+        assert!(
+            regions
+                .iter()
+                .any(|r| matches!(r, Region::Structure(s) if s == "--long        ")),
+            "long option column must be Structure, got {regions:?}"
+        );
+        assert!(
+            regions.iter().any(|r| {
+                matches!(r, Region::Prose(s) if s.contains("Output all.") && s.contains("Keep this aligned."))
+            }),
+            "short-option description must be Prose, got {regions:?}"
+        );
+        assert!(
+            regions.iter().any(|r| {
+                matches!(r, Region::Prose(s) if s.contains("Long option.") && s.contains("Another sentence."))
+            }),
+            "long-option description must be Prose, got {regions:?}"
+        );
+        assert!(
+            !regions.iter().any(|r| {
+                matches!(
+                    r,
+                    Region::Prose(s) if s.contains("-a") || s.contains("--long")
+                )
+            }),
+            "option column must not be Prose, got {regions:?}"
+        );
+    }
+
+    #[test]
+    fn reporter_option_list_keeps_alignment_and_hangs_description() {
+        use crate::format::Format;
+        use crate::oracle;
+        use crate::{FormatConfig, format_text};
+
+        let cfg = FormatConfig {
+            format: Format::Rst,
+            max_width: 0,
+            ..Default::default()
+        };
+        let input = concat!(
+            "-a            Output all. Keep this aligned.\n",
+            "--long        Long option. Another sentence.\n",
+        );
+        let out = format_text(input, &cfg).unwrap();
+        assert_eq!(
+            out,
+            concat!(
+                "-a            Output all.\n",
+                "              Keep this aligned.\n",
+                "--long        Long option.\n",
+                "              Another sentence.\n",
+            ),
+            "option descriptions must hang at the option column, got:\n{out}"
+        );
+        assert!(
+            out.contains("-a            Output all."),
+            "short option must keep two-or-more spaces, got:\n{out}"
+        );
+        assert!(
+            out.contains("--long        Long option."),
+            "long option must keep two-or-more spaces, got:\n{out}"
+        );
+        let twice = format_text(&out, &cfg).unwrap();
+        assert_eq!(
+            out, twice,
+            "hung option list must be identity, got:\n{twice}"
+        );
+        assert!(
+            oracle::matches(Format::Rst, input, &out),
+            "oracle mismatch\n in={input:?}\n out={out:?}"
+        );
+
+        let extra = concat!(
+            "--input=file  Input file. Another sentence.\n",
+            "/V            VMS option. Another sentence.\n"
+        );
+        let extra_out = format_text(extra, &cfg).unwrap();
+        assert_eq!(
+            extra_out,
+            concat!(
+                "--input=file  Input file.\n",
+                "              Another sentence.\n",
+                "/V            VMS option.\n",
+                "              Another sentence.\n",
+            ),
+            "--input=file and /V must hang at the option column, got:\n{extra_out}"
+        );
+
+        // max_width wrap used to collapse the 2+ spaces into one.
+        let wrap_cfg = FormatConfig {
+            format: Format::Rst,
+            max_width: 22,
+            ..Default::default()
+        };
+        let wrap_in = "-a            Output all extra words here.\n";
+        let wrap_out = format_text(wrap_in, &wrap_cfg).unwrap();
+        assert!(
+            wrap_out.contains("-a            "),
+            "wrap must not eat option-column spaces, got:\n{wrap_out}"
+        );
     }
 }
