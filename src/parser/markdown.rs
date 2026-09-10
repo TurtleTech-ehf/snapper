@@ -978,22 +978,30 @@ fn is_setext_title_line(line: &str) -> bool {
     if line.trim().starts_with("$$") {
         return false;
     }
+    // HTML comments and types 1/3–6 are leaf blocks (CM 4.6), not title
+    // text. Type 7 cannot interrupt a paragraph, so it may still continue
+    // an open title.
+    if starts_html_comment(line) {
+        return false;
+    }
+    if html_block_kind(line).is_some_and(|k| k.can_interrupt()) {
+        return false;
+    }
     true
 }
 
-/// First text line of a CommonMark 4.3 setext heading whose last text line
-/// is `last`. Walks back through consecutive title lines. A blank or a
-/// non-title line ends the paragraph (pulldown `parse_setext_heading`).
-fn setext_heading_start(lines: &[Line<'_>], last: usize) -> usize {
-    let mut start = last;
-    while start > 0 {
-        let prev = lines[start - 1].text;
-        if prev.trim().is_empty() || !is_setext_title_line(prev) {
-            break;
-        }
-        start -= 1;
-    }
-    start
+/// First source line of the open paragraph a setext underline promotes
+/// (CommonMark 4.3 / pulldown `parse_setext_heading`). Walking consecutive
+/// `is_setext_title_line` matches re-emits already-flushed HTML comments
+/// and indented code (snapper-0u23).
+fn setext_heading_start(lines: &[Line<'_>], last: usize, prose_span: Option<ByteSpan>) -> usize {
+    let Some(span) = prose_span else {
+        return last;
+    };
+    lines[..last]
+        .iter()
+        .position(|row| row.start <= span.start && span.start < row.end)
+        .unwrap_or(last)
 }
 
 /// Pandoc / academic Markdown display math: a line that starts with `$$`.
@@ -1395,6 +1403,8 @@ impl FormatParser for MarkdownParser {
             // CommonMark 4.3 / pulldown parse_setext_heading promote every
             // title line, not just the one immediately above the underline.
             // Pairing only i with i+1 left earlier title lines as Prose.
+            // Start from current_prose, not a title-line walk-back: HTML
+            // comments and indented code are already emitted (snapper-0u23).
             if i + 1 < total
                 && is_setext_title_line(line_text)
                 && is_setext_underline(lines[i + 1].text)
@@ -1402,10 +1412,15 @@ impl FormatParser for MarkdownParser {
                 // List/quote items reuse `in_list_item`; do not walk back
                 // into the marker line. A lazy `---` after `> Foo` is a
                 // break (CM ex. 93), not a heading of the quote.
+                let open = if current_prose.is_empty() {
+                    None
+                } else {
+                    prose_span
+                };
                 let start = if in_list_item {
                     i
                 } else {
-                    setext_heading_start(&lines, i)
+                    setext_heading_start(&lines, i, open)
                 };
                 close_list_item(
                     &mut in_list_item,
@@ -2863,6 +2878,153 @@ mod tests {
                 .iter()
                 .any(|r| matches!(r, Region::Prose(p) if p.contains("Heading only"))),
             "setext title must not join prior prose: {regions:?}"
+        );
+    }
+
+    /// snapper-0u23: walk-back via is_setext_title_line re-emitted the
+    /// already-consumed HTML comment as a second Structure line.
+    #[test]
+    fn setext_after_html_comment_does_not_reemit_comment() {
+        let input = "<!-- toc -->\nMy Title\n========\n\nBody after. More.\n";
+        let regions = MarkdownParser.parse(input);
+        let comments = regions
+            .iter()
+            .filter(|r| matches!(r, Region::Structure(s) if s.contains("<!-- toc -->")))
+            .count();
+        assert_eq!(
+            comments, 1,
+            "HTML comment must appear once, got: {regions:?}"
+        );
+        assert!(
+            regions
+                .iter()
+                .any(|r| matches!(r, Region::Structure(s) if s == "My Title\n")),
+            "setext title must be Structure, got: {regions:?}"
+        );
+        assert!(
+            regions
+                .iter()
+                .any(|r| matches!(r, Region::Structure(s) if s.trim() == "========")),
+            "underline must be Structure, got: {regions:?}"
+        );
+        assert!(
+            !regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(p) if p.contains("My Title") || p.contains("<!-- toc")
+            )),
+            "comment and title must not be Prose: {regions:?}"
+        );
+    }
+
+    /// snapper-0u23: indented code is consumed before setext; walk-back
+    /// must not copy those source lines into Structure.
+    #[test]
+    fn setext_after_indented_code_does_not_reemit_code() {
+        let input = "    code line\nHeading here\n=======\n\nBody after. More.\n";
+        let regions = MarkdownParser.parse(input);
+        let code = regions
+            .iter()
+            .filter(|r| matches!(r, Region::Code { .. }))
+            .count();
+        assert_eq!(code, 1, "indented code must appear once, got: {regions:?}");
+        assert!(
+            !regions.iter().any(|r| matches!(
+                r,
+                Region::Structure(s) if s.contains("code line")
+            )),
+            "indented code must not be re-emitted as Structure: {regions:?}"
+        );
+        assert!(
+            regions
+                .iter()
+                .any(|r| matches!(r, Region::Structure(s) if s == "Heading here\n")),
+            "setext title must be Structure, got: {regions:?}"
+        );
+    }
+
+    /// Type 1 HTML is emitted before a later setext. Walk-back must not
+    /// treat `<pre>` / body / `</pre>` as title lines.
+    #[test]
+    fn setext_after_html_type1_does_not_reemit_pre() {
+        let input = "<pre>\ncode\n</pre>\nMy Title\n========\n";
+        let regions = MarkdownParser.parse(input);
+        let pre_hits = regions
+            .iter()
+            .filter(|r| match r {
+                Region::Structure(s) | Region::Code { body: s, .. } => {
+                    s.contains("<pre>") || s.contains("</pre>") || s.contains("code")
+                }
+                _ => false,
+            })
+            .count();
+        assert_eq!(
+            pre_hits, 1,
+            "type-1 HTML must appear once, got: {regions:?}"
+        );
+        assert!(
+            regions
+                .iter()
+                .any(|r| matches!(r, Region::Structure(s) if s == "My Title\n")),
+            "setext title must be Structure, got: {regions:?}"
+        );
+    }
+
+    /// CommonMark lazy continuation: 4-space indent after an open
+    /// paragraph is still title text, not indented code.
+    #[test]
+    fn setext_lazy_indented_continuation_is_title() {
+        let input = "Foo is the first title line. Still title.\n    Bar is the second title line.\n=======\n";
+        let regions = MarkdownParser.parse(input);
+        assert!(
+            !regions.iter().any(|r| matches!(r, Region::Code { .. })),
+            "lazy indent must not become Code: {regions:?}"
+        );
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Structure(s) if s == "Foo is the first title line. Still title.\n"
+            )),
+            "first title line must be Structure, got: {regions:?}"
+        );
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Structure(s) if s.contains("Bar is the second title line")
+            )),
+            "indented continuation must be Structure, got: {regions:?}"
+        );
+        assert!(
+            !regions.iter().any(|r| matches!(r, Region::Prose(_))),
+            "lazy setext must not leak Prose: {regions:?}"
+        );
+    }
+
+    /// HTML comments interrupt a paragraph (CM 4.6 type 2). The prior
+    /// line stays Prose; it is not promoted with the later heading.
+    #[test]
+    fn html_comment_interrupts_setext_paragraph() {
+        let input = "Prior paragraph. Still prose.\n<!-- toc -->\nHeading only\n=======\n";
+        let regions = MarkdownParser.parse(input);
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(p) if p.contains("Prior paragraph") && p.contains("Still prose")
+            )),
+            "interrupted paragraph must stay Prose, got: {regions:?}"
+        );
+        let comments = regions
+            .iter()
+            .filter(|r| matches!(r, Region::Structure(s) if s.contains("<!-- toc -->")))
+            .count();
+        assert_eq!(
+            comments, 1,
+            "HTML comment must appear once, got: {regions:?}"
+        );
+        assert!(
+            regions
+                .iter()
+                .any(|r| matches!(r, Region::Structure(s) if s == "Heading only\n")),
+            "setext after comment must be Structure, got: {regions:?}"
         );
     }
 
@@ -4584,7 +4746,7 @@ mod tests {
     #[test]
     fn definition_list_body_hangs_and_splits() {
         use crate::format::Format;
-        use crate::{format_text, FormatConfig};
+        use crate::{FormatConfig, format_text};
 
         let input = ticket_definition_list_fixture();
         let out = format_text(input, &md_cfg()).unwrap();
