@@ -357,6 +357,20 @@ mod tests {
     }
 
     #[test]
+    fn md_ol_opener_hang_is_oracle_veto() {
+        // pulldown: `* 0. A.` is a nested ordered list; `* 0.\n  A.` is
+        // a continuation paragraph. The hung form is not render-safe.
+        assert!(
+            !matches(Format::Markdown, "* 0. A.", "* 0.\n  A."),
+            "sembr hang after 0. must remain an oracle veto"
+        );
+        assert!(
+            !matches(Format::Markdown, "* 0. A.\n", "* 0.\n  A.\n"),
+            "sembr hang after 0. must remain an oracle veto"
+        );
+    }
+
+    #[test]
     fn configured_verb_percent_tree_matches_across_split() {
         let original = "\\begin{document}\nCode \\Verb!%! here. Next sentence.\n\\end{document}\n";
         let output = "\\begin{document}\nCode \\Verb!%! here.\nNext sentence.\n\\end{document}\n";

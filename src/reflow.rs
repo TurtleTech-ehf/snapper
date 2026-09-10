@@ -233,7 +233,10 @@ fn reflow_prose(
         _ => String::new(),
     };
     let hanging = hang.chars().count();
-    let sentences = splitter.split(text);
+    let mut sentences = splitter.split(text);
+    if config.format == Format::Markdown && hanging > 0 {
+        glue_md_same_line_ol_opener(&mut sentences, text);
+    }
     let nsent = sentences.len();
     for (i, sentence) in sentences.iter().enumerate() {
         if config.max_width > 0 || config.clause_breaks {
@@ -786,6 +789,65 @@ fn skip_block_opening_cut(
     break_at
 }
 
+/// pulldown treats `* 0. A.` as a nested ordered list. A wrap or sembr
+/// hang after the opener (`* 0.\n  A.`) is a continuation paragraph and
+/// the HTML oracle vetoes. Keep the opener with the next word instead of
+/// inventing a nested `0. ` Structure.
+fn skip_md_same_line_ol_opener_cut(
+    words: &[&str],
+    start: usize,
+    break_at: usize,
+    format: Format,
+    first: bool,
+    layout: &WrapLayout<'_>,
+) -> usize {
+    if format == Format::Markdown
+        && first
+        && layout.first_indent.is_empty()
+        && !layout.subsequent_indent.is_empty()
+        && break_at == start + 1
+        && break_at < words.len()
+        && is_ordered_list_marker(words[start])
+    {
+        return break_at + 1;
+    }
+    break_at
+}
+
+/// True when list-item prose starts with a same-line ordered list opener
+/// (`0. A.`). A source that is already hung (`0.\nA.`) stays hung.
+fn md_same_line_ol_opener(text: &str) -> bool {
+    let t = text.trim_start();
+    let bytes = t.as_bytes();
+    let mut i = 0;
+    while i < bytes.len() && bytes[i].is_ascii_digit() {
+        i += 1;
+    }
+    if i == 0 {
+        return false;
+    }
+    if !matches!(bytes.get(i), Some(b'.') | Some(b')')) {
+        return false;
+    }
+    i += 1;
+    matches!(bytes.get(i), Some(b' ') | Some(b'\t'))
+        && bytes.get(i + 1).is_some_and(|b| !b.is_ascii_whitespace())
+}
+
+/// Join a same-line Markdown `0.` / `1)` opener onto the next sentence so
+/// sembr does not hang after the opener.
+fn glue_md_same_line_ol_opener(sentences: &mut Vec<String>, source: &str) {
+    if sentences.len() < 2 || !md_same_line_ol_opener(source) {
+        return;
+    }
+    if !is_ordered_list_marker(sentences[0].trim()) {
+        return;
+    }
+    let rest = sentences[1].trim_start();
+    sentences[0] = format!("{} {rest}", sentences[0].trim());
+    sentences.remove(1);
+}
+
 fn emit_wrapped_line(
     words: &[&str],
     start: usize,
@@ -836,6 +898,7 @@ fn break_at_clause_punct(text: &str, format: Format, layout: WrapLayout<'_>) -> 
             .position(|w| ends_with_clause_punct(w))
             .map_or(words.len(), |i| start + i + 1);
         break_at = skip_block_opening_cut(&words, start, break_at, format);
+        break_at = skip_md_same_line_ol_opener_cut(&words, start, break_at, format, first, &layout);
         lines.push(emit_wrapped_line(
             &words, start, break_at, indent, may_escape, format,
         ));
@@ -909,6 +972,7 @@ fn wrap_atomic_words(
             }
         }
         break_at = skip_block_opening_cut(&words, start, break_at, format);
+        break_at = skip_md_same_line_ol_opener_cut(&words, start, break_at, format, first, &layout);
         lines.push(emit_wrapped_line(
             &words, start, break_at, indent, may_escape, format,
         ));
@@ -1165,6 +1229,15 @@ mod tests {
         assert_eq!(hanging_indent_width("- "), 2);
         assert_eq!(hanging_indent_width("#. "), 3);
         assert_eq!(hanging_indent_width("\\item "), 6);
+    }
+
+    #[test]
+    fn md_same_line_ol_opener_detects_compact_not_hung() {
+        assert!(md_same_line_ol_opener("0. A."));
+        assert!(md_same_line_ol_opener("1) Next."));
+        assert!(!md_same_line_ol_opener("0.\nA."));
+        assert!(!md_same_line_ol_opener("0."));
+        assert!(!md_same_line_ol_opener("Hello. 0. A."));
     }
 
     #[test]
