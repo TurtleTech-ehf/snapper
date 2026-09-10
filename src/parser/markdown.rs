@@ -169,6 +169,26 @@ fn line_indent(line: &str) -> usize {
     line.len() - line.trim_start().len()
 }
 
+/// CommonMark indent width: a space is 1, a tab advances to the next
+/// multiple of 4.
+fn indent_columns(line: &str) -> usize {
+    let mut cols = 0usize;
+    for c in line.chars() {
+        match c {
+            ' ' => cols += 1,
+            '\t' => cols += 4 - (cols % 4),
+            _ => break,
+        }
+    }
+    cols
+}
+
+/// Non-blank line whose indent opens a CommonMark indented code block
+/// (4 spaces or a tab).
+fn is_indented_code_line(line: &str) -> bool {
+    !line.trim().is_empty() && indent_columns(line) >= 4
+}
+
 /// Closing fence: same marker char, length at least the opener, indent at
 /// most `max(3, opener_indent)`. CommonMark allows 0–3 spaces on a closer;
 /// list-nested openers keep their own indent so a matching 4-space closer
@@ -349,6 +369,58 @@ impl FormatParser for MarkdownParser {
                 flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
                 regions.push(SpannedRegion::blank(input, line.span()));
                 i += 1;
+                continue;
+            }
+
+            // CommonMark indented code (4.4): after a paragraph has ended,
+            // 4 spaces or a tab is Code through the blank that ends the
+            // block. Fences already won above so a 4-space ``` stays a
+            // fence (list-nested openers). Cannot interrupt a paragraph.
+            if !in_list_item && current_prose.is_empty() && is_indented_code_line(line_text) {
+                close_list_item(
+                    &mut in_list_item,
+                    &mut current_prose,
+                    &mut prose_span,
+                    &mut list_term,
+                    input,
+                    &mut regions,
+                );
+                flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
+                let header = ByteSpan::new(line.start, line.start);
+                let body_start = line.start;
+                let mut body_end = line.end;
+                let mut footer_start = None;
+                i += 1;
+                while i < total {
+                    let next = &lines[i];
+                    if next.text.trim().is_empty() {
+                        if footer_start.is_none() {
+                            footer_start = Some(next.start);
+                        }
+                        i += 1;
+                        continue;
+                    }
+                    if is_indented_code_line(next.text) {
+                        footer_start = None;
+                        body_end = next.end;
+                        i += 1;
+                        continue;
+                    }
+                    break;
+                }
+                let footer = match footer_start {
+                    Some(fs) => {
+                        ByteSpan::new(fs, lines.get(i).map(|l| l.start).unwrap_or(input.len()))
+                    }
+                    None => ByteSpan::new(body_end, body_end),
+                };
+                regions.push(SpannedRegion::code(
+                    input,
+                    None,
+                    header,
+                    ByteSpan::new(body_start, body_end),
+                    footer,
+                ));
                 continue;
             }
 
@@ -1310,5 +1382,151 @@ mod tests {
             "must not hang quote wrap with spaces: {out:?}"
         );
         assert_eq!(format_text(&out, &cfg).unwrap(), out);
+    }
+
+    /// GitHub #86 / snapper-tupp: after a blank, 4 spaces is Code.
+    /// On origin/main the indent is Prose, `return 1.0` can split, and the
+    /// oracle vetoes the whole file so `Next sentence. Another.` stays fused.
+    #[test]
+    fn indented_code_after_blank_is_not_sentence_split() {
+        use crate::format::Format;
+        use crate::{FormatConfig, format_text};
+
+        let input = concat!(
+            "After a blank, this is code.\n",
+            "\n",
+            "    def f():\n",
+            "        return 1.0\n",
+            "\n",
+            "Next sentence. Another.\n",
+        );
+        let regions = MarkdownParser.parse(input);
+        match regions.iter().find(|r| matches!(r, Region::Code { .. })) {
+            Some(Region::Code {
+                header,
+                body,
+                footer,
+                ..
+            }) => {
+                assert!(
+                    header.is_empty(),
+                    "indented code has no fence header: {header:?}"
+                );
+                assert!(
+                    body.contains("    def f():\n        return 1.0\n"),
+                    "indented body must keep indent: {body:?}"
+                );
+                assert!(
+                    !body.contains("Next sentence"),
+                    "following prose must not be in the code body: {body:?}"
+                );
+                assert_eq!(
+                    footer, "\n",
+                    "terminating blank is the Code footer: {footer:?}"
+                );
+            }
+            other => panic!("indented code must be Code, got {other:?} / {regions:?}"),
+        }
+        assert!(
+            !regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(p) if p.contains("def f") || p.contains("return 1.0")
+            )),
+            "indented code must not be Prose: {regions:?}"
+        );
+
+        let cfg = FormatConfig {
+            format: Format::Markdown,
+            ..Default::default()
+        };
+        let out = format_text(input, &cfg).unwrap();
+        assert!(
+            out.contains("    def f():\n        return 1.0\n"),
+            "indented code must stay verbatim, got:\n{out}"
+        );
+        assert!(
+            out.contains("Next sentence.\nAnother."),
+            "following prose must still split, got:\n{out}"
+        );
+        assert_eq!(format_text(&out, &cfg).unwrap(), out);
+    }
+
+    #[test]
+    fn tab_indented_code_after_blank_is_code() {
+        let input = "Intro.\n\n\tdef f():\n\t    return 1.0\n\nNext.\n";
+        let regions = MarkdownParser.parse(input);
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Code { body, .. } if body.contains("\tdef f():")
+            )),
+            "tab indent must open Code, got: {regions:?}"
+        );
+        assert!(
+            !regions
+                .iter()
+                .any(|r| matches!(r, Region::Prose(p) if p.contains("def f"))),
+            "tab-indented code must not be Prose: {regions:?}"
+        );
+    }
+
+    #[test]
+    fn indented_code_keeps_interior_blank() {
+        let input = concat!(
+            "Before.\n",
+            "\n",
+            "    def f():\n",
+            "        return 1.0\n",
+            "\n",
+            "    def g():\n",
+            "        return 2.0\n",
+            "\n",
+            "After.\n",
+        );
+        let regions = MarkdownParser.parse(input);
+        let codes: Vec<_> = regions
+            .iter()
+            .filter(|r| matches!(r, Region::Code { .. }))
+            .collect();
+        assert_eq!(
+            codes.len(),
+            1,
+            "interior blank stays in one Code: {regions:?}"
+        );
+        match codes[0] {
+            Region::Code { body, .. } => {
+                assert!(
+                    body.contains("    def f():\n        return 1.0\n\n    def g():\n"),
+                    "interior blank must stay in the body: {body:?}"
+                );
+            }
+            _ => unreachable!(),
+        }
+    }
+
+    #[test]
+    fn indented_code_cannot_interrupt_paragraph() {
+        let input = "Prose line\n    not code. Still prose.\n";
+        let regions = MarkdownParser.parse(input);
+        assert!(
+            !regions.iter().any(|r| matches!(r, Region::Code { .. })),
+            "indent must not interrupt a paragraph: {regions:?}"
+        );
+        assert!(
+            regions
+                .iter()
+                .any(|r| matches!(r, Region::Prose(p) if p.contains("not code"))),
+            "lazy indent stays Prose: {regions:?}"
+        );
+    }
+
+    #[test]
+    fn three_space_indent_is_not_code() {
+        let input = "Before.\n\n   not code\n\nAfter.\n";
+        let regions = MarkdownParser.parse(input);
+        assert!(
+            !regions.iter().any(|r| matches!(r, Region::Code { .. })),
+            "3 spaces is not indented code: {regions:?}"
+        );
     }
 }
