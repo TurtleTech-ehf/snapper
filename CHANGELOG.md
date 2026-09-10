@@ -4,6 +4,7 @@ All notable changes to this project will be documented in this file. See [conven
 - - -
 ## Unreleased (main)
 #### Bug Fixes
+- (**latex**) treat listings `lstlisting*` as code so listing bodies do not reflow as prose (#234)
 - (**latex**) treat standard `alltt` as code so listing bodies do not reflow as prose (#230)
 - (**org**) inline footnote references (`[fn:: …]` / `[fn:name: …]`) stay one token so interior punctuation is not a sentence or wrap boundary (#231)
 - (**org**) inline `src_lang{...}` and `call_name(...)` stay one token so interior punctuation is not a sentence or wrap boundary; org-element `\<` is word-start, so `foo_src_python{...}` still matches (#214)

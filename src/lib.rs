@@ -12,7 +12,7 @@
 //!
 //! - **Org-mode**: drawers, tables, keywords preserved; `#+BEGIN_SRC` is
 //!   `Region::Code` (comment reflow via `[code.<lang>]`, optional formatters)
-//! - **LaTeX**: preamble and math preserved; `minted` / `lstlisting` are code regions
+//! - **LaTeX**: preamble and math preserved; `minted` / `lstlisting` / `lstlisting*` are code regions
 //! - **Markdown**: front matter and headings preserved; fenced blocks are code regions
 //! - **RST**: directives and literals preserved; admonition/figure/topic/sidebar/container bodies reflow; `.. code-block::` is a code region
 //! - **Plaintext**: everything treated as prose
@@ -114,7 +114,7 @@ pub struct FormatConfig {
     /// and assert the oracle themselves.
     pub render_backstop: bool,
     /// Extra LaTeX environments treated as code (no reflow), added to
-    /// minted/lstlisting/verbatim/comment, filecontents, tree-sitter
+    /// minted/lstlisting/lstlisting*/verbatim/comment, filecontents, tree-sitter
     /// trivia, Overleaf Verbatim/boxedverbatim/tcblisting/codeexample,
     /// fancyvrb BVerbatim/LVerbatim/SaveVerbatim/VerbatimOut, and
     /// standard alltt. Empty keeps the built-in list.
