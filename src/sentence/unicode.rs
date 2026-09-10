@@ -21,6 +21,7 @@ static INLINE_TOKEN_RE: LazyLock<Regex> = LazyLock::new(|| {
             r"\$\$[^$\n]+\$\$",          // Display math: $$...$$
             r"\$[^$\n]+\$",              // Inline math: $...$
             r"\\\([^\\\n]+\\\)",         // LaTeX inline math: \(...\)
+            r"\\\[[^\n]+?\\\]",          // Org / LaTeX display math fragment: \[...\]
             r"\\([a-zA-Z]+)\{[^}]*\}",   // LaTeX commands: \cmd{arg}
             // Org emphasis must be protected before sentence splits so a line
             // cannot begin with `*rest` (false headline) or leave markers open.
@@ -1177,6 +1178,20 @@ mod tests {
                 r"According to X, \(E=mc^2\).".to_string(),
                 "Next.".to_string(),
             ]
+        );
+    }
+
+    #[test]
+    fn latex_bracket_display_math_stays_atomic() {
+        let text = r"See \[ a = 1. \] done. Next.";
+        let (_, placeholders) = protect_inline_tokens(text);
+        assert!(
+            placeholders.iter().any(|p| p == r"\[ a = 1. \]"),
+            "same-line \\[...\\] must be protected, got {placeholders:?}"
+        );
+        assert_eq!(
+            split(text),
+            vec![r"See \[ a = 1. \] done.".to_string(), "Next.".to_string(),]
         );
     }
 

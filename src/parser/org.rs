@@ -2,8 +2,8 @@ use regex::Regex;
 use std::sync::LazyLock;
 
 use crate::parser::{
-    ByteSpan, FormatParser, Region, RegionOrigin, SpannedRegion, flush_prose_spanned, iter_lines,
-    join_prose_gap, push_prose_line,
+    ByteSpan, FormatParser, Line, Region, RegionOrigin, SpannedRegion, flush_prose_spanned,
+    iter_lines, join_prose_gap, push_prose_line,
 };
 
 static HEADLINE_RE: LazyLock<Regex> =
@@ -151,6 +151,42 @@ impl OrgParser {
             .is_some_and(|caps| caps.get(1).unwrap().as_str() == env)
     }
 
+    /// Same-line `\end{NAME}` after a leftover-start `\begin{NAME}`.
+    /// Name-matched; a mismatched closer does not close the env.
+    fn line_closes_latex_env(line: &str, env: &str) -> bool {
+        let Some(caps) = LATEX_BEGIN_RE.captures(line) else {
+            return false;
+        };
+        let after_begin = caps.get(0).unwrap().end();
+        let needle = format!("\\end{{{env}}}");
+        line[after_begin..].contains(&needle)
+    }
+
+    /// latexindent `(?<!\\)\\\[` / `(?<!\\)\\\]`. `\\[` is not display math.
+    fn find_unescaped_display_bracket(s: &str, from: usize, closer: u8) -> Option<usize> {
+        let bytes = s.as_bytes();
+        let mut i = from;
+        while i < bytes.len() {
+            if bytes[i] == b'\\'
+                && i + 1 < bytes.len()
+                && bytes[i + 1] == closer
+                && (i == 0 || bytes[i - 1] != b'\\')
+            {
+                return Some(i);
+            }
+            i += 1;
+        }
+        None
+    }
+
+    /// org-syntax 5.2 latex-fragment: first same-line `\[CONTENTS\]`.
+    /// Returns `(open, after_close)` byte offsets in `s`.
+    fn same_line_bracket_fragment(s: &str) -> Option<(usize, usize)> {
+        let open = Self::find_unescaped_display_bracket(s, 0, b'[')?;
+        let close = Self::find_unescaped_display_bracket(s, open + 2, b']')?;
+        Some((open, close + 2))
+    }
+
     /// org-element latex-fragment display math: `\[` / `\]` or `$$` / `$$`.
     fn display_math_open(line: &str) -> Option<DisplayMathDelim> {
         let t = line.trim();
@@ -185,6 +221,79 @@ impl OrgParser {
     fn is_export_snippet_line(line: &str) -> bool {
         let trimmed = line.trim();
         EXPORT_SNIPPET_RE.is_match(trimmed) && trimmed.starts_with("@@")
+    }
+
+    /// Split same-line `\[CONTENTS\]` into Structure islands (Kang / org-syntax 5.2).
+    /// Glue space before `\[` stays on the island so reflow does not break
+    /// `The root is \[ x = a.b \]`. Leftover-start indent stays on the island.
+    /// Returns true when at least one same-line pair was emitted.
+    fn emit_same_line_bracket_fragments(
+        input: &str,
+        line: &Line<'_>,
+        current_prose: &mut String,
+        prose_span: &mut Option<ByteSpan>,
+        regions: &mut Vec<SpannedRegion>,
+    ) -> bool {
+        let mut rel = 0;
+        let mut found = false;
+        while let Some((open, after_close)) = Self::same_line_bracket_fragment(&line.text[rel..]) {
+            found = true;
+            let open_abs = rel + open;
+            let end_abs = rel + after_close;
+            let prefix = &line.text[rel..open_abs];
+            let lead_glue = if prefix.trim().is_empty() {
+                0
+            } else {
+                prefix.len() - prefix.trim_end_matches([' ', '\t']).len()
+            };
+            // Prose span must stop before the glue space; splice copies
+            // Structure from source and overlapping ranges drop the space.
+            if prefix.len() > lead_glue {
+                let lead = Line {
+                    start: line.start + rel,
+                    end: line.start + open_abs - lead_glue,
+                    text: &line.text[rel..open_abs - lead_glue],
+                };
+                push_prose_line(current_prose, prose_span, &lead, true, false);
+            }
+            flush_prose_spanned(current_prose, prose_span, regions);
+            let island_start = if prefix.trim().is_empty() {
+                line.start + rel
+            } else {
+                line.start + open_abs - lead_glue
+            };
+            let rest_after = &line.text[end_abs..];
+            let trail_glue = if rest_after.trim().is_empty() {
+                0
+            } else {
+                rest_after.len() - rest_after.trim_start_matches([' ', '\t']).len()
+            };
+            let island_end = if rest_after.trim().is_empty() {
+                line.end
+            } else {
+                line.start + end_abs + trail_glue
+            };
+            regions.push(SpannedRegion::structure(
+                input,
+                ByteSpan::new(island_start, island_end),
+            ));
+            rel = end_abs + trail_glue;
+            if rest_after.trim().is_empty() {
+                return true;
+            }
+        }
+        if !found {
+            return false;
+        }
+        if rel < line.text.len() && !line.text[rel..].trim().is_empty() {
+            let rest = Line {
+                start: line.start + rel,
+                end: line.end,
+                text: &line.text[rel..],
+            };
+            push_prose_line(current_prose, prose_span, &rest, true, true);
+        }
+        true
     }
 }
 
@@ -333,7 +442,11 @@ impl FormatParser for OrgParser {
             // LaTeX environment begin (\begin{equation} etc.)
             if let Some(env) = Self::is_latex_begin(line_text) {
                 flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
-                in_latex_env = Some(env);
+                // Same-line `\begin{NAME}...\end{NAME}` must close here so
+                // following prose is not swallowed as env body.
+                if !Self::line_closes_latex_env(line_text, &env) {
+                    in_latex_env = Some(env);
+                }
                 regions.push(SpannedRegion::structure(input, line.span()));
                 continue;
             }
@@ -460,6 +573,18 @@ impl FormatParser for OrgParser {
                 }
                 // Not a continuation: leave list context
                 list_item_indent = None;
+            }
+
+            // Same-line \[CONTENTS\] is Structure (org-syntax 5.2 / Kang).
+            // Surrounding words stay Prose so "today. Next claim." still reflows.
+            if Self::emit_same_line_bracket_fragments(
+                input,
+                &line,
+                &mut current_prose,
+                &mut prose_span,
+                &mut regions,
+            ) {
+                continue;
             }
 
             // Regular prose line -- accumulate
@@ -1291,6 +1416,161 @@ mod tests {
         assert!(
             out.contains("End of section.\n-----\nStart of next.\nMore."),
             "rule is a boundary; following prose reflows, got:\n{out}"
+        );
+        assert_eq!(format_text(&out, &org_cfg()).unwrap(), out);
+    }
+
+    /// Ticket fixture (Format::Org): same-line `\[...\]` and same-line
+    /// `\begin{NAME}...\end{NAME}` (snapper-dvg8 / GitHub #108).
+    fn dvg8_fixture() -> &'static str {
+        concat!(
+            "The root is \\[ x = a.b \\] today. Next claim.\n",
+            "\n",
+            "Prose before.\n",
+            "\\begin{equation} x = 1 \\end{equation}\n",
+            "This must stay prose. Second sentence.\n",
+        )
+    }
+
+    #[test]
+    fn same_line_bracket_display_math_is_structure() {
+        use crate::format_text;
+
+        let input = "The root is \\[ x = a.b \\] today. Next claim.\n";
+        let regions = OrgParser.parse(input);
+        assert!(
+            regions
+                .iter()
+                .any(|r| matches!(r, Region::Structure(s) if s.contains("x = a.b"))),
+            "same-line \\[ x = a.b \\] must be Structure, got: {regions:?}"
+        );
+        assert!(
+            !regions
+                .iter()
+                .any(|r| matches!(r, Region::Prose(p) if p.contains("x = a.b"))),
+            "same-line \\[ body must not be Prose, got: {regions:?}"
+        );
+        assert!(
+            regions
+                .iter()
+                .any(|r| matches!(r, Region::Prose(p) if p.contains("The root is"))),
+            "words before same-line \\[ must stay Prose, got: {regions:?}"
+        );
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(p) if p.contains("today") && p.contains("Next claim")
+            )),
+            "words after same-line \\] must stay Prose, got: {regions:?}"
+        );
+        let out = format_text(input, &org_cfg()).unwrap();
+        assert!(
+            out.contains("\\[ x = a.b \\]"),
+            "same-line \\[...\\] must stay intact, got:\n{out}"
+        );
+        assert!(
+            !out.contains("x = a.\n"),
+            "must not split inside same-line display math, got:\n{out}"
+        );
+        assert!(
+            out.contains("today.\nNext claim."),
+            "prose after same-line \\] must still reflow, got:\n{out}"
+        );
+        assert_eq!(format_text(&out, &org_cfg()).unwrap(), out);
+    }
+
+    #[test]
+    fn same_line_latex_env_closes_and_does_not_swallow() {
+        use crate::format_text;
+
+        let input = "Prose before.\n\\begin{equation} x = 1 \\end{equation}\nThis must stay prose. Second sentence.\n";
+        let regions = OrgParser.parse(input);
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Structure(s)
+                    if s.contains("\\begin{equation}") && s.contains("\\end{equation}")
+            )),
+            "same-line \\begin{{equation}}...\\end{{equation}} must be Structure, got: {regions:?}"
+        );
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(p)
+                    if p.contains("This must stay prose") && p.contains("Second sentence")
+            )),
+            "prose after same-line env must stay Prose, got: {regions:?}"
+        );
+        assert!(
+            !regions.iter().any(|r| matches!(
+                r,
+                Region::Structure(s) if s.contains("This must stay prose")
+            )),
+            "same-line env must not swallow following prose, got: {regions:?}"
+        );
+        let out = format_text(input, &org_cfg()).unwrap();
+        assert!(
+            out.contains("\\begin{equation} x = 1 \\end{equation}"),
+            "same-line env must stay intact, got:\n{out}"
+        );
+        assert!(
+            out.contains("This must stay prose.\nSecond sentence."),
+            "following prose must reflow, got:\n{out}"
+        );
+        assert_eq!(format_text(&out, &org_cfg()).unwrap(), out);
+    }
+
+    #[test]
+    fn dvg8_fixture_same_line_math_and_env() {
+        use crate::format_text;
+
+        let input = dvg8_fixture();
+        let regions = OrgParser.parse(input);
+        assert!(
+            regions
+                .iter()
+                .any(|r| matches!(r, Region::Structure(s) if s.contains("x = a.b"))),
+            "fixture \\[ x = a.b \\] must be Structure, got: {regions:?}"
+        );
+        assert!(
+            !regions
+                .iter()
+                .any(|r| matches!(r, Region::Prose(p) if p.contains("x = a.b"))),
+            "fixture math must not stay Prose, got: {regions:?}"
+        );
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Structure(s)
+                    if s.contains("\\begin{equation} x = 1 \\end{equation}")
+            )),
+            "fixture same-line env must be Structure, got: {regions:?}"
+        );
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(p)
+                    if p.contains("This must stay prose") && p.contains("Second sentence")
+            )),
+            "fixture following sentences must stay Prose, got: {regions:?}"
+        );
+        assert!(
+            !regions.iter().any(|r| matches!(
+                r,
+                Region::Structure(s) if s.contains("This must stay prose")
+            )),
+            "fixture env must not swallow the rest of the file, got: {regions:?}"
+        );
+        let out = format_text(input, &org_cfg()).unwrap();
+        assert!(
+            out.contains("The root is \\[ x = a.b \\] today.\nNext claim."),
+            "fixture prose around \\[...\\] must reflow, got:\n{out}"
+        );
+        assert!(
+            out.contains(
+                "\\begin{equation} x = 1 \\end{equation}\nThis must stay prose.\nSecond sentence."
+            ),
+            "fixture env must close; following prose reflows, got:\n{out}"
         );
         assert_eq!(format_text(&out, &org_cfg()).unwrap(), out);
     }
