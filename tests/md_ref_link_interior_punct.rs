@@ -101,6 +101,48 @@ fn ticket_fixture_keeps_reference_span_and_splits_next() {
 }
 
 #[test]
+fn consecutive_shortcuts_are_not_one_reference() {
+    // CM 0.31.2 §6.3 examples 542–543: no spaces or line endings between
+    // link text and label. `[foo] [bar]` / `[foo]\n[bar]` stay two tokens.
+    let spaced = concat!(
+        "See [foo] [bar] for details. Next sentence.\n",
+        "\n",
+        "[foo]: https://example.org/foo\n",
+        "[bar]: https://example.org/bar\n",
+    );
+    let spaced_out = format_text(spaced, &md_cfg()).unwrap();
+    assert!(
+        spaced_out.contains("[foo] [bar]"),
+        "spaced consecutive shortcuts must stay two tokens, got:\n{spaced_out}"
+    );
+    assert!(
+        spaced_out.contains("for details.\nNext sentence."),
+        "following sentence must still split, got:\n{spaced_out}"
+    );
+
+    let lined = concat!(
+        "See [important]\n",
+        "[See also][ref] for details. Next sentence.\n",
+        "\n",
+        "[ref]: https://example.org/x\n",
+    );
+    let lined_out = format_text(lined, &md_cfg()).unwrap();
+    assert!(
+        lined_out.contains("[See also][ref]"),
+        "full reference after a newline shortcut must stay one token, got:\n{lined_out}"
+    );
+    assert!(
+        lined_out.contains("[important]"),
+        "prior shortcut must remain, got:\n{lined_out}"
+    );
+    assert!(
+        lined_out.contains("for details.\nNext sentence."),
+        "following sentence must still split, got:\n{lined_out}"
+    );
+    assert_eq!(format_text(&lined_out, &md_cfg()).unwrap(), lined_out);
+}
+
+#[test]
 fn collapsed_reference_link_stays_one_span() {
     let input = concat!(
         "See [the Fourier. transform][] for details. Next sentence.\n",

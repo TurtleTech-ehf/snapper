@@ -19,18 +19,19 @@ static INLINE_TOKEN_RE: LazyLock<Regex> = LazyLock::new(|| {
             // org-element 5.5 citation: [cite/style:prefix;@key p. 7;suffix]
             // Must be atomic so a page locator is not a sentence boundary.
             r"\[cite(?:/[-a-zA-Z0-9_/]*)?:[^\]]*\]",
-            r"\[[^\]]+\]\([^)]+\)",    // Markdown links: [text](url)
-            r"!\[[^\]]*\]\([^)]+\)",   // Markdown images: ![alt](url)
+            r"\[[^\]]+\]\([^)]+\)",  // Markdown links: [text](url)
+            r"!\[[^\]]*\]\([^)]+\)", // Markdown images: ![alt](url)
             // CommonMark 0.31.2 §6.3 full / collapsed reference links.
-            // Optional whitespace (including a line ending) may sit between
-            // the text and the label. Shortcut `[text]` is not matched: that
+            // The label must follow the text immediately: no spaces, tabs,
+            // or line endings (examples 542–543). Adjacent inline links
+            // already omit the gap. Shortcut `[text]` is not matched: that
             // would swallow every bracket group.
-            r"!\[[^\]]*\]\s*\[[^\]]*\]", // Markdown reference images: ![alt][ref]
-            r"\[[^\]]+\]\s*\[[^\]]*\]",  // Markdown reference links: [text][ref]
-            r"\$\$[^$\n]+\$\$",        // Display math: $$...$$
-            r"\$[^$\n]+\$",            // Inline math: $...$
-            r"\\\([^\\\n]+\\\)",       // LaTeX inline math: \(...\)
-            r"\\\[[^\n]+?\\\]",        // Org / LaTeX display math fragment: \[...\]
+            r"!\[[^\]]*\]\[[^\]]*\]", // Markdown reference images: ![alt][ref]
+            r"\[[^\]]+\]\[[^\]]*\]",  // Markdown reference links: [text][ref]
+            r"\$\$[^$\n]+\$\$",       // Display math: $$...$$
+            r"\$[^$\n]+\$",           // Inline math: $...$
+            r"\\\([^\\\n]+\\\)",      // LaTeX inline math: \(...\)
+            r"\\\[[^\n]+?\\\]",       // Org / LaTeX display math fragment: \[...\]
             r"\\([a-zA-Z]+)\{[^}]*\}", // LaTeX commands: \cmd{arg}
             // Org emphasis must be protected before sentence splits so a line
             // cannot begin with `*rest` (false headline) or leave markers open.
@@ -1527,6 +1528,82 @@ mod tests {
         assert!(
             !placeholders.iter().any(|p| p.contains("[wiki]:")),
             "LRD must not be swallowed as [text][ref], got {placeholders:?}"
+        );
+    }
+
+    #[test]
+    fn markdown_reference_link_forbids_whitespace_between_text_and_label() {
+        // CM 0.31.2 §6.3 examples 542–543: `[foo] [bar]` and `[foo]\n[bar]`
+        // are consecutive shortcuts, not one full reference.
+        for text in [
+            "See [foo] [bar] now. Next sentence.",
+            "See [foo]\n[bar] now. Next sentence.",
+        ] {
+            let (_, placeholders) = protect_inline_tokens(text);
+            assert!(
+                !placeholders
+                    .iter()
+                    .any(|p| p.contains("[foo]") && p.contains("[bar]")),
+                "must not glue consecutive shortcuts, got {placeholders:?} for {text:?}"
+            );
+            assert!(
+                !placeholders.iter().any(|p| p == "[foo]" || p == "[bar]"),
+                "shortcut [text] must stay unmatched, got {placeholders:?} for {text:?}"
+            );
+            let spans = atomic_inline_spans(text);
+            let tokens: Vec<&str> = spans.iter().map(|&(s, e)| &text[s..e]).collect();
+            assert!(
+                !tokens
+                    .iter()
+                    .any(|t| t.contains("[foo]") && t.contains("[bar]")),
+                "wrap must not treat consecutive shortcuts as one span, got {tokens:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn markdown_reference_link_does_not_glue_prior_shortcut_across_newline() {
+        // snapper-9xjl: `[important]\n[See also][ref]` must not become
+        // one token `[important]\n[See also]` with leftover `[ref]`.
+        let text = "[important]\n[See also][ref]";
+        let (_, placeholders) = protect_inline_tokens(text);
+        assert!(
+            placeholders.iter().any(|p| p == "[See also][ref]"),
+            "full reference after a shortcut must stay one token, got {placeholders:?}"
+        );
+        assert!(
+            !placeholders
+                .iter()
+                .any(|p| p.contains("[important]") && p.contains("[See also]")),
+            "must not glue prior shortcut into the next full reference, got {placeholders:?}"
+        );
+        assert!(
+            !placeholders.iter().any(|p| p == "[important]"),
+            "shortcut [text] must stay unmatched, got {placeholders:?}"
+        );
+        let spans = atomic_inline_spans(text);
+        let tokens: Vec<&str> = spans.iter().map(|&(s, e)| &text[s..e]).collect();
+        assert!(
+            tokens.iter().any(|t| *t == "[See also][ref]"),
+            "wrap must keep the full reference atomic, got {tokens:?}"
+        );
+        assert!(
+            !tokens
+                .iter()
+                .any(|t| t.contains("[important]") && t.contains("[See also]")),
+            "wrap must not glue the prior shortcut, got {tokens:?}"
+        );
+    }
+
+    #[test]
+    fn markdown_shortcut_reference_is_not_an_inline_token() {
+        let text = "See [the Fourier. transform] for details. Next sentence.";
+        let (_, placeholders) = protect_inline_tokens(text);
+        assert!(
+            !placeholders
+                .iter()
+                .any(|p| p.contains("[the Fourier. transform]")),
+            "shortcut [text] must stay unmatched, got {placeholders:?}"
         );
     }
 
