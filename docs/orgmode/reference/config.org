@@ -165,8 +165,8 @@ There is no regex =other:= key (latexindent's pattern-based extra matching is no
 :END:
 
 String array of environment names treated like =minted= / =lstlisting= / =verbatim= / =comment= (=Region::Code=, no reflow).
-Built-in: =minted=, =lstlisting=, =verbatim=, =comment=.
-Adding =Verbatim= (fancyvrb) stops reflow of that environment.
+Built-in: =minted=, =lstlisting=, =verbatim=, =comment=, Overleaf =Verbatim= / =boxedverbatim= / =tcblisting= / =codeexample=, and fancyvrb =BVerbatim= / =LVerbatim= / =SaveVerbatim= / =VerbatimOut=.
+Adding an unlisted name stops reflow of that environment.
 
 ** structure_envs (latex)
 :PROPERTIES:
