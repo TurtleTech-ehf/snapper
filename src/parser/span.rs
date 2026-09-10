@@ -200,12 +200,51 @@ pub fn iter_lines(input: &str) -> Vec<Line<'_>> {
     lines
 }
 
+/// Closers that may follow `.!?` without hiding the sentence end.
+const SENTENCE_CLOSERS: [char; 14] = [
+    '"', '\'', ')', ']', '}', '*', '_', '`', '~', '/', '=', '+', '\u{201d}', '\u{2019}',
+];
+
+/// Drop a trailing markdown `](destination)` so `.!?` inside the link
+/// text is visible. Destination parens are balanced (`](http://x.com/a(b))`).
+/// Trailing sentence closers after the dest `)` (`"` / `*` / …) stay allowed
+/// so `trim_end_matches` cannot eat that `)` first.
+fn strip_trailing_md_link_dest(s: &str) -> Option<&str> {
+    let open = s.rfind("](")?;
+    let dest = &s[open + 2..];
+    let mut nest = 1i32;
+    for (i, b) in dest.bytes().enumerate() {
+        match b {
+            b'(' => nest += 1,
+            b')' => {
+                nest -= 1;
+                if nest == 0 {
+                    let rest = &dest[i + 1..];
+                    if rest.chars().all(|c| SENTENCE_CLOSERS.contains(&c)) {
+                        return Some(&s[..open]);
+                    }
+                    return None;
+                }
+            }
+            _ => {}
+        }
+    }
+    None
+}
+
 /// True when `s` ends a sentence: `.!?` plus optional quotes, brackets,
-/// or markup closers.
+/// markup closers, or a trailing markdown `](url)` destination.
 pub fn ends_sentence_punct(s: &str) -> bool {
-    let core = s.trim_end().trim_end_matches([
-        '"', '\'', ')', ']', '}', '*', '_', '`', '~', '/', '=', '+', '\u{201d}', '\u{2019}',
-    ]);
+    let mut core = s.trim_end();
+    loop {
+        let next = strip_trailing_md_link_dest(core)
+            .unwrap_or(core)
+            .trim_end_matches(SENTENCE_CLOSERS);
+        if next.len() == core.len() {
+            break;
+        }
+        core = next;
+    }
     core.ends_with('.') || core.ends_with('!') || core.ends_with('?')
 }
 
@@ -311,5 +350,26 @@ mod tests {
             wrap,
             "The experiment ran for several weeks using the usual protocol."
         );
+    }
+
+    #[test]
+    fn ends_sentence_punct_sees_period_inside_md_link_tail() {
+        assert!(ends_sentence_punct("See [the docs.](http://x.com)"));
+        assert!(ends_sentence_punct("See [the docs!](http://x.com)"));
+        assert!(ends_sentence_punct("See [the docs?](http://x.com)"));
+        assert!(ends_sentence_punct("See [the docs.](http://x.com)\""));
+        assert!(ends_sentence_punct("See [the docs.](http://x.com)**"));
+        assert!(ends_sentence_punct(
+            "See [the docs.](http://x.com/foo(bar))"
+        ));
+        assert!(!ends_sentence_punct("See [the docs](http://x.com)"));
+        assert!(!ends_sentence_punct(
+            "Visit [Example Inc.](http://x.com) now"
+        ));
+
+        let mut prose = String::from("See [the docs.](http://x.com)");
+        join_prose_gap(&mut prose);
+        prose.push_str("iCloud");
+        assert_eq!(prose, "See [the docs.](http://x.com)\niCloud");
     }
 }
