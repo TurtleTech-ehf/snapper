@@ -33,9 +33,9 @@ impl FormatParser for RstParser {
     }
 }
 
-/// Line-based RST parser. Handles directives, literal blocks, sections,
-/// field lists, option lists, comments, tables, definition lists, and
-/// block-quote hang spaces as structure regions.
+/// Line-based RST parser. Handles directives, literal blocks, doctest
+/// blocks, sections, field lists, option lists, comments, tables,
+/// definition lists, and block-quote hang spaces as structure regions.
 fn parse_line_based(input: &str) -> Vec<SpannedRegion> {
     let mut regions = Vec::new();
     let mut current_prose = String::new();
@@ -277,6 +277,33 @@ fn parse_line_based(input: &str) -> Vec<SpannedRegion> {
             continue;
         }
 
+        // Doctest block: Docutils Body.doctest (`>>>( +|$)`). One
+        // doctest_block through the next blank or dedent; no inline parse.
+        if is_rst_doctest_opener(trimmed) {
+            flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
+            let block_indent = line_text.len() - trimmed.len();
+            let block_start = line.start;
+            let mut block_end = line.end;
+            i += 1;
+            while i < total {
+                let next = lines[i].text;
+                if next.trim().is_empty() {
+                    break;
+                }
+                let next_indent = next.len() - next.trim_start().len();
+                if next_indent < block_indent {
+                    break;
+                }
+                block_end = lines[i].end;
+                i += 1;
+            }
+            regions.push(SpannedRegion::structure(
+                input,
+                ByteSpan::new(block_start, block_end),
+            ));
+            continue;
+        }
+
         // List item: marker is Structure so `1. First` does not split
         // after `1.`, and each item is its own region so adjacent
         // bullets are not glued onto one line.
@@ -432,6 +459,12 @@ fn parse_line_based(input: &str) -> Vec<SpannedRegion> {
         ));
     }
     regions
+}
+
+/// Docutils `Body.patterns['doctest']`: `>>>( +|$)`.
+/// Prompt-only `>>>` and `>>> ` plus command both open a block; `>>>print` does not.
+pub(crate) fn is_rst_doctest_opener(trimmed: &str) -> bool {
+    trimmed == ">>>" || trimmed.starts_with(">>> ")
 }
 
 /// True when `trimmed` is an RST comment opener, not a `.. name::` directive.
@@ -1405,6 +1438,119 @@ mod tests {
         assert_eq!(
             out, "Before.\n\n   First sentence.\n   Second sentence.\n\nAfter.\n",
             "quoted sentences must reflow with hang, got:\n{out}"
+        );
+    }
+
+    #[test]
+    fn doctest_opener_matches_docutils_pattern() {
+        assert!(is_rst_doctest_opener(">>>"));
+        assert!(is_rst_doctest_opener(">>> "));
+        assert!(is_rst_doctest_opener(">>> print(1)"));
+        assert!(!is_rst_doctest_opener(">>>print(1)"));
+        assert!(!is_rst_doctest_opener(">> > print(1)"));
+        assert!(!is_rst_doctest_opener("print(1)"));
+        assert!(!is_rst_doctest_opener(".. >>>"));
+    }
+
+    #[test]
+    fn doctest_block_is_structure_not_prose() {
+        let input = concat!(
+            ">>> print('Python-specific usage examples; begun with \">>> \"')\n",
+            "Python-specific usage examples; begun with \">>> \"\n",
+            ">>> print('(cut and pasted from interactive Python sessions)')\n",
+            "(cut and pasted from interactive Python sessions)\n",
+        );
+        let regions = RstParser.parse(input);
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Structure(s)
+                    if s.contains(">>> print('Python-specific usage examples")
+                        && s.contains("Python-specific usage examples; begun with")
+                        && s.contains(">>> print('(cut and pasted")
+                        && s.contains("(cut and pasted from interactive Python sessions)")
+            )),
+            "doctest block must be one Structure region, got {regions:?}"
+        );
+        assert!(
+            !regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(s) if s.contains(">>>") || s.contains("Python-specific")
+            )),
+            "doctest block must not be Prose, got {regions:?}"
+        );
+        assert!(
+            !regions.iter().any(|r| matches!(r, Region::Code { .. })),
+            "doctest block is Structure, not Code, got {regions:?}"
+        );
+    }
+
+    #[test]
+    fn reporter_doctest_block_is_identity_under_format() {
+        use crate::format::Format;
+        use crate::{FormatConfig, format_text};
+
+        let cfg = FormatConfig {
+            format: Format::Rst,
+            max_width: 0,
+            ..Default::default()
+        };
+        let input = concat!(
+            ">>> print('Python-specific usage examples; begun with \">>> \"')\n",
+            "Python-specific usage examples; begun with \">>> \"\n",
+            ">>> print('(cut and pasted from interactive Python sessions)')\n",
+            "(cut and pasted from interactive Python sessions)\n",
+        );
+        let out = format_text(input, &cfg).unwrap();
+        assert_eq!(
+            out, input,
+            "doctest block must stay identity under format, got:\n{out}"
+        );
+        assert!(
+            !out.contains(
+                ">>> print('Python-specific usage examples; begun with \">>> \"') Python-specific"
+            ),
+            "SemBr must not join prompt and output, got:\n{out}"
+        );
+        assert!(
+            !out.contains("\">>> \" >>> print"),
+            "SemBr must not join output and the next >>>, got:\n{out}"
+        );
+        assert_eq!(
+            format_text(&out, &cfg).unwrap(),
+            out,
+            "doctest identity must survive a second pass"
+        );
+    }
+
+    #[test]
+    fn surrounding_prose_still_reflows_around_doctest() {
+        use crate::format::Format;
+        use crate::{FormatConfig, format_text};
+
+        let cfg = FormatConfig {
+            format: Format::Rst,
+            max_width: 0,
+            ..Default::default()
+        };
+        let input = concat!(
+            "Before. More before.\n\n",
+            ">>> print(1)\n",
+            "1\n\n",
+            "After. More after.\n",
+        );
+        let out = format_text(input, &cfg).unwrap();
+        assert!(
+            out.contains("Before.\nMore before."),
+            "leading paragraph must still reflow, got:\n{out}"
+        );
+        assert!(
+            out.contains(">>> print(1)\n1\n"),
+            "doctest lines must stay unjoined, got:\n{out}"
+        );
+        assert!(
+            out.contains("After.\nMore after."),
+            "trailing paragraph must still reflow, got:\n{out}"
         );
     }
 
