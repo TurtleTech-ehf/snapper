@@ -1579,6 +1579,26 @@ mod tests {
     }
 
     #[test]
+    fn hang_plus_four_after_blank_is_indented_code() {
+        let input = "- Item one.\n\n      indented code inside the item\n";
+        let regions = MarkdownParser.parse(input);
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Code { body, .. } if body.contains("indented code inside the item")
+            )),
+            "hang+4 after blank must be Code, got {regions:?}"
+        );
+        assert!(
+            !regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(p) if p.contains("indented code inside the item")
+            )),
+            "hang+4 line must not be Prose, got {regions:?}"
+        );
+    }
+
+    #[test]
     fn wide_numbered_marker_blank_indent_is_identity_under_format() {
         use crate::format::Format;
         use crate::{FormatConfig, format_text};
