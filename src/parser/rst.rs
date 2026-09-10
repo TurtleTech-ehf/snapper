@@ -15,6 +15,21 @@ static CODE_DIRECTIVE_RE: LazyLock<Regex> = LazyLock::new(|| {
 static GRID_TABLE_TOP_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"^\+-[-+]+-\+ *$").unwrap());
 
+/// Docutils `explicit.constructs` footnote then citation (before comment).
+/// Footnote label: `[0-9]+` / `#` / `#simplename` / `*`. Citation: `simplename`.
+/// `Inliner.simplename` ASCII: alphanumerics with internal `-._+:`.
+static FOOTNOTE_CITATION_MARKER_RE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(concat!(
+        r"^\.\. +\[(?:",
+        r"[0-9]+",
+        r"|#(?:[A-Za-z0-9]+(?:[-._+:][A-Za-z0-9]+)*)?",
+        r"|\*",
+        r"|[A-Za-z0-9]+(?:[-._+:][A-Za-z0-9]+)*",
+        r")\](?: +|$)",
+    ))
+    .unwrap()
+});
+
 /// Docutils `Body.patterns['option_marker']`: short `-a`/`+v`, long
 /// `--long`/`/V`, optional arg (`--input=file`, `-b file`, `<file>`),
 /// comma groups, then two-or-more spaces or end of line.
@@ -39,8 +54,9 @@ impl FormatParser for RstParser {
 
 /// Line-based RST parser. Handles directives, literal blocks (indented
 /// and quoted), doctest blocks, sections, field lists, option lists,
-/// comments, anonymous hyperlink targets, line blocks, tables, definition
-/// lists, and block-quote hang spaces as structure regions.
+/// footnotes, citations, comments, anonymous hyperlink targets, line
+/// blocks, tables, definition lists, and block-quote hang spaces as
+/// structure regions.
 fn parse_line_based(input: &str) -> Vec<SpannedRegion> {
     let mut regions = Vec::new();
     let mut current_prose = String::new();
@@ -239,6 +255,24 @@ fn parse_line_based(input: &str) -> Vec<SpannedRegion> {
             // Docutils accepts a two-space body; +3 is convention only.
             directive_indent = leading + 2;
             in_directive = true;
+            i += 1;
+            continue;
+        }
+
+        // Footnote / citation. Docutils explicit.constructs matches these
+        // before comment, so `.. [1]` is not a comment (GitHub #175).
+        // Marker is Structure; same-line body is hung Prose.
+        if let Some(marker_len) = rst_footnote_citation_marker_len(line_text) {
+            flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
+            list_hang = Some(marker_len);
+            regions.push(SpannedRegion::structure(
+                input,
+                ByteSpan::new(line.start, line.start + marker_len),
+            ));
+            if line_text.len() > marker_len {
+                current_prose.push_str(line_text[marker_len..].trim());
+                prose_span = Some(ByteSpan::new(line.start + marker_len, line.end));
+            }
             i += 1;
             continue;
         }
@@ -588,10 +622,24 @@ pub(crate) fn is_rst_anonymous_target(trimmed: &str) -> bool {
     trimmed == "__" || trimmed.starts_with("__ ")
 }
 
-/// True when `trimmed` is an RST comment opener, not a `.. name::` directive.
+/// Byte length of a Docutils footnote or citation opener on `line`,
+/// including leading indent and the space after `]`.
+/// `None` when the line is a comment or other explicit markup.
+pub(crate) fn rst_footnote_citation_marker_len(line: &str) -> Option<usize> {
+    let indent = line.len() - line.trim_start().len();
+    FOOTNOTE_CITATION_MARKER_RE
+        .find(&line[indent..])
+        .map(|m| indent + m.end())
+}
+
+/// True when `trimmed` is an RST comment opener, not a `.. name::`
+/// directive and not a footnote/citation (`.. [1]`, `.. [CIT2002]`).
 /// Bare `..` (no trailing space) is a valid opener; so is `.. text`.
 pub(crate) fn is_rst_comment_opener(trimmed: &str) -> bool {
     if trimmed.contains("::") {
+        return false;
+    }
+    if rst_footnote_citation_marker_len(trimmed).is_some() {
         return false;
     }
     trimmed == ".." || trimmed.starts_with(".. ") || trimmed.starts_with("..\t")
@@ -2365,6 +2413,35 @@ mod tests {
         assert!(!is_rst_comment_opener(".. note::"));
         assert!(!is_rst_comment_opener("..."));
         assert!(!is_rst_comment_opener("Hello"));
+        assert!(!is_rst_comment_opener(".. [1]"));
+        assert!(!is_rst_comment_opener(".. [#]"));
+        assert!(!is_rst_comment_opener(".. [*]"));
+        assert!(!is_rst_comment_opener(".. [CIT2002]"));
+        assert!(is_rst_comment_opener(".. [not closed"));
+        assert!(is_rst_comment_opener(".. [1]no-space"));
+        assert!(is_rst_comment_opener(".. [not a footnote]"));
+    }
+
+    #[test]
+    fn footnote_citation_marker_follows_docutils() {
+        assert_eq!(rst_footnote_citation_marker_len(".. [1] "), Some(7));
+        assert_eq!(rst_footnote_citation_marker_len(".. [#] "), Some(7));
+        assert_eq!(rst_footnote_citation_marker_len(".. [*] "), Some(7));
+        assert_eq!(rst_footnote_citation_marker_len(".. [CIT2002] "), Some(13));
+        assert_eq!(rst_footnote_citation_marker_len(".. [1]"), Some(6));
+        assert_eq!(rst_footnote_citation_marker_len("  .. [1] text"), Some(9));
+        assert_eq!(rst_footnote_citation_marker_len(".. [#note] x"), Some(11));
+        assert_eq!(rst_footnote_citation_marker_len("..[1] text"), None);
+        assert_eq!(rst_footnote_citation_marker_len(".. [1]no-space"), None);
+        assert_eq!(rst_footnote_citation_marker_len(".. [not closed"), None);
+        assert_eq!(
+            rst_footnote_citation_marker_len(".. This is a comment."),
+            None
+        );
+        assert_eq!(
+            rst_footnote_citation_marker_len(".. [not a footnote]"),
+            None
+        );
     }
 
     #[test]
