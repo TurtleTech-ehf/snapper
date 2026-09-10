@@ -125,13 +125,22 @@ impl OrgParser {
             .is_some_and(|caps| caps.get(1).unwrap().as_str() == env)
     }
 
-    /// Check if a line is a display math delimiter (\[ or \])
+    /// Check if a line opens display math (`\[` or `$$`).
+    /// org-element / org-mode treat `$$` as the same class as `\[`.
     fn is_display_math_open(line: &str) -> bool {
-        line.trim() == r"\["
+        let t = line.trim();
+        t == r"\[" || t == "$$"
     }
 
     fn is_display_math_close(line: &str) -> bool {
-        line.trim() == r"\]"
+        let t = line.trim();
+        t == r"\]" || t == "$$"
+    }
+
+    /// One-line `$$...$$` (not a lone `$$` opener). Same class as LaTeX.
+    fn is_display_math_single_line(line: &str) -> bool {
+        let t = line.trim();
+        t != "$$" && t.starts_with("$$") && t.ends_with("$$")
     }
 
     /// Check if a line is entirely an inline export snippet (@@backend:...@@)
@@ -233,7 +242,7 @@ impl FormatParser for OrgParser {
                 continue;
             }
 
-            // Inside display math \[...\] -- everything is structure
+            // Inside display math \[...\] / $$...$$ -- everything is structure
             if in_display_math {
                 flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
                 if Self::is_display_math_close(line_text) {
@@ -277,7 +286,14 @@ impl FormatParser for OrgParser {
                 continue;
             }
 
-            // Display math open (\[)
+            // One-line $$...$$ display math
+            if Self::is_display_math_single_line(line_text) {
+                flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
+                regions.push(SpannedRegion::structure(input, line.span()));
+                continue;
+            }
+
+            // Display math open (\[ or $$)
             if Self::is_display_math_open(line_text) {
                 flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
                 in_display_math = true;
@@ -650,6 +666,135 @@ mod tests {
         assert!(matches!(&regions[2], Region::Structure(s) if s.contains("x = 5")));
         assert!(matches!(&regions[3], Region::Structure(s) if s.contains("\\]")));
         assert!(matches!(&regions[4], Region::Prose(_)));
+    }
+
+    fn org_cfg() -> crate::FormatConfig {
+        crate::FormatConfig {
+            format: crate::format::Format::Org,
+            ..Default::default()
+        }
+        .without_safety_backstops()
+    }
+
+    #[test]
+    fn dollar_dollar_display_math_is_structure_not_prose() {
+        let input = "$$\nThis is a long sentence that must stay inside display math and must not reflow as prose.\n$$\n";
+        let regions = OrgParser.parse(input);
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Structure(s)
+                    if s.contains("This is a long sentence that must stay inside display math")
+            )),
+            "$$ body must be Structure, got: {regions:?}"
+        );
+        assert!(
+            !regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(p)
+                    if p.contains("This is a long sentence that must stay inside display math")
+            )),
+            "$$ body must not be Prose, got: {regions:?}"
+        );
+        assert!(
+            regions
+                .iter()
+                .any(|r| matches!(r, Region::Structure(s) if s.trim() == "$$")),
+            "$$ delimiters must be Structure, got: {regions:?}"
+        );
+    }
+
+    #[test]
+    fn dollar_dollar_display_math_does_not_reflow_as_prose() {
+        use crate::format_text;
+
+        let input = "$$\nThis is a long sentence that must stay inside display math and must not reflow as prose.\n$$\n";
+        let out = format_text(input, &org_cfg()).unwrap();
+        assert!(
+            out.contains(
+                "$$\nThis is a long sentence that must stay inside display math and must not reflow as prose.\n$$"
+            ),
+            "$$ display math must stay a structure block, got:\n{out}"
+        );
+        assert!(
+            !out.contains("$$ This is a long sentence"),
+            "must not join $$ into surrounding prose, got:\n{out}"
+        );
+        assert_eq!(format_text(&out, &org_cfg()).unwrap(), out);
+    }
+
+    #[test]
+    fn dollar_dollar_two_sentences_do_not_split() {
+        use crate::format_text;
+
+        let input =
+            "$$\nFirst sentence. Second sentence that would split if this were prose.\n$$\n";
+        let out = format_text(input, &org_cfg()).unwrap();
+        assert!(
+            out.contains(
+                "$$\nFirst sentence. Second sentence that would split if this were prose.\n$$"
+            ),
+            "$$ display math must stay a structure block, got:\n{out}"
+        );
+        assert!(
+            !out.contains("$$ First sentence"),
+            "must not join $$ into surrounding prose, got:\n{out}"
+        );
+        assert!(
+            !out.contains("First sentence.\nSecond sentence"),
+            "$$ body must not split at sentence end, got:\n{out}"
+        );
+        assert_eq!(format_text(&out, &org_cfg()).unwrap(), out);
+    }
+
+    #[test]
+    fn dollar_dollar_single_line_display_is_structure() {
+        use crate::format_text;
+
+        let input = "Before the math. More before.\n$$E = mc^2$$\nAfter the math. More after.\n";
+        let regions = OrgParser.parse(input);
+        assert!(
+            regions
+                .iter()
+                .any(|r| matches!(r, Region::Structure(s) if s.contains("$$E = mc^2$$"))),
+            "single-line $$...$$ must be Structure, got: {regions:?}"
+        );
+        assert!(
+            !regions
+                .iter()
+                .any(|r| matches!(r, Region::Prose(p) if p.contains("E = mc^2"))),
+            "single-line $$ body must not be Prose, got: {regions:?}"
+        );
+        let out = format_text(input, &org_cfg()).unwrap();
+        assert!(
+            out.contains("$$E = mc^2$$"),
+            "single-line $$ must stay intact, got:\n{out}"
+        );
+        assert!(
+            out.contains("Before the math.\nMore before."),
+            "surrounding prose must still reflow, got:\n{out}"
+        );
+        assert_eq!(format_text(&out, &org_cfg()).unwrap(), out);
+    }
+
+    #[test]
+    fn inline_single_dollar_math_stays_prose() {
+        let input = "See $x = 1$ in the text. Next sentence.\n";
+        let regions = OrgParser.parse(input);
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(p) if p.contains("$x = 1$")
+            )),
+            "inline $...$ must stay Prose, got: {regions:?}"
+        );
+        assert!(
+            !regions.iter().any(|r| matches!(
+                r,
+                Region::Structure(s) if s.contains("$x = 1$")
+            )),
+            "inline $...$ must not become Structure, got: {regions:?}"
+        );
     }
 
     #[test]
