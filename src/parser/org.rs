@@ -2670,6 +2670,61 @@ mod tests {
         assert_eq!(format_text(&out, &org_cfg()).unwrap(), out);
     }
 
+    /// Ticket fixture (Format::Org / GitHub #212): org-element macros
+    /// stay one token so an interior period is not a sentence boundary.
+    /// `Next sentence.` still splits.
+    fn org_macro_fixture() -> &'static str {
+        "See {{{cite(Smith. 2020)}}} for the source. Next sentence.\n"
+    }
+
+    #[test]
+    fn org_macro_interior_punct_is_not_a_sentence_boundary() {
+        use crate::format_text;
+
+        let mac = "{{{cite(Smith. 2020)}}}";
+        let input = org_macro_fixture();
+        let regions = OrgParser.parse(input);
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(p)
+                    if p.contains(mac) && p.contains("Next sentence.")
+            )),
+            "macro stays inline Prose, got: {regions:?}"
+        );
+        let out = format_text(input, &org_cfg()).unwrap();
+        assert!(
+            out.contains("See {{{cite(Smith. 2020)}}} for the source.\nNext sentence."),
+            "sentence after the macro must reflow, got:\n{out}"
+        );
+        assert!(
+            !out.contains("Smith.\n") && !out.contains("{{{cite(Smith.\n2020)}}}"),
+            "must not split inside the macro, got:\n{out}"
+        );
+        assert_eq!(format_text(&out, &org_cfg()).unwrap(), out);
+
+        let wrap_cfg = crate::FormatConfig {
+            format: crate::format::Format::Org,
+            max_width: 28,
+            ..Default::default()
+        }
+        .without_safety_backstops();
+        let wrapped = format_text(input, &wrap_cfg).unwrap();
+        assert!(
+            wrapped.lines().any(|l| l.contains(mac)),
+            "wrap must not cut inside the macro, got:\n{wrapped}"
+        );
+        assert!(
+            !wrapped.contains("Smith.\n2020"),
+            "must not wrap on the interior period, got:\n{wrapped}"
+        );
+        assert!(
+            wrapped.contains("Next sentence."),
+            "sentence after the macro must still reflow, got:\n{wrapped}"
+        );
+        assert_eq!(format_text(&wrapped, &wrap_cfg).unwrap(), wrapped);
+    }
+
     /// Ticket fixture (Format::Org / GitHub #169): `file:\S+` must not
     /// swallow trailing `.!?` so `See file:/tmp/foo. Next` is two sentences.
     #[test]
