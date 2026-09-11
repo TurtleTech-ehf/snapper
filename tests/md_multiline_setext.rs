@@ -342,6 +342,93 @@ fn list_then_column0_underline_is_not_setext() {
     );
 }
 
+/// snapper-grff / GitHub #260: CommonMark 5.2. Hang of `- ` is 2; one
+/// space is outside the item. Foo stays Prose and still splits.
+#[test]
+fn list_underline_indent_below_hang_is_not_setext() {
+    let input = concat!(
+        "- Foo is the first title line. Still title.\n",
+        "  Bar is the second title line.\n",
+        " =======\n",
+        "\n",
+        "Body after setext. Second body.\n",
+    );
+    let regions = MarkdownParser.parse(input);
+    assert!(
+        regions.iter().any(|r| matches!(
+            r,
+            Region::Prose(p) if p.contains("Still title") || p.contains("Foo is the first")
+        )),
+        "one-space ======= must not promote Foo, got: {regions:?}"
+    );
+    assert!(
+        !regions.iter().any(|r| matches!(
+            r,
+            Region::Structure(s) if s.contains("Foo is the first title line.")
+        )),
+        "Foo must stay Prose, got: {regions:?}"
+    );
+    let out = format_text(input, &md_cfg()).unwrap();
+    assert!(
+        out.contains("first title line.\n"),
+        "Foo must still split, got:\n{out}"
+    );
+    assert!(
+        !out.contains("first title line. Still title."),
+        "fused Foo must not survive, got:\n{out}"
+    );
+    assert!(
+        out.contains("Body after setext.\nSecond body."),
+        "body Prose must still split, got:\n{out}"
+    );
+
+    let dash = concat!(
+        "- Foo is the first title line. Still title.\n",
+        "  Bar is the second title line.\n",
+        " ---\n",
+        "\n",
+        "Body after setext. Second body.\n",
+    );
+    let dash_regions = MarkdownParser.parse(dash);
+    assert!(
+        dash_regions.iter().any(|r| matches!(
+            r,
+            Region::Prose(p) if p.contains("Still title") || p.contains("Foo is the first")
+        )),
+        "one-space --- must not promote Foo, got: {dash_regions:?}"
+    );
+    let dash_out = format_text(dash, &md_cfg()).unwrap();
+    assert!(
+        dash_out.contains("first title line.\n"),
+        "dash Foo must still split, got:\n{dash_out}"
+    );
+
+    let quoted = concat!(
+        "> - Foo is the first title line. Still title.\n",
+        ">   Bar is the second title line.\n",
+        ">  =======\n",
+        "\n",
+        "Body after setext. Second body.\n",
+    );
+    let quoted_regions = MarkdownParser.parse(quoted);
+    assert!(
+        quoted_regions.iter().any(|r| matches!(
+            r,
+            Region::Prose(p) if p.contains("Still title") || p.contains("Foo is the first")
+        )),
+        "quoted list plus >  ======= must stay Prose, got: {quoted_regions:?}"
+    );
+    let quoted_out = format_text(quoted, &md_cfg()).unwrap();
+    assert!(
+        quoted_out.contains("first title line.\n"),
+        "quoted Foo must still split, got:\n{quoted_out}"
+    );
+    assert!(
+        quoted_out.contains("Body after setext.\nSecond body."),
+        "quoted body must still split, got:\n{quoted_out}"
+    );
+}
+
 /// snapper-wu2v / CommonMark 4.3 ex. 93: lazy unquoted `=======` after
 /// a quote is still the quote paragraph, not a setext heading.
 #[test]
