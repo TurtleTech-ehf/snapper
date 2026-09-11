@@ -1053,8 +1053,16 @@ fn container_title_body(line: &str) -> &str {
 }
 
 /// True when `line` opens a list item, including after quote markers.
+///
+/// Quote prefixes use [`quote_marker_depth`] (0–3 spaces). `QUOTE_RE`
+/// `\s*` would treat four spaces or a tab before `>` as a marker, so
+/// `    > - Bar` / `\t> 1. Bar` became interrupting list openers and
+/// `heading_is_list` column-0 rejects (snapper-48gu). Four spaces or a
+/// tab is not a `>` marker (CM 5.1); indented code cannot interrupt a
+/// paragraph (4.4).
 fn is_list_opener_line(line: &str) -> bool {
-    LIST_ITEM_RE.is_match(quote_body(line).unwrap_or(line))
+    strip_quote_markers(line, quote_marker_depth(line))
+        .is_some_and(|body| LIST_ITEM_RE.is_match(body))
 }
 
 fn quote_body(line: &str) -> Option<&str> {
@@ -1698,7 +1706,8 @@ impl FormatParser for MarkdownParser {
             };
             // List-ness is the heading start (or any open-paragraph line),
             // not only the last title line. A hung `>   Bar` is not an
-            // opener; `> - Foo` still is, including after QUOTE_RE.
+            // opener; `> - Foo` still is after a 0–3 space quote prefix.
+            // Four spaces or a tab before `>` is not a quote prefix.
             let heading_is_list = lines[start..=i].iter().any(|l| is_list_opener_line(l.text));
             if i + 1 < total
                 && is_setext_pair(
@@ -4306,6 +4315,74 @@ mod tests {
                 Region::Structure(s) if s.contains("Foo is the first title line.")
             )),
             "3-space closer must promote Foo, got: {three_regions:?}"
+        );
+    }
+
+    /// snapper-48gu: 4-space/tab `> -` / `> 1.` is title text, not a list opener.
+    #[test]
+    fn four_space_quoted_list_lookalike_stays_quote_setext_title() {
+        let input = concat!(
+            "> Foo is the first title line. Still title.\n",
+            "    > - Bar is the second title line.\n",
+            "> =======\n",
+            "\n",
+            "Body after setext. Second body.\n",
+        );
+        let regions = MarkdownParser.parse(input);
+        assert!(
+            !regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(p)
+                    if p.contains("Still title")
+                        || p.contains("Foo is the first")
+                        || p.contains("Bar is the second")
+            )),
+            "4-space > - lookalike must stay quote setext, got: {regions:?}"
+        );
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Structure(s) if s.contains("Foo is the first title line.")
+            )),
+            "Foo must be Structure, got: {regions:?}"
+        );
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Structure(s) if s.contains("Bar is the second title line.")
+            )),
+            "Bar lookalike must be Structure, got: {regions:?}"
+        );
+        let out = crate::format_text(input, &md_cfg()).unwrap();
+        assert!(
+            !out.contains("first title line.\n"),
+            "must not sentence-split the quote setext, got:\n{out}"
+        );
+        assert!(
+            out.contains("Body after setext.\nSecond body."),
+            "body Prose must still split, got:\n{out}"
+        );
+
+        let three = concat!(
+            "> Foo is the first title line. Still title.\n",
+            "   > - Bar is the second title line.\n",
+            "   >   =======\n",
+        );
+        let three_regions = MarkdownParser.parse(three);
+        assert!(
+            three_regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(p)
+                    if p.contains("Still title") || p.contains("Foo is the first")
+            )),
+            "3-space > - must interrupt, got: {three_regions:?}"
+        );
+        assert!(
+            three_regions.iter().any(|r| matches!(
+                r,
+                Region::Structure(s) if s.contains("Bar is the second title line.")
+            )),
+            "3-space quoted list must be the setext title, got: {three_regions:?}"
         );
     }
 
