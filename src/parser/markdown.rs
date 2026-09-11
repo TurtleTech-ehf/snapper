@@ -814,9 +814,22 @@ fn strip_quote_markers(line: &str, depth: usize) -> Option<&str> {
 fn list_opener_hang(line: &str) -> Option<usize> {
     let depth = quote_marker_depth(line);
     let body = strip_quote_markers(line, depth)?;
-    LIST_ITEM_RE
-        .captures(body)
-        .map(|c| c.get(1).unwrap().as_str().len())
+    let caps = LIST_ITEM_RE.captures(body)?;
+    let marker = caps.get(1).unwrap().as_str();
+    let token = marker.trim();
+    if !token.starts_with(['-', '*', '+']) {
+        let digits = token.trim_end_matches(['.', ')']);
+        if digits.parse::<u32>().ok()? != 1 {
+            // Start != 1 cannot interrupt a paragraph (CM 5.2 ex. 301-302).
+            return None;
+        }
+    }
+    Some(marker.len())
+}
+
+/// Bullet, or ordered start 1, can interrupt an open paragraph.
+fn list_interrupts_paragraph(line: &str) -> bool {
+    list_opener_hang(line).is_some()
 }
 
 /// List-item last title line plus underline at or past the item hang.
@@ -1032,7 +1045,7 @@ fn is_setext_title_line(line: &str) -> bool {
     if TABLE_ROW_RE.is_match(line) {
         return false;
     }
-    if LIST_ITEM_RE.is_match(line) || quote_marker_depth(line) > 0 {
+    if list_interrupts_paragraph(line) || quote_marker_depth(line) > 0 {
         return false;
     }
     if is_thematic_break(line) {
@@ -1880,38 +1893,44 @@ impl FormatParser for MarkdownParser {
 
             // List item: emit marker as Structure, start accumulating text as prose.
             // Continuation lines are appended until a block boundary.
+            // Start != 1 does not interrupt an open paragraph (CM 5.2).
             if let Some(caps) = LIST_ITEM_RE.captures(line_text) {
-                close_list_item(
-                    &mut in_list_item,
-                    &mut list_hang,
-                    &mut current_prose,
-                    &mut prose_span,
-                    &mut list_term,
-                    input,
-                    &mut regions,
-                );
-                flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
-                let marker = caps.get(1).unwrap().as_str();
-                let marker_span = ByteSpan::new(line.start, line.start + marker.len());
-                regions.push(SpannedRegion::structure(input, marker_span));
-                in_list_item = true;
-                list_hang = Some(marker.len());
-                list_after_blank = false;
-                append_piece(
-                    &mut ProseAcc {
-                        text: &mut current_prose,
-                        span: &mut prose_span,
-                        term: &mut list_term,
-                    },
-                    line,
-                    marker.len(),
-                    false,
-                    false,
-                    input,
-                    &mut regions,
-                );
-                i += 1;
-                continue;
+                let open_para = !current_prose.is_empty() && !in_list_item;
+                if open_para && !list_interrupts_paragraph(line_text) {
+                    // Fall through: `2. Bar` stays title/prose text.
+                } else {
+                    close_list_item(
+                        &mut in_list_item,
+                        &mut list_hang,
+                        &mut current_prose,
+                        &mut prose_span,
+                        &mut list_term,
+                        input,
+                        &mut regions,
+                    );
+                    flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
+                    let marker = caps.get(1).unwrap().as_str();
+                    let marker_span = ByteSpan::new(line.start, line.start + marker.len());
+                    regions.push(SpannedRegion::structure(input, marker_span));
+                    in_list_item = true;
+                    list_hang = Some(marker.len());
+                    list_after_blank = false;
+                    append_piece(
+                        &mut ProseAcc {
+                            text: &mut current_prose,
+                            span: &mut prose_span,
+                            term: &mut list_term,
+                        },
+                        line,
+                        marker.len(),
+                        false,
+                        false,
+                        input,
+                        &mut regions,
+                    );
+                    i += 1;
+                    continue;
+                }
             }
 
             // pulldown ENABLE_DEFINITION_LIST: a `: ` marker on the next
@@ -2899,6 +2918,13 @@ mod tests {
         assert_eq!(list_opener_hang("- Foo"), Some(2));
         assert_eq!(list_opener_hang("> - Foo"), Some(2));
         assert_eq!(list_opener_hang("Foo"), None);
+        assert_eq!(list_opener_hang("2. Foo"), None);
+        assert_eq!(list_opener_hang("0. Foo"), None);
+        assert_eq!(list_opener_hang("10. Foo"), None);
+        assert_eq!(list_opener_hang("2) Foo"), None);
+        assert!(list_interrupts_paragraph("1. Foo"));
+        assert!(list_interrupts_paragraph("- Foo"));
+        assert!(!list_interrupts_paragraph("2. Foo"));
     }
 
     #[test]
