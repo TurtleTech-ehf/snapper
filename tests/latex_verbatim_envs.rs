@@ -2,6 +2,7 @@
 //! GitHub #209: fancyvrb BVerbatim / LVerbatim are the same.
 //! GitHub #213: fancyvrb SaveVerbatim / VerbatimOut are the same FV@Scan class.
 //! GitHub #230: alltt.sty is a standard verbatim-like env (raw line breaks).
+//! GitHub #250: moreverb verbatimtab is the same raw class as boxedverbatim.
 //! GitHub #234: listings.sty lstlisting* is the same raw scan as lstlisting.
 //! GitHub #235: spverbatim.sty env and \\spverb are the same class as verb.
 //! GitHub #244: fancyvrb Verbatim* / BVerbatim* / LVerbatim* are the same FV@Scan class.
@@ -390,6 +391,91 @@ fn verbatimwrite_fixture_is_code_and_does_not_reflow() {
         "prose after VerbatimWrite must still split, got:\n{out}"
     );
     assert_eq!(format_text(&out, &latex_cfg()).unwrap(), out);
+}
+
+/// Ticket fixture (GitHub #250): moreverb `verbatimtab` bodies stay
+/// Code (same raw class as boxedverbatim); following prose still splits.
+#[test]
+fn verbatimtab_fixture_is_code_and_does_not_reflow() {
+    let input = concat!(
+        "\\begin{verbatimtab}\n",
+        "First line. Second line.\n",
+        "\\end{verbatimtab}\n",
+        "After the block. Next.\n",
+    );
+    let regions = LatexParser::default().parse(input);
+    assert!(
+        regions.iter().any(|r| matches!(
+            r,
+            Region::Code { body, .. } if body.contains("First line. Second line.")
+        )),
+        "verbatimtab body must be Code, got: {regions:?}"
+    );
+    assert!(
+        !regions
+            .iter()
+            .any(|r| matches!(r, Region::Prose(p) if p.contains("First line"))),
+        "verbatimtab body must not be Prose, got: {regions:?}"
+    );
+    let out = format_text(input, &latex_cfg()).unwrap();
+    assert!(
+        out.contains("\\begin{verbatimtab}") && out.contains("\\end{verbatimtab}"),
+        "verbatimtab begin/end must stay, got:\n{out}"
+    );
+    assert!(
+        out.contains("First line. Second line."),
+        "verbatimtab body must stay one source line, got:\n{out}"
+    );
+    assert!(
+        !out.contains("First line.\nSecond line."),
+        "verbatimtab must not reflow as prose, got:\n{out}"
+    );
+    assert!(
+        out.contains("After the block.\nNext."),
+        "prose after verbatimtab must still split, got:\n{out}"
+    );
+    assert_eq!(format_text(&out, &latex_cfg()).unwrap(), out);
+
+    let width = concat!(
+        "\\begin{verbatimtab}[4]\n",
+        "First line. Second line.\n",
+        "\\end{verbatimtab}\n",
+        "After the block. Next.\n",
+    );
+    let width_regions = LatexParser::default().parse(width);
+    let code = width_regions.iter().find_map(|r| match r {
+        Region::Code {
+            header,
+            body,
+            footer,
+            ..
+        } => Some((header.as_str(), body.as_str(), footer.as_str())),
+        _ => None,
+    });
+    let Some((header, body, footer)) = code else {
+        panic!("verbatimtab[4] must be Code, got: {width_regions:?}");
+    };
+    assert!(
+        header.contains("\\begin{verbatimtab}[4]"),
+        "optional tab width must stay on the begin header, got header={header:?}"
+    );
+    assert!(
+        body.contains("First line. Second line."),
+        "verbatimtab[4] body must be Code, got body={body:?}"
+    );
+    assert!(
+        footer.contains("\\end{verbatimtab}"),
+        "verbatimtab[4] footer must stay, got footer={footer:?}"
+    );
+    let width_out = format_text(width, &latex_cfg()).unwrap();
+    assert!(
+        width_out.contains("\\begin{verbatimtab}[4]")
+            && width_out.contains("First line. Second line.")
+            && !width_out.contains("First line.\nSecond line.")
+            && width_out.contains("After the block.\nNext."),
+        "verbatimtab[4] body frozen and following prose still splits, got:\n{width_out}"
+    );
+    assert_eq!(format_text(&width_out, &latex_cfg()).unwrap(), width_out);
 }
 
 /// Ticket fixture (GitHub #230): alltt.sty bodies stay Code; following

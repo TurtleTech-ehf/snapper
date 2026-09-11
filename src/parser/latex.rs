@@ -132,24 +132,26 @@ static LSTLISTING_LANG_RE: LazyLock<Regex> = LazyLock::new(|| {
 /// `sageblock`) plus latex2e `verbatim*` / fancyvrb `Verbatim` /
 /// `Verbatim*` / `BVerbatim` / `BVerbatim*` / `LVerbatim` /
 /// `LVerbatim*` / `SaveVerbatim` / `VerbatimOut` / `VerbatimWrite`,
-/// moreverb `boxedverbatim`, tcolorbox `tcblisting` / `tcblisting*` /
-/// `codeexample`, standard `alltt` (alltt.sty: macros still apply,
-/// line breaks stay raw), spverbatim.sty `spverbatim` (raw body;
-/// `\spverb` is the matching delimiter-body command, GitHub #235),
-/// and the `comment` package env (tree-sitter `comment_environment`:
-/// raw through matching `\end{comment}`). Overleaf `verbatimEnvNames`
-/// is Verbatim, boxedverbatim, tcblisting, codeexample. fancyvrb
-/// `BVerbatim` / `LVerbatim` are the same raw class as `Verbatim`
-/// (GitHub #209). `SaveVerbatim` / `VerbatimOut` are the same
-/// `FV@Scan` class (GitHub #213). fvextra `VerbatimWrite` is the
-/// same `FV@Scan` class as `VerbatimOut` (GitHub #247). fancyvrb
-/// `Verbatim*` / `BVerbatim*` / `LVerbatim*` are the starred twins
-/// of those names (same `\FV@Scan`; GitHub #244). `alltt` is the
-/// same verbatim-like class (GitHub #230). listings.sty
-/// `\lstnewenvironment{lstlisting}` also defines `lstlisting*`
-/// (same raw body scan; GitHub #234). tcolorbox listings library
-/// `tcblisting*` is the starred twin of `tcblisting` (same raw
-/// listing body; GitHub #246).
+/// moreverb `boxedverbatim` / `verbatimtab` (tab-expanding verbatim;
+/// optional `[tab width]` stays on begin; GitHub #250), tcolorbox
+/// `tcblisting` / `tcblisting*` / `codeexample`, standard `alltt`
+/// (alltt.sty: macros still apply, line breaks stay raw),
+/// spverbatim.sty `spverbatim` (raw body; `\spverb` is the matching
+/// delimiter-body command, GitHub #235), and the `comment` package
+/// env (tree-sitter `comment_environment`: raw through matching
+/// `\end{comment}`). Overleaf `verbatimEnvNames` is Verbatim,
+/// boxedverbatim, tcblisting, codeexample. fancyvrb `BVerbatim` /
+/// `LVerbatim` are the same raw class as `Verbatim` (GitHub #209).
+/// `SaveVerbatim` / `VerbatimOut` are the same `FV@Scan` class
+/// (GitHub #213). fvextra `VerbatimWrite` is the same `FV@Scan`
+/// class as `VerbatimOut` (GitHub #247). fancyvrb `Verbatim*` /
+/// `BVerbatim*` / `LVerbatim*` are the starred twins of those names
+/// (same `\FV@Scan`; GitHub #244). `alltt` is the same verbatim-like
+/// class (GitHub #230). listings.sty `\lstnewenvironment{lstlisting}`
+/// also defines `lstlisting*` (same raw body scan; GitHub #234).
+/// tcolorbox listings library `tcblisting*` is the starred twin of
+/// `tcblisting` (same raw listing body; GitHub #246). moreverb
+/// `verbatimtab` is the same raw class as `boxedverbatim`.
 fn is_builtin_code_env(name: &str) -> bool {
     matches!(
         name,
@@ -168,6 +170,7 @@ fn is_builtin_code_env(name: &str) -> bool {
             | "VerbatimOut"
             | "VerbatimWrite"
             | "boxedverbatim"
+            | "verbatimtab"
             | "tcblisting"
             | "tcblisting*"
             | "codeexample"
@@ -3020,6 +3023,93 @@ Some text.
             "prose after \\spverb must still split, got:\n{out}"
         );
         assert_eq!(format_text(&out, &latex_cfg()).unwrap(), out);
+    }
+
+    /// Ticket fixture (GitHub #250): moreverb `verbatimtab` is the
+    /// same raw class as `boxedverbatim`. Body stays Code; optional
+    /// `[tab width]` stays on begin; following prose still splits.
+    #[test]
+    fn verbatimtab_is_code_not_prose() {
+        use crate::format_text;
+
+        let input = concat!(
+            "\\begin{verbatimtab}\n",
+            "First line. Second line.\n",
+            "\\end{verbatimtab}\n",
+            "After the block. Next.\n",
+        );
+        let regions = LatexParser::default().parse(input);
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Code { body, .. } if body.contains("First line. Second line.")
+            )),
+            "verbatimtab body must be Code, got: {regions:?}"
+        );
+        assert!(
+            !regions
+                .iter()
+                .any(|r| matches!(r, Region::Prose(p) if p.contains("First line"))),
+            "verbatimtab body must not leak into Prose, got: {regions:?}"
+        );
+        let out = format_text(input, &latex_cfg()).unwrap();
+        assert!(
+            out.contains("\\begin{verbatimtab}") && out.contains("\\end{verbatimtab}"),
+            "verbatimtab begin/end must stay, got:\n{out}"
+        );
+        assert!(
+            out.contains("First line. Second line."),
+            "verbatimtab body must stay one source line, got:\n{out}"
+        );
+        assert!(
+            !out.contains("First line.\nSecond line."),
+            "verbatimtab must not reflow as prose, got:\n{out}"
+        );
+        assert!(
+            out.contains("After the block.\nNext."),
+            "prose after verbatimtab must still split, got:\n{out}"
+        );
+        assert_eq!(format_text(&out, &latex_cfg()).unwrap(), out);
+
+        let width = concat!(
+            "\\begin{verbatimtab}[4]\n",
+            "First line. Second line.\n",
+            "\\end{verbatimtab}\n",
+            "After the block. Next.\n",
+        );
+        let width_regions = LatexParser::default().parse(width);
+        let code = width_regions.iter().find_map(|r| match r {
+            Region::Code {
+                header,
+                body,
+                footer,
+                ..
+            } => Some((header.as_str(), body.as_str(), footer.as_str())),
+            _ => None,
+        });
+        let Some((header, body, footer)) = code else {
+            panic!("verbatimtab[4] must be Code, got: {width_regions:?}");
+        };
+        assert!(
+            header.contains("\\begin{verbatimtab}[4]"),
+            "optional tab width must stay on the begin header, got header={header:?}"
+        );
+        assert!(
+            body.contains("First line. Second line."),
+            "verbatimtab[4] body must be Code, got body={body:?}"
+        );
+        assert!(
+            footer.contains("\\end{verbatimtab}"),
+            "verbatimtab[4] footer must stay, got footer={footer:?}"
+        );
+        let width_out = format_text(width, &latex_cfg()).unwrap();
+        assert!(
+            width_out.contains("First line. Second line.")
+                && !width_out.contains("First line.\nSecond line.")
+                && width_out.contains("After the block.\nNext."),
+            "verbatimtab[4] body frozen and following prose still splits, got:\n{width_out}"
+        );
+        assert_eq!(format_text(&width_out, &latex_cfg()).unwrap(), width_out);
     }
 
     #[test]
