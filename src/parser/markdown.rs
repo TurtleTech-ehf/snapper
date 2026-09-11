@@ -19,17 +19,20 @@ static FENCED_LANG_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"^(?:`{3,}|~{3,})\s*([A-Za-z0-9_+.\-]+)").unwrap());
 
 /// CommonMark list marker: 0–3 spaces, then `-`/`*`/`+` or 1–9 digits plus
-/// `.`/`)`, then a space. Ten or more digits is prose (spec 0.31.2 sec 5.2).
-/// Four or more spaces is indented code, not a list (spec 0.31.2 ex. 289).
+/// `.`/`)`, then a space or the empty rest of the line (spec 0.31.2 sec 5.2).
+/// Ten or more digits is prose. Four or more spaces is indented code, not a
+/// list (spec 0.31.2 ex. 289). Empty markers do not interrupt a paragraph
+/// (`-` after prose is setext; GitHub #326).
 static LIST_ITEM_RE: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"^( {0,3}(?:[-*+]|\d{1,9}[.)]) )(.*)$").unwrap());
+    LazyLock::new(|| Regex::new(r"^( {0,3}(?:[-*+]|\d{1,9}[.)])(?: |$))(.*)$").unwrap());
 
 /// List-looking line at any indent (including 4+ spaces). LIST_ITEM_RE is
 /// 0–3 only; a 4-space dash is indented code, but after a blank we still
 /// need the shape so hang-relative close can hand it to snapper-tupp.
-/// Digit cap matches LIST_ITEM_RE (CommonMark 1–9).
+/// Digit cap matches LIST_ITEM_RE (CommonMark 1–9). Empty rest of line
+/// is still list-looking (sec 5.2).
 static LIST_LOOKING_RE: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"^[\t ]*(?:[-*+]|\d{1,9}[.)]) ").unwrap());
+    LazyLock::new(|| Regex::new(r"^[\t ]*(?:[-*+]|\d{1,9}[.)])(?: |$)").unwrap());
 
 /// Match a markdown table row: line whose trimmed form starts and ends with `|`.
 /// Also matches separator rows like `|---|---|`.
@@ -808,14 +811,29 @@ fn strip_quote_markers(line: &str, depth: usize) -> Option<&str> {
     Some(rest)
 }
 
+/// CommonMark 5.2 hang width. A marker at EOL (no trailing space) is W+1;
+/// `- ` / `1. ` stay `marker.len()`.
+fn list_marker_hang(marker: &str) -> usize {
+    if marker.ends_with(' ') {
+        marker.len()
+    } else {
+        marker.len() + 1
+    }
+}
+
 /// CommonMark 5.2 hang: marker width after quote markers (`- ` is 2,
-/// `1. ` is 3). A setext underline shallower than this hang is lazy
-/// paragraph text, not a closer (GitHub #261).
+/// `1. ` is 3, lone `-` is W+1). A setext underline shallower than this
+/// hang is lazy paragraph text, not a closer (GitHub #261).
 fn list_opener_hang(line: &str) -> Option<usize> {
     let depth = quote_marker_depth(line);
     let body = strip_quote_markers(line, depth)?;
     let caps = LIST_ITEM_RE.captures(body)?;
     let marker = caps.get(1).unwrap().as_str();
+    // Empty list items do not interrupt a paragraph (GitHub #326).
+    // After prose, lone `-` is a setext underline, not a list.
+    if caps.get(2).is_none_or(|m| m.as_str().is_empty()) {
+        return None;
+    }
     let token = marker.trim();
     if !token.starts_with(['-', '*', '+']) {
         let digits = token.trim_end_matches(['.', ')']);
@@ -824,7 +842,7 @@ fn list_opener_hang(line: &str) -> Option<usize> {
             return None;
         }
     }
-    Some(marker.len())
+    Some(list_marker_hang(marker))
 }
 
 /// Bullet, or ordered start 1, can interrupt an open paragraph.
@@ -1914,7 +1932,7 @@ impl FormatParser for MarkdownParser {
                     let marker_span = ByteSpan::new(line.start, line.start + marker.len());
                     regions.push(SpannedRegion::structure(input, marker_span));
                     in_list_item = true;
-                    list_hang = Some(marker.len());
+                    list_hang = Some(list_marker_hang(marker));
                     list_after_blank = false;
                     append_piece(
                         &mut ProseAcc {
@@ -2008,6 +2026,22 @@ impl FormatParser for MarkdownParser {
             last_was_def_term = false;
 
             // Regular prose (also serves as list-item continuation when in_list_item)
+            // Empty item: an unindented line is a new paragraph, not lazy
+            // continuation (CM 5.2: only an open paragraph is lazy).
+            if in_list_item
+                && current_prose.is_empty()
+                && list_hang.is_some_and(|hang| line_indent(line_text) < hang)
+            {
+                close_list_item(
+                    &mut in_list_item,
+                    &mut list_hang,
+                    &mut current_prose,
+                    &mut prose_span,
+                    &mut list_term,
+                    input,
+                    &mut regions,
+                );
+            }
             if in_list_item {
                 // After a blank, hang spaces stay Structure so splice
                 // does not outdent the continuation paragraph.
@@ -2522,6 +2556,34 @@ mod tests {
         );
     }
 
+    /// GitHub #326: CommonMark 5.2 empty list marker after a blank.
+    #[test]
+    fn empty_list_item_after_blank_is_structure() {
+        let input =
+            "Intro sentence here. Another intro sentence.\n\n-\nAfter empty item. Next sentence.\n";
+        let regions = MarkdownParser.parse(input);
+        assert!(
+            regions
+                .iter()
+                .any(|r| matches!(r, Region::Structure(s) if s == "-")),
+            "lone - after a blank must be a list marker, got {regions:?}"
+        );
+        assert!(
+            !regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(p) if p.contains('-') && p.contains("After empty item.")
+            )),
+            "empty dash must not join the following prose, got {regions:?}"
+        );
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(p) if p.contains("After empty item.") && p.contains("Next sentence.")
+            )),
+            "following prose must stay Prose, got {regions:?}"
+        );
+    }
+
     #[test]
     fn list_item_continuation_joined() {
         let input = "1. First line of item\ncontinuation text here.\nAnother sentence.";
@@ -2948,6 +3010,16 @@ mod tests {
         assert!(list_interrupts_paragraph("1. Foo"));
         assert!(list_interrupts_paragraph("- Foo"));
         assert!(!list_interrupts_paragraph("2. Foo"));
+        // GitHub #326: empty markers do not interrupt (setext `-` after prose).
+        assert_eq!(list_opener_hang("-"), None);
+        assert_eq!(list_opener_hang("*"), None);
+        assert_eq!(list_opener_hang("+"), None);
+        assert!(!list_interrupts_paragraph("-"));
+        assert!(!list_interrupts_paragraph("*"));
+        assert!(!list_interrupts_paragraph("+"));
+        assert_eq!(list_marker_hang("-"), 2);
+        assert_eq!(list_marker_hang("- "), 2);
+        assert_eq!(list_marker_hang("1. "), 3);
     }
 
     #[test]
