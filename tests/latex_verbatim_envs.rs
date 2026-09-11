@@ -17,6 +17,8 @@
 //! GitHub #250: moreverb verbatimtab is the same raw class as boxedverbatim.
 //! GitHub #279: moreverb listing / listingcont / listing* / listingcont*
 //! are verbatim@start raw bodies (starred twins do not expand tabs).
+//! GitHub #306: moreverb verbatimwrite writes the env body raw via
+//! verbatim@start (same class as VerbatimOut / tcbverbatimwrite).
 //! GitHub #249: pythontex.sty pyblock / pyverbatim / pyconsole are the same
 //! VerbatimEnvironment class as pycode.
 //! GitHub #276: pythontex.sty pycode* / pyblock* / pyverbatim* / pyconsole*
@@ -285,6 +287,68 @@ fn listing_twins_fixture_is_code_and_does_not_reflow() {
         );
         assert_eq!(format_text(&out, &latex_cfg()).unwrap(), out);
     }
+}
+
+/// Ticket fixture (GitHub #306): moreverb `verbatimwrite` writes the
+/// env body raw via `verbatim@start`. Required `{out.tex}` stays on
+/// begin; body stays Code; following prose still splits.
+#[test]
+fn moreverb_verbatimwrite_fixture_is_code_and_does_not_reflow() {
+    let input = concat!(
+        "\\begin{verbatimwrite}{out.tex}\n",
+        "First line. Second line.\n",
+        "\\end{verbatimwrite}\n",
+        "After the block. Next.\n",
+    );
+    let regions = LatexParser::default().parse(input);
+    let code = regions.iter().find_map(|r| match r {
+        Region::Code {
+            header,
+            body,
+            footer,
+            ..
+        } => Some((header.as_str(), body.as_str(), footer.as_str())),
+        _ => None,
+    });
+    let Some((header, body, footer)) = code else {
+        panic!("verbatimwrite must be Code, got: {regions:?}");
+    };
+    assert!(
+        header.contains("\\begin{verbatimwrite}{out.tex}"),
+        "required file arg must stay on the begin header, got header={header:?}"
+    );
+    assert!(
+        body.contains("First line. Second line."),
+        "verbatimwrite body must be Code, got body={body:?}"
+    );
+    assert!(
+        footer.contains("\\end{verbatimwrite}"),
+        "verbatimwrite footer must stay, got footer={footer:?}"
+    );
+    assert!(
+        !regions
+            .iter()
+            .any(|r| matches!(r, Region::Prose(p) if p.contains("First line"))),
+        "verbatimwrite body must not be Prose, got: {regions:?}"
+    );
+    let out = format_text(input, &latex_cfg()).unwrap();
+    assert!(
+        out.contains("\\begin{verbatimwrite}{out.tex}") && out.contains("\\end{verbatimwrite}"),
+        "verbatimwrite begin/end must stay, got:\n{out}"
+    );
+    assert!(
+        out.contains("First line. Second line."),
+        "verbatimwrite body must stay one source line, got:\n{out}"
+    );
+    assert!(
+        !out.contains("First line.\nSecond line."),
+        "verbatimwrite must not reflow as prose, got:\n{out}"
+    );
+    assert!(
+        out.contains("After the block.\nNext."),
+        "prose after verbatimwrite must still split, got:\n{out}"
+    );
+    assert_eq!(format_text(&out, &latex_cfg()).unwrap(), out);
 }
 
 /// Ticket fixture (GitHub #246): tcolorbox listings `tcblisting*`
