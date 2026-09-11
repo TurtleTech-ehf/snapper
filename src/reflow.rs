@@ -669,6 +669,9 @@ fn org_opens_block(line: &str) -> bool {
     if t.starts_with('|') {
         return true;
     }
+    if crate::parser::org::org_table_rule_line(t) {
+        return true;
+    }
     if t.starts_with('#') {
         return true;
     }
@@ -2906,6 +2909,20 @@ They are endowed with reason and conscience and should act towards one another i
         assert!(
             result.contains("apples |"),
             "Org skip-cut keeps the pipe:\n{result}"
+        );
+    }
+
+    #[test]
+    fn wrap_created_org_table_rule_is_not_a_block() {
+        let result = wrap_fmt(
+            "The options are apples +-----+",
+            23,
+            crate::format::Format::Org,
+        );
+        assert_no_col0_block(&result, &["+-----+"]);
+        assert!(
+            result.contains("apples +-----+"),
+            "Org skip-cut keeps the table-rule token:\n{result}"
         );
     }
 
