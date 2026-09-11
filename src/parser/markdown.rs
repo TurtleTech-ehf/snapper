@@ -3290,6 +3290,14 @@ mod tests {
         let lines = iter_lines(lookback);
         assert_eq!(quoted_setext_end(&lines, 0), None);
         assert_eq!(quoted_setext_end(&lines, 1), None);
+
+        let hung_lookback = concat!(
+            "> 2. Foo is the first title line. Still title.\n",
+            ">   Bar is the second title line.\n",
+            ">    =======\n",
+        );
+        let lines = iter_lines(hung_lookback);
+        assert_eq!(quoted_setext_end(&lines, 0), Some(2));
     }
 
     #[test]

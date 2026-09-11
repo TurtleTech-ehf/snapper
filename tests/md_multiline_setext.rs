@@ -784,3 +784,47 @@ fn quoted_start_not_one_opener_column0_underline_is_not_setext() {
         "quoted 2. Foo must still split, got:\n{out}"
     );
 }
+
+/// Hung closer after `> 2. Foo` / `>   Bar` is still a list setext.
+#[test]
+fn quoted_start_not_one_list_hung_underline_is_setext() {
+    let input = concat!(
+        "> 2. Foo is the first title line. Still title.\n",
+        ">   Bar is the second title line.\n",
+        ">    =======\n",
+        "\n",
+        "Body after setext. Second body.\n",
+    );
+    let regions = MarkdownParser.parse(input);
+    assert!(
+        regions.iter().any(|r| matches!(
+            r,
+            Region::Structure(s) if s.contains("Foo is the first")
+        )),
+        "hung quoted 2. Foo must be Structure, got: {regions:?}"
+    );
+    assert!(
+        regions.iter().any(|r| matches!(
+            r,
+            Region::Structure(s) if s.contains("Bar is the second")
+        )),
+        "hung quoted 2. Bar must be Structure, got: {regions:?}"
+    );
+    assert!(
+        regions.iter().any(|r| matches!(
+            r,
+            Region::Structure(s) if s.contains("=======")
+        )),
+        "hung quoted 2. underline must be Structure, got: {regions:?}"
+    );
+    assert!(
+        !regions.iter().any(|r| matches!(
+            r,
+            Region::Prose(p)
+                if p.contains("Bar is the second")
+                    || p.contains("Foo is the first")
+                    || p.contains("Still title")
+        )),
+        "hung quoted 2. title must not be Prose: {regions:?}"
+    );
+}
