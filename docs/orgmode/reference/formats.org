@@ -108,7 +108,7 @@ These tokens within prose are not split across lines:
 - pythontex.sty =pyblock= / =pyverbatim= / =pyconsole= / =pygments= are the same =VerbatimEnvironment= class as =pycode=
 - Extra names from =[latex].verbatim_envs= are code regions too
 - Body follows the same comment-reflow and optional =--format-code= rules as other formats when language is known (=minted= language arg, =lstlisting= / =lstlisting*= =language== option)
-- Inline =\verb= / =\lstinline= / =\spverb= / =\mintinline= / =\mint= / fancyvrb =\Verb= / =\Verb*= (and extra =[latex].verbatim_commands=) stay atomic; inner =.!?%= do not split or comment
+- Inline =\verb= / =\lstinline= / =\spverb= / =\mintinline= / =\mint= / fancyvrb =\Verb= / =\Verb*= / =\SaveVerb= (and extra =[latex].verbatim_commands=) stay atomic; inner =.!?%= do not split or comment
 
 *** Prose regions (reflowed)
 :PROPERTIES:

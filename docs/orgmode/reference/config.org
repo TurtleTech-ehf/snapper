@@ -186,8 +186,9 @@ Adding =algorithm= stops reflow of that environment.
 
 String array of extra command names tokenized like the built-in verb command before sentence split.
 The next character after the name is the delimiter.
-Built-in names are =verb=, =lstinline=, =spverb=, =mintinline=, =mint=, and fancyvrb =Verb= / =Verb*=; =lstinline= still accepts optional =[...]= and ={...}=.
+Built-in names are =verb=, =lstinline=, =spverb=, =mintinline=, =mint=, and fancyvrb =Verb= / =Verb*= / =SaveVerb=; =lstinline= still accepts optional =[...]= and ={...}=.
 =mintinline= / =mint= take optional =[...]=, a ={lang}= argument, then a delimiter or ={...}= body.
+=SaveVerb= takes optional =[...]=, a ={name}= argument, then the same delimiter body as =Verb=.
 Adding another name keeps that command's delimited body atomic and treats an inner =%= as content, not a comment.
 
 * Code-block sections (=[code.<lang>]=)
