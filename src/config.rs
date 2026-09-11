@@ -15,7 +15,8 @@ pub struct FormatOverrides {
     /// Extra LaTeX environments treated as code (no reflow).
     /// Meaningful under `[latex]` only. Missing or empty keeps the built-in
     /// minted/minted*/lstlisting/lstlisting*/verbatim/comment, filecontents, tree-sitter
-    /// trivia, Overleaf Verbatim/boxedverbatim/tcblisting/tcblisting*/codeexample,
+    /// trivia, Overleaf Verbatim/boxedverbatim/tcblisting/tcblisting*/codeexample/
+    /// tcbverbatimwrite/tcbwritetemp,
     /// fancyvrb BVerbatim/LVerbatim/SaveVerbatim/VerbatimOut/VerbatimWrite and
     /// Verbatim*/BVerbatim*/LVerbatim*,
     /// moreverb boxedverbatim/verbatimtab/listing/listingcont/listing*/listingcont*,

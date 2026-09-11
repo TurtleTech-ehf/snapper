@@ -115,7 +115,8 @@ pub struct FormatConfig {
     pub render_backstop: bool,
     /// Extra LaTeX environments treated as code (no reflow), added to
     /// minted/minted*/lstlisting/lstlisting*/verbatim/comment, filecontents, tree-sitter
-    /// trivia, Overleaf Verbatim/boxedverbatim/tcblisting/tcblisting*/codeexample,
+    /// trivia, Overleaf Verbatim/boxedverbatim/tcblisting/tcblisting*/codeexample/
+    /// tcbverbatimwrite/tcbwritetemp,
     /// fancyvrb BVerbatim/LVerbatim/SaveVerbatim/VerbatimOut/VerbatimWrite and
     /// Verbatim*/BVerbatim*/LVerbatim*,
     /// moreverb boxedverbatim/verbatimtab/listing/listingcont/listing*/listingcont*,
