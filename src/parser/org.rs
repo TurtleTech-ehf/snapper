@@ -978,6 +978,8 @@ impl FormatParser for OrgParser {
 
             // Regular prose line -- accumulate. Verse keeps physical lines.
             // Org `\\` at EOL is a line-break object, not a join (GitHub #232).
+            let verse_line = Self::innermost_container(&block_stack) == Some("VERSE");
+            let before = regions.len();
             Self::push_prose_or_line_break(
                 input,
                 &line,
@@ -987,8 +989,15 @@ impl FormatParser for OrgParser {
                 &mut regions,
                 true,
             );
-            if Self::innermost_container(&block_stack) == Some("VERSE") {
+            if verse_line {
                 flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
+                // org-element verse-line: lineation is the object (GitHub #281).
+                // Keep Region::Prose; splice must not invent physical lines.
+                for sr in &mut regions[before..] {
+                    if matches!(sr.region, Region::Prose(_)) {
+                        sr.line_preserving = true;
+                    }
+                }
             }
         }
 
@@ -1880,6 +1889,47 @@ mod tests {
         assert!(
             out.contains("#+END_VERSE\nAfter.\nNext."),
             "prose after verse must reflow, got:\n{out}"
+        );
+        assert_eq!(format_text(&out, &org_cfg()).unwrap(), out);
+    }
+
+    #[test]
+    fn verse_two_sentence_line_stays_one_physical_line() {
+        use crate::format_text;
+
+        let input =
+            "#+BEGIN_VERSE\nFirst line. Second line.\n#+END_VERSE\nAfter the block. Next.\n";
+        let spanned = OrgParser.parse_full(input);
+        let verse_prose = spanned.iter().any(|s| match &s.region {
+            Region::Prose(p)
+                if p.contains("First line.") && p.contains("Second line.") && s.line_preserving =>
+            {
+                true
+            }
+            _ => false,
+        });
+        assert!(
+            verse_prose,
+            "verse line must be line-preserving Prose, got: {spanned:?}"
+        );
+        assert!(
+            !spanned.iter().any(|s| {
+                matches!(&s.region, Region::Structure(t) if t.contains("First line."))
+            }),
+            "verse inner must not flip to Structure, got: {spanned:?}"
+        );
+        let out = format_text(input, &org_cfg()).unwrap();
+        assert!(
+            out.contains("#+BEGIN_VERSE\nFirst line. Second line.\n#+END_VERSE"),
+            "verse line must stay one physical line, got:\n{out}"
+        );
+        assert!(
+            !out.contains("First line.\nSecond line."),
+            "must not invent a verse line break, got:\n{out}"
+        );
+        assert!(
+            out.contains("#+END_VERSE\nAfter the block.\nNext."),
+            "prose after verse must still split, got:\n{out}"
         );
         assert_eq!(format_text(&out, &org_cfg()).unwrap(), out);
     }

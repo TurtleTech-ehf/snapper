@@ -100,6 +100,10 @@ fn splice(
             .ok_or_else(|| SpliceError(format!("region {idx} has no source origin")))?;
         match (&sr.region, origin) {
             (Region::Prose(text), RegionOrigin::Whole(span)) => {
+                if sr.line_preserving {
+                    // Org verse-line: keep the source physical line (GitHub #281).
+                    continue;
+                }
                 let replacement = reflow_prose(text, idx, &regions, splitter, config);
                 rewrites.push((span.start, span.end, replacement));
             }
@@ -1211,6 +1215,7 @@ mod tests {
         let spanned = vec![SpannedRegion {
             region: Region::Prose("Hi.".into()),
             origin: Some(RegionOrigin::Whole(ByteSpan::new(0, 99))),
+            line_preserving: false,
         }];
         let err = reflow_spanned(
             "Hi.",
