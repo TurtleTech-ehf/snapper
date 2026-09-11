@@ -812,31 +812,47 @@ fn is_gfm_alert_marker(text: &str) -> bool {
     )
 }
 
+/// After `>`, the optional following space may be a tab (CM 2.2 / 5.1).
+fn quote_after_gt(after: &str) -> &str {
+    after
+        .strip_prefix(' ')
+        .or_else(|| after.strip_prefix('\t'))
+        .unwrap_or(after)
+}
+
 /// Count CommonMark blockquote markers at the start of `line`.
-/// Each marker is `>` plus an optional space. A marker may be indented
-/// 0–3 spaces (CommonMark 5.1 / [`html_block_rest`]); four spaces or a
-/// tab is not a `>` opener, so `    > =======` cannot close a quote setext
-/// (snapper-cydz).
+/// Each marker is `>` plus an optional space or tab. A marker may be
+/// indented 0–3 spaces (CommonMark 5.1 / [`html_block_rest`]); four
+/// spaces or a tab is not a first `>` opener, so `    > =======`
+/// cannot close a quote setext (snapper-cydz). After one marker the
+/// remainder is a new block and may start another `>` indented 0–3
+/// spaces, so `>  >` / `>   >` / `>\t>` are depth 2 (snapper-34pr).
 fn quote_marker_depth(line: &str) -> usize {
-    let mut rest = html_block_rest(line);
+    let mut rest = line;
     let mut depth = 0;
-    while let Some(after) = rest.strip_prefix('>') {
+    loop {
+        rest = html_block_rest(rest);
+        let Some(after) = rest.strip_prefix('>') else {
+            break;
+        };
         depth += 1;
-        rest = after.strip_prefix(' ').unwrap_or(after);
+        rest = quote_after_gt(after);
     }
     depth
 }
 
-/// Strip exactly `depth` blockquote markers (`>` plus optional space).
-/// Leading indent matches [`quote_marker_depth`]: 0–3 spaces only.
+/// Strip exactly `depth` blockquote markers (`>` plus optional space
+/// or tab). Indent before each marker matches [`quote_marker_depth`]:
+/// 0–3 spaces only.
 fn strip_quote_markers(line: &str, depth: usize) -> Option<&str> {
     if depth == 0 {
         return Some(line);
     }
-    let mut rest = html_block_rest(line);
+    let mut rest = line;
     for _ in 0..depth {
+        rest = html_block_rest(rest);
         rest = rest.strip_prefix('>')?;
-        rest = rest.strip_prefix(' ').unwrap_or(rest);
+        rest = quote_after_gt(rest);
     }
     Some(rest)
 }
@@ -1043,9 +1059,11 @@ fn setext_heading_start(lines: &[Line<'_>], last: usize, prose_span: Option<Byte
 
 /// Body after quote markers, then a list marker, so a container line can
 /// be a title. A quoted list opener (`> - Bar`) is still a setext title
-/// once both layers are stripped (snapper-6g55).
+/// once both layers are stripped (snapper-6g55). Walk
+/// [`quote_marker_depth`] so `>  > Bar` is not leftover quote text
+/// (snapper-34pr); [`quote_body`] / `QUOTE_RE` stop after one space.
 fn container_title_body(line: &str) -> &str {
-    let after_quote = quote_body(line).unwrap_or(line);
+    let after_quote = strip_quote_markers(line, quote_marker_depth(line)).unwrap_or(line);
     if let Some(caps) = LIST_ITEM_RE.captures(after_quote) {
         return caps.get(2).unwrap().as_str();
     }
@@ -3810,6 +3828,133 @@ mod tests {
         assert!(
             out.contains("Body after setext.\nSecond body."),
             "body Prose must still split, got:\n{out}"
+        );
+    }
+
+    /// snapper-34pr: after one `>` plus optional space/tab, the next
+    /// marker may be indented 0–3 spaces. Five leftover spaces is not
+    /// a second marker. Line-initial 4-space/tab is still not a first `>`.
+    #[test]
+    fn quote_marker_depth_allows_up_to_three_spaces_between_markers() {
+        assert_eq!(quote_marker_depth(">> Bar"), 2);
+        assert_eq!(quote_marker_depth("> > Bar"), 2);
+        assert_eq!(quote_marker_depth(">  > Bar"), 2);
+        assert_eq!(quote_marker_depth(">   > Bar"), 2);
+        assert_eq!(quote_marker_depth(">    > Bar"), 2);
+        assert_eq!(quote_marker_depth(">     > Bar"), 1);
+        assert_eq!(quote_marker_depth(">\t> Bar"), 2);
+        assert_eq!(quote_marker_depth("    > ======="), 0);
+        assert_eq!(quote_marker_depth("\t> ======="), 0);
+        assert_eq!(quote_marker_depth("   > ======="), 1);
+        assert_eq!(strip_quote_markers(">  > =======", 2), Some("======="));
+        assert_eq!(strip_quote_markers(">   > =======", 2), Some("======="));
+        assert_eq!(strip_quote_markers(">\t> =======", 2), Some("======="));
+        assert_eq!(strip_quote_markers(">    > =======", 2), Some("======="));
+        assert_eq!(strip_quote_markers(">     > Bar", 1), Some("    > Bar"));
+        assert_eq!(
+            container_title_body(">  > Bar is the second title line."),
+            "Bar is the second title line."
+        );
+    }
+
+    /// snapper-34pr: `>  >` / `>   >` / `>\t>` interrupt like `>>`.
+    /// Five spaces after `>` is not a second marker.
+    #[test]
+    fn two_or_three_space_nested_quote_setext_does_not_promote_outer_quote() {
+        for inner in [">  >", ">   >", ">\t>", ">    >"] {
+            let input = format!(
+                concat!(
+                    "> Foo is the first title line. Still title.\n",
+                    "{inner} Bar is the second title line.\n",
+                    "{inner} =======\n",
+                    "\n",
+                    "Body after setext. Second body.\n",
+                ),
+                inner = inner
+            );
+            let regions = MarkdownParser.parse(&input);
+            assert!(
+                regions.iter().any(|r| matches!(
+                    r,
+                    Region::Prose(p)
+                        if p.contains("Still title") || p.contains("Foo is the first")
+                )),
+                "{inner:?} nested quote interrupts: Foo must stay Prose, got: {regions:?}"
+            );
+            assert!(
+                !regions.iter().any(|r| matches!(
+                    r,
+                    Region::Prose(p) if p.contains("Bar is the second")
+                )),
+                "{inner:?} inner setext title must not be Prose: {regions:?}"
+            );
+            assert!(
+                regions.iter().any(|r| matches!(
+                    r,
+                    Region::Structure(s) if s.contains("Bar is the second title line.")
+                )),
+                "{inner:?} Bar must be Structure, got: {regions:?}"
+            );
+            assert!(
+                regions.iter().any(|r| matches!(
+                    r,
+                    Region::Structure(s) if s.contains("=======")
+                )),
+                "{inner:?} underline must be Structure, got: {regions:?}"
+            );
+            let out = crate::format_text(&input, &md_cfg()).unwrap();
+            assert!(
+                out.contains("first title line.\n"),
+                "{inner:?} outer quote must still split, got:\n{out}"
+            );
+            assert!(
+                !out.contains("first title line.\nStill title.\n"),
+                "{inner:?} must not keep Foo fused into the inner heading, got:\n{out}"
+            );
+            assert!(
+                out.contains("Body after setext.\nSecond body."),
+                "{inner:?} body Prose must still split, got:\n{out}"
+            );
+        }
+
+        let five = concat!(
+            "> Foo is the first title line. Still title.\n",
+            ">     > Bar is the second title line.\n",
+            ">     > =======\n",
+            "\n",
+            "Body after setext. Second body.\n",
+        );
+        let five_regions = MarkdownParser.parse(five);
+        assert!(
+            five_regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(p)
+                    if p.contains("Still title") || p.contains("Foo is the first")
+            )),
+            "five spaces after > must stay quote Prose, got: {five_regions:?}"
+        );
+        assert!(
+            five_regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(p) if p.contains("Bar is the second")
+            )),
+            "five-space leftover > is not a nested opener, got: {five_regions:?}"
+        );
+        assert!(
+            !five_regions.iter().any(|r| matches!(
+                r,
+                Region::Structure(s) if s.contains("Bar is the second title line.")
+            )),
+            "five-space Bar must not be Structure, got: {five_regions:?}"
+        );
+        let five_out = crate::format_text(five, &md_cfg()).unwrap();
+        assert!(
+            five_out.contains("first title line.\n"),
+            "five-space Foo must still split, got:\n{five_out}"
+        );
+        assert!(
+            five_out.contains("Body after setext.\nSecond body."),
+            "five-space body Prose must still split, got:\n{five_out}"
         );
     }
 
