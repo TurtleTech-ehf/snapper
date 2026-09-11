@@ -18,7 +18,8 @@ pub struct FormatOverrides {
     /// trivia, Overleaf Verbatim/boxedverbatim/tcblisting/tcblisting*/codeexample,
     /// fancyvrb BVerbatim/LVerbatim/SaveVerbatim/VerbatimOut/VerbatimWrite and
     /// Verbatim*/BVerbatim*/LVerbatim*,
-    /// standard alltt, and spverbatim; entries are added to it.
+    /// moreverb boxedverbatim/verbatimtab, standard alltt, and
+    /// spverbatim; entries are added to it.
     pub verbatim_envs: Vec<String>,
     /// Extra LaTeX environments treated as structure (no reflow).
     /// Meaningful under `[latex]` only. Missing or empty keeps

@@ -131,9 +131,9 @@ static LSTLISTING_LANG_RE: LazyLock<Regex> = LazyLock::new(|| {
 /// `sageblock`) plus latex2e `verbatim*` / fancyvrb `Verbatim` /
 /// `Verbatim*` / `BVerbatim` / `BVerbatim*` / `LVerbatim` /
 /// `LVerbatim*` / `SaveVerbatim` / `VerbatimOut` / `VerbatimWrite`,
-/// moreverb `boxedverbatim`, tcolorbox `tcblisting` / `tcblisting*` /
-/// `codeexample`, standard `alltt` (alltt.sty: macros still apply,
-/// line breaks stay raw; GitHub #230), spverbatim.sty `spverbatim`
+/// moreverb `boxedverbatim` / `verbatimtab`, tcolorbox `tcblisting` /
+/// `tcblisting*` / `codeexample`, standard `alltt` (alltt.sty: macros
+/// still apply, line breaks stay raw; GitHub #230), spverbatim.sty `spverbatim`
 /// (raw body; `\spverb` is the matching delimiter-body command,
 /// GitHub #235), and the `comment` package env (tree-sitter
 /// `comment_environment`: raw through matching `\end{comment}`).
@@ -147,7 +147,8 @@ static LSTLISTING_LANG_RE: LazyLock<Regex> = LazyLock::new(|| {
 /// `\lstnewenvironment{lstlisting}` also defines `lstlisting*` (same
 /// raw body scan; GitHub #234). tcolorbox listings library
 /// `tcblisting*` is the starred twin of `tcblisting` (same raw listing
-/// body; GitHub #246).
+/// body; GitHub #246). moreverb `verbatimtab` is the same tab-expanding
+/// raw class as `boxedverbatim` (GitHub #250).
 fn is_builtin_code_env(name: &str) -> bool {
     matches!(
         name,
@@ -167,6 +168,7 @@ fn is_builtin_code_env(name: &str) -> bool {
             | "VerbatimWrite"
             | "alltt"
             | "boxedverbatim"
+            | "verbatimtab"
             | "tcblisting"
             | "tcblisting*"
             | "codeexample"
@@ -3057,6 +3059,53 @@ Some text.
             );
             assert_eq!(format_text(&out, &latex_cfg()).unwrap(), out);
         }
+    }
+
+    /// Ticket fixture (GitHub #250): moreverb `verbatimtab` is the same
+    /// raw class as `boxedverbatim`. Body stays Code; following prose
+    /// still splits.
+    #[test]
+    fn moreverb_verbatimtab_is_code_not_prose() {
+        use crate::format_text;
+
+        let input = concat!(
+            "\\begin{verbatimtab}\n",
+            "First line. Second line.\n",
+            "\\end{verbatimtab}\n",
+            "After the block. Next.\n",
+        );
+        let regions = LatexParser::default().parse(input);
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Code { body, .. } if body.contains("First line. Second line.")
+            )),
+            "verbatimtab body must be Code, got: {regions:?}"
+        );
+        assert!(
+            !regions
+                .iter()
+                .any(|r| matches!(r, Region::Prose(p) if p.contains("First line"))),
+            "verbatimtab body must not leak into Prose, got: {regions:?}"
+        );
+        let out = format_text(input, &latex_cfg()).unwrap();
+        assert!(
+            out.contains("\\begin{verbatimtab}") && out.contains("\\end{verbatimtab}"),
+            "verbatimtab begin/end must stay, got:\n{out}"
+        );
+        assert!(
+            out.contains("First line. Second line."),
+            "verbatimtab body must stay one source line, got:\n{out}"
+        );
+        assert!(
+            !out.contains("First line.\nSecond line."),
+            "verbatimtab must not reflow as prose, got:\n{out}"
+        );
+        assert!(
+            out.contains("After the block.\nNext."),
+            "prose after verbatimtab must still split, got:\n{out}"
+        );
+        assert_eq!(format_text(&out, &latex_cfg()).unwrap(), out);
     }
 
     /// Ticket fixture (GitHub #246): tcolorbox listings `tcblisting*`
