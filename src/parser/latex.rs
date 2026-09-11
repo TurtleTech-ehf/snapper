@@ -152,7 +152,7 @@ static LSTLISTING_LANG_RE: LazyLock<Regex> = LazyLock::new(|| {
 /// plus latex2e `verbatim*` / fancyvrb `Verbatim` /
 /// `Verbatim*` / `BVerbatim` / `BVerbatim*` / `LVerbatim` /
 /// `LVerbatim*` / `SaveVerbatim` / `VerbatimOut` / `VerbatimWrite` /
-/// `VerbatimBuffer` / fvextra `VerbEnv`,
+/// `VerbatimBuffer` / fvextra `VerbEnv` / verbments `pyglist`,
 /// moreverb `boxedverbatim` / `verbatimtab` / `verbatimwrite` / `listing` /
 /// `listingcont` / `listing*` / `listingcont*`, tcolorbox `tcblisting` /
 /// `tcblisting*` / `codeexample` / `tcbverbatimwrite` / `tcbwritetemp`,
@@ -194,6 +194,8 @@ static LSTLISTING_LANG_RE: LazyLock<Regex> = LazyLock::new(|| {
 /// `\piton|...|` is the matching verb-like command.
 /// pythonhighlight.sty `python` (`\lstnewenvironment{python}`) is the
 /// same listings raw scan as `lstlisting` (GitHub #307).
+/// verbments.sty `pyglist` wraps fancyvrb `VerbatimOut` (raw listing
+/// body; GitHub #308).
 fn is_builtin_code_env(name: &str) -> bool {
     matches!(
         name,
@@ -212,6 +214,7 @@ fn is_builtin_code_env(name: &str) -> bool {
             | "LVerbatim*"
             | "SaveVerbatim"
             | "VerbatimOut"
+            | "pyglist"
             | "VerbatimWrite"
             | "VerbatimBuffer"
             | "VerbEnv"
@@ -2850,6 +2853,110 @@ Some text.
             );
             assert_eq!(format_text(&out, &latex_cfg()).unwrap(), out);
         }
+    }
+
+    /// Ticket fixture (GitHub #308): verbments.sty `pyglist` wraps
+    /// fancyvrb VerbatimOut; the body is a raw listing. Optional
+    /// `[language=python]` stays on begin; body stays Code; following
+    /// prose still splits. Landed VerbatimOut / minted stay Code.
+    #[test]
+    fn verbments_pyglist_is_code_not_prose() {
+        use crate::format_text;
+
+        let input = concat!(
+            "\\begin{pyglist}[language=python]\n",
+            "First line. Second line.\n",
+            "\\end{pyglist}\n",
+            "After the block. Next.\n",
+        );
+        let regions = LatexParser::default().parse(input);
+        let code = regions.iter().find_map(|r| match r {
+            Region::Code {
+                header,
+                body,
+                footer,
+                ..
+            } => Some((header.as_str(), body.as_str(), footer.as_str())),
+            _ => None,
+        });
+        let Some((header, body, footer)) = code else {
+            panic!("pyglist must be Code, got: {regions:?}");
+        };
+        assert!(
+            header.contains(r"\begin{pyglist}[language=python]"),
+            "optional language arg must stay on the begin header, got header={header:?}"
+        );
+        assert!(
+            body.contains("First line. Second line."),
+            "pyglist body must keep both sentences, got body={body:?}"
+        );
+        assert!(
+            footer.contains(r"\end{pyglist}"),
+            "pyglist footer must be \\end{{pyglist}}, got footer={footer:?}"
+        );
+        assert!(
+            !regions
+                .iter()
+                .any(|r| matches!(r, Region::Prose(p) if p.contains("First line"))),
+            "pyglist body must not leak into Prose, got: {regions:?}"
+        );
+        let out = format_text(input, &latex_cfg()).unwrap();
+        assert!(
+            out.contains(r"\begin{pyglist}[language=python]") && out.contains(r"\end{pyglist}"),
+            "pyglist begin/end must stay, got:\n{out}"
+        );
+        assert!(
+            out.contains("First line. Second line."),
+            "pyglist body must stay one source line, got:\n{out}"
+        );
+        assert!(
+            !out.contains("First line.\nSecond line."),
+            "pyglist must not reflow as prose, got:\n{out}"
+        );
+        assert!(
+            out.contains("After the block.\nNext."),
+            "prose after pyglist must still split, got:\n{out}"
+        );
+        assert_eq!(format_text(&out, &latex_cfg()).unwrap(), out);
+
+        let verbatimout = concat!(
+            "\\begin{VerbatimOut}{foo}\n",
+            "First line. Second line.\n",
+            "\\end{VerbatimOut}\n",
+            "After the block. Next.\n",
+        );
+        let verbatimout_out = format_text(verbatimout, &latex_cfg()).unwrap();
+        assert!(
+            verbatimout_out.contains(
+                "\\begin{VerbatimOut}{foo}\nFirst line. Second line.\n\\end{VerbatimOut}"
+            ),
+            "landed VerbatimOut must stay a code env, got:\n{verbatimout_out}"
+        );
+        assert!(
+            verbatimout_out.contains("After the block.\nNext."),
+            "prose after landed VerbatimOut must still split, got:\n{verbatimout_out}"
+        );
+        assert_eq!(
+            format_text(&verbatimout_out, &latex_cfg()).unwrap(),
+            verbatimout_out
+        );
+
+        let minted = concat!(
+            "\\begin{minted}{python}\n",
+            "First line. Second line.\n",
+            "\\end{minted}\n",
+            "After the block. Next.\n",
+        );
+        let minted_out = format_text(minted, &latex_cfg()).unwrap();
+        assert!(
+            minted_out.contains("\\begin{minted}{python}\nFirst line. Second line.\n\\end{minted}"),
+            "landed minted must stay a code env, got:\n{minted_out}"
+        );
+        assert!(
+            minted_out.contains("After the block.\nNext."),
+            "prose after landed minted must still split, got:\n{minted_out}"
+        );
+        assert_eq!(format_text(&minted_out, &latex_cfg()).unwrap(), minted_out);
     }
 
     /// Ticket fixture (GitHub #247): fvextra VerbatimWrite is the same
