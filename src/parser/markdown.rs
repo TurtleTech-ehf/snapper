@@ -1054,7 +1054,16 @@ fn container_title_body(line: &str) -> &str {
 
 /// True when `line` opens a list item, including after quote markers.
 fn is_list_opener_line(line: &str) -> bool {
-    LIST_ITEM_RE.is_match(quote_body(line).unwrap_or(line))
+    list_opener_hang(line).is_some()
+}
+
+/// CommonMark 5.2 hang: marker width after quote markers (`- ` is 2,
+/// `1. ` is 3). An underline indented 1..hang-1 is outside the item.
+fn list_opener_hang(line: &str) -> Option<usize> {
+    let body = quote_body(line).unwrap_or(line);
+    LIST_ITEM_RE
+        .captures(body)
+        .map(|c| c.get(1).unwrap().as_str().len())
 }
 
 fn quote_body(line: &str) -> Option<&str> {
@@ -1092,15 +1101,16 @@ fn is_interrupting_setext_opener(line: &str, in_quote: bool, open_quote_depth: u
 /// quote, not a closer (snapper-5aef / snapper-l3rg). Strip only
 /// `heading_quote_depth` markers; do not use `quote_body` (it strips
 /// every `>`). A list-item heading (the start line is a list opener,
-/// including after quote markers) plus a column-0 `under_body` is
-/// outside the item (snapper-705k / snapper-u5ku). Do not require the
-/// last title line itself to be the opener. A quoted list marker plus
-/// a quoted hung underline is still a heading.
+/// including after quote markers) plus an `under_body` indent less than
+/// the item hang is outside the item (CommonMark 5.2). Column-0 is the
+/// hang-0 case (snapper-705k / snapper-u5ku). Do not require the last
+/// title line itself to be the opener. A quoted list marker plus a
+/// quoted underline at hang stays a heading.
 fn is_setext_pair(
     title_line: &str,
     underline: &str,
     heading_quote_depth: usize,
-    heading_is_list: bool,
+    heading_list_hang: Option<usize>,
 ) -> bool {
     let Some(under_body) = strip_quote_markers(underline, heading_quote_depth) else {
         return false;
@@ -1112,8 +1122,8 @@ fn is_setext_pair(
     if !is_setext_title_line(container_title_body(title_line)) || !is_setext_underline(under_body) {
         return false;
     }
-    // Column-0 after the shared quote prefix is outside the list item.
-    if heading_is_list && line_indent(under_body) == 0 {
+    // Indent 1..hang-1 after the shared quote prefix is outside the item.
+    if heading_list_hang.is_some_and(|hang| line_indent(under_body) < hang) {
         return false;
     }
     true
@@ -1696,16 +1706,18 @@ impl FormatParser for MarkdownParser {
             } else {
                 setext_heading_start(&lines, i, para_span.or(prose_span))
             };
-            // List-ness is the heading start (or any open-paragraph line),
+            // Hang is the heading start (or any open-paragraph opener),
             // not only the last title line. A hung `>   Bar` is not an
             // opener; `> - Foo` still is, including after QUOTE_RE.
-            let heading_is_list = lines[start..=i].iter().any(|l| is_list_opener_line(l.text));
+            let heading_list_hang = lines[start..=i]
+                .iter()
+                .find_map(|l| list_opener_hang(l.text));
             if i + 1 < total
                 && is_setext_pair(
                     line_text,
                     lines[i + 1].text,
                     heading_quote_depth,
-                    heading_is_list,
+                    heading_list_hang,
                 )
             {
                 if interrupting {
@@ -1726,18 +1738,19 @@ impl FormatParser for MarkdownParser {
                         &mut regions,
                     );
                 }
-                // Column-0 is relative to the list after stripping the
-                // heading quote depth. Do not skip QUOTE_RE start lines
-                // (snapper-705k / snapper-u5ku).
-                let list_col0 = heading_is_list
-                    && strip_quote_markers(lines[i + 1].text, heading_quote_depth)
-                        .is_some_and(|under_body| line_indent(under_body) == 0);
+                // Hang is relative to the list after stripping the heading
+                // quote depth. Do not skip QUOTE_RE start lines
+                // (snapper-705k / snapper-u5ku). Indent 0 is hang-0.
+                let list_below_hang = heading_list_hang.is_some_and(|hang| {
+                    strip_quote_markers(lines[i + 1].text, heading_quote_depth)
+                        .is_some_and(|under_body| line_indent(under_body) < hang)
+                });
                 // CM 4.3 / ex. 93: underline cannot be a lazy continuation
                 // of a quote even when the last title line itself is lazy.
                 // Shallower or deeper `>` is the same reject at nested depth.
                 let quote_lazy_under = heading_quote_depth > 0
                     && quote_marker_depth(lines[i + 1].text) != heading_quote_depth;
-                if !list_col0 && !quote_lazy_under {
+                if !list_below_hang && !quote_lazy_under {
                     promote_setext_title(
                         &lines,
                         start,
@@ -3564,6 +3577,146 @@ mod tests {
                 Region::Prose(p) if p.contains("list item") || p.contains("Still item")
             )),
             "column-0 ======= must not promote a hung list paragraph, got: {hung_regions:?}"
+        );
+    }
+
+    #[test]
+    fn list_opener_hang_is_marker_width() {
+        assert_eq!(list_opener_hang("- Foo"), Some(2));
+        assert_eq!(list_opener_hang("> - Foo"), Some(2));
+        assert_eq!(list_opener_hang("Foo"), None);
+    }
+
+    /// GitHub #260 / CommonMark 5.2: `- ` hang is 2. One-space `=======`
+    /// is outside the item. Foo stays Prose and still splits.
+    #[test]
+    fn list_underline_indent_below_hang_is_not_setext() {
+        let input = concat!(
+            "- Foo is the first title line. Still title.\n",
+            "  Bar is the second title line.\n",
+            " =======\n",
+            "\n",
+            "Body after setext. Second body.\n",
+        );
+        let regions = MarkdownParser.parse(input);
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(p)
+                    if p.contains("Still title") || p.contains("Foo is the first")
+            )),
+            "space-equals must not promote the list item, got: {regions:?}"
+        );
+        assert!(
+            !regions.iter().any(|r| matches!(
+                r,
+                Region::Structure(s) if s.contains("Foo is the first title line.")
+            )),
+            "Foo must stay Prose, got: {regions:?}"
+        );
+        let out = crate::format_text(input, &md_cfg()).unwrap();
+        assert!(
+            out.contains("first title line.\n"),
+            "Foo must still split, got:\n{out}"
+        );
+        assert!(
+            !out.contains("first title line. Still title."),
+            "fused Foo must not survive, got:\n{out}"
+        );
+        assert!(
+            out.contains("Body after setext.\nSecond body."),
+            "body Prose must still split, got:\n{out}"
+        );
+
+        let dash = concat!(
+            "- Foo is the first title line. Still title.\n",
+            "  Bar is the second title line.\n",
+            " ---\n",
+            "\n",
+            "Body after setext. Second body.\n",
+        );
+        let dash_regions = MarkdownParser.parse(dash);
+        assert!(
+            dash_regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(p)
+                    if p.contains("Still title") || p.contains("Foo is the first")
+            )),
+            "space-dash must not promote the list item, got: {dash_regions:?}"
+        );
+        assert!(
+            !dash_regions.iter().any(|r| matches!(
+                r,
+                Region::Structure(s) if s.contains("Foo is the first title line.")
+            )),
+            "Foo must stay Prose under space-dash, got: {dash_regions:?}"
+        );
+
+        let at_hang = concat!(
+            "- Foo is the first title line. Still title.\n",
+            "  Bar is the second title line.\n",
+            "  =======\n",
+        );
+        let at_hang_regions = MarkdownParser.parse(at_hang);
+        assert!(
+            !at_hang_regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(p)
+                    if p.contains("Still title") || p.contains("Foo is the first")
+            )),
+            "two-space ======= is at hang 2 and must stay a heading, got: {at_hang_regions:?}"
+        );
+    }
+
+    /// Quoted list hang of `- ` is 2. After strip, `>  =======` is indent 1.
+    #[test]
+    fn quoted_list_underline_indent_below_hang_is_not_setext() {
+        let input = concat!(
+            "> - Foo is the first title line. Still title.\n",
+            ">   Bar is the second title line.\n",
+            ">  =======\n",
+            "\n",
+            "Body after setext. Second body.\n",
+        );
+        let regions = MarkdownParser.parse(input);
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(p)
+                    if p.contains("Still title") || p.contains("Foo is the first")
+            )),
+            "quoted list plus >  ======= must stay Prose, got: {regions:?}"
+        );
+        assert!(
+            !regions.iter().any(|r| matches!(
+                r,
+                Region::Structure(s) if s.contains("Foo is the first title line.")
+            )),
+            "indent-1-in-quote must not promote Foo, got: {regions:?}"
+        );
+        let out = crate::format_text(input, &md_cfg()).unwrap();
+        assert!(
+            out.contains("first title line.\n"),
+            "Foo must still split, got:\n{out}"
+        );
+        assert!(
+            out.contains("Body after setext.\nSecond body."),
+            "body Prose must still split, got:\n{out}"
+        );
+
+        let at_hang = concat!(
+            "> - Foo is the first title line. Still title.\n",
+            ">   Bar is the second title line.\n",
+            ">   =======\n",
+        );
+        let at_hang_regions = MarkdownParser.parse(at_hang);
+        assert!(
+            !at_hang_regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(p)
+                    if p.contains("Still title") || p.contains("Bar is the second")
+            )),
+            "quoted list plus >   ======= must stay a heading, got: {at_hang_regions:?}"
         );
     }
 
