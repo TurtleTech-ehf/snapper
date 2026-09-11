@@ -395,6 +395,12 @@ fn list_underline_indent_below_hang_is_not_setext() {
         dash_out.contains("first title line.\n"),
         "Foo must still split under space-dash, got:\n{dash_out}"
     );
+    assert!(
+        dash_regions
+            .iter()
+            .any(|r| matches!(r, Region::Structure(s) if s.trim() == "---")),
+        "one-space --- after a list is a thematic break, got: {dash_regions:?}"
+    );
 
     let hung = concat!(
         "- Foo is the first title line. Still title.\n",

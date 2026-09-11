@@ -3583,6 +3583,7 @@ mod tests {
     #[test]
     fn list_opener_hang_is_marker_width() {
         assert_eq!(list_opener_hang("- Foo"), Some(2));
+        assert_eq!(list_opener_hang("1. Foo"), Some(3));
         assert_eq!(list_opener_hang("> - Foo"), Some(2));
         assert_eq!(list_opener_hang("Foo"), None);
     }
@@ -3650,6 +3651,12 @@ mod tests {
                 Region::Structure(s) if s.contains("Foo is the first title line.")
             )),
             "Foo must stay Prose under space-dash, got: {dash_regions:?}"
+        );
+        assert!(
+            dash_regions
+                .iter()
+                .any(|r| matches!(r, Region::Structure(s) if s.trim() == "---")),
+            "one-space --- after a list is a thematic break, got: {dash_regions:?}"
         );
 
         let at_hang = concat!(
