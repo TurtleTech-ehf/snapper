@@ -2977,6 +2977,22 @@ They are endowed with reason and conscience and should act towards one another i
     }
 
     #[test]
+    fn wrap_created_rst_empty_bullet_is_not_a_block() {
+        for token in ["-", "*", "•", "‣", "⁃"] {
+            let result = wrap_fmt(
+                &format!("The options are apples {token} extra words here."),
+                23,
+                crate::format::Format::Rst,
+            );
+            assert_no_col0_block(&result, &[token]);
+            assert!(
+                result.contains(&format!("apples {token}")),
+                "{token} stays with the previous line:\n{result}"
+            );
+        }
+    }
+
+    #[test]
     fn skip_cut_loops_until_next_line_is_not_a_block() {
         // Org: break_at += 1 only eats `-`, then `* oranges` is a headline.
         let result = wrap_fmt(

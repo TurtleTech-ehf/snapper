@@ -420,10 +420,15 @@ fn parse_line_based(input: &str) -> Vec<SpannedRegion> {
         // Docutils opens a list only after a blank, a structure line,
         // or the start of the document. A list-like line that follows
         // an open paragraph with no blank stays in that paragraph
-        // (GitHub #134). Once a list is open (`list_hang`), the next
-        // marker is the next item.
+        // (GitHub #134). Empty ASCII `-`/`*` at EOL and unicode bullets
+        // (`•`/`‣`/`⁃`, with or without payload) interrupt (GitHub #324).
+        // Once a list is open (`list_hang`), the next marker is the
+        // next item.
         if let Some(marker_len) = rst_list_marker_len(line_text) {
-            if !current_prose.is_empty() && list_hang.is_none() {
+            if !current_prose.is_empty()
+                && list_hang.is_none()
+                && !rst_docutils_bullet_interrupts_paragraph(line_text)
+            {
                 push_prose_line(&mut current_prose, &mut prose_span, line, true, true);
                 i += 1;
                 continue;
@@ -790,11 +795,16 @@ pub(crate) fn rst_option_column_len(line: &str) -> Option<usize> {
 }
 
 /// Byte length of one compact RST list opener at the start of `t`
-/// (no leading indent): `* `, `- `, `+ ` (not a `+--+` table rule), or a
-/// Docutils enumerator plus the following space.
+/// (no leading indent). Docutils `Body.patterns` bullet is
+/// `[-+*\u2022\u2023\u2043]( +|$)`. ASCII `*` / `-` match a trailing
+/// space or EOL. Unicode `•` / `‣` / `⁃` match the same. Lone `+` is a
+/// grid-table leftover fragment, not a list opener (GitHub #324).
 fn rst_one_list_marker_len(t: &str) -> Option<usize> {
     if t.starts_with("* ") || t.starts_with("- ") {
         return Some(2);
+    }
+    if t == "*" || t == "-" {
+        return Some(1);
     }
     if let Some(after) = t.strip_prefix("+ ") {
         if after.starts_with('-') || after.starts_with('+') {
@@ -802,13 +812,30 @@ fn rst_one_list_marker_len(t: &str) -> Option<usize> {
         }
         return Some(2);
     }
+    for bullet in ["•", "‣", "⁃"] {
+        if t == bullet {
+            return Some(bullet.len());
+        }
+        if t.starts_with(bullet) && t[bullet.len()..].starts_with(' ') {
+            return Some(bullet.len() + 1);
+        }
+    }
     rst_enumerator_marker_len(t)
 }
 
+/// Empty ASCII `-`/`*` at EOL and unicode Docutils bullets interrupt an
+/// open paragraph. Trailing-space ASCII `* ` / `- ` / `+ ` still follow
+/// GitHub #134 (GitHub #324).
+fn rst_docutils_bullet_interrupts_paragraph(line: &str) -> bool {
+    let t = line.trim_start();
+    t == "-" || t == "*" || t.starts_with('•') || t.starts_with('‣') || t.starts_with('⁃')
+}
+
 /// Byte length of a compact RST list opener on `line`, including the
-/// trailing space: `* `, `- `, `+ ` (not a `+--+` table rule), or a
+/// trailing space: `* `, `- `, `+ ` (not a `+--+` table rule), empty
+/// `-`/`*` at EOL, unicode `•`/`‣`/`⁃` plus space or EOL, or a
 /// Docutils enumerator (`1.`, `a.`, `i.`, `#.`, `1)`, `(1)`) plus the
-/// following space (GitHub #91).
+/// following space (GitHub #91, #324).
 ///
 /// Same-line nested markers (`- - item`, `- 1. item`) are consumed so
 /// the hang is the inner item width. A two-space continuation after
@@ -3434,6 +3461,18 @@ mod tests {
         assert_eq!(rst_list_marker_len("*  "), Some(3));
         assert_eq!(rst_list_marker_len("-  Term"), Some(3));
         assert_eq!(rst_list_marker_len("  *  Nested"), Some(5));
+        assert_eq!(rst_list_marker_len("-"), Some(1));
+        assert_eq!(rst_list_marker_len("*"), Some(1));
+        assert_eq!(rst_list_marker_len("  -"), Some(3));
+        assert_eq!(rst_list_marker_len("+"), None);
+        assert_eq!(rst_list_marker_len("•"), Some("•".len()));
+        assert_eq!(rst_list_marker_len("‣"), Some("‣".len()));
+        assert_eq!(rst_list_marker_len("⁃"), Some("⁃".len()));
+        assert_eq!(rst_list_marker_len("• After empty item."), Some("• ".len()));
+        assert_eq!(rst_list_marker_len("‣ payload"), Some("‣ ".len()));
+        assert_eq!(rst_list_marker_len("⁃ payload"), Some("⁃ ".len()));
+        assert_eq!(rst_list_marker_len("•After"), None);
+        assert_eq!(rst_list_marker_len("-item"), None);
     }
 
     #[test]
