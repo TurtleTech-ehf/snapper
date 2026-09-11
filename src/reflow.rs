@@ -534,7 +534,7 @@ fn md_thematic_break(line: &str) -> bool {
 
 fn atx_heading_start(text: &str) -> bool {
     let n = text.bytes().take_while(|&b| b == b'#').count();
-    (1..=6).contains(&n) && (text.len() == n || text.as_bytes()[n] == b' ')
+    (1..=6).contains(&n) && (text.len() == n || matches!(text.as_bytes()[n], b' ' | b'\t'))
 }
 
 fn md_list_start(text: &str) -> bool {
