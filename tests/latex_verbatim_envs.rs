@@ -20,6 +20,8 @@
 //! GitHub #274: pythontex.sty pygments is the same VerbatimEnvironment class.
 //! GitHub #277: pythontex.sty sympycode / sympyblock / sympyverbatim /
 //! sympyconsole and starred twins are the same VerbatimEnvironment class.
+//! GitHub #278: pythontex.sty pylabcode / pylabblock / pylabverbatim /
+//! pylabconsole and starred twins are the same VerbatimEnvironment class.
 
 use snapper_fmt::format::Format;
 use snapper_fmt::parser::latex::LatexParser;
@@ -1034,6 +1036,83 @@ fn pythontex_sympy_family_fixture_is_code_and_does_not_reflow() {
         );
         assert_eq!(format_text(&out, &latex_cfg()).unwrap(), out);
     }
+}
+
+/// Ticket fixture (GitHub #278): pythontex.sty `pylabcode` /
+/// `pylabblock` / `pylabverbatim` / `pylabconsole` and starred twins
+/// stay Code; following prose still splits.
+#[test]
+fn pythontex_pylab_family_fixture_is_code_and_does_not_reflow() {
+    for name in [
+        "pylabcode",
+        "pylabcode*",
+        "pylabblock",
+        "pylabblock*",
+        "pylabverbatim",
+        "pylabverbatim*",
+        "pylabconsole",
+        "pylabconsole*",
+    ] {
+        let input = format!(
+            concat!(
+                "\\begin{{{name}}}\n",
+                "First line. Second line.\n",
+                "\\end{{{name}}}\n",
+                "After the block. Next.\n",
+            ),
+            name = name
+        );
+        let regions = LatexParser::default().parse(&input);
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Code { body, .. } if body.contains("First line. Second line.")
+            )),
+            "{name} body must be Code, got: {regions:?}"
+        );
+        assert!(
+            !regions
+                .iter()
+                .any(|r| matches!(r, Region::Prose(p) if p.contains("First line"))),
+            "{name} body must not be Prose, got: {regions:?}"
+        );
+        let out = format_text(&input, &latex_cfg()).unwrap();
+        assert!(
+            out.contains(&format!("\\begin{{{name}}}"))
+                && out.contains(&format!("\\end{{{name}}}")),
+            "{name} begin/end must stay, got:\n{out}"
+        );
+        assert!(
+            out.contains("First line. Second line."),
+            "{name} body must stay one source line, got:\n{out}"
+        );
+        assert!(
+            !out.contains("First line.\nSecond line."),
+            "{name} must not reflow as prose, got:\n{out}"
+        );
+        assert!(
+            out.contains("After the block.\nNext."),
+            "prose after {name} must still split, got:\n{out}"
+        );
+        assert_eq!(format_text(&out, &latex_cfg()).unwrap(), out);
+    }
+
+    let pycode = concat!(
+        "\\begin{pycode}\n",
+        "First line. Second line.\n",
+        "\\end{pycode}\n",
+        "After the block. Next.\n",
+    );
+    let pycode_out = format_text(pycode, &latex_cfg()).unwrap();
+    assert!(
+        pycode_out.contains("\\begin{pycode}\nFirst line. Second line.\n\\end{pycode}"),
+        "unstarred pycode family must stay a code env, got:\n{pycode_out}"
+    );
+    assert!(
+        pycode_out.contains("After the block.\nNext."),
+        "prose after unstarred pycode must still split, got:\n{pycode_out}"
+    );
+    assert_eq!(format_text(&pycode_out, &latex_cfg()).unwrap(), pycode_out);
 }
 
 /// Ticket fixture (GitHub #245): `\mintinline{python}|a.b! c|` is one
