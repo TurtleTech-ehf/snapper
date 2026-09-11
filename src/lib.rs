@@ -119,7 +119,7 @@ pub struct FormatConfig {
     /// fancyvrb BVerbatim/LVerbatim/SaveVerbatim/VerbatimOut/VerbatimWrite and
     /// Verbatim*/BVerbatim*/LVerbatim*,
     /// moreverb boxedverbatim/verbatimtab, standard alltt, spverbatim,
-    /// and pythontex pycode/pyblock/pyverbatim/pyconsole. Empty keeps
+    /// and pythontex pycode/pyblock/pyverbatim/pyconsole/pygments. Empty keeps
     /// the built-in list.
     pub latex_verbatim_envs: Vec<String>,
     /// Extra LaTeX environments treated as structure (no reflow), added
