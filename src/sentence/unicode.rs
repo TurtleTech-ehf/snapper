@@ -183,8 +183,8 @@ pub fn protect_inline_tokens_with(
 }
 
 /// `\verb|...|` / `\lstinline[...]!...!` / `\spverb|...|` /
-/// `\mintinline{lang}|...|` / `\mint{lang}{...}` / `\Verb|...|` so
-/// inner `.!?%` cannot split or comment.
+/// `\mintinline{lang}|...|` / `\mint{lang}{...}` / `\Verb|...|` /
+/// `\SaveVerb{name}|...|` so inner `.!?%` cannot split or comment.
 fn protect_latex_verbatim(
     text: &str,
     placeholders: &mut Vec<String>,
@@ -209,7 +209,7 @@ fn protect_latex_verbatim(
 }
 
 /// Byte end of a `\verb` / `\lstinline` / `\spverb` / `\mintinline` /
-/// `\mint` / `\Verb` / extra-name span starting at `at`.
+/// `\mint` / `\Verb` / `\SaveVerb` / extra-name span starting at `at`.
 ///
 /// `\verb` / `\verb*` / `\spverb` / `\spverb*` / `\Verb` / `\Verb*`: next
 /// character is the
@@ -217,9 +217,11 @@ fn protect_latex_verbatim(
 /// `\lstinline*` may take optional `[...]` before a delimiter or a
 /// `{...}` brace body. `\mintinline` / `\mint` (and stars) take optional
 /// `[...]`, a required `{lang}`, then a delimiter or `{...}` body
-/// (minted.sty / FVExtraReadVArg; GitHub #245). Extra names are
-/// tokenized like `\verb`. With no closer, the span runs to end of line
-/// so an inner `%` is not a comment.
+/// (minted.sty / FVExtraReadVArg; GitHub #245). `\SaveVerb` / `\SaveVerb*`
+/// take optional `[...]`, a required `{name}`, then the same delimiter
+/// body as `\Verb` (fancyvrb FVExtraReadVArg; GitHub #275). Extra names
+/// are tokenized like `\verb`. With no closer, the span runs to end of
+/// line so an inner `%` is not a comment.
 pub(crate) fn latex_verb_span_end_with(
     text: &str,
     at: usize,
@@ -257,6 +259,11 @@ pub(crate) fn latex_verb_span_end_with(
             return None;
         }
         (after_bs + "Verb".len(), VerbKind::Delim)
+    } else if let Some(stripped) = tail.strip_prefix("SaveVerb") {
+        if stripped.starts_with(|c: char| c.is_ascii_alphabetic()) {
+            return None;
+        }
+        (after_bs + "SaveVerb".len(), VerbKind::SaveVerb)
     } else if let Some(stripped) = tail.strip_prefix("verb") {
         if stripped.starts_with(|c: char| c.is_ascii_alphabetic()) {
             return None;
@@ -271,7 +278,10 @@ pub(crate) fn latex_verb_span_end_with(
         i += 1;
     }
 
-    if matches!(kind, VerbKind::Lstinline | VerbKind::Mint) {
+    if matches!(
+        kind,
+        VerbKind::Lstinline | VerbKind::Mint | VerbKind::SaveVerb
+    ) {
         i = skip_ascii_ws(text, i);
         if text.get(i..).is_some_and(|s| s.starts_with('[')) {
             match skip_bracket_group(text, i) {
@@ -288,6 +298,18 @@ pub(crate) fn latex_verb_span_end_with(
         i += 1;
         match find_unescaped_brace_close(text, i) {
             Some(end) => i = skip_ascii_ws(text, end),
+            None => return Some(line_end(text, i)),
+        }
+    }
+
+    // After `{name}`, the next character is the delimiter (Verb / FV@Scan).
+    if kind == VerbKind::SaveVerb {
+        if !text.get(i..).is_some_and(|s| s.starts_with('{')) {
+            return None;
+        }
+        i += 1;
+        match find_unescaped_brace_close(text, i) {
+            Some(end) => i = end,
             None => return Some(line_end(text, i)),
         }
     }
@@ -325,6 +347,8 @@ enum VerbKind {
     Lstinline,
     /// `\mintinline` / `\mint`: optional `[...]`, `{lang}`, then body.
     Mint,
+    /// `\SaveVerb`: optional `[...]`, `{name}`, then delimiter body like `\Verb`.
+    SaveVerb,
 }
 
 fn line_end(text: &str, from: usize) -> usize {
@@ -346,6 +370,7 @@ fn match_extra_verb_command<'a>(tail: &'a str, extras: &'a [String]) -> Option<&
             || name == "mintinline"
             || name == "mint"
             || name == "Verb"
+            || name == "SaveVerb"
         {
             continue;
         }
@@ -1984,6 +2009,76 @@ mod tests {
             vec![
                 r"See \mintinline[escapeinside=||]{python}|a.b%| please.".to_string(),
                 "Next.".to_string()
+            ]
+        );
+    }
+
+    /// Ticket fixture (GitHub #275): fancyvrb `\SaveVerb{name}|body|`
+    /// is one token; following `After.` still splits.
+    #[test]
+    fn latex_fancyvrb_saveverb_name_delim_stays_atomic() {
+        let text = r"Use \SaveVerb{foo}|done. Next| here. After.";
+        let (_, placeholders) = protect_inline_tokens(text);
+        assert!(
+            placeholders
+                .iter()
+                .any(|p| p == r"\SaveVerb{foo}|done. Next|"),
+            "SaveVerb name+delim span must be protected, got {placeholders:?}"
+        );
+        assert_eq!(
+            latex_verb_span_end_with(r"\SaveVerb{foo}|done. Next|", 0, &[]),
+            Some(r"\SaveVerb{foo}|done. Next|".len())
+        );
+        assert_eq!(
+            split(text),
+            vec![
+                r"Use \SaveVerb{foo}|done. Next| here.".to_string(),
+                "After.".to_string()
+            ]
+        );
+    }
+
+    #[test]
+    fn latex_saveverb_does_not_steal_saveverbatim() {
+        assert_eq!(
+            latex_verb_span_end_with(r"\SaveVerbatim|x.y|", 0, &[]),
+            None,
+            "SaveVerb must not match as a prefix of SaveVerbatim"
+        );
+        let text = r"Use \SaveVerbatim|x.y| here. After.";
+        let (_, placeholders) = protect_inline_tokens(text);
+        assert!(
+            placeholders.iter().all(|p| p != r"\SaveVerbatim|x.y|"),
+            "SaveVerbatim must not become a SaveVerb span, got {placeholders:?}"
+        );
+        assert_eq!(
+            split(text),
+            vec![
+                r"Use \SaveVerbatim|x.y| here.".to_string(),
+                "After.".to_string()
+            ]
+        );
+    }
+
+    #[test]
+    fn latex_saveverb_star_and_optional_args_stay_atomic() {
+        assert_eq!(
+            latex_verb_span_end_with(r"\SaveVerb*{foo}|done. Next|", 0, &[]),
+            Some(r"\SaveVerb*{foo}|done. Next|".len())
+        );
+        let text = r"See \SaveVerb[aftersave=\relax]{foo}|a.b%| please. After.";
+        let (_, placeholders) = protect_inline_tokens(text);
+        assert!(
+            placeholders
+                .iter()
+                .any(|p| p == r"\SaveVerb[aftersave=\relax]{foo}|a.b%|"),
+            "SaveVerb optional args must be protected, got {placeholders:?}"
+        );
+        assert_eq!(
+            split(text),
+            vec![
+                r"See \SaveVerb[aftersave=\relax]{foo}|a.b%| please.".to_string(),
+                "After.".to_string()
             ]
         );
     }

@@ -297,7 +297,7 @@ impl LatexParser {
 
     /// Byte offset of the first `%` that is not escaped as `\%` and is not
     /// inside `\verb` / `\lstinline` / `\spverb` / `\mintinline` / `\mint` /
-    /// `\Verb` / configured verbatim commands.
+    /// `\Verb` / `\SaveVerb` / configured verbatim commands.
     fn unescaped_percent(&self, line: &str) -> Option<usize> {
         unescaped_percent_with(line, &self.extra_verbatim_commands)
     }
@@ -669,7 +669,7 @@ fn find_tex_cs(line: &str, from: usize, cs: &str) -> Option<usize> {
 }
 
 /// `\iffalse` in ordinary TeX, skipping `\verb` / `\lstinline` /
-/// `\spverb` / `\mintinline` / `\mint` / `\Verb` spans.
+/// `\spverb` / `\mintinline` / `\mint` / `\Verb` / `\SaveVerb` spans.
 fn find_iffalse_at(line: &str, from: usize, extra_cmds: &[String]) -> Option<usize> {
     let bytes = line.as_bytes();
     let mut i = from;
@@ -2131,6 +2131,55 @@ Some text.
                 |r| matches!(r, Region::Structure(s) if s.contains("%b|") || s.trim() == "%b|\n")
             ),
             "inner % of mintinline must not be a comment, got: {regions:?}"
+        );
+        assert_eq!(format_text(&out, &latex_cfg()).unwrap(), out);
+    }
+
+    /// Ticket fixture (GitHub #275): fancyvrb `\SaveVerb{name}|body|` is
+    /// one token; following `After.` still splits.
+    #[test]
+    fn fancyvrb_saveverb_name_delim_round_trips() {
+        use crate::format_text;
+
+        let input =
+            "\\begin{document}\nUse \\SaveVerb{foo}|done. Next| here. After.\n\\end{document}\n";
+        let out = format_text(input, &latex_cfg()).unwrap();
+        assert!(
+            out.contains(r"\SaveVerb{foo}|done. Next|"),
+            "SaveVerb name+delim must stay intact, got:\n{out}"
+        );
+        assert!(
+            !out.contains("\\SaveVerb{foo}|done.\n")
+                && !out.contains("\\SaveVerb{foo}|done. Next|\n"),
+            "inner . must not split SaveVerb, got:\n{out}"
+        );
+        assert!(
+            out.contains("Use \\SaveVerb{foo}|done. Next| here.\nAfter."),
+            "prose after SaveVerb must still split, got:\n{out}"
+        );
+        assert_eq!(format_text(&out, &latex_cfg()).unwrap(), out);
+    }
+
+    #[test]
+    fn fancyvrb_saveverb_inner_percent_is_not_a_comment() {
+        use crate::format_text;
+
+        let input = "\\begin{document}\nCode \\SaveVerb{foo}|a%b| here. After.\n\\end{document}\n";
+        let out = format_text(input, &latex_cfg()).unwrap();
+        assert!(
+            out.contains(r"\SaveVerb{foo}|a%b|"),
+            "SaveVerb with inner % must stay intact, got:\n{out}"
+        );
+        assert!(
+            out.contains("here."),
+            "text after SaveVerb must not be commented out, got:\n{out}"
+        );
+        let regions = LatexParser::default().parse(input);
+        assert!(
+            !regions.iter().any(
+                |r| matches!(r, Region::Structure(s) if s.contains("%b|") || s.trim() == "%b|\n")
+            ),
+            "inner % of SaveVerb must not be a comment, got: {regions:?}"
         );
         assert_eq!(format_text(&out, &latex_cfg()).unwrap(), out);
     }
