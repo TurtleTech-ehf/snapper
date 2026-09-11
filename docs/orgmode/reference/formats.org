@@ -94,7 +94,7 @@ These tokens within prose are not split across lines:
 - =\end{document}=
 - Full sectioning command lines (=\section{...}=, =\subsection{...}=, and friends, including title text)
 
-*** Code regions (=minted=, =lstlisting=, =verbatim=, =comment=)
+*** Code regions (=minted=, =lstlisting=, =verbatim=, =comment=, =Piton=)
 :PROPERTIES:
 :CUSTOM_ID: latex-code
 :END:
@@ -116,9 +116,11 @@ These tokens within prose are not split across lines:
 - spverbatim.sty =spverbatim= is a built-in code region (raw line breaks)
 - pythontex.sty =pyblock= / =pyverbatim= / =pyconsole= / =pycode*= / =pyblock*= / =pyverbatim*= / =pyconsole*= / =pygments= / =sympycode= / =sympyblock= / =sympyverbatim= / =sympyconsole= / =pylabcode= / =pylabblock= / =pylabverbatim= / =pylabconsole= and starred twins are the same =VerbatimEnvironment= class as =pycode=
 - sagetex.sty =sageverbatim= / =sageexample= / =sagecommandline= are the same =verbatim@start= class as tree-sitter-latex =sagesilent= / =sageblock=
+- piton.sty =Piton= is a built-in code region (verbatim listing env)
 - Extra names from =[latex].verbatim_envs= are code regions too
 - Body follows the same comment-reflow and optional =--format-code= rules as other formats when language is known (=minted= / =minted*= language arg, =lstlisting= / =lstlisting*= =language== option)
-- Inline =\verb= / =\lstinline= / =\spverb= / =\mintinline= / =\mint= / fancyvrb =\Verb= / =\Verb*= / =\SaveVerb= (and extra =[latex].verbatim_commands=) stay atomic; inner =.!?%= do not split or comment
+- Inline =\verb= / =\lstinline= / =\spverb= / =\mintinline= / =\mint= / fancyvrb =\Verb= / =\Verb*= / =\SaveVerb= / piton.sty =\piton= (and extra =[latex].verbatim_commands=) stay atomic; inner =.!?%= do not split or comment.
+  =\piton|...|= is verb-like; =\piton{...}= stays one token via the generic command argument
 
 *** Prose regions (reflowed)
 :PROPERTIES:

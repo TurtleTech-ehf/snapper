@@ -25,7 +25,7 @@ pub struct FormatOverrides {
     /// fancyvrb BVerbatim/LVerbatim/SaveVerbatim/VerbatimOut/VerbatimWrite/
     /// VerbatimBuffer and Verbatim*/BVerbatim*/LVerbatim*, fvextra VerbEnv,
     /// moreverb boxedverbatim/verbatimtab/verbatimwrite/listing/listingcont/listing*/listingcont*,
-    /// standard alltt, spverbatim,
+    /// standard alltt, spverbatim, piton.sty Piton,
     /// tree-sitter sagesilent/sageblock, sagetex sageverbatim/sageexample/
     /// sagecommandline,
     /// and pythontex pycode/pycode*/pyblock/pyblock*/pyverbatim/pyverbatim*/
@@ -39,7 +39,7 @@ pub struct FormatOverrides {
     pub structure_envs: Vec<String>,
     /// Extra LaTeX command names tokenized like `\verb` before split.
     /// Meaningful under `[latex]` only. Missing or empty keeps
-    /// verb/lstinline/spverb/mintinline/mint/Verb/SaveVerb.
+    /// verb/lstinline/spverb/mintinline/mint/Verb/SaveVerb/piton.
     pub verbatim_commands: Vec<String>,
 }
 

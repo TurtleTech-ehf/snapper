@@ -184,7 +184,9 @@ pub fn protect_inline_tokens_with(
 
 /// `\verb|...|` / `\lstinline[...]!...!` / `\spverb|...|` /
 /// `\mintinline{lang}|...|` / `\mint{lang}{...}` / `\Verb|...|` /
-/// `\SaveVerb{name}|...|` so inner `.!?%` cannot split or comment.
+/// `\SaveVerb{name}|...|` / `\piton|...|` so inner `.!?%` cannot
+/// split or comment. `\piton{...}` stays on the generic `\cmd{arg}`
+/// path (piton.sty brace syntax is not verbatim; GitHub #305).
 fn protect_latex_verbatim(
     text: &str,
     placeholders: &mut Vec<String>,
@@ -209,7 +211,8 @@ fn protect_latex_verbatim(
 }
 
 /// Byte end of a `\verb` / `\lstinline` / `\spverb` / `\mintinline` /
-/// `\mint` / `\Verb` / `\SaveVerb` / extra-name span starting at `at`.
+/// `\mint` / `\Verb` / `\SaveVerb` / `\piton` / extra-name span
+/// starting at `at`.
 ///
 /// `\verb` / `\verb*` / `\spverb` / `\spverb*` / `\Verb` / `\Verb*`: next
 /// character is the
@@ -219,9 +222,12 @@ fn protect_latex_verbatim(
 /// `[...]`, a required `{lang}`, then a delimiter or `{...}` body
 /// (minted.sty / FVExtraReadVArg; GitHub #245). `\SaveVerb` / `\SaveVerb*`
 /// take optional `[...]`, a required `{name}`, then the same delimiter
-/// body as `\Verb` (fancyvrb FVExtraReadVArg; GitHub #275). Extra names
-/// are tokenized like `\verb`. With no closer, the span runs to end of
-/// line so an inner `%` is not a comment.
+/// body as `\Verb` (fancyvrb FVExtraReadVArg; GitHub #275). `\piton`
+/// (piton.sty; GitHub #305) is verb-like for a non-brace delimiter
+/// (`\piton|...|`); a following `{` is not a delimiter so `\piton{...}`
+/// stays on the generic `\cmd{arg}` path. Extra names are tokenized
+/// like `\verb`. With no closer, the span runs to end of line so an
+/// inner `%` is not a comment.
 pub(crate) fn latex_verb_span_end_with(
     text: &str,
     at: usize,
@@ -249,6 +255,11 @@ pub(crate) fn latex_verb_span_end_with(
             return None;
         }
         (after_bs + "spverb".len(), VerbKind::Delim)
+    } else if let Some(stripped) = tail.strip_prefix("piton") {
+        if stripped.starts_with(|c: char| c.is_ascii_alphabetic()) {
+            return None;
+        }
+        (after_bs + "piton".len(), VerbKind::Piton)
     } else if let Some(stripped) = tail.strip_prefix("mint") {
         if stripped.starts_with(|c: char| c.is_ascii_alphabetic()) {
             return None;
@@ -276,6 +287,16 @@ pub(crate) fn latex_verb_span_end_with(
 
     if text.get(i..)?.starts_with('*') {
         i += 1;
+    }
+
+    // piton.sty brace syntax is not verbatim; leave `\piton{...}` to
+    // the generic `\cmd{arg}` token. `{` is also not a legal piton
+    // verb delimiter.
+    if kind == VerbKind::Piton {
+        let next = text.get(i..).and_then(|s| s.chars().next())?;
+        if next == '{' {
+            return None;
+        }
     }
 
     if matches!(
@@ -349,6 +370,8 @@ enum VerbKind {
     Mint,
     /// `\SaveVerb`: optional `[...]`, `{name}`, then delimiter body like `\Verb`.
     SaveVerb,
+    /// `\piton`: verb-like delimiter except `{` (GitHub #305).
+    Piton,
 }
 
 fn line_end(text: &str, from: usize) -> usize {
@@ -371,6 +394,7 @@ fn match_extra_verb_command<'a>(tail: &'a str, extras: &'a [String]) -> Option<&
             || name == "mint"
             || name == "Verb"
             || name == "SaveVerb"
+            || name == "piton"
         {
             continue;
         }
@@ -2078,6 +2102,66 @@ mod tests {
             split(text),
             vec![
                 r"See \SaveVerb[aftersave=\relax]{foo}|a.b%| please.".to_string(),
+                "After.".to_string()
+            ]
+        );
+    }
+
+    /// Ticket fixture (GitHub #305): piton.sty `\piton|done. Next|` is
+    /// one token like `\verb`; `\piton{done. Next}` stays one token via
+    /// generic cmd-arg and does not consume the rest of the line.
+    #[test]
+    fn latex_piton_pipe_stays_atomic() {
+        let text = r"See \piton|done. Next| here. After.";
+        let (_, placeholders) = protect_inline_tokens(text);
+        assert!(
+            placeholders.iter().any(|p| p == r"\piton|done. Next|"),
+            "piton pipe span must be protected, got {placeholders:?}"
+        );
+        assert_eq!(
+            latex_verb_span_end_with(r"\piton|done. Next|", 0, &[]),
+            Some(r"\piton|done. Next|".len())
+        );
+        assert_eq!(
+            split(text),
+            vec![
+                r"See \piton|done. Next| here.".to_string(),
+                "After.".to_string()
+            ]
+        );
+        let pct = r"See \piton|a.b%| please. Next.";
+        let (_, pct_ph) = protect_inline_tokens(pct);
+        assert!(
+            pct_ph.iter().any(|p| p == r"\piton|a.b%|"),
+            "inner % of \\piton|...| must stay in the span, got {pct_ph:?}"
+        );
+        assert_eq!(
+            split(pct),
+            vec![r"See \piton|a.b%| please.".to_string(), "Next.".to_string()]
+        );
+    }
+
+    #[test]
+    fn latex_piton_brace_stays_on_generic_cmd_arg() {
+        assert_eq!(
+            latex_verb_span_end_with(r"\piton{done. Next}", 0, &[]),
+            None,
+            "\\piton{{...}} must not be a verb span"
+        );
+        let text = r"See \piton{done. Next} here. After.";
+        let (_, placeholders) = protect_inline_tokens(text);
+        assert!(
+            placeholders.iter().any(|p| p == r"\piton{done. Next}"),
+            "\\piton{{done. Next}} must stay one generic cmd-arg, got {placeholders:?}"
+        );
+        assert!(
+            placeholders.iter().all(|p| p != text),
+            "\\piton{{...}} must not swallow the rest of the line, got {placeholders:?}"
+        );
+        assert_eq!(
+            split(text),
+            vec![
+                r"See \piton{done. Next} here.".to_string(),
                 "After.".to_string()
             ]
         );

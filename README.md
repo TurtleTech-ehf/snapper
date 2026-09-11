@@ -209,7 +209,7 @@ Configuration guide (org source in-tree): `docs/orgmode/howto/mcp-integration.or
 <tr>
 <td class="org-left">LaTeX</td>
 <td class="org-left"><code>.tex</code>, <code>.latex</code></td>
-<td class="org-left">Preamble, math; minted and lstlisting comment reflow</td>
+<td class="org-left">Preamble, math; minted and lstlisting comment reflow; Piton / <code>\piton</code></td>
 </tr>
 
 <tr>
@@ -352,7 +352,7 @@ Drop a `.snapperrc.toml` in your project root:
     structure_envs = ["algorithm", "comment"]
     verbatim_commands = ["Verb"]
 
-Missing `[latex]` keys keep the built-in minted/lstlisting/verbatim/comment, equation/figure, and verb/lstinline/spverb/Verb lists.
+Missing `[latex]` keys keep the built-in minted/lstlisting/verbatim/comment/Piton, equation/figure, and verb/lstinline/spverb/Verb/piton lists.
 `snapper` walks up from the current directory to find it.
 
 

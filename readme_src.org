@@ -147,7 +147,7 @@ Configuration guide (org source in-tree): =docs/orgmode/howto/mcp-integration.or
 | Format    | Extensions             | Structure / code handling                                      |
 |-----------+------------------------+----------------------------------------------------------------|
 | Org-mode  | =.org=                 | Drawers, tables, keywords; =#+BEGIN_SRC= comment reflow        |
-| LaTeX     | =.tex=, =.latex=       | Preamble, math; minted and lstlisting comment reflow           |
+| LaTeX     | =.tex=, =.latex=       | Preamble, math; minted and lstlisting comment reflow; Piton / =\piton= |
 | Markdown  | =.md=, =.markdown=     | Front matter, HTML; fenced blocks comment reflow when configured |
 | RST       | =.rst=                 | Directives, literals; =.. code-block::= comment reflow         |
 | Plaintext | everything else        | (none; all text treated as prose)                              |
@@ -260,7 +260,7 @@ verbatim_envs = ["Verbatim"]
 structure_envs = ["algorithm", "comment"]
 verbatim_commands = ["Verb"]
 #+end_src
-Missing =[latex]= keys keep the built-in minted/lstlisting/verbatim/comment, equation/figure, and verb/lstinline/spverb/Verb lists.
+Missing =[latex]= keys keep the built-in minted/lstlisting/verbatim/comment/Piton, equation/figure, and verb/lstinline/spverb/Verb/piton lists.
 ~snapper~ walks up from the current directory to find it.
 * Documentation
 :PROPERTIES:
