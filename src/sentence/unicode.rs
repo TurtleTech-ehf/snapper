@@ -1328,12 +1328,29 @@ fn merge_quoted_punct_splits(segments: Vec<String>) -> Vec<String> {
 /// quotes (including dialogue single quotes with apostrophe heuristics),
 /// LaTeX ```` / `''` style quotes, and balanced `()` / `[]` / `{}`.
 /// Escaped `\"` / `\'` do not toggle quote state.
+///
+/// UAX SB11 breaks after ATerm+Sp *before* a closer, so `(. aA. )A` is
+/// `(. aA. ` + `)A`. Glue only the closer; a following capital is a new
+/// sentence (GitHub #266). The tight form `(. aA.)A` already splits.
 fn merge_splits_inside_delimiters(segments: Vec<String>) -> Vec<String> {
     let mut result: Vec<String> = Vec::with_capacity(segments.len());
     let mut state = DelimState::default();
 
     for segment in segments {
         if state.is_inside() {
+            if let Some((closers, rest)) = split_closers_then_new_sentence(&state, &segment) {
+                if let Some(last) = result.last_mut() {
+                    push_segment_preserving_space(last, closers);
+                } else {
+                    result.push(closers.to_string());
+                }
+                state.feed(closers);
+                if !rest.is_empty() {
+                    result.push(rest.to_string());
+                    state.feed(rest);
+                }
+                continue;
+            }
             if let Some(last) = result.last_mut() {
                 push_segment_preserving_space(last, &segment);
             } else {
@@ -1346,6 +1363,54 @@ fn merge_splits_inside_delimiters(segments: Vec<String>) -> Vec<String> {
     }
 
     result
+}
+
+/// Leading span closers that finish the open delimiter, then a new sentence.
+fn split_closers_then_new_sentence<'a>(
+    state: &DelimState,
+    segment: &'a str,
+) -> Option<(&'a str, &'a str)> {
+    let n = leading_span_closer_len(segment);
+    if n == 0 {
+        return None;
+    }
+    let mut probe = state.clone();
+    probe.feed(&segment[..n]);
+    if probe.is_inside() {
+        return None;
+    }
+    let rest = segment[n..].trim_start();
+    if !starts_sentence_after_closers(rest) {
+        return None;
+    }
+    Some((&segment[..n], rest))
+}
+
+fn leading_span_closer_len(segment: &str) -> usize {
+    segment
+        .char_indices()
+        .take_while(|(_, ch)| is_span_closer(*ch))
+        .last()
+        .map(|(i, ch)| i + ch.len_utf8())
+        .unwrap_or(0)
+}
+
+fn is_span_closer(ch: char) -> bool {
+    matches!(
+        ch,
+        ')' | ']' | '}' | '"' | '\'' | '\u{201D}' | '\u{2019}' | '\u{00BB}'
+    )
+}
+
+fn starts_sentence_after_closers(rest: &str) -> bool {
+    let mut chars = rest.chars();
+    match chars.next() {
+        Some(c) if c.is_uppercase() => true,
+        Some('"' | '\'' | '\u{201C}' | '\u{2018}' | '\u{00AB}') => {
+            chars.next().is_some_and(|c| c.is_uppercase())
+        }
+        _ => false,
+    }
 }
 
 /// Tracks delimiter nesting for span-aware sentence merging and invariants.
@@ -3076,6 +3141,20 @@ mod tests {
         assert_eq!(
             split("See (Fig. 3 is wrong. Really.) Next."),
             vec!["See (Fig. 3 is wrong. Really.)", "Next."]
+        );
+    }
+
+    #[test]
+    fn paren_space_before_closer_then_capital_splits_like_tight_closer() {
+        // GitHub #266: UAX breaks `(. aA. )A` after the space. Glue only
+        // `)`, not `)A`. The tight form already splits after `)`.
+        assert_eq!(
+            split("(. aA. )A"),
+            vec!["(. aA.)".to_string(), "A".to_string()]
+        );
+        assert_eq!(
+            split("(. aA.)A"),
+            vec!["(. aA.)".to_string(), "A".to_string()]
         );
     }
 
