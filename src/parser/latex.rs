@@ -131,8 +131,8 @@ static LSTLISTING_LANG_RE: LazyLock<Regex> = LazyLock::new(|| {
 /// (`asy`, `asydef`, `pycode`, `luacode`, `luacode*`, `sagesilent`,
 /// `sageblock`) plus latex2e `verbatim*` / fancyvrb `Verbatim` /
 /// `Verbatim*` / `BVerbatim` / `BVerbatim*` / `LVerbatim` /
-/// `LVerbatim*` / `SaveVerbatim` / `VerbatimOut`, moreverb
-/// `boxedverbatim`, tcolorbox `tcblisting` / `tcblisting*` /
+/// `LVerbatim*` / `SaveVerbatim` / `VerbatimOut` / `VerbatimWrite`,
+/// moreverb `boxedverbatim`, tcolorbox `tcblisting` / `tcblisting*` /
 /// `codeexample`, standard `alltt` (alltt.sty: macros still apply,
 /// line breaks stay raw), spverbatim.sty `spverbatim` (raw body;
 /// `\spverb` is the matching delimiter-body command, GitHub #235),
@@ -141,13 +141,15 @@ static LSTLISTING_LANG_RE: LazyLock<Regex> = LazyLock::new(|| {
 /// is Verbatim, boxedverbatim, tcblisting, codeexample. fancyvrb
 /// `BVerbatim` / `LVerbatim` are the same raw class as `Verbatim`
 /// (GitHub #209). `SaveVerbatim` / `VerbatimOut` are the same
-/// `FV@Scan` class (GitHub #213). fancyvrb `Verbatim*` / `BVerbatim*`
-/// / `LVerbatim*` are the starred twins of those names (same
-/// `\FV@Scan`; GitHub #244). `alltt` is the same verbatim-like class
-/// (GitHub #230). listings.sty `\lstnewenvironment{lstlisting}` also
-/// defines `lstlisting*` (same raw body scan; GitHub #234). tcolorbox
-/// listings library `tcblisting*` is the starred twin of `tcblisting`
-/// (same raw listing body; GitHub #246).
+/// `FV@Scan` class (GitHub #213). fvextra `VerbatimWrite` is the
+/// same `FV@Scan` class as `VerbatimOut` (GitHub #247). fancyvrb
+/// `Verbatim*` / `BVerbatim*` / `LVerbatim*` are the starred twins
+/// of those names (same `\FV@Scan`; GitHub #244). `alltt` is the
+/// same verbatim-like class (GitHub #230). listings.sty
+/// `\lstnewenvironment{lstlisting}` also defines `lstlisting*`
+/// (same raw body scan; GitHub #234). tcolorbox listings library
+/// `tcblisting*` is the starred twin of `tcblisting` (same raw
+/// listing body; GitHub #246).
 fn is_builtin_code_env(name: &str) -> bool {
     matches!(
         name,
@@ -164,6 +166,7 @@ fn is_builtin_code_env(name: &str) -> bool {
             | "LVerbatim*"
             | "SaveVerbatim"
             | "VerbatimOut"
+            | "VerbatimWrite"
             | "boxedverbatim"
             | "tcblisting"
             | "tcblisting*"
@@ -2703,6 +2706,71 @@ Some text.
             );
             assert_eq!(format_text(&out, &latex_cfg()).unwrap(), out);
         }
+    }
+
+    /// Ticket fixture (GitHub #247): fvextra VerbatimWrite is the same
+    /// FV@Scan class as VerbatimOut. The required `{file}` argument
+    /// stays on the begin header. Body stays Code; following prose
+    /// still splits.
+    #[test]
+    fn fancyvrb_verbatimwrite_is_code_not_prose() {
+        use crate::format_text;
+
+        let input = concat!(
+            "\\begin{VerbatimWrite}{out.tex}\n",
+            "First line. Second line.\n",
+            "\\end{VerbatimWrite}\n",
+            "After the block. Next.\n",
+        );
+        let regions = LatexParser::default().parse(input);
+        let code = regions.iter().find_map(|r| match r {
+            Region::Code {
+                header,
+                body,
+                footer,
+                ..
+            } => Some((header.as_str(), body.as_str(), footer.as_str())),
+            _ => None,
+        });
+        let Some((header, body, footer)) = code else {
+            panic!("VerbatimWrite must be Code, got: {regions:?}");
+        };
+        assert!(
+            header.contains("\\begin{VerbatimWrite}{out.tex}"),
+            "VerbatimWrite required arg must stay on the begin header, got header={header:?}"
+        );
+        assert!(
+            body.contains("First line. Second line."),
+            "VerbatimWrite body must keep both sentences, got body={body:?}"
+        );
+        assert!(
+            footer.contains("\\end{VerbatimWrite}"),
+            "VerbatimWrite footer must stay, got footer={footer:?}"
+        );
+        assert!(
+            !regions
+                .iter()
+                .any(|r| matches!(r, Region::Prose(p) if p.contains("First line"))),
+            "VerbatimWrite body must not leak into Prose, got: {regions:?}"
+        );
+        let out = format_text(input, &latex_cfg()).unwrap();
+        assert!(
+            out.contains("\\begin{VerbatimWrite}{out.tex}") && out.contains("\\end{VerbatimWrite}"),
+            "VerbatimWrite begin/end must stay, got:\n{out}"
+        );
+        assert!(
+            out.contains("First line. Second line."),
+            "VerbatimWrite body must stay one source line, got:\n{out}"
+        );
+        assert!(
+            !out.contains("First line.\nSecond line."),
+            "VerbatimWrite must not reflow as prose, got:\n{out}"
+        );
+        assert!(
+            out.contains("After the block.\nNext."),
+            "prose after VerbatimWrite must still split, got:\n{out}"
+        );
+        assert_eq!(format_text(&out, &latex_cfg()).unwrap(), out);
     }
 
     /// Ticket fixture (GitHub #230): alltt.sty is a standard
