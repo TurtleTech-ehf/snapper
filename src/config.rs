@@ -18,7 +18,8 @@ pub struct FormatOverrides {
     /// trivia, Overleaf Verbatim/boxedverbatim/tcblisting/tcblisting*/codeexample,
     /// fancyvrb BVerbatim/LVerbatim/SaveVerbatim/VerbatimOut/VerbatimWrite and
     /// Verbatim*/BVerbatim*/LVerbatim*,
-    /// moreverb boxedverbatim/verbatimtab, standard alltt, spverbatim,
+    /// moreverb boxedverbatim/verbatimtab/listing/listingcont/listing*/listingcont*,
+    /// standard alltt, spverbatim,
     /// and pythontex pycode/pycode*/pyblock/pyblock*/pyverbatim/pyverbatim*/
     /// pyconsole/pyconsole*/pygments plus sympycode/sympyblock/sympyverbatim/
     /// sympyconsole and starred twins; entries are
