@@ -2,6 +2,7 @@
 //! GitHub #209: fancyvrb BVerbatim / LVerbatim are the same.
 //! GitHub #213: fancyvrb SaveVerbatim / VerbatimOut are the same FV@Scan class.
 //! GitHub #247: fvextra VerbatimWrite is the same FV@Scan class as VerbatimOut.
+//! GitHub #292: fvextra VerbatimBuffer is the same raw grab as VerbatimWrite.
 //! GitHub #293: fvextra VerbEnv is the environment form of Verb.
 //! GitHub #230: alltt.sty is a standard verbatim-like env (raw line breaks).
 //! GitHub #234: listings.sty lstlisting* is the same raw scan as lstlisting.
@@ -777,6 +778,67 @@ fn verbatimwrite_fixture_is_code_and_does_not_reflow() {
     assert!(
         out.contains("After the block.\nNext."),
         "prose after VerbatimWrite must still split, got:\n{out}"
+    );
+    assert_eq!(format_text(&out, &latex_cfg()).unwrap(), out);
+}
+
+/// Ticket fixture (GitHub #292): fvextra VerbatimBuffer bodies stay
+/// Code; following prose still splits.
+#[test]
+fn verbatimbuffer_fixture_is_code_and_does_not_reflow() {
+    let input = concat!(
+        "\\begin{VerbatimBuffer}\n",
+        "First line. Second line.\n",
+        "\\end{VerbatimBuffer}\n",
+        "After the block. Next.\n",
+    );
+    let regions = LatexParser::default().parse(input);
+    let code = regions.iter().find_map(|r| match r {
+        Region::Code {
+            header,
+            body,
+            footer,
+            ..
+        } => Some((header.as_str(), body.as_str(), footer.as_str())),
+        _ => None,
+    });
+    let Some((header, body, footer)) = code else {
+        panic!("VerbatimBuffer must be Code, got: {regions:?}");
+    };
+    assert!(
+        header.contains(r"\begin{VerbatimBuffer}"),
+        "VerbatimBuffer begin must stay on the header, got header={header:?}"
+    );
+    assert!(
+        body.contains("First line. Second line."),
+        "VerbatimBuffer body must be Code, got body={body:?}"
+    );
+    assert!(
+        footer.contains(r"\end{VerbatimBuffer}"),
+        "VerbatimBuffer footer must stay, got footer={footer:?}"
+    );
+    assert!(
+        !regions
+            .iter()
+            .any(|r| matches!(r, Region::Prose(p) if p.contains("First line"))),
+        "VerbatimBuffer body must not be Prose, got: {regions:?}"
+    );
+    let out = format_text(input, &latex_cfg()).unwrap();
+    assert!(
+        out.contains(r"\begin{VerbatimBuffer}") && out.contains(r"\end{VerbatimBuffer}"),
+        "VerbatimBuffer begin/end must stay, got:\n{out}"
+    );
+    assert!(
+        out.contains("First line. Second line."),
+        "VerbatimBuffer body must stay one source line, got:\n{out}"
+    );
+    assert!(
+        !out.contains("First line.\nSecond line."),
+        "VerbatimBuffer must not reflow as prose, got:\n{out}"
+    );
+    assert!(
+        out.contains("After the block.\nNext."),
+        "prose after VerbatimBuffer must still split, got:\n{out}"
     );
     assert_eq!(format_text(&out, &latex_cfg()).unwrap(), out);
 }
