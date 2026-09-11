@@ -89,6 +89,34 @@ pub(crate) fn org_line_break_at(line: &str) -> Option<usize> {
     }
 }
 
+/// org-element-paragraph-separate table-rule (Emacs 30.2 / GitHub #310):
+/// `[ \t]*\+\(?:-+\+\)+[ \t]*$`. `+` then one or more groups of hyphens
+/// plus `+` (`+---+`, `+-----+`). Pipe rows (`|...`) and `-----` rules
+/// are separate.
+pub(crate) fn org_table_rule_line(line: &str) -> bool {
+    let t = line.trim_matches([' ', '\t']);
+    let bytes = t.as_bytes();
+    if bytes.len() < 3 || bytes[0] != b'+' {
+        return false;
+    }
+    let mut i = 1;
+    let mut groups = 0usize;
+    while i < bytes.len() {
+        if bytes[i] != b'-' {
+            return false;
+        }
+        while i < bytes.len() && bytes[i] == b'-' {
+            i += 1;
+        }
+        if i >= bytes.len() || bytes[i] != b'+' {
+            return false;
+        }
+        i += 1;
+        groups += 1;
+    }
+    groups >= 1
+}
+
 /// True when `s` is a spliced org line-break Structure (`\\` plus optional
 /// `[ \t]*` and the line terminator).
 pub(crate) fn is_org_line_break_structure(s: &str) -> bool {
@@ -207,6 +235,11 @@ impl OrgParser {
     fn is_horizontal_rule(line: &str) -> bool {
         let t = line.trim();
         t.len() >= 5 && t.bytes().all(|b| b == b'-')
+    }
+
+    /// org-element-paragraph-separate table-rule (Emacs 30.2 / GitHub #310).
+    fn is_table_rule(line: &str) -> bool {
+        org_table_rule_line(line)
     }
 
     /// org-element planning (`DEADLINE:`/`SCHEDULED:`/`CLOSED:`) or clock (`CLOCK:`).
@@ -855,8 +888,8 @@ impl FormatParser for OrgParser {
                 continue;
             }
 
-            // Table row
-            if Self::is_table_row(line_text) {
+            // Table row (`| ...`) or table-rule (`+---+`).
+            if Self::is_table_row(line_text) || Self::is_table_rule(line_text) {
                 flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
                 regions.push(SpannedRegion::structure(input, line.span()));
                 continue;
@@ -2145,6 +2178,71 @@ mod tests {
         assert!(
             out.contains("Start of next.\nMore."),
             "prose after the rule must reflow independently, got:\n{out}"
+        );
+        assert_eq!(format_text(&out, &org_cfg()).unwrap(), out);
+    }
+
+    #[test]
+    fn table_rule_is_structure_boundary() {
+        use crate::format_text;
+
+        let input = "+-----+\nFirst line. Second line.\n+-----+\nAfter the block. Next.\n";
+        let regions = OrgParser.parse(input);
+        assert_eq!(
+            regions
+                .iter()
+                .filter(|r| matches!(r, Region::Structure(s) if s.trim() == "+-----+"))
+                .count(),
+            2,
+            "each +---+ line must be Structure, got: {regions:?}"
+        );
+        assert!(
+            !regions
+                .iter()
+                .any(|r| matches!(r, Region::Prose(p) if p.contains("+-----+"))),
+            "+---+ must not join surrounding prose, got: {regions:?}"
+        );
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(p) if p.contains("First line.") && p.contains("Second line.")
+            )),
+            "prose between table-rules must stay Prose, got: {regions:?}"
+        );
+        let out = format_text(input, &org_cfg()).unwrap();
+        assert!(
+            out.contains("+-----+\nFirst line.\nSecond line.\n+-----+\nAfter the block.\nNext."),
+            "table-rule stays unjoined; flanking prose still splits, got:\n{out}"
+        );
+        assert_eq!(format_text(&out, &org_cfg()).unwrap(), out);
+    }
+
+    #[test]
+    fn table_rule_does_not_steal_pipe_rows_or_horizontal_rules() {
+        use crate::format_text;
+
+        let input =
+            "| Name | Age |\n|------+-----|\n| Alice | 30 |\n-----\nAfter the rule. Next.\n";
+        let regions = OrgParser.parse(input);
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Structure(s) if s.contains("|------+-----|")
+            )),
+            "pipe table rule-row must stay a table row, got: {regions:?}"
+        );
+        assert!(
+            regions
+                .iter()
+                .any(|r| matches!(r, Region::Structure(s) if s.trim() == "-----")),
+            "----- must stay a horizontal rule, got: {regions:?}"
+        );
+        let out = format_text(input, &org_cfg()).unwrap();
+        assert!(
+            out.contains(
+                "| Name | Age |\n|------+-----|\n| Alice | 30 |\n-----\nAfter the rule.\nNext."
+            ),
+            "pipe tables and ----- stay unchanged; following prose splits, got:\n{out}"
         );
         assert_eq!(format_text(&out, &org_cfg()).unwrap(), out);
     }
