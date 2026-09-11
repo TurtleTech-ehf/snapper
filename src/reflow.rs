@@ -682,7 +682,7 @@ fn org_opens_block(line: &str) -> bool {
     if t.starts_with("$$") {
         return true;
     }
-    if org_drawer_begin(t) || org_fixed_width(t) || org_horizontal_rule(t) {
+    if crate::parser::org::is_org_drawer_begin(t) || org_fixed_width(t) || org_horizontal_rule(t) {
         return true;
     }
     if org_planning_or_clock(t) {
@@ -698,19 +698,6 @@ fn org_planning_or_clock(line: &str) -> bool {
         || t.starts_with("SCHEDULED:")
         || t.starts_with("CLOSED:")
         || t.starts_with("CLOCK:")
-}
-
-/// org-element drawer opener: `:NAME:` with NAME=`[A-Za-z_-]+`, not `:END:`.
-fn org_drawer_begin(line: &str) -> bool {
-    let t = line.trim();
-    let Some(name) = t.strip_prefix(':').and_then(|s| s.strip_suffix(':')) else {
-        return false;
-    };
-    !name.is_empty()
-        && name
-            .bytes()
-            .all(|b| b.is_ascii_alphabetic() || b == b'_' || b == b'-')
-        && !name.eq_ignore_ascii_case("END")
 }
 
 /// org-element fixed-width: colon then a space, or a lone colon.
