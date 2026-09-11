@@ -128,7 +128,9 @@ static LSTLISTING_LANG_RE: LazyLock<Regex> = LazyLock::new(|| {
 /// Built-in source-code environments whose body is `Region::Code`.
 ///
 /// Beyond minted/lstlisting/verbatim: latexindent `fileContentsEnvironments`
-/// (`filecontents`, `filecontents*`) and tree-sitter-latex raw trivia envs
+/// (`filecontents`, `filecontents*`), filecontentsdef.sty `filecontentsdef`
+/// (verbatim write of the env body into a macro; same raw grab as
+/// `filecontents`; GitHub #294), and tree-sitter-latex raw trivia envs
 /// (`asy`, `asydef`, `pycode`, `luacode`, `luacode*`, `sagesilent`,
 /// `sageblock`), pythontex.sty `pyblock` / `pyverbatim` / `pyconsole`
 /// / `pycode*` / `pyblock*` / `pyverbatim*` / `pyconsole*` / `pygments`
@@ -199,6 +201,7 @@ fn is_builtin_code_env(name: &str) -> bool {
             | "spverbatim"
             | "filecontents"
             | "filecontents*"
+            | "filecontentsdef"
             | "asy"
             | "asydef"
             | "pycode"
@@ -4404,6 +4407,72 @@ Some text.
             footer.contains(r"\end{filecontents}"),
             "footer must be \\end{{filecontents}}, got footer={footer:?}"
         );
+    }
+
+    /// Ticket fixture (GitHub #294): filecontentsdef.sty `filecontentsdef`
+    /// writes the env body verbatim into a macro (same raw grab as
+    /// `filecontents`). Required `{\body}` stays on the begin header;
+    /// body stays Code; following prose still splits.
+    #[test]
+    fn filecontentsdef_fixture_is_code_not_prose() {
+        use crate::format_text;
+
+        let input = concat!(
+            "\\begin{filecontentsdef}{\\body}\n",
+            "First line. Second line.\n",
+            "\\end{filecontentsdef}\n",
+            "After the block. Next.\n",
+        );
+        let regions = LatexParser::default().parse(input);
+        let code = regions.iter().find_map(|r| match r {
+            Region::Code {
+                header,
+                body,
+                footer,
+                ..
+            } => Some((header.as_str(), body.as_str(), footer.as_str())),
+            _ => None,
+        });
+        let Some((header, body, footer)) = code else {
+            panic!("filecontentsdef must be Code, got: {regions:?}");
+        };
+        assert!(
+            header.contains(r"\begin{filecontentsdef}{\body}"),
+            "required macro arg must stay on the begin header, got header={header:?}"
+        );
+        assert!(
+            body.contains("First line. Second line."),
+            "filecontentsdef body must keep both sentences, got body={body:?}"
+        );
+        assert!(
+            footer.contains(r"\end{filecontentsdef}"),
+            "filecontentsdef footer must stay, got footer={footer:?}"
+        );
+        assert!(
+            !regions
+                .iter()
+                .any(|r| matches!(r, Region::Prose(p) if p.contains("First line"))),
+            "filecontentsdef body must not leak into Prose, got: {regions:?}"
+        );
+        let out = format_text(input, &latex_cfg()).unwrap();
+        assert!(
+            out.contains(r"\begin{filecontentsdef}{\body}")
+                && out.contains(r"\end{filecontentsdef}"),
+            "filecontentsdef begin/end must stay, got:\n{out}"
+        );
+        assert!(
+            out.contains("First line. Second line."),
+            "filecontentsdef body must stay one source line, got:\n{out}"
+        );
+        assert!(
+            !out.contains("First line.\nSecond line."),
+            "filecontentsdef must not reflow as prose, got:\n{out}"
+        );
+        assert!(
+            out.contains("After the block.\nNext."),
+            "prose after filecontentsdef must still split, got:\n{out}"
+        );
+        assert_eq!(format_text(&out, &latex_cfg()).unwrap(), out);
     }
     #[test]
     fn tree_sitter_and_latexindent_math_table_envs_are_structure() {
