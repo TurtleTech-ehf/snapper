@@ -165,7 +165,7 @@ There is no regex =other:= key (latexindent's pattern-based extra matching is no
 :END:
 
 String array of environment names treated like =minted= / =lstlisting= / =verbatim= / =comment= (=Region::Code=, no reflow).
-Built-in: =minted= / =minted*=, =lstlisting= / =lstlisting*=, =verbatim=, =comment=, Overleaf =Verbatim= / =boxedverbatim= / =tcblisting= / =tcblisting*= / =codeexample=, fancyvrb =BVerbatim= / =BVerbatim*= / =LVerbatim= / =LVerbatim*= / =Verbatim*= / =SaveVerbatim= / =VerbatimOut= / fvextra =VerbatimWrite=, moreverb =verbatimtab=, standard =alltt=, spverbatim.sty =spverbatim=, and pythontex.sty =pycode= / =pycode*= / =pyblock= / =pyblock*= / =pyverbatim= / =pyverbatim*= / =pyconsole= / =pyconsole*= / =pygments= / =sympycode= / =sympyblock= / =sympyverbatim= / =sympyconsole= and starred twins.
+Built-in: =minted= / =minted*=, =lstlisting= / =lstlisting*=, =verbatim=, =comment=, Overleaf =Verbatim= / =boxedverbatim= / =tcblisting= / =tcblisting*= / =codeexample=, fancyvrb =BVerbatim= / =BVerbatim*= / =LVerbatim= / =LVerbatim*= / =Verbatim*= / =SaveVerbatim= / =VerbatimOut= / fvextra =VerbatimWrite=, moreverb =verbatimtab=, standard =alltt=, spverbatim.sty =spverbatim=, and pythontex.sty =pycode= / =pycode*= / =pyblock= / =pyblock*= / =pyverbatim= / =pyverbatim*= / =pyconsole= / =pyconsole*= / =pygments= / =sympycode= / =sympyblock= / =sympyverbatim= / =sympyconsole= / =pylabcode= / =pylabblock= / =pylabverbatim= / =pylabconsole= and starred twins.
 
 Adding an unlisted name stops reflow of that environment.
 

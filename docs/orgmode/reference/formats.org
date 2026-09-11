@@ -106,7 +106,7 @@ These tokens within prose are not split across lines:
 - minted.sty =minted*= is the starred twin of =minted= (same raw minted body)
 - tcolorbox listings =tcblisting*= is the starred twin of =tcblisting= (same raw listing body)
 - spverbatim.sty =spverbatim= is a built-in code region (raw line breaks)
-- pythontex.sty =pyblock= / =pyverbatim= / =pyconsole= / =pycode*= / =pyblock*= / =pyverbatim*= / =pyconsole*= / =pygments= / =sympycode= / =sympyblock= / =sympyverbatim= / =sympyconsole= and starred twins are the same =VerbatimEnvironment= class as =pycode=
+- pythontex.sty =pyblock= / =pyverbatim= / =pyconsole= / =pycode*= / =pyblock*= / =pyverbatim*= / =pyconsole*= / =pygments= / =sympycode= / =sympyblock= / =sympyverbatim= / =sympyconsole= / =pylabcode= / =pylabblock= / =pylabverbatim= / =pylabconsole= and starred twins are the same =VerbatimEnvironment= class as =pycode=
 - Extra names from =[latex].verbatim_envs= are code regions too
 - Body follows the same comment-reflow and optional =--format-code= rules as other formats when language is known (=minted= / =minted*= language arg, =lstlisting= / =lstlisting*= =language== option)
 - Inline =\verb= / =\lstinline= / =\spverb= / =\mintinline= / =\mint= / fancyvrb =\Verb= / =\Verb*= / =\SaveVerb= (and extra =[latex].verbatim_commands=) stay atomic; inner =.!?%= do not split or comment

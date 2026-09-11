@@ -120,8 +120,8 @@ pub struct FormatConfig {
     /// Verbatim*/BVerbatim*/LVerbatim*,
     /// moreverb boxedverbatim/verbatimtab, standard alltt, spverbatim,
     /// and pythontex pycode/pycode*/pyblock/pyblock*/pyverbatim/pyverbatim*/
-    /// pyconsole/pyconsole*/pygments plus sympycode/sympyblock/sympyverbatim/
-    /// sympyconsole and starred twins. Empty keeps
+    /// pyconsole/pyconsole*/pygments plus sympy and pylab families and
+    /// starred twins. Empty keeps
     /// the built-in list.
     pub latex_verbatim_envs: Vec<String>,
     /// Extra LaTeX environments treated as structure (no reflow), added
