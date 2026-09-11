@@ -165,7 +165,7 @@ There is no regex =other:= key (latexindent's pattern-based extra matching is no
 :END:
 
 String array of environment names treated like =minted= / =lstlisting= / =verbatim= / =comment= (=Region::Code=, no reflow).
-Built-in: =minted=, =lstlisting= / =lstlisting*=, =verbatim=, =comment=, Overleaf =Verbatim= / =boxedverbatim= / =tcblisting= / =tcblisting*= / =codeexample=, fancyvrb =BVerbatim= / =BVerbatim*= / =LVerbatim= / =LVerbatim*= / =Verbatim*= / =SaveVerbatim= / =VerbatimOut= / fvextra =VerbatimWrite=, standard =alltt=, and spverbatim.sty =spverbatim=.
+Built-in: =minted=, =lstlisting= / =lstlisting*=, =verbatim=, =comment=, Overleaf =Verbatim= / =boxedverbatim= / =tcblisting= / =tcblisting*= / =codeexample=, fancyvrb =BVerbatim= / =BVerbatim*= / =LVerbatim= / =LVerbatim*= / =Verbatim*= / =SaveVerbatim= / =VerbatimOut= / fvextra =VerbatimWrite=, moreverb =verbatimtab=, standard =alltt=, and spverbatim.sty =spverbatim=.
 
 Adding an unlisted name stops reflow of that environment.
 

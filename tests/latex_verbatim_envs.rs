@@ -8,6 +8,7 @@
 //! GitHub #244: fancyvrb Verbatim* / BVerbatim* / LVerbatim* are the same FV@Scan class.
 //! GitHub #245: minted.sty \\mintinline / \\mint take {lang} then a FancyVerb body.
 //! GitHub #246: tcolorbox listings tcblisting* is the starred twin of tcblisting.
+//! GitHub #250: moreverb verbatimtab is the same raw class as boxedverbatim.
 
 use snapper_fmt::format::Format;
 use snapper_fmt::parser::latex::LatexParser;
@@ -82,6 +83,50 @@ fn boxedverbatim_tcblisting_codeexample_do_not_reflow() {
             "{name} must not reflow as prose, got:\n{out}"
         );
     }
+}
+
+/// Ticket fixture (GitHub #250): moreverb `verbatimtab` bodies stay
+/// Code; following prose still splits.
+#[test]
+fn verbatimtab_fixture_is_code_and_does_not_reflow() {
+    let input = concat!(
+        "\\begin{verbatimtab}\n",
+        "First line. Second line.\n",
+        "\\end{verbatimtab}\n",
+        "After the block. Next.\n",
+    );
+    let regions = LatexParser::default().parse(input);
+    assert!(
+        regions.iter().any(|r| matches!(
+            r,
+            Region::Code { body, .. } if body.contains("First line. Second line.")
+        )),
+        "verbatimtab body must be Code, got: {regions:?}"
+    );
+    assert!(
+        !regions
+            .iter()
+            .any(|r| matches!(r, Region::Prose(p) if p.contains("First line"))),
+        "verbatimtab body must not be Prose, got: {regions:?}"
+    );
+    let out = format_text(input, &latex_cfg()).unwrap();
+    assert!(
+        out.contains("\\begin{verbatimtab}") && out.contains("\\end{verbatimtab}"),
+        "verbatimtab begin/end must stay, got:\n{out}"
+    );
+    assert!(
+        out.contains("First line. Second line."),
+        "verbatimtab body must stay one source line, got:\n{out}"
+    );
+    assert!(
+        !out.contains("First line.\nSecond line."),
+        "verbatimtab must not reflow as prose, got:\n{out}"
+    );
+    assert!(
+        out.contains("After the block.\nNext."),
+        "prose after verbatimtab must still split, got:\n{out}"
+    );
+    assert_eq!(format_text(&out, &latex_cfg()).unwrap(), out);
 }
 
 /// Ticket fixture (GitHub #246): tcolorbox listings `tcblisting*`
