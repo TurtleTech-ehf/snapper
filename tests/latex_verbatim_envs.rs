@@ -24,6 +24,8 @@
 //! sympyconsole and starred twins are the same VerbatimEnvironment class.
 //! GitHub #278: pythontex.sty pylabcode / pylabblock / pylabverbatim /
 //! pylabconsole and starred twins are the same VerbatimEnvironment class.
+//! GitHub #294: filecontentsdef.sty filecontentsdef writes the env body
+//! verbatim into a macro (same raw grab as filecontents).
 
 use snapper_fmt::format::Format;
 use snapper_fmt::parser::latex::LatexParser;
@@ -440,6 +442,96 @@ fn tcbwritetemp_fixture_is_code_and_does_not_reflow() {
         "prose after tcbwritetemp must still split, got:\n{out}"
     );
     assert_eq!(format_text(&out, &latex_cfg()).unwrap(), out);
+}
+
+/// Ticket fixture (GitHub #294): filecontentsdef.sty `filecontentsdef`
+/// bodies stay Code; the required `{\body}` arg stays on begin;
+/// following prose still splits. Landed filecontents / filecontents*
+/// stay Code.
+#[test]
+fn filecontentsdef_fixture_is_code_and_does_not_reflow() {
+    let input = concat!(
+        "\\begin{filecontentsdef}{\\body}\n",
+        "First line. Second line.\n",
+        "\\end{filecontentsdef}\n",
+        "After the block. Next.\n",
+    );
+    let regions = LatexParser::default().parse(input);
+    let code = regions.iter().find_map(|r| match r {
+        Region::Code {
+            header,
+            body,
+            footer,
+            ..
+        } => Some((header.as_str(), body.as_str(), footer.as_str())),
+        _ => None,
+    });
+    let Some((header, body, footer)) = code else {
+        panic!("filecontentsdef must be Code, got: {regions:?}");
+    };
+    assert!(
+        header.contains(r"\begin{filecontentsdef}{\body}"),
+        "required macro arg must stay on the begin header, got header={header:?}"
+    );
+    assert!(
+        body.contains("First line. Second line."),
+        "filecontentsdef body must be Code, got body={body:?}"
+    );
+    assert!(
+        footer.contains(r"\end{filecontentsdef}"),
+        "filecontentsdef footer must stay, got footer={footer:?}"
+    );
+    assert!(
+        !regions
+            .iter()
+            .any(|r| matches!(r, Region::Prose(p) if p.contains("First line"))),
+        "filecontentsdef body must not be Prose, got: {regions:?}"
+    );
+    let out = format_text(input, &latex_cfg()).unwrap();
+    assert!(
+        out.contains(r"\begin{filecontentsdef}{\body}") && out.contains(r"\end{filecontentsdef}"),
+        "filecontentsdef begin/end must stay, got:\n{out}"
+    );
+    assert!(
+        out.contains("First line. Second line."),
+        "filecontentsdef body must stay one source line, got:\n{out}"
+    );
+    assert!(
+        !out.contains("First line.\nSecond line."),
+        "filecontentsdef must not reflow as prose, got:\n{out}"
+    );
+    assert!(
+        out.contains("After the block.\nNext."),
+        "prose after filecontentsdef must still split, got:\n{out}"
+    );
+    assert_eq!(format_text(&out, &latex_cfg()).unwrap(), out);
+
+    let landed = concat!(
+        "\\begin{filecontents}{x.tex}\n",
+        "First line. Second line.\n",
+        "\\end{filecontents}\n",
+        "\\begin{filecontents*}\n",
+        "First line. Second line.\n",
+        "\\end{filecontents*}\n",
+        "After the block. Next.\n",
+    );
+    let landed_out = format_text(landed, &latex_cfg()).unwrap();
+    assert!(
+        landed_out.contains(
+            "\\begin{filecontents}{x.tex}\nFirst line. Second line.\n\\end{filecontents}"
+        ),
+        "landed filecontents must stay a code env, got:\n{landed_out}"
+    );
+    assert!(
+        landed_out
+            .contains("\\begin{filecontents*}\nFirst line. Second line.\n\\end{filecontents*}"),
+        "landed filecontents* must stay a code env, got:\n{landed_out}"
+    );
+    assert!(
+        landed_out.contains("After the block.\nNext."),
+        "prose after landed filecontents* must still split, got:\n{landed_out}"
+    );
+    assert_eq!(format_text(&landed_out, &latex_cfg()).unwrap(), landed_out);
 }
 
 /// Ticket fixture (GitHub #209): fancyvrb BVerbatim and LVerbatim

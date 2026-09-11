@@ -14,7 +14,8 @@ pub struct FormatOverrides {
     pub max_width: Option<usize>,
     /// Extra LaTeX environments treated as code (no reflow).
     /// Meaningful under `[latex]` only. Missing or empty keeps the built-in
-    /// minted/minted*/lstlisting/lstlisting*/verbatim/comment, filecontents, tree-sitter
+    /// minted/minted*/lstlisting/lstlisting*/verbatim/comment,
+    /// filecontents/filecontents*/filecontentsdef, tree-sitter
     /// trivia, Overleaf Verbatim/boxedverbatim/tcblisting/tcblisting*/codeexample/
     /// tcbverbatimwrite/tcbwritetemp,
     /// fancyvrb BVerbatim/LVerbatim/SaveVerbatim/VerbatimOut/VerbatimWrite and

@@ -114,7 +114,8 @@ pub struct FormatConfig {
     /// and assert the oracle themselves.
     pub render_backstop: bool,
     /// Extra LaTeX environments treated as code (no reflow), added to
-    /// minted/minted*/lstlisting/lstlisting*/verbatim/comment, filecontents, tree-sitter
+    /// minted/minted*/lstlisting/lstlisting*/verbatim/comment,
+    /// filecontents/filecontents*/filecontentsdef, tree-sitter
     /// trivia, Overleaf Verbatim/boxedverbatim/tcblisting/tcblisting*/codeexample/
     /// tcbverbatimwrite/tcbwritetemp,
     /// fancyvrb BVerbatim/LVerbatim/SaveVerbatim/VerbatimOut/VerbatimWrite and
