@@ -28,9 +28,9 @@ pub struct FormatOverrides {
     /// standard alltt, spverbatim,
     /// tree-sitter sagesilent/sageblock, sagetex sageverbatim/sageexample/
     /// sagecommandline,
-    /// and pythontex pycode/pycode*/pyblock/pyblock*/pyverbatim/pyverbatim*/
+    /// pythontex pycode/pycode*/pyblock/pyblock*/pyverbatim/pyverbatim*/
     /// pyconsole/pyconsole*/pygments plus sympy and pylab families and
-    /// starred twins; entries are
+    /// starred twins, and pythonhighlight python; entries are
     /// added to it.
     pub verbatim_envs: Vec<String>,
     /// Extra LaTeX environments treated as structure (no reflow).

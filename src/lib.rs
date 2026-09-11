@@ -128,9 +128,9 @@ pub struct FormatConfig {
     /// standard alltt, spverbatim,
     /// tree-sitter sagesilent/sageblock, sagetex sageverbatim/sageexample/
     /// sagecommandline,
-    /// and pythontex pycode/pycode*/pyblock/pyblock*/pyverbatim/pyverbatim*/
+    /// pythontex pycode/pycode*/pyblock/pyblock*/pyverbatim/pyverbatim*/
     /// pyconsole/pyconsole*/pygments plus sympy and pylab families and
-    /// starred twins. Empty keeps
+    /// starred twins, and pythonhighlight python. Empty keeps
     /// the built-in list.
     pub latex_verbatim_envs: Vec<String>,
     /// Extra LaTeX environments treated as structure (no reflow), added
