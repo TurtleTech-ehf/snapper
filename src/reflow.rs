@@ -679,7 +679,9 @@ fn org_opens_block(line: &str) -> bool {
     if stars > 0 {
         return t.len() == stars || matches!(t.as_bytes()[stars], b' ' | b'\t');
     }
-    if t.starts_with("- ") || t.starts_with("+ ") {
+    // Emacs org-item-re: `-`/`+` then space or EOL. Lone markers must
+    // not be wrap-created at column 0 (GitHub #320).
+    if t == "-" || t == "+" || t.starts_with("- ") || t.starts_with("+ ") {
         return true;
     }
     if t.starts_with("$$") {
@@ -2956,6 +2958,22 @@ They are endowed with reason and conscience and should act towards one another i
             result.contains("apples %%("),
             "%%( stays with the previous line:\n{result}"
         );
+    }
+
+    #[test]
+    fn wrap_created_org_empty_list_marker_is_not_a_block() {
+        for token in ["-", "+", "1.", "1)"] {
+            let result = wrap_fmt(
+                &format!("The options are apples {token} extra words here."),
+                23,
+                crate::format::Format::Org,
+            );
+            assert_no_col0_block(&result, &[token]);
+            assert!(
+                result.contains(&format!("apples {token}")),
+                "{token} stays with the previous line:\n{result}"
+            );
+        }
     }
 
     #[test]
