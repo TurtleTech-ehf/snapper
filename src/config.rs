@@ -18,7 +18,8 @@ pub struct FormatOverrides {
     /// filecontents/filecontents*/filecontentsdef plus leftover
     /// filecontentsgdef/filecontentsdefmacro/filecontentsgdefmacro/
     /// filecontentshere and starred twins filecontentsdef*/
-    /// filecontentsgdef*/filecontentshere*, tree-sitter
+    /// filecontentsgdef*/filecontentshere*, scontents.sty
+    /// scontents/verbatimsc, tree-sitter
     /// trivia, Overleaf Verbatim/boxedverbatim/tcblisting/tcblisting*/codeexample/
     /// tcbverbatimwrite/tcbwritetemp,
     /// fancyvrb BVerbatim/LVerbatim/SaveVerbatim/VerbatimOut/VerbatimWrite/
