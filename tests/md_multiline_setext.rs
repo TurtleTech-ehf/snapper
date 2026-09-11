@@ -1065,3 +1065,135 @@ fn quoted_list_opener_mid_title_promotes_only_list_setext() {
         "body Prose must still split, got:\n{out}"
     );
 }
+
+/// GitHub #262: matching-depth `>  >` / `>   >` setext is a heading.
+#[test]
+fn two_or_three_space_nested_quote_setext_is_heading() {
+    let two = concat!(
+        ">  > Foo is the first title line. Still title.\n",
+        ">  > Bar is the second title line.\n",
+        ">  > =======\n",
+        "\n",
+        "Body after setext. Second body.\n",
+    );
+    let regions = MarkdownParser.parse(two);
+    assert!(
+        regions.iter().any(|r| matches!(
+            r,
+            Region::Structure(s) if s.contains("Foo is the first title line.")
+        )),
+        "two-space nested Foo must be Structure, got: {regions:?}"
+    );
+    assert!(
+        regions.iter().any(|r| matches!(
+            r,
+            Region::Structure(s) if s.contains("Bar is the second title line.")
+        )),
+        "two-space nested Bar must be Structure, got: {regions:?}"
+    );
+    assert!(
+        regions
+            .iter()
+            .any(|r| matches!(r, Region::Structure(s) if s.contains("======="))),
+        "two-space nested underline must be Structure, got: {regions:?}"
+    );
+    assert!(
+        !regions.iter().any(|r| matches!(
+            r,
+            Region::Prose(p)
+                if p.contains("Still title")
+                    || p.contains("Foo is the first")
+                    || p.contains("Bar is the second")
+        )),
+        "two-space nested setext must not be Prose: {regions:?}"
+    );
+    let out = format_text(two, &md_cfg()).unwrap();
+    assert!(
+        out.contains("Body after setext.\nSecond body."),
+        "body Prose must still split, got:\n{out}"
+    );
+
+    let one_line = concat!(
+        ">  > Foo is the first title line. Still title.\n",
+        ">  > =======\n",
+        "\n",
+        "Body after setext. Second body.\n",
+    );
+    let one_regions = MarkdownParser.parse(one_line);
+    assert!(
+        one_regions.iter().any(|r| matches!(
+            r,
+            Region::Structure(s) if s.contains("Foo is the first title line.")
+        )),
+        "one-line two-space Foo must be Structure, got: {one_regions:?}"
+    );
+    assert!(
+        !one_regions.iter().any(|r| matches!(
+            r,
+            Region::Prose(p)
+                if p.contains("Still title") || p.contains("Foo is the first")
+        )),
+        "one-line two-space setext must not be Prose: {one_regions:?}"
+    );
+
+    let three = concat!(
+        ">   > Foo is the first title line. Still title.\n",
+        ">   > Bar is the second title line.\n",
+        ">   > =======\n",
+        "\n",
+        "Body after setext. Second body.\n",
+    );
+    let three_regions = MarkdownParser.parse(three);
+    assert!(
+        three_regions.iter().any(|r| matches!(
+            r,
+            Region::Structure(s) if s.contains("Foo is the first title line.")
+        )),
+        "three-space nested Foo must be Structure, got: {three_regions:?}"
+    );
+    assert!(
+        three_regions.iter().any(|r| matches!(
+            r,
+            Region::Structure(s) if s.contains("Bar is the second title line.")
+        )),
+        "three-space nested Bar must be Structure, got: {three_regions:?}"
+    );
+    assert!(
+        !three_regions.iter().any(|r| matches!(
+            r,
+            Region::Prose(p)
+                if p.contains("Still title") || p.contains("Bar is the second")
+        )),
+        "three-space nested setext must not be Prose: {three_regions:?}"
+    );
+
+    let tight = concat!(
+        ">> Foo is the first title line. Still title.\n",
+        ">> Bar is the second title line.\n",
+        ">> =======\n",
+    );
+    let tight_regions = MarkdownParser.parse(tight);
+    assert!(
+        !tight_regions.iter().any(|r| matches!(
+            r,
+            Region::Prose(p)
+                if p.contains("Still title") || p.contains("Bar is the second")
+        )),
+        "matching-depth >> setext must not be Prose: {tight_regions:?}"
+    );
+
+    let spaced = concat!(
+        "> > Foo is the first title line. Still title.\n",
+        "> > Bar is the second title line.\n",
+        "> > =======\n",
+    );
+    let spaced_regions = MarkdownParser.parse(spaced);
+    assert!(
+        !spaced_regions.iter().any(|r| matches!(
+            r,
+            Region::Prose(p)
+                if p.contains("Still title") || p.contains("Bar is the second")
+        )),
+        "matching-depth > > setext must not be Prose: {spaced_regions:?}"
+    );
+}
