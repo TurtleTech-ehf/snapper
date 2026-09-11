@@ -219,6 +219,14 @@ impl OrgParser {
             || t.starts_with("CLOCK:")
     }
 
+    /// org-element-diary-sexp-parser / org-element-paragraph-separate:
+    /// `%%(` at column 0 (group 11 of `org-element--current-element-re`;
+    /// `looking-at "\\(%%(.*\\)[ \t]*$"`). The whole line is `:value`.
+    /// Leading space is a paragraph. Inline timestamps are `<%%(...)>`.
+    fn is_diary_sexp(line: &str) -> bool {
+        line.starts_with("%%(")
+    }
+
     /// org-element-dynamic-block-open-re: `^[ \t]*#\+BEGIN:[ \t]+\S`
     /// (`case-fold-search t`). A name is required; bare `#+BEGIN:` is a keyword.
     fn is_dynamic_block_begin(line: &str) -> bool {
@@ -878,6 +886,14 @@ impl FormatParser for OrgParser {
 
             // Planning / clock stay Structure so they do not join the next paragraph.
             if Self::is_planning_or_clock(line_text) {
+                flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
+                regions.push(SpannedRegion::structure(input, line.span()));
+                continue;
+            }
+
+            // Column-0 diary-sexp is its own element, not a paragraph
+            // (org-element-diary-sexp-parser; GitHub #309).
+            if Self::is_diary_sexp(line_text) {
                 flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
                 regions.push(SpannedRegion::structure(input, line.span()));
                 continue;
@@ -2594,6 +2610,137 @@ mod tests {
         assert!(
             out.contains("Notes after clock.\nMore notes."),
             "notes after CLOCK: must reflow, got:\n{out}"
+        );
+        assert_eq!(format_text(&out, &org_cfg()).unwrap(), out);
+    }
+
+    /// Ticket fixture (Format::Org / GitHub #309): column-0 diary-sexp
+    /// is a diary-sexp element, not a paragraph.
+    fn diary_sexp_fixture() -> &'static str {
+        concat!(
+            "%%(or (diary-date 9 11 2026) (eq 1. 2))\n",
+            "After the block. Next.\n",
+        )
+    }
+
+    #[test]
+    fn diary_sexp_line_is_structure_not_joined_prose() {
+        use crate::format_text;
+
+        let input = diary_sexp_fixture();
+        let regions = OrgParser.parse(input);
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Structure(s)
+                    if s.contains("%%(or (diary-date 9 11 2026) (eq 1. 2))")
+            )),
+            "column-0 diary-sexp must be Structure, got: {regions:?}"
+        );
+        assert!(
+            !regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(p) if p.contains("%%(")
+            )),
+            "diary-sexp must not join the following paragraph, got: {regions:?}"
+        );
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(p) if p.contains("After the block.") && p.contains("Next.")
+            )),
+            "prose after diary-sexp must stay Prose, got: {regions:?}"
+        );
+        let out = format_text(input, &org_cfg()).unwrap();
+        assert!(
+            out.contains("%%(or (diary-date 9 11 2026) (eq 1. 2))\nAfter the block."),
+            "diary-sexp must stay its own line, got:\n{out}"
+        );
+        assert!(
+            !out.contains("%%(or (diary-date 9 11 2026) (eq 1. 2)) After the block."),
+            "diary-sexp must not glue onto the next paragraph, got:\n{out}"
+        );
+        assert!(
+            !out.contains("(eq 1.\n") && !out.contains("1.\n 2)"),
+            "must not split inside the diary-sexp, got:\n{out}"
+        );
+        assert!(
+            out.contains("After the block.\nNext."),
+            "prose after diary-sexp must still reflow, got:\n{out}"
+        );
+        assert_eq!(format_text(&out, &org_cfg()).unwrap(), out);
+    }
+
+    #[test]
+    fn diary_sexp_does_not_change_planning_clock_or_inline_timestamp() {
+        use crate::format_text;
+
+        let input = concat!(
+            "* TODO Task\n",
+            "DEADLINE: <2026-01-01 Wed>\n",
+            "%%(or (diary-date 9 11 2026) (eq 1. 2))\n",
+            "CLOCK: [2026-01-01 Thu 10:00]--[2026-01-01 Thu 11:00] =>  1:00\n",
+            "Meet at <%%(equal (calendar-day-of-week date) 1.)> then leave. Next sentence.\n",
+        );
+        let regions = OrgParser.parse(input);
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Structure(s) if s.contains("DEADLINE: <2026-01-01 Wed>")
+            )),
+            "DEADLINE: must stay Structure, got: {regions:?}"
+        );
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Structure(s) if s.contains("CLOCK:") && s.contains("=>  1:00")
+            )),
+            "CLOCK: must stay Structure, got: {regions:?}"
+        );
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Structure(s) if s.contains("%%(or (diary-date 9 11 2026) (eq 1. 2))")
+            )),
+            "column-0 diary-sexp must stay Structure, got: {regions:?}"
+        );
+        assert!(
+            !regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(p)
+                    if p.contains("DEADLINE:") || p.contains("CLOCK:") || p.contains("%%(or")
+            )),
+            "planning/clock/diary-sexp must not join prose, got: {regions:?}"
+        );
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(p)
+                    if p.contains("<%%(equal (calendar-day-of-week date) 1.)>")
+                        && p.contains("Next sentence.")
+            )),
+            "inline <%%(...)> timestamp must stay Prose, got: {regions:?}"
+        );
+        let out = format_text(input, &org_cfg()).unwrap();
+        assert!(
+            out.contains("* TODO Task\nDEADLINE: <2026-01-01 Wed>\n%%(or (diary-date 9 11 2026) (eq 1. 2))\nCLOCK:"),
+            "DEADLINE / diary-sexp / CLOCK must stay their own lines, got:\n{out}"
+        );
+        assert!(
+            !out.contains("DEADLINE: <2026-01-01 Wed> %%(") && !out.contains("1. 2)) CLOCK:"),
+            "planning/clock must not glue onto the diary-sexp, got:\n{out}"
+        );
+        assert!(
+            out.contains("<%%(equal (calendar-day-of-week date) 1.)>"),
+            "inline diary timestamp must stay one token, got:\n{out}"
+        );
+        assert!(
+            !out.contains("date) 1.\n") && !out.contains("1.\n)>"),
+            "must not split inside <%%(...)>, got:\n{out}"
+        );
+        assert!(
+            out.contains("then leave.\nNext sentence."),
+            "prose after inline timestamp must still reflow, got:\n{out}"
         );
         assert_eq!(format_text(&out, &org_cfg()).unwrap(), out);
     }

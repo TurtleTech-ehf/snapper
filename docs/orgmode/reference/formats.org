@@ -29,6 +29,7 @@ The classification depends on the format.
 - Standalone bracket-link lines (=[[file:plot.png]]=)
 - Table rows (lines starting with =|=)
 - Comment lines (starting with =#= but not =#+= )
+- Column-0 diary-sexp lines (=%%(...)=; org-element-diary-sexp-parser)
 - Full headline lines (stars, optional TODO keyword, and title text)
 - List item markers (=-=, =+=, =1.=); continuation sentences hang at the marker width
 - LaTeX environments (=\begin{equation}= ... =\end{equation}=, =\begin{align}=, etc.)
