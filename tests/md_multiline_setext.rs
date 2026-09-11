@@ -693,3 +693,100 @@ fn list_underline_indent_below_hang_is_not_setext() {
         "hang-2 ======= must stay a heading, got: {hung_regions:?}"
     );
 }
+
+/// snapper-ia7w / GitHub #258: only ordered start 1 interrupts a
+/// paragraph (CM 5.2). `2.` / `0.` / `10.` / `2)` stay title text.
+#[test]
+fn ordered_start_not_one_setext_is_structure() {
+    for marker in ["2.", "0.", "10.", "2)"] {
+        let input = format!(
+            concat!(
+                "Foo is the first title line. Still title.\n",
+                "{marker} Bar is the second title line.\n",
+                "=======\n",
+                "\n",
+                "Body after setext. Second body.\n",
+            ),
+            marker = marker
+        );
+        let regions = MarkdownParser.parse(&input);
+        assert!(
+            !regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(p)
+                    if p.contains("Still title")
+                        || p.contains("Foo is the first")
+                        || p.contains("Bar is the second")
+            )),
+            "{marker:?} start != 1 must stay setext title, got: {regions:?}"
+        );
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Structure(s) if s.contains("Foo is the first title line.")
+            )),
+            "{marker:?} Foo must be Structure, got: {regions:?}"
+        );
+        let out = format_text(&input, &md_cfg()).unwrap();
+        assert!(
+            !out.contains("first title line.\n"),
+            "{marker:?} must not sentence-split the setext, got:\n{out}"
+        );
+        assert!(
+            out.contains("Body after setext.\nSecond body."),
+            "{marker:?} body Prose must still split, got:\n{out}"
+        );
+    }
+}
+
+/// Quoted start != 1 plus matching-depth underline.
+#[test]
+fn quoted_ordered_start_not_one_setext_is_structure() {
+    let input = concat!(
+        "> Foo is the first title line. Still title.\n",
+        "> 2. Bar is the second title line.\n",
+        "> =======\n",
+        "\n",
+        "Body after setext. Second body.\n",
+    );
+    let regions = MarkdownParser.parse(input);
+    assert!(
+        !regions.iter().any(|r| matches!(
+            r,
+            Region::Prose(p)
+                if p.contains("Still title")
+                    || p.contains("Foo is the first")
+                    || p.contains("Bar is the second")
+        )),
+        "quoted 2. must stay quote setext, got: {regions:?}"
+    );
+    let out = format_text(input, &md_cfg()).unwrap();
+    assert!(
+        !out.contains("first title line.\n"),
+        "quoted 2. must not sentence-split the setext, got:\n{out}"
+    );
+    assert!(
+        out.contains("Body after setext.\nSecond body."),
+        "quoted body Prose must still split, got:\n{out}"
+    );
+}
+
+/// `1.` after an open paragraph still interrupts.
+#[test]
+fn ordered_start_one_still_interrupts() {
+    let input = concat!(
+        "Foo is the first title line. Still title.\n",
+        "1. Bar is the second title line.\n",
+        "=======\n",
+        "\n",
+        "Body after setext. Second body.\n",
+    );
+    let regions = MarkdownParser.parse(input);
+    assert!(
+        regions.iter().any(|r| matches!(
+            r,
+            Region::Prose(p) if p.contains("Still title") || p.contains("Foo is the first")
+        )),
+        "1. must interrupt so Foo stays Prose, got: {regions:?}"
+    );
+}
