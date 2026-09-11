@@ -579,6 +579,157 @@ fn spaced_nested_quote_opener_leaves_outer_quote_prose() {
     );
 }
 
+/// snapper-34pr: `>  >` (two spaces) is the same nested opener as `> >`.
+#[test]
+fn two_space_nested_quote_opener_leaves_outer_quote_prose() {
+    let input = concat!(
+        "> Foo is the first title line. Still title.\n",
+        ">  > Bar is the second title line.\n",
+        ">  > =======\n",
+        "\n",
+        "Body after setext. Second body.\n",
+    );
+    let regions = MarkdownParser.parse(input);
+    assert!(
+        regions.iter().any(|r| matches!(
+            r,
+            Region::Prose(p) if p.contains("Still title") || p.contains("Foo is the first")
+        )),
+        ">  > nested quote interrupts: Foo must stay Prose, got: {regions:?}"
+    );
+    assert!(
+        !regions.iter().any(|r| matches!(
+            r,
+            Region::Prose(p) if p.contains("Bar is the second")
+        )),
+        "two-space nested setext title must not be Prose: {regions:?}"
+    );
+    assert!(
+        regions.iter().any(|r| matches!(
+            r,
+            Region::Structure(s) if s.contains("Bar is the second title line.")
+        )),
+        "Bar plus underline must be the inner quote setext, got: {regions:?}"
+    );
+    let out = format_text(input, &md_cfg()).unwrap();
+    assert!(
+        out.contains("first title line.\n"),
+        "Foo must still split, got:\n{out}"
+    );
+    assert!(
+        out.contains("Body after setext.\nSecond body."),
+        "body Prose must still split, got:\n{out}"
+    );
+}
+
+/// snapper-34pr: three spaces between `>` markers is still depth 2.
+#[test]
+fn three_space_nested_quote_opener_leaves_outer_quote_prose() {
+    let input = concat!(
+        "> Foo is the first title line. Still title.\n",
+        ">   > Bar is the second title line.\n",
+        ">   > =======\n",
+        "\n",
+        "Body after setext. Second body.\n",
+    );
+    let regions = MarkdownParser.parse(input);
+    assert!(
+        regions.iter().any(|r| matches!(
+            r,
+            Region::Prose(p) if p.contains("Still title") || p.contains("Foo is the first")
+        )),
+        ">   > nested quote interrupts: Foo must stay Prose, got: {regions:?}"
+    );
+    assert!(
+        !regions.iter().any(|r| matches!(
+            r,
+            Region::Prose(p) if p.contains("Bar is the second")
+        )),
+        "three-space nested setext title must not be Prose: {regions:?}"
+    );
+    let out = format_text(input, &md_cfg()).unwrap();
+    assert!(
+        out.contains("first title line.\n"),
+        "Foo must still split, got:\n{out}"
+    );
+    assert!(
+        out.contains("Body after setext.\nSecond body."),
+        "body Prose must still split, got:\n{out}"
+    );
+}
+
+/// snapper-34pr: tab after `>` is the same nested opener.
+#[test]
+fn tab_nested_quote_opener_leaves_outer_quote_prose() {
+    let input = concat!(
+        "> Foo is the first title line. Still title.\n",
+        ">\t> Bar is the second title line.\n",
+        ">\t> =======\n",
+        "\n",
+        "Body after setext. Second body.\n",
+    );
+    let regions = MarkdownParser.parse(input);
+    assert!(
+        regions.iter().any(|r| matches!(
+            r,
+            Region::Prose(p) if p.contains("Still title") || p.contains("Foo is the first")
+        )),
+        ">\\t> nested quote interrupts: Foo must stay Prose, got: {regions:?}"
+    );
+    assert!(
+        !regions.iter().any(|r| matches!(
+            r,
+            Region::Prose(p) if p.contains("Bar is the second")
+        )),
+        "tab nested setext title must not be Prose: {regions:?}"
+    );
+    let out = format_text(input, &md_cfg()).unwrap();
+    assert!(
+        out.contains("first title line.\n"),
+        "Foo must still split, got:\n{out}"
+    );
+    assert!(
+        out.contains("Body after setext.\nSecond body."),
+        "body Prose must still split, got:\n{out}"
+    );
+}
+
+/// snapper-34pr: five spaces after `>` is not a second marker.
+#[test]
+fn five_space_after_quote_stays_prose() {
+    let input = concat!(
+        "> Foo is the first title line. Still title.\n",
+        ">     > Bar is the second title line.\n",
+        ">     > =======\n",
+        "\n",
+        "Body after setext. Second body.\n",
+    );
+    let regions = MarkdownParser.parse(input);
+    assert!(
+        regions.iter().any(|r| matches!(
+            r,
+            Region::Prose(p) if p.contains("Still title") || p.contains("Foo is the first")
+        )),
+        "Foo must stay Prose, got: {regions:?}"
+    );
+    assert!(
+        regions.iter().any(|r| matches!(
+            r,
+            Region::Prose(p) if p.contains("Bar is the second")
+        )),
+        "five-space leftover > must stay Prose, got: {regions:?}"
+    );
+    let out = format_text(input, &md_cfg()).unwrap();
+    assert!(
+        out.contains("first title line.\n"),
+        "Foo must still split, got:\n{out}"
+    );
+    assert!(
+        out.contains("Body after setext.\nSecond body."),
+        "body Prose must still split, got:\n{out}"
+    );
+}
+
 /// snapper-6g55: list opener after an open quote is the heading.
 #[test]
 fn list_after_quote_is_setext_not_quote_prose() {
