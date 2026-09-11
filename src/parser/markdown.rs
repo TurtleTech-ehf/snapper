@@ -1074,6 +1074,11 @@ fn quoted_open_list_opener(lines: &[Line<'_>], start: usize, depth: usize) -> bo
 /// is still not a pair; a hung underline stays a heading. Start != 1
 /// mid title does not interrupt, so `> Foo` / `> 2. Bar` / `> =======`
 /// (and the hung `>    =======` form) is one heading.
+///
+/// Once `list_item`, a later same-depth list opener (any start, not
+/// only a CM 5.2 interrupter) ends the item. `2.` after `> 1. Foo` /
+/// `> - Foo` is a sibling, not title text. `is_noninterrupt_ordered_line`
+/// is only for an open quoted paragraph.
 fn quoted_setext_end(lines: &[Line<'_>], start: usize) -> Option<usize> {
     let title = lines[start].text;
     let depth = quote_marker_depth(title);
@@ -1103,10 +1108,15 @@ fn quoted_setext_end(lines: &[Line<'_>], start: usize) -> Option<usize> {
             }
             return Some(j);
         }
-        if list_interrupts_paragraph(body) {
-            return None;
-        }
-        if !is_setext_title_line(body) && !is_noninterrupt_ordered_line(body) {
+        if list_item {
+            // Sibling opener ends the item. CM 5.2 start != 1 is title
+            // only after an open paragraph, not after a quoted list.
+            if is_list_opener_line(body) || !is_setext_title_line(body) {
+                return None;
+            }
+        } else if list_interrupts_paragraph(body)
+            || (!is_setext_title_line(body) && !is_noninterrupt_ordered_line(body))
+        {
             return None;
         }
         j += 1;
@@ -3243,6 +3253,46 @@ mod tests {
         assert!(is_noninterrupt_ordered_line("2) Bar"));
         assert!(!is_noninterrupt_ordered_line("1. Bar"));
         assert!(!is_noninterrupt_ordered_line("- Bar"));
+    }
+
+    /// Sibling start != 1 after a quoted list opener is not title text.
+    /// `> Foo` / `> 2. Bar` / `> =======` is still one heading.
+    #[test]
+    fn quoted_setext_end_sibling_opener_is_not_title() {
+        let quoted_para = concat!(
+            "> Foo is the first title line. Still title.\n",
+            "> 2. Bar is the second title line.\n",
+            "> =======\n",
+        );
+        let para_lines = iter_lines(quoted_para);
+        assert_eq!(quoted_setext_end(&para_lines, 0), Some(2));
+
+        let sibling = concat!(
+            "> 1. Foo is the first title line. Still title.\n",
+            "> 2. Bar is the second title line.\n",
+            ">    =======\n",
+        );
+        let sib_lines = iter_lines(sibling);
+        assert_eq!(quoted_setext_end(&sib_lines, 0), None);
+        assert_eq!(quoted_setext_end(&sib_lines, 1), Some(2));
+
+        let bullet_then_ol = concat!(
+            "> - Foo is the first title line. Still title.\n",
+            "> 2. Bar is the second title line.\n",
+            ">    =======\n",
+        );
+        let bullet_lines = iter_lines(bullet_then_ol);
+        assert_eq!(quoted_setext_end(&bullet_lines, 0), None);
+        assert_eq!(quoted_setext_end(&bullet_lines, 1), Some(2));
+
+        let lookback = concat!(
+            "> 2. Foo is the first title line. Still title.\n",
+            ">   Bar is the second title line.\n",
+            "> =======\n",
+        );
+        let look_lines = iter_lines(lookback);
+        assert_eq!(quoted_setext_end(&look_lines, 0), None);
+        assert_eq!(quoted_setext_end(&look_lines, 1), None);
     }
 
     #[test]
