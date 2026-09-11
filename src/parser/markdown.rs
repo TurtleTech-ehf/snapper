@@ -1039,11 +1039,40 @@ fn is_noninterrupt_ordered_line(line: &str) -> bool {
     )
 }
 
+/// True when `start` continues a same-depth quoted list item.
+///
+/// `quoted_setext_end` is invoked on every line. After the quote arm
+/// consumes `> - Foo`, the next line `>   Bar` is not itself a list
+/// opener; a first-line-only reject then treats Bar plus `> =======`
+/// as a heading (GitHub #208 / quoted list column-0).
+fn quoted_open_list_opener(lines: &[Line<'_>], start: usize, depth: usize) -> bool {
+    let mut i = start;
+    while i > 0 {
+        i -= 1;
+        let line = lines[i].text;
+        if quote_marker_depth(line) != depth {
+            return false;
+        }
+        let Some(body) = strip_quote_markers(line, depth) else {
+            return false;
+        };
+        if body.trim().is_empty() {
+            return false;
+        }
+        if is_list_opener_line(line) {
+            return true;
+        }
+    }
+    false
+}
+
 /// Same-depth quoted title lines plus a matching-depth underline.
 ///
 /// A list opener as the first line is a list, not a paragraph
-/// continuation — leave 6g55 / 705k list setext alone. Start != 1 mid
-/// title does not interrupt, so `> Foo` / `> 2. Bar` / `> =======`
+/// continuation — leave 6g55 / 705k list setext alone. A later
+/// continuation of that item plus a quote-relative column-0 underline
+/// is still not a pair; a hung underline stays a heading. Start != 1
+/// mid title does not interrupt, so `> Foo` / `> 2. Bar` / `> =======`
 /// (and the hung `>    =======` form) is one heading.
 fn quoted_setext_end(lines: &[Line<'_>], start: usize) -> Option<usize> {
     let title = lines[start].text;
@@ -1058,6 +1087,7 @@ fn quoted_setext_end(lines: &[Line<'_>], start: usize) -> Option<usize> {
     if !is_setext_title_line(title_body) {
         return None;
     }
+    let list_item = quoted_open_list_opener(lines, start, depth);
     let mut j = start + 1;
     while j < lines.len() {
         let line = lines[j].text;
@@ -1066,6 +1096,11 @@ fn quoted_setext_end(lines: &[Line<'_>], start: usize) -> Option<usize> {
         }
         let body = strip_quote_markers(line, depth)?;
         if is_setext_underline(body) {
+            // 705k: list-item heading plus quote-relative column 0
+            // is outside the item. Hung `>   =======` stays a pair.
+            if list_item && line_indent(body) == 0 {
+                return None;
+            }
             return Some(j);
         }
         if list_interrupts_paragraph(body) {
@@ -1514,6 +1549,29 @@ impl FormatParser for MarkdownParser {
                 for row in &lines[start..=i] {
                     regions.push(SpannedRegion::structure(input, row.span()));
                 }
+                regions.push(SpannedRegion::structure(input, lines[i + 1].span()));
+                i += 2;
+                continue;
+            }
+
+            // One-line list setext: `1. Bar` / `   =======` (6g55).
+            // Column-0 underline is outside the item; a hung underline is not.
+            if i + 1 < total
+                && is_list_opener_line(line_text)
+                && is_setext_underline(lines[i + 1].text)
+                && line_indent(lines[i + 1].text) > 0
+            {
+                close_list_item(
+                    &mut in_list_item,
+                    &mut list_hang,
+                    &mut current_prose,
+                    &mut prose_span,
+                    &mut list_term,
+                    input,
+                    &mut regions,
+                );
+                flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
+                regions.push(SpannedRegion::structure(input, line.span()));
                 regions.push(SpannedRegion::structure(input, lines[i + 1].span()));
                 i += 2;
                 continue;
@@ -3161,6 +3219,30 @@ mod tests {
                 .any(|r| matches!(r, Region::Structure(s) if s == "Heading only\n")),
             "setext after comment must be Structure, got: {regions:?}"
         );
+    }
+
+    /// GitHub #258 / CommonMark 5.2: only start 1 and bullets interrupt.
+    #[test]
+    fn list_interrupt_matches_commonmark_5_2() {
+        assert!(list_interrupts_paragraph("1. Bar"));
+        assert!(list_interrupts_paragraph("1) Bar"));
+        assert!(list_interrupts_paragraph("01. Bar"));
+        assert!(list_interrupts_paragraph("- Bar"));
+        assert!(list_interrupts_paragraph("* Bar"));
+        assert!(list_interrupts_paragraph("+ Bar"));
+        assert!(list_interrupts_paragraph("> 1. Bar"));
+        assert!(!list_interrupts_paragraph("2. Bar"));
+        assert!(!list_interrupts_paragraph("0. Bar"));
+        assert!(!list_interrupts_paragraph("10. Bar"));
+        assert!(!list_interrupts_paragraph("2) Bar"));
+        assert!(!list_interrupts_paragraph("> 2. Bar"));
+        assert!(!list_interrupts_paragraph("Foo bar"));
+        assert!(is_noninterrupt_ordered_line("2. Bar"));
+        assert!(is_noninterrupt_ordered_line("0. Bar"));
+        assert!(is_noninterrupt_ordered_line("10. Bar"));
+        assert!(is_noninterrupt_ordered_line("2) Bar"));
+        assert!(!is_noninterrupt_ordered_line("1. Bar"));
+        assert!(!is_noninterrupt_ordered_line("- Bar"));
     }
 
     #[test]
