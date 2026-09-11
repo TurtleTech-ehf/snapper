@@ -32,6 +32,8 @@
 //! filecontentsdefmacro / filecontentsgdefmacro / filecontentshere and
 //! starred twins filecontentsdef* / filecontentsgdef* / filecontentshere*
 //! are the same raw grab.
+//! GitHub #298: sagetex.sty sageverbatim / sageexample / sagecommandline
+//! use verbatim@start like tree-sitter sagesilent / sageblock.
 
 use snapper_fmt::format::Format;
 use snapper_fmt::parser::latex::LatexParser;
@@ -645,6 +647,100 @@ fn filecontentsdef_sibling_envs_are_code_and_do_not_reflow() {
         "prose after landed filecontentsdef must still split, got:\n{landed_out}"
     );
     assert_eq!(format_text(&landed_out, &latex_cfg()).unwrap(), landed_out);
+}
+
+/// Ticket fixture (GitHub #298): sagetex.sty `sageverbatim` /
+/// `sageexample` / `sagecommandline` bodies stay Code; following
+/// prose still splits. Landed `sagesilent` / `sageblock` stay Code.
+#[test]
+fn sagetex_sageverbatim_family_fixture_is_code_and_does_not_reflow() {
+    for name in ["sageverbatim", "sageexample", "sagecommandline"] {
+        let input = format!(
+            concat!(
+                "\\begin{{{name}}}\n",
+                "First line. Second line.\n",
+                "\\end{{{name}}}\n",
+                "After the block. Next.\n",
+            ),
+            name = name
+        );
+        let regions = LatexParser::default().parse(&input);
+        let code = regions.iter().find_map(|r| match r {
+            Region::Code {
+                header,
+                body,
+                footer,
+                ..
+            } => Some((header.as_str(), body.as_str(), footer.as_str())),
+            _ => None,
+        });
+        let Some((header, body, footer)) = code else {
+            panic!("{name} must be Code, got: {regions:?}");
+        };
+        assert!(
+            header.contains(&format!("\\begin{{{name}}}")),
+            "{name} begin must stay on the header, got header={header:?}"
+        );
+        assert!(
+            body.contains("First line. Second line."),
+            "{name} body must be Code, got body={body:?}"
+        );
+        assert!(
+            footer.contains(&format!("\\end{{{name}}}")),
+            "{name} footer must stay, got footer={footer:?}"
+        );
+        assert!(
+            !regions
+                .iter()
+                .any(|r| matches!(r, Region::Prose(p) if p.contains("First line"))),
+            "{name} body must not be Prose, got: {regions:?}"
+        );
+        let out = format_text(&input, &latex_cfg()).unwrap();
+        assert!(
+            out.contains(&format!("\\begin{{{name}}}"))
+                && out.contains(&format!("\\end{{{name}}}")),
+            "{name} begin/end must stay, got:\n{out}"
+        );
+        assert!(
+            out.contains("First line. Second line."),
+            "{name} body must stay one source line, got:\n{out}"
+        );
+        assert!(
+            !out.contains("First line.\nSecond line."),
+            "{name} must not reflow as prose, got:\n{out}"
+        );
+        assert!(
+            out.contains("After the block.\nNext."),
+            "prose after {name} must still split, got:\n{out}"
+        );
+        assert_eq!(format_text(&out, &latex_cfg()).unwrap(), out);
+    }
+
+    for name in ["sagesilent", "sageblock"] {
+        let input = format!(
+            concat!(
+                "\\begin{{{name}}}\n",
+                "First line. Second line.\n",
+                "\\end{{{name}}}\n",
+                "After the block. Next.\n",
+            ),
+            name = name
+        );
+        let regions = LatexParser::default().parse(&input);
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Code { body, .. } if body.contains("First line. Second line.")
+            )),
+            "landed {name} must stay Code, got: {regions:?}"
+        );
+        let out = format_text(&input, &latex_cfg()).unwrap();
+        assert!(
+            out.contains("First line. Second line.") && out.contains("After the block.\nNext."),
+            "landed {name} must stay verbatim with following prose split, got:\n{out}"
+        );
+        assert_eq!(format_text(&out, &latex_cfg()).unwrap(), out);
+    }
 }
 
 /// Ticket fixture (GitHub #209): fancyvrb BVerbatim and LVerbatim
