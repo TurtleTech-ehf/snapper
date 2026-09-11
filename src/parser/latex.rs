@@ -141,7 +141,7 @@ static LSTLISTING_LANG_RE: LazyLock<Regex> = LazyLock::new(|| {
 /// plus latex2e `verbatim*` / fancyvrb `Verbatim` /
 /// `Verbatim*` / `BVerbatim` / `BVerbatim*` / `LVerbatim` /
 /// `LVerbatim*` / `SaveVerbatim` / `VerbatimOut` / `VerbatimWrite` /
-/// `VerbatimBuffer`,
+/// `VerbatimBuffer` / fvextra `VerbEnv`,
 /// moreverb `boxedverbatim` / `verbatimtab` / `listing` / `listingcont` /
 /// `listing*` / `listingcont*`, tcolorbox `tcblisting` /
 /// `tcblisting*` / `codeexample` / `tcbverbatimwrite` / `tcbwritetemp`,
@@ -156,7 +156,9 @@ static LSTLISTING_LANG_RE: LazyLock<Regex> = LazyLock::new(|| {
 /// are the same `FV@Scan` class (GitHub #213). fvextra `VerbatimWrite`
 /// is the same `FV@Scan` class as `VerbatimOut` (GitHub #247). fvextra
 /// `VerbatimBuffer` is the same raw grab as `VerbatimWrite`
-/// (detokenize buffer; GitHub #292). fancyvrb
+/// (detokenize buffer; GitHub #292). fvextra `VerbEnv` is the
+/// environment form of `Verb` (single-line raw body, closer on its
+/// own line; GitHub #293). fancyvrb
 /// `Verbatim*` / `BVerbatim*` / `LVerbatim*` are the starred twins
 /// (same `\FV@Scan`; GitHub #244). listings.sty
 /// `\lstnewenvironment{lstlisting}` also defines `lstlisting*` (same
@@ -190,6 +192,7 @@ fn is_builtin_code_env(name: &str) -> bool {
             | "VerbatimOut"
             | "VerbatimWrite"
             | "VerbatimBuffer"
+            | "VerbEnv"
             | "alltt"
             | "boxedverbatim"
             | "verbatimtab"
@@ -2936,6 +2939,53 @@ Some text.
         assert!(
             out.contains("After the block.\nNext."),
             "prose after VerbatimBuffer must still split, got:\n{out}"
+        );
+        assert_eq!(format_text(&out, &latex_cfg()).unwrap(), out);
+    }
+
+    /// Ticket fixture (GitHub #293): fvextra VerbEnv is the environment
+    /// form of Verb (single-line raw body, closer on its own line).
+    /// Body stays Code; following prose still splits.
+    #[test]
+    fn fvextra_verbenv_is_code_not_prose() {
+        use crate::format_text;
+
+        let input = concat!(
+            "\\begin{VerbEnv}\n",
+            "First line. Second line.\n",
+            "\\end{VerbEnv}\n",
+            "After the block. Next.\n",
+        );
+        let regions = LatexParser::default().parse(input);
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Code { body, .. } if body.contains("First line. Second line.")
+            )),
+            "VerbEnv body must be Code, got: {regions:?}"
+        );
+        assert!(
+            !regions
+                .iter()
+                .any(|r| matches!(r, Region::Prose(p) if p.contains("First line"))),
+            "VerbEnv body must not leak into Prose, got: {regions:?}"
+        );
+        let out = format_text(input, &latex_cfg()).unwrap();
+        assert!(
+            out.contains(r"\begin{VerbEnv}") && out.contains(r"\end{VerbEnv}"),
+            "VerbEnv begin/end must stay, got:\n{out}"
+        );
+        assert!(
+            out.contains("First line. Second line."),
+            "VerbEnv body must stay one source line, got:\n{out}"
+        );
+        assert!(
+            !out.contains("First line.\nSecond line."),
+            "VerbEnv must not reflow as prose, got:\n{out}"
+        );
+        assert!(
+            out.contains("After the block.\nNext."),
+            "prose after VerbEnv must still split, got:\n{out}"
         );
         assert_eq!(format_text(&out, &latex_cfg()).unwrap(), out);
     }
