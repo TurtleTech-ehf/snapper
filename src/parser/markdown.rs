@@ -1045,6 +1045,10 @@ fn is_noninterrupt_ordered_line(line: &str) -> bool {
 /// continuation. Start != 1 mid title does not interrupt, so
 /// `> Foo` / `> 2. Bar` / `> =======` (and hung `>    =======`)
 /// is one heading.
+///
+/// A continuation of an open quoted list plus a quote-relative
+/// column-0 underline is not a pair (GitHub #258). Hung
+/// `>   =======` after that list stays a heading.
 fn quoted_setext_end(lines: &[Line<'_>], start: usize) -> Option<usize> {
     let title = lines[start].text;
     let depth = quote_marker_depth(title);
@@ -1066,6 +1070,9 @@ fn quoted_setext_end(lines: &[Line<'_>], start: usize) -> Option<usize> {
         }
         let body = strip_quote_markers(line, depth)?;
         if is_setext_underline(body) {
+            if line_indent(body) == 0 && quoted_open_item_is_list(lines, start, depth) {
+                return None;
+            }
             return Some(j);
         }
         if list_interrupts_paragraph(body) {
@@ -1077,6 +1084,30 @@ fn quoted_setext_end(lines: &[Line<'_>], start: usize) -> Option<usize> {
         j += 1;
     }
     None
+}
+
+/// True when `start` continues a quoted list item at `depth`: an
+/// interrupting opener (bullet or ordered start 1) at the same depth
+/// with no blank quote line in between.
+fn quoted_open_item_is_list(lines: &[Line<'_>], start: usize, depth: usize) -> bool {
+    let mut i = start;
+    while i > 0 {
+        let prev = lines[i - 1].text;
+        if quote_marker_depth(prev) != depth {
+            return false;
+        }
+        let Some(body) = strip_quote_markers(prev, depth) else {
+            return false;
+        };
+        if body.trim().is_empty() {
+            return false;
+        }
+        if list_interrupts_paragraph(prev) {
+            return true;
+        }
+        i -= 1;
+    }
+    false
 }
 
 /// Pandoc / academic Markdown display math: a line that starts with `$$`.
@@ -3208,6 +3239,38 @@ mod tests {
         assert!(is_noninterrupt_ordered_line("2) Bar"));
         assert!(!is_noninterrupt_ordered_line("1. Bar"));
         assert!(!is_noninterrupt_ordered_line("- Bar"));
+    }
+
+    /// Quoted list continuation plus col-0 `> =======` is not a heading.
+    #[test]
+    fn quoted_list_continuation_column0_underline_is_not_setext() {
+        let input = concat!(
+            "> - Foo is the first title line. Still title.\n",
+            ">   Bar is the second title line.\n",
+            "> =======\n",
+        );
+        let regions = MarkdownParser.parse(input);
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(p) if p.contains("Foo is the first")
+            )),
+            "quoted list Foo must stay Prose, got: {regions:?}"
+        );
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(p) if p.contains("Bar is the second")
+            )),
+            "quoted list Bar must stay Prose, got: {regions:?}"
+        );
+        assert!(
+            !regions.iter().any(|r| matches!(
+                r,
+                Region::Structure(s) if s.contains("=======")
+            )),
+            "col-0 > ======= must not be Structure, got: {regions:?}"
+        );
     }
 
     #[test]
