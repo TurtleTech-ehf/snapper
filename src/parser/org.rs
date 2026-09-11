@@ -2811,6 +2811,98 @@ mod tests {
         assert_eq!(format_text(&out, &org_cfg()).unwrap(), out);
     }
 
+    /// Ticket fixture (Format::Org / GitHub #248): org-element
+    /// timestamps stay one token. `Next sentence.` still splits.
+    fn org_timestamp_fixture() -> &'static str {
+        "Meet at <2024-01-01 Mon 10:00>--<2024-01-02 Tue 12:00> then leave. Next sentence.\n"
+    }
+
+    #[test]
+    fn org_timestamp_range_interior_punct_is_not_a_sentence_boundary() {
+        use crate::format_text;
+
+        let ts = "<2024-01-01 Mon 10:00>--<2024-01-02 Tue 12:00>";
+        let input = org_timestamp_fixture();
+        let regions = OrgParser.parse(input);
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(p)
+                    if p.contains(ts) && p.contains("Next sentence.")
+            )),
+            "timestamp range stays inline Prose, got: {regions:?}"
+        );
+        let out = format_text(input, &org_cfg()).unwrap();
+        assert!(
+            out.contains(
+                "Meet at <2024-01-01 Mon 10:00>--<2024-01-02 Tue 12:00> then leave.\nNext sentence."
+            ),
+            "sentence after the timestamp must reflow, got:\n{out}"
+        );
+        assert!(
+            !out.contains("Mon\n") && !out.contains("10:00>--<2024-01-02\n"),
+            "must not split inside the timestamp range, got:\n{out}"
+        );
+        assert_eq!(format_text(&out, &org_cfg()).unwrap(), out);
+
+        let wrap_cfg = crate::FormatConfig {
+            format: crate::format::Format::Org,
+            max_width: 32,
+            ..Default::default()
+        }
+        .without_safety_backstops();
+        let wrapped = format_text(input, &wrap_cfg).unwrap();
+        assert!(
+            wrapped.lines().any(|l| l.contains(ts)),
+            "wrap must not cut inside the timestamp range, got:\n{wrapped}"
+        );
+        assert!(
+            !wrapped.contains("Mon\n10:00") && !wrapped.contains("Tue\n12:00"),
+            "must not wrap inside the timestamp range, got:\n{wrapped}"
+        );
+        assert!(
+            wrapped.contains("Next sentence."),
+            "sentence after the timestamp must still reflow, got:\n{wrapped}"
+        );
+        assert_eq!(format_text(&wrapped, &wrap_cfg).unwrap(), wrapped);
+    }
+
+    #[test]
+    fn org_inactive_and_diary_timestamps_stay_one_token() {
+        use crate::format_text;
+
+        for (token, input) in [
+            (
+                "[2024-01-01 Mon 10:00]",
+                "Meet at [2024-01-01 Mon 10:00] then leave. Next sentence.\n",
+            ),
+            (
+                "<%%(diary-float t 4 2)>",
+                "Meet at <%%(diary-float t 4 2)> then leave. Next sentence.\n",
+            ),
+        ] {
+            let regions = OrgParser.parse(input);
+            assert!(
+                regions.iter().any(|r| matches!(
+                    r,
+                    Region::Prose(p)
+                        if p.contains(token) && p.contains("Next sentence.")
+                )),
+                "{token} stays inline Prose, got: {regions:?}"
+            );
+            let out = format_text(input, &org_cfg()).unwrap();
+            assert!(
+                out.contains(token),
+                "{token} must stay one token, got:\n{out}"
+            );
+            assert!(
+                out.contains("then leave.\nNext sentence."),
+                "sentence after {token} must reflow, got:\n{out}"
+            );
+            assert_eq!(format_text(&out, &org_cfg()).unwrap(), out);
+        }
+    }
+
     /// Ticket fixture (Format::Org / GitHub #212): org-element macros
     /// stay one token so an interior period is not a sentence boundary.
     /// `Next sentence.` still splits.

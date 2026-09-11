@@ -2372,6 +2372,35 @@ They are endowed with reason and conscience and should act towards one another i
     }
 
     #[test]
+    fn max_width_keeps_org_timestamp_range_atomic() {
+        let token = "<2024-01-01 Mon 10:00>--<2024-01-02 Tue 12:00>";
+        let sentence =
+            "Meet at <2024-01-01 Mon 10:00>--<2024-01-02 Tue 12:00> then leave. Next sentence.";
+        for clause in [false, true] {
+            let wrapped = wrap_sentence(sentence, 32, clause);
+            assert_atomic_token(&wrapped, token);
+            assert!(
+                !wrapped.contains("Mon\n10:00") && !wrapped.contains("Tue\n12:00"),
+                "must not wrap inside the timestamp range, got:\n{wrapped}"
+            );
+        }
+    }
+
+    #[test]
+    fn max_width_keeps_org_diary_sexp_atomic() {
+        let token = "<%%(diary-float t 4 2)>";
+        let sentence = "Meet at <%%(diary-float t 4 2)> then leave. Next sentence.";
+        for clause in [false, true] {
+            let wrapped = wrap_sentence(sentence, 24, clause);
+            assert_atomic_token(&wrapped, token);
+            assert!(
+                !wrapped.contains("diary-float\nt") && !wrapped.contains("<%%(diary-float\n"),
+                "must not wrap inside the diary sexp, got:\n{wrapped}"
+            );
+        }
+    }
+
+    #[test]
     fn max_width_keeps_org_inline_footnote_atomic() {
         let token = "[fn:: the Fourier. transform]";
         let sentence = "See [fn:: the Fourier. transform] in the notes. Next sentence.";

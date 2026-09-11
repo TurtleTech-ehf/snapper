@@ -66,6 +66,7 @@ These tokens within prose are not split across lines:
 - Radio targets: =<<<contents>>>= (org-element-radio-target-parser)
 - Angle targets: =<<contents>>= (org-element-target-parser)
 - Macros: ={{{name}}}= / ={{{name(args)}}}= (org-element-macro-parser)
+- Timestamps: =<2024-01-01 Mon 10:00>= / =[2024-01-01]= / =<2024-01-01>--<2024-01-02>= / =<%%(...)>= (org-element-timestamp-parser)
 - Inline source: =src_lang{...}= / =src_lang[headers]{...}= (org-element-inline-src-block-parser; =\<src_= is word-start. After a word, =_src_= is a subscript, so =foo_src_python{...}= is not an object; =_src_python{...}= after space is)
 - Inline babel call: =call_name(...)= / =call_name[inside](...)[end]= (org-element-inline-babel-call-parser; same =\<call_= / subscript rule)
 - Inline footnotes: =[fn:: def]= / =[fn:name: def]= (org-element-footnote-reference-parser)

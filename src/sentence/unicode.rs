@@ -34,6 +34,13 @@ static INLINE_TOKEN_RE: LazyLock<Regex> = LazyLock::new(|| {
             // [a-zA-Z][-a-zA-Z0-9_]*; args are non-greedy and may
             // span lines. Two-brace {{...}} is not a macro (GitHub #212).
             r"\{\{\{[a-zA-Z][-a-zA-Z0-9_]*(?:\((?:.|\n)*?\))?\}\}\}",
+            // org-element-timestamp-parser / org-ts-regexp / org-tsr-regexp:
+            // diary <%%(...)>, then active <YYYY-MM-DD ...> / inactive
+            // [YYYY-MM-DD ...] with optional -- range. Innards match
+            // org-ts--internal-regexp (date, optional space + rest).
+            // Must stay one token (GitHub #248).
+            r"<%%\([^>\n]+\)[^\n>]*>",
+            r"(?:<[0-9]{4}-[0-9]{2}-[0-9]{2}(?: [^\n>]*)?>|\[[0-9]{4}-[0-9]{2}-[0-9]{2}(?: [^\n\]]*)?\])(?:--(?:<[0-9]{4}-[0-9]{2}-[0-9]{2}(?: [^\n>]*)?>|\[[0-9]{4}-[0-9]{2}-[0-9]{2}(?: [^\n\]]*)?\]))?",
             r"\[[^\]]+\]\([^)]+\)",  // Markdown links: [text](url)
             r"!\[[^\]]*\]\([^)]+\)", // Markdown images: ![alt](url)
             // CommonMark 0.31.2 §6.3 full / collapsed reference links.
@@ -935,8 +942,10 @@ fn find_md_code_span(text: &str, open_at: usize) -> Option<usize> {
 /// Byte ranges of inline tokens that wrapping must not split (links, images,
 /// reference links `[text][ref]`, inline code, autolinks, math, Org `[[...]]`,
 /// Org `[cite...]`, Org `[fn::…]` / `[fn:LABEL:…]`, Org `<<<...>>>` /
-/// `<<...>>`, Org `{{{name}}}` / `{{{name(args)}}}`, Org `src_lang{...}` /
-/// `call_name(...)`, RST `|fig. 1|` / `|name|_` / `|name|__`, paired spans).
+/// `<<...>>`, Org `{{{name}}}` / `{{{name(args)}}}`, Org timestamps
+/// (`<YYYY-MM-DD ...>` / `[YYYY-MM-DD ...]` / `--` range / `<%%(...)>`),
+/// Org `src_lang{...}` / `call_name(...)`, RST `|fig. 1|` / `|name|_` /
+/// `|name|__`, paired spans).
 ///
 /// Ranges are half-open `[start, end)`, sorted, non-overlapping, and merged
 /// when a regex match wraps a paired span.
@@ -2068,6 +2077,165 @@ mod tests {
                 "See <<sec. intro>> in the text.".to_string(),
                 "Next sentence.".to_string()
             ]
+        );
+    }
+
+    #[test]
+    fn inline_org_timestamp_range_is_not_a_sentence_boundary() {
+        // GitHub #248 / snapper-c0fn: org-element-timestamp-parser
+        // active range stays one token. `Next sentence.` still splits.
+        let ts = "<2024-01-01 Mon 10:00>--<2024-01-02 Tue 12:00>";
+        let text =
+            "Meet at <2024-01-01 Mon 10:00>--<2024-01-02 Tue 12:00> then leave. Next sentence.";
+        let (_, placeholders) = protect_inline_tokens(text);
+        assert!(
+            placeholders.iter().any(|p| p == ts),
+            "timestamp range must be one token, got {placeholders:?}"
+        );
+        assert!(
+            !placeholders
+                .iter()
+                .any(|p| p == "<2024-01-01 Mon 10:00>" || p == "<2024-01-02 Tue 12:00>"),
+            "range must not collapse to a single stamp, got {placeholders:?}"
+        );
+        let spans = atomic_inline_spans(text);
+        assert!(
+            spans.iter().any(|&(s, e)| &text[s..e] == ts),
+            "timestamp range must be an atomic wrap span, got {:?}",
+            spans.iter().map(|&(s, e)| &text[s..e]).collect::<Vec<_>>()
+        );
+        assert_eq!(
+            split(text),
+            vec![
+                "Meet at <2024-01-01 Mon 10:00>--<2024-01-02 Tue 12:00> then leave.".to_string(),
+                "Next sentence.".to_string()
+            ]
+        );
+    }
+
+    #[test]
+    fn inline_org_inactive_timestamp_is_one_token() {
+        let ts = "[2024-01-01 Mon 10:00]";
+        let text = "Meet at [2024-01-01 Mon 10:00] then leave. Next sentence.";
+        let (_, placeholders) = protect_inline_tokens(text);
+        assert!(
+            placeholders.iter().any(|p| p == ts),
+            "inactive timestamp must be one token, got {placeholders:?}"
+        );
+        assert_eq!(
+            split(text),
+            vec![
+                "Meet at [2024-01-01 Mon 10:00] then leave.".to_string(),
+                "Next sentence.".to_string()
+            ]
+        );
+    }
+
+    #[test]
+    fn inline_org_diary_sexp_is_one_token() {
+        let ts = "<%%(diary-float t 4 2)>";
+        let text = "Meet at <%%(diary-float t 4 2)> then leave. Next sentence.";
+        let (_, placeholders) = protect_inline_tokens(text);
+        assert!(
+            placeholders.iter().any(|p| p == ts),
+            "diary sexp must be one token, got {placeholders:?}"
+        );
+        let spans = atomic_inline_spans(text);
+        assert!(
+            spans.iter().any(|&(s, e)| &text[s..e] == ts),
+            "diary sexp must be an atomic wrap span, got {:?}",
+            spans.iter().map(|&(s, e)| &text[s..e]).collect::<Vec<_>>()
+        );
+        assert_eq!(
+            split(text),
+            vec![
+                "Meet at <%%(diary-float t 4 2)> then leave.".to_string(),
+                "Next sentence.".to_string()
+            ]
+        );
+    }
+
+    #[test]
+    fn inline_org_diary_sexp_with_time_is_one_token() {
+        let ts = "<%%(diary-float t 4 2) 10:30>";
+        let text = "Meet at <%%(diary-float t 4 2) 10:30> then leave. Next sentence.";
+        let (_, placeholders) = protect_inline_tokens(text);
+        assert!(
+            placeholders.iter().any(|p| p == ts),
+            "diary sexp with time must be one token, got {placeholders:?}"
+        );
+        assert_eq!(
+            split(text),
+            vec![
+                "Meet at <%%(diary-float t 4 2) 10:30> then leave.".to_string(),
+                "Next sentence.".to_string()
+            ]
+        );
+    }
+
+    #[test]
+    fn inline_org_timestamp_repeater_period_is_not_a_sentence_boundary() {
+        let ts = "<2024-01-01 Mon .+1w>";
+        let text = "Meet at <2024-01-01 Mon .+1w> then leave. Next sentence.";
+        let (_, placeholders) = protect_inline_tokens(text);
+        assert!(
+            placeholders.iter().any(|p| p == ts),
+            "repeater timestamp must be one token, got {placeholders:?}"
+        );
+        assert_eq!(
+            split(text),
+            vec![
+                "Meet at <2024-01-01 Mon .+1w> then leave.".to_string(),
+                "Next sentence.".to_string()
+            ]
+        );
+    }
+
+    #[test]
+    fn unclosed_org_timestamp_is_not_an_inline_token() {
+        let text = "Meet at <2024-01-01 Mon 10:00 then leave. Next sentence.";
+        let (_, placeholders) = protect_inline_tokens(text);
+        assert!(
+            !placeholders
+                .iter()
+                .any(|p| p.contains("<2024-01-01") || p.contains("10:00")),
+            "unclosed timestamp must not swallow the sentence, got {placeholders:?}"
+        );
+        assert_eq!(
+            split(text),
+            vec![
+                "Meet at <2024-01-01 Mon 10:00 then leave.".to_string(),
+                "Next sentence.".to_string()
+            ]
+        );
+    }
+
+    #[test]
+    fn org_timestamp_tokens_do_not_steal_radio_macro_fn_src_call() {
+        let text = concat!(
+            "See <<<the Fourier. transform>>> and {{{cite(Smith. 2020)}}} ",
+            "and [fn:: the Fourier. transform] and src_python{print(1. 2)} ",
+            "and call_name(1. 2) at <2024-01-01 Mon 10:00>--<2024-01-02 Tue 12:00>. ",
+            "Next sentence."
+        );
+        let (_, placeholders) = protect_inline_tokens(text);
+        for token in [
+            "<<<the Fourier. transform>>>",
+            "{{{cite(Smith. 2020)}}}",
+            "[fn:: the Fourier. transform]",
+            "src_python{print(1. 2)}",
+            "call_name(1. 2)",
+            "<2024-01-01 Mon 10:00>--<2024-01-02 Tue 12:00>",
+        ] {
+            assert!(
+                placeholders.iter().any(|p| p == token),
+                "{token} must stay one token, got {placeholders:?}"
+            );
+        }
+        let parts = split(text);
+        assert!(
+            parts.iter().any(|p| p == "Next sentence."),
+            "Next sentence. still splits, got {parts:?}"
         );
     }
 
