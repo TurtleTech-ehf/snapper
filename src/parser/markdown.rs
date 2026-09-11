@@ -814,10 +814,11 @@ fn is_gfm_alert_marker(text: &str) -> bool {
 
 /// Count CommonMark blockquote markers at the start of `line`.
 /// Each marker is 0–3 spaces (CommonMark 5.1 / [`html_block_rest`]) plus
-/// `>` plus an optional space. After the first marker the remainder is a
-/// new block line, so a later `>` may have its own 0–3 space indent.
-/// Four spaces or a tab before the first `>` is not an opener, so
-/// `    > =======` cannot close a quote setext (snapper-cydz).
+/// `>` plus an optional space. After one marker the remainder is a new
+/// block line, so the next `>` may have its own 0–3 space indent
+/// (`>  >` / `>   >`, snapper-do12). Four spaces or a tab before the
+/// first `>` is not an opener, so `    > =======` cannot close a quote
+/// setext (snapper-cydz).
 fn quote_marker_depth(line: &str) -> usize {
     let mut rest = line;
     let mut depth = 0;
@@ -833,7 +834,7 @@ fn quote_marker_depth(line: &str) -> usize {
 }
 
 /// Strip exactly `depth` blockquote markers (`>` plus optional space).
-/// Leading indent matches [`quote_marker_depth`]: 0–3 spaces before every `>`.
+/// Indent before each marker matches [`quote_marker_depth`]: 0–3 spaces.
 fn strip_quote_markers(line: &str, depth: usize) -> Option<&str> {
     if depth == 0 {
         return Some(line);
@@ -1050,8 +1051,8 @@ fn setext_heading_start(lines: &[Line<'_>], last: usize, prose_span: Option<Byte
 /// Body after quote markers, then a list marker, so a container line can
 /// be a title. A quoted list opener (`> - Bar`) is still a setext title
 /// once both layers are stripped (snapper-6g55). Walk the same 0–3 space
-/// cap as [`quote_marker_depth`] so `>  > Foo` is title text, not leftover
-/// quote.
+/// cap as [`quote_marker_depth`] so `>  > Foo` is title text, not a
+/// leftover quote line that `QUOTE_RE` would reject (snapper-do12).
 fn container_title_body(line: &str) -> &str {
     let depth = quote_marker_depth(line);
     let after_quote = strip_quote_markers(line, depth).unwrap_or(line);
@@ -4179,7 +4180,9 @@ mod tests {
         );
     }
 
-    /// GitHub #262: 0–3 spaces before every `>`, not only the first.
+    /// GitHub #262 / snapper-do12: 0–3 spaces before every `>`, not only
+    /// the first. `>>` / `> >` stay depth 2; 4-space/tab first-marker
+    /// stays 0 (snapper-cydz).
     #[test]
     fn quote_marker_depth_counts_nested_after_two_or_three_spaces() {
         assert_eq!(quote_marker_depth(">> Foo"), 2);
@@ -4198,12 +4201,13 @@ mod tests {
             "Foo is the first title line. Still title."
         );
         assert_eq!(
-            container_title_body(">   > Foo is the first title line. Still title."),
-            "Foo is the first title line. Still title."
+            container_title_body(">   > Bar is the second title line."),
+            "Bar is the second title line."
         );
     }
 
-    /// GitHub #262: matching-depth `>  >` setext is a nested heading.
+    /// GitHub #262 ticket fixture: matching-depth `>  >` setext.
+    /// One-line and three-space forms are the same miss. `> >` still holds.
     #[test]
     fn two_space_nested_quote_setext_is_heading() {
         let input = concat!(
@@ -4250,6 +4254,10 @@ mod tests {
             out.contains("Body after setext.\nSecond body."),
             "body Prose must still split, got:\n{out}"
         );
+        assert!(
+            !out.contains("Body after setext. Second body."),
+            "fused body must not survive, got:\n{out}"
+        );
 
         let one_line = concat!(
             ">  > Foo is the first title line. Still title.\n",
@@ -4264,6 +4272,13 @@ mod tests {
                 Region::Structure(s) if s.contains("Foo is the first title line.")
             )),
             "one-line two-space Foo must be Structure, got: {one_regions:?}"
+        );
+        assert!(
+            one_regions.iter().any(|r| matches!(
+                r,
+                Region::Structure(s) if s.contains("=======")
+            )),
+            "one-line two-space underline must be Structure, got: {one_regions:?}"
         );
         assert!(
             !one_regions.iter().any(|r| matches!(
@@ -4302,6 +4317,13 @@ mod tests {
             "three-space nested Bar must be Structure, got: {three_regions:?}"
         );
         assert!(
+            three_regions.iter().any(|r| matches!(
+                r,
+                Region::Structure(s) if s.contains("=======")
+            )),
+            "three-space nested underline must be Structure, got: {three_regions:?}"
+        );
+        assert!(
             !three_regions.iter().any(|r| matches!(
                 r,
                 Region::Prose(p)
@@ -4328,6 +4350,13 @@ mod tests {
                     if p.contains("Still title") || p.contains("Bar is the second")
             )),
             "matching-depth > > setext must not be Prose: {spaced_regions:?}"
+        );
+        assert!(
+            spaced_regions.iter().any(|r| matches!(
+                r,
+                Region::Structure(s) if s.contains("Foo is the first title line.")
+            )),
+            "matching-depth > > Foo must be Structure, got: {spaced_regions:?}"
         );
         assert!(
             spaced_regions.iter().any(|r| matches!(
