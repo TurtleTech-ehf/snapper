@@ -64,6 +64,24 @@ fn format_plain(input: &str) -> String {
     format_text(&s, &plaintext_cfg()).unwrap()
 }
 
+/// GitHub #266: Format::Plaintext of `(. aA. )A` is not idempotent on
+/// origin/main (first pass `(. aA.)A\n`, second `(. aA.)\nA\n`).
+#[test]
+fn plaintext_paren_space_before_closer_is_idempotent() {
+    let input = "(. aA. )A\n";
+    let out = format_plain(input);
+    let again = format_plain(&out);
+    assert_eq!(
+        again, out,
+        "idempotence\n in={input:?}\n out={out:?}\n again={again:?}"
+    );
+    assert!(
+        newlines_respect_delimiter_spans(&out),
+        "span newline\n in={input:?}\n out={out:?}"
+    );
+    assert_eq!(out, "(. aA.)\nA\n");
+}
+
 /// Deterministic matrix: combinations of wrappers × interiors × trails.
 #[test]
 fn matrix_wrappers_never_break_inside() {

@@ -1074,7 +1074,7 @@ impl SentenceSplitter for UnicodeSentenceSplitter {
         let refs: Vec<&str> = expanded.iter().map(String::as_str).collect();
         let merged = self.refine_segments_from_strs(&refs);
         let restored = restore_inline_tokens(merged, &placeholders);
-        split_after_markup_sentence_end(restored)
+        split_after_wrapper_sentence_end(split_after_markup_sentence_end(restored))
     }
 }
 
@@ -1294,6 +1294,60 @@ fn take_markup_terminal_sentence(seg: &str) -> Option<(String, String)> {
         return None;
     }
     Some((head.to_string(), rest.to_string()))
+}
+
+/// Split after `.!?` plus a quote/paren/bracket/brace closer when the next
+/// token starts a new sentence.
+///
+/// UAX SB11 treats `.)A` as a boundary. A space between the terminator and
+/// the closer (`(. aA. )A`) leaves the paren open on the first fragment, so
+/// [`merge_splits_inside_delimiters`] glues `)A` back and the next format
+/// pass then sees `.)A` and splits. Walk left to right and keep the first
+/// closer that leaves [`DelimState`] outside a span. Collapse the space
+/// before those trailing closers so the first pass matches the second.
+pub(crate) fn split_after_wrapper_sentence_end(segments: Vec<String>) -> Vec<String> {
+    let mut out = Vec::new();
+    for seg in segments {
+        push_wrapper_sentence_splits(&mut out, seg.trim());
+    }
+    out.into_iter().filter(|s| !s.is_empty()).collect()
+}
+
+fn push_wrapper_sentence_splits(out: &mut Vec<String>, seg: &str) {
+    if let Some((head, rest)) = take_wrapper_terminal_sentence(seg) {
+        out.push(head);
+        push_wrapper_sentence_splits(out, &rest);
+    } else if !seg.is_empty() {
+        out.push(seg.to_string());
+    }
+}
+
+fn take_wrapper_terminal_sentence(seg: &str) -> Option<(String, String)> {
+    // Terminator, optional space, one or more closers, optional space, then
+    // an uppercase letter. Quotes after a closer are themselves closers
+    // (`.]'"`), not a new sentence; `(` after `]` is a Markdown dest.
+    // Nested `(outer (inner. )A still)` matches the inner closer first;
+    // DelimState rejects that head so the walk continues.
+    static RE: LazyLock<Regex> = LazyLock::new(|| {
+        Regex::new(r#"([.!?])[ \t]*([)\]}"'\u{201D}\u{2019}\u{00BB}]+)[ \t]*([A-Z])"#)
+            .expect("valid wrapper-terminal sentence regex")
+    });
+    for cap in RE.captures_iter(seg) {
+        let punct = cap.get(1)?;
+        let closers = cap.get(2)?;
+        let next = cap.get(3)?;
+        let head = format!("{}{}", &seg[..punct.end()], closers.as_str());
+        let rest = seg[next.start()..].trim();
+        if head.is_empty() || rest.is_empty() {
+            continue;
+        }
+        let mut state = DelimState::default();
+        state.feed(&head);
+        if !state.is_inside() {
+            return Some((head, rest.to_string()));
+        }
+    }
+    None
 }
 
 fn merge_quoted_punct_splits(segments: Vec<String>) -> Vec<String> {
@@ -3076,6 +3130,18 @@ mod tests {
         assert_eq!(
             split("See (Fig. 3 is wrong. Really.) Next."),
             vec!["See (Fig. 3 is wrong. Really.)", "Next."]
+        );
+    }
+
+    /// GitHub #266: space between `.` and `)` must not hide the closer split.
+    #[test]
+    fn paren_space_before_closer_then_capital_splits() {
+        assert_eq!(split("(. aA. )A"), vec!["(. aA.)", "A"]);
+        assert_eq!(split("(. aA.)A"), vec!["(. aA.)", "A"]);
+        // Inner `. )A` is still inside the outer paren; do not fracture.
+        assert_eq!(
+            split("(outer (inner. )A still) Next."),
+            vec!["(outer (inner. )A still) Next."]
         );
     }
 

@@ -5,7 +5,7 @@ use nnsplit::NNSplit;
 use super::SentenceSplitter;
 use super::unicode::{
     UnicodeSentenceSplitter, protect_inline_tokens_with, restore_inline_tokens,
-    split_after_markup_sentence_end,
+    split_after_markup_sentence_end, split_after_wrapper_sentence_end,
 };
 
 /// nnsplit downloads models to `~/.cache/nnsplit/` on first use; concurrent
@@ -98,7 +98,9 @@ impl SentenceSplitter for NeuralSentenceSplitter {
         };
 
         let restored = restore_inline_tokens(raw, &placeholders);
-        split_after_markup_sentence_end(self.post.refine_segments(restored))
+        split_after_wrapper_sentence_end(split_after_markup_sentence_end(
+            self.post.refine_segments(restored),
+        ))
     }
 }
 
