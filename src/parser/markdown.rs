@@ -796,6 +796,31 @@ fn strip_quote_markers(line: &str, depth: usize) -> Option<&str> {
     Some(rest)
 }
 
+/// CommonMark 5.2 hang: marker width after quote markers (`- ` is 2,
+/// `1. ` is 3). A setext underline shallower than this hang is lazy
+/// paragraph text, not a closer (GitHub #261).
+fn list_opener_hang(line: &str) -> Option<usize> {
+    let depth = quote_marker_depth(line);
+    let body = strip_quote_markers(line, depth)?;
+    LIST_ITEM_RE
+        .captures(body)
+        .map(|c| c.get(1).unwrap().as_str().len())
+}
+
+/// List-item last title line plus underline at or past the item hang.
+/// Indent below hang is not a heading. Quote depth must match so a lazy
+/// unquoted underline after a quote stays CM 4.3 ex. 93.
+fn is_list_setext_pair(title: &str, underline: &str) -> bool {
+    let Some(hang) = list_opener_hang(title) else {
+        return false;
+    };
+    let depth = quote_marker_depth(title);
+    let Some(under_body) = strip_quote_markers(underline, depth) else {
+        return false;
+    };
+    is_setext_underline(under_body) && line_indent(under_body) >= hang
+}
+
 /// Closing fence: same marker char, length at least the opener, indent at
 /// most `max(3, opener_indent)`. CommonMark allows 0–3 spaces on a closer;
 /// list-nested openers keep their own indent so a matching 4-space closer
@@ -1398,15 +1423,19 @@ impl FormatParser for MarkdownParser {
             // Start from current_prose, not a title-line walk-back: HTML
             // comments and indented code are already emitted.
             if i + 1 < total
-                && is_setext_title_line(line_text)
-                && is_setext_underline(lines[i + 1].text)
+                && ((is_setext_title_line(line_text) && is_setext_underline(lines[i + 1].text))
+                    || is_list_setext_pair(line_text, lines[i + 1].text))
             {
                 // List/quote items reuse `in_list_item`; do not walk back
-                // into the marker line. A lazy `---` after `> Foo` is a
-                // break (CM ex. 93), not a heading of the quote.
-                // Empty `current_prose` means the last flush already closed
-                // the paragraph (HTML comment, indented code, …).
-                let start = if in_list_item || current_prose.is_empty() {
+                // into the marker line. A list opener as the last title
+                // line interrupts (CM 5.2): only that line is the heading.
+                // A lazy `---` after `> Foo` is a break (CM ex. 93), not a
+                // heading of the quote. Empty `current_prose` means the last
+                // flush already closed the paragraph (HTML comment, …).
+                let start = if in_list_item
+                    || current_prose.is_empty()
+                    || is_list_setext_pair(line_text, lines[i + 1].text)
+                {
                     i
                 } else {
                     setext_heading_start(&lines, i, prose_span)
@@ -2693,6 +2722,44 @@ mod tests {
                 "level {hashes}"
             );
         }
+    }
+
+    #[test]
+    fn list_opener_hang_is_marker_width() {
+        assert_eq!(list_opener_hang("1. Foo"), Some(3));
+        assert_eq!(list_opener_hang("- Foo"), Some(2));
+        assert_eq!(list_opener_hang("> - Foo"), Some(2));
+        assert_eq!(list_opener_hang("Foo"), None);
+    }
+
+    #[test]
+    fn list_setext_pair_rejects_underline_below_hang() {
+        assert!(
+            !is_list_setext_pair("1. Foo is a list item. Still item.", "  ======="),
+            "hang 3 plus two-space underline is below hang"
+        );
+        assert!(
+            is_list_setext_pair("1. Foo is a list item. Still item.", "   ======="),
+            "hang 3 plus three-space underline is at hang"
+        );
+        assert!(
+            is_list_setext_pair("- Foo is a list item. Still item.", "  ======="),
+            "hang 2 plus two-space underline is at hang"
+        );
+        assert!(
+            !is_list_setext_pair(
+                "> - Foo is the first title line. Still title.",
+                ">  ======="
+            ),
+            "quoted hang 2 plus one-space-in-quote is below hang"
+        );
+        assert!(
+            is_list_setext_pair(
+                "> - Foo is the first title line. Still title.",
+                ">   ======="
+            ),
+            "quoted hang 2 plus two-space-in-quote is at hang"
+        );
     }
 
     #[test]
