@@ -136,6 +136,8 @@ static LSTLISTING_LANG_RE: LazyLock<Regex> = LazyLock::new(|| {
 /// `codeexample`, standard `alltt` (alltt.sty: macros still apply,
 /// line breaks stay raw), spverbatim.sty `spverbatim` (raw body;
 /// `\spverb` is the matching delimiter-body command, GitHub #235),
+/// pythontex `pyblock` / `pyverbatim` / `pyconsole` (same
+/// `VerbatimEnvironment` class as `pycode`; GitHub #249),
 /// and the `comment` package env (tree-sitter `comment_environment`:
 /// raw through matching `\end{comment}`). Overleaf `verbatimEnvNames`
 /// is Verbatim, boxedverbatim, tcblisting, codeexample. fancyvrb
@@ -178,6 +180,9 @@ fn is_builtin_code_env(name: &str) -> bool {
             | "asy"
             | "asydef"
             | "pycode"
+            | "pyblock"
+            | "pyverbatim"
+            | "pyconsole"
             | "luacode"
             | "luacode*"
             | "sagesilent"
@@ -2771,6 +2776,59 @@ Some text.
             "prose after VerbatimWrite must still split, got:\n{out}"
         );
         assert_eq!(format_text(&out, &latex_cfg()).unwrap(), out);
+    }
+
+    /// Ticket fixture (GitHub #249): pythontex.sty `pyblock` /
+    /// `pyverbatim` / `pyconsole` are `VerbatimEnvironment` like
+    /// `pycode`. Body stays Code; following prose still splits.
+    #[test]
+    fn pythontex_pyblock_pyverbatim_pyconsole_are_code_not_prose() {
+        use crate::format_text;
+
+        for name in ["pyblock", "pyverbatim", "pyconsole"] {
+            let input = format!(
+                concat!(
+                    "\\begin{{{name}}}\n",
+                    "First line. Second line.\n",
+                    "\\end{{{name}}}\n",
+                    "After the block. Next.\n",
+                ),
+                name = name
+            );
+            let regions = LatexParser::default().parse(&input);
+            assert!(
+                regions.iter().any(|r| matches!(
+                    r,
+                    Region::Code { body, .. } if body.contains("First line. Second line.")
+                )),
+                "{name} body must be Code, got: {regions:?}"
+            );
+            assert!(
+                !regions
+                    .iter()
+                    .any(|r| matches!(r, Region::Prose(p) if p.contains("First line"))),
+                "{name} body must not leak into Prose, got: {regions:?}"
+            );
+            let out = format_text(&input, &latex_cfg()).unwrap();
+            assert!(
+                out.contains(&format!("\\begin{{{name}}}"))
+                    && out.contains(&format!("\\end{{{name}}}")),
+                "{name} begin/end must stay, got:\n{out}"
+            );
+            assert!(
+                out.contains("First line. Second line."),
+                "{name} body must stay one source line, got:\n{out}"
+            );
+            assert!(
+                !out.contains("First line.\nSecond line."),
+                "{name} must not reflow as prose, got:\n{out}"
+            );
+            assert!(
+                out.contains("After the block.\nNext."),
+                "prose after {name} must still split, got:\n{out}"
+            );
+            assert_eq!(format_text(&out, &latex_cfg()).unwrap(), out);
+        }
     }
 
     /// Ticket fixture (GitHub #230): alltt.sty is a standard
