@@ -130,7 +130,11 @@ static LSTLISTING_LANG_RE: LazyLock<Regex> = LazyLock::new(|| {
 /// Beyond minted/lstlisting/verbatim: latexindent `fileContentsEnvironments`
 /// (`filecontents`, `filecontents*`), filecontentsdef.sty `filecontentsdef`
 /// (verbatim write of the env body into a macro; same raw grab as
-/// `filecontents`; GitHub #294), and tree-sitter-latex raw trivia envs
+/// `filecontents`; GitHub #294) plus leftover siblings `filecontentsgdef` /
+/// `filecontentsdefmacro` / `filecontentsgdefmacro` / `filecontentshere` and
+/// starred twins `filecontentsdef*` / `filecontentsgdef*` /
+/// `filecontentshere*` (same raw grab; GitHub #299), and tree-sitter-latex
+/// raw trivia envs
 /// (`asy`, `asydef`, `pycode`, `luacode`, `luacode*`, `sagesilent`,
 /// `sageblock`), sagetex.sty `sageverbatim` / `sageexample` /
 /// `sagecommandline` (same `verbatim@start` class as tree-sitter
@@ -214,6 +218,13 @@ fn is_builtin_code_env(name: &str) -> bool {
             | "filecontents"
             | "filecontents*"
             | "filecontentsdef"
+            | "filecontentsdef*"
+            | "filecontentsgdef"
+            | "filecontentsgdef*"
+            | "filecontentsdefmacro"
+            | "filecontentsgdefmacro"
+            | "filecontentshere"
+            | "filecontentshere*"
             | "asy"
             | "asydef"
             | "pycode"
@@ -4698,6 +4709,117 @@ Some text.
         );
         assert_eq!(format_text(&out, &latex_cfg()).unwrap(), out);
     }
+
+    /// Ticket fixture (GitHub #299): leftover filecontentsdef.dtx
+    /// siblings stay Code; required `{\body}` stays on begin; following
+    /// prose still splits. Landed filecontents / filecontents* /
+    /// filecontentsdef stay Code.
+    #[test]
+    fn filecontentsdef_sibling_envs_are_code_not_prose() {
+        use crate::format_text;
+
+        let names = [
+            "filecontentsgdef",
+            "filecontentsdefmacro",
+            "filecontentsgdefmacro",
+            "filecontentshere",
+            "filecontentsdef*",
+            "filecontentsgdef*",
+            "filecontentshere*",
+        ];
+        for name in names {
+            let begin = format!(r"\begin{{{name}}}{{\body}}");
+            let input = format!(
+                "{begin}\nFirst line. Second line.\n\\end{{{name}}}\nAfter the block. Next.\n"
+            );
+            let regions = LatexParser::default().parse(&input);
+            let code = regions.iter().find_map(|r| match r {
+                Region::Code {
+                    header,
+                    body,
+                    footer,
+                    ..
+                } => Some((header.as_str(), body.as_str(), footer.as_str())),
+                _ => None,
+            });
+            let Some((header, body, footer)) = code else {
+                panic!("{name} must be Code, got: {regions:?}");
+            };
+            assert!(
+                header.contains(&begin),
+                "{name} required arg must stay on the begin header, got header={header:?}"
+            );
+            assert!(
+                body.contains("First line. Second line."),
+                "{name} body must keep both sentences, got body={body:?}"
+            );
+            assert!(
+                footer.contains(&format!("\\end{{{name}}}")),
+                "{name} footer must stay, got footer={footer:?}"
+            );
+            assert!(
+                !regions
+                    .iter()
+                    .any(|r| matches!(r, Region::Prose(p) if p.contains("First line"))),
+                "{name} body must not leak into Prose, got: {regions:?}"
+            );
+            let out = format_text(&input, &latex_cfg()).unwrap();
+            assert!(
+                out.contains(&begin) && out.contains(&format!("\\end{{{name}}}")),
+                "{name} begin/end must stay, got:\n{out}"
+            );
+            assert!(
+                out.contains("First line. Second line."),
+                "{name} body must stay one source line, got:\n{out}"
+            );
+            assert!(
+                !out.contains("First line.\nSecond line."),
+                "{name} must not reflow as prose, got:\n{out}"
+            );
+            assert!(
+                out.contains("After the block.\nNext."),
+                "prose after {name} must still split, got:\n{out}"
+            );
+            assert_eq!(format_text(&out, &latex_cfg()).unwrap(), out);
+        }
+
+        let landed = concat!(
+            "\\begin{filecontents}{x.tex}\n",
+            "First line. Second line.\n",
+            "\\end{filecontents}\n",
+            "\\begin{filecontents*}\n",
+            "First line. Second line.\n",
+            "\\end{filecontents*}\n",
+            "\\begin{filecontentsdef}{\\body}\n",
+            "First line. Second line.\n",
+            "\\end{filecontentsdef}\n",
+            "After the block. Next.\n",
+        );
+        let landed_out = format_text(landed, &latex_cfg()).unwrap();
+        assert!(
+            landed_out.contains(
+                "\\begin{filecontents}{x.tex}\nFirst line. Second line.\n\\end{filecontents}"
+            ),
+            "landed filecontents must stay a code env, got:\n{landed_out}"
+        );
+        assert!(
+            landed_out
+                .contains("\\begin{filecontents*}\nFirst line. Second line.\n\\end{filecontents*}"),
+            "landed filecontents* must stay a code env, got:\n{landed_out}"
+        );
+        assert!(
+            landed_out.contains(
+                "\\begin{filecontentsdef}{\\body}\nFirst line. Second line.\n\\end{filecontentsdef}"
+            ),
+            "landed filecontentsdef must stay a code env, got:\n{landed_out}"
+        );
+        assert!(
+            landed_out.contains("After the block.\nNext."),
+            "prose after landed filecontentsdef must still split, got:\n{landed_out}"
+        );
+        assert_eq!(format_text(&landed_out, &latex_cfg()).unwrap(), landed_out);
+    }
+
     #[test]
     fn tree_sitter_and_latexindent_math_table_envs_are_structure() {
         // Names missing on origin/main; each body is Structure, not Prose.
