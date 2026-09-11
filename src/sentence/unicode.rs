@@ -1366,33 +1366,30 @@ fn merge_splits_inside_delimiters(segments: Vec<String>) -> Vec<String> {
 }
 
 /// Leading span closers that finish the open delimiter, then a new sentence.
+///
+/// Walk shortest closer prefix that leaves `state` outside. A greedy take
+/// of every `is_span_closer` char would feed `)"` and toggle the ASCII
+/// quote back open, so `(. aA. )"A` never peels (GitHub #266 leftover).
 fn split_closers_then_new_sentence<'a>(
     state: &DelimState,
     segment: &'a str,
 ) -> Option<(&'a str, &'a str)> {
-    let n = leading_span_closer_len(segment);
-    if n == 0 {
-        return None;
+    for (i, ch) in segment.char_indices() {
+        if !is_span_closer(ch) {
+            break;
+        }
+        let end = i + ch.len_utf8();
+        let mut probe = state.clone();
+        probe.feed(&segment[..end]);
+        if probe.is_inside() {
+            continue;
+        }
+        let rest = segment[end..].trim_start();
+        if starts_sentence_after_closers(rest) {
+            return Some((&segment[..end], rest));
+        }
     }
-    let mut probe = state.clone();
-    probe.feed(&segment[..n]);
-    if probe.is_inside() {
-        return None;
-    }
-    let rest = segment[n..].trim_start();
-    if !starts_sentence_after_closers(rest) {
-        return None;
-    }
-    Some((&segment[..n], rest))
-}
-
-fn leading_span_closer_len(segment: &str) -> usize {
-    segment
-        .char_indices()
-        .take_while(|(_, ch)| is_span_closer(*ch))
-        .last()
-        .map(|(i, ch)| i + ch.len_utf8())
-        .unwrap_or(0)
+    None
 }
 
 fn is_span_closer(ch: char) -> bool {
@@ -3155,6 +3152,21 @@ mod tests {
         assert_eq!(
             split("(. aA.)A"),
             vec!["(. aA.)".to_string(), "A".to_string()]
+        );
+    }
+
+    #[test]
+    fn paren_space_before_closer_quote_then_capital_splits() {
+        // snapper-rgxt: UAX of `(. aA. )"A` is `(. aA. ` + `)"A`. Glue
+        // only `)`; quote+capital is the next sentence. Greedy `)"` would
+        // toggle DelimState back inside.
+        assert_eq!(
+            split(r#"(. aA. )"A"#),
+            vec![r#"(. aA.)"#.to_string(), r#""A"#.to_string()]
+        );
+        assert_eq!(
+            split(r#"(. aA. )'A"#),
+            vec![r#"(. aA.)"#.to_string(), r#"'A"#.to_string()]
         );
     }
 
