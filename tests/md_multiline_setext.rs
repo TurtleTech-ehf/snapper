@@ -251,3 +251,129 @@ fn setext_after_indented_code_emits_code_once() {
         "body Prose must still split, got:\n{out}"
     );
 }
+
+/// snapper-32gc / GitHub #261: CommonMark 5.2. Setext underline must sit
+/// at the list hang. Hang of `1. ` is 3; two spaces is below hang.
+#[test]
+fn ordered_list_underline_below_hang_is_not_setext() {
+    let input = concat!(
+        "1. Foo is a list item. Still item.\n",
+        "  =======\n",
+        "\n",
+        "Body after list. Second body.\n",
+    );
+    let regions = MarkdownParser.parse(input);
+    assert!(
+        regions.iter().any(|r| matches!(
+            r,
+            Region::Prose(p) if p.contains("list item") && p.contains("Still item")
+        )),
+        "two-space ======= must not promote 1. Foo, got: {regions:?}"
+    );
+    assert!(
+        !regions.iter().any(|r| matches!(
+            r,
+            Region::Structure(s) if s.contains("Foo is a list item")
+        )),
+        "1. Foo must stay Prose, got: {regions:?}"
+    );
+    let out = format_text(input, &md_cfg()).unwrap();
+    assert!(
+        out.contains("list item.\n   Still item."),
+        "Foo must still split at hang 3, got:\n{out}"
+    );
+    assert!(
+        !out.contains("list item. Still item."),
+        "fused Foo must not survive, got:\n{out}"
+    );
+    assert!(
+        out.contains("Body after list.\nSecond body."),
+        "body after the list must still split, got:\n{out}"
+    );
+}
+
+/// snapper-32gc: hang of `- ` is 2, so two-space `=======` stays a heading.
+#[test]
+fn bullet_list_underline_at_hang_is_setext() {
+    let input = concat!(
+        "- Foo is a list item. Still item.\n",
+        "  =======\n",
+        "\n",
+        "Body after list. Second body.\n",
+    );
+    let regions = MarkdownParser.parse(input);
+    assert!(
+        !regions.iter().any(|r| matches!(
+            r,
+            Region::Prose(p) if p.contains("list item") || p.contains("Still item")
+        )),
+        "two-space ======= is at hang 2 and must stay a heading, got: {regions:?}"
+    );
+    let out = format_text(input, &md_cfg()).unwrap();
+    assert!(
+        !out.contains("list item.\n"),
+        "must not sentence-split a hang-2 list setext, got:\n{out}"
+    );
+    assert!(
+        out.contains("Body after list.\nSecond body."),
+        "body after the heading must still split, got:\n{out}"
+    );
+}
+
+/// snapper-32gc: after quote markers, one space is below hang 2; two
+/// spaces sit at hang. Multi-line quoted list is the same hole.
+#[test]
+fn quoted_list_underline_below_hang_is_not_setext() {
+    let below = concat!(
+        "> - Foo is the first title line. Still title.\n",
+        ">  =======\n",
+        "\n",
+        "Body after setext. Second body.\n",
+    );
+    let regions = MarkdownParser.parse(below);
+    assert!(
+        regions.iter().any(|r| matches!(
+            r,
+            Region::Prose(p) if p.contains("Still title") || p.contains("Foo is the first")
+        )),
+        "quoted list plus >  ======= must stay Prose, got: {regions:?}"
+    );
+    let out = format_text(below, &md_cfg()).unwrap();
+    assert!(
+        out.contains("first title line.\n"),
+        "Foo must still split, got:\n{out}"
+    );
+    assert!(
+        out.contains("Body after setext.\nSecond body."),
+        "body Prose must still split, got:\n{out}"
+    );
+
+    let multi = concat!(
+        "> - Foo is the first title line. Still title.\n",
+        ">   Bar is the second title line.\n",
+        ">  =======\n",
+        "\n",
+        "Body after setext. Second body.\n",
+    );
+    let multi_regions = MarkdownParser.parse(multi);
+    assert!(
+        multi_regions.iter().any(|r| matches!(
+            r,
+            Region::Prose(p) if p.contains("Still title") || p.contains("Foo is the first")
+        )),
+        "multi-line quoted list plus >  ======= must stay Prose, got: {multi_regions:?}"
+    );
+
+    let at_hang = concat!(
+        "> - Foo is the first title line. Still title.\n",
+        ">   =======\n",
+    );
+    let at_hang_regions = MarkdownParser.parse(at_hang);
+    assert!(
+        !at_hang_regions.iter().any(|r| matches!(
+            r,
+            Region::Prose(p) if p.contains("Still title") || p.contains("Foo is the first")
+        )),
+        "quoted list plus >   ======= must stay a heading, got: {at_hang_regions:?}"
+    );
+}
