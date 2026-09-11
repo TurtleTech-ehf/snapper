@@ -695,12 +695,16 @@ fn org_opens_block(line: &str) -> bool {
 }
 
 /// org-element planning (`DEADLINE:`/`SCHEDULED:`/`CLOSED:`) or clock (`CLOCK:`).
+/// `org-element--current-element` binds `case-fold-search` t, so prefixes
+/// compare ignore ASCII case (GitHub #319).
 fn org_planning_or_clock(line: &str) -> bool {
     let t = line.trim_start_matches([' ', '\t']);
-    t.starts_with("DEADLINE:")
-        || t.starts_with("SCHEDULED:")
-        || t.starts_with("CLOSED:")
-        || t.starts_with("CLOCK:")
+    const KEYS: [&str; 4] = ["DEADLINE:", "SCHEDULED:", "CLOSED:", "CLOCK:"];
+    KEYS.iter().any(|k| {
+        t.as_bytes()
+            .get(..k.len())
+            .is_some_and(|head| head.eq_ignore_ascii_case(k.as_bytes()))
+    })
 }
 
 /// org-element drawer opener: `:NAME:` with NAME=`[A-Za-z_-]+`, not `:END:`.
@@ -2928,7 +2932,18 @@ They are endowed with reason and conscience and should act towards one another i
 
     #[test]
     fn wrap_created_org_planning_or_clock_is_not_a_block() {
-        for token in ["DEADLINE:", "SCHEDULED:", "CLOSED:", "CLOCK:"] {
+        for token in [
+            "DEADLINE:",
+            "SCHEDULED:",
+            "CLOSED:",
+            "CLOCK:",
+            "deadline:",
+            "scheduled:",
+            "closed:",
+            "clock:",
+            "Deadline:",
+            "Clock:",
+        ] {
             let result = wrap_fmt(
                 &format!("The options are apples {token} extra words here."),
                 23,
