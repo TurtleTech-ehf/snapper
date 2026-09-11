@@ -996,6 +996,89 @@ fn setext_heading_start(lines: &[Line<'_>], last: usize, prose_span: Option<Byte
         .unwrap_or(last)
 }
 
+fn quote_body(line: &str) -> Option<&str> {
+    QUOTE_RE.captures(line).map(|c| c.get(2).unwrap().as_str())
+}
+
+/// True when `line` opens a list item, including after quote markers.
+fn is_list_opener_line(line: &str) -> bool {
+    LIST_ITEM_RE.is_match(quote_body(line).unwrap_or(line))
+}
+
+/// Ordered start number when `line` is an ordered list opener (`1.` / `2)`).
+/// Bullets and non-list lines return `None`.
+fn ordered_list_start(line: &str) -> Option<u32> {
+    let caps = LIST_ITEM_RE.captures(line)?;
+    let marker = caps.get(1)?.as_str().trim_start();
+    let digits: String = marker.chars().take_while(|c| c.is_ascii_digit()).collect();
+    if digits.is_empty() {
+        return None;
+    }
+    digits.parse().ok()
+}
+
+/// CommonMark 5.2: only a bullet, or an ordered list starting at 1, can
+/// interrupt a paragraph. `2.` / `0.` / `10.` / `2)` continue it.
+fn list_interrupts_paragraph(line: &str) -> bool {
+    let body = quote_body(line).unwrap_or(line);
+    if !LIST_ITEM_RE.is_match(body) {
+        return false;
+    }
+    match ordered_list_start(body) {
+        None | Some(1) => true,
+        Some(_) => false,
+    }
+}
+
+/// Ordered start != 1. After an open paragraph this is title/prose text,
+/// not a list (GitHub #258 / CommonMark 5.2 ex. 302).
+fn is_noninterrupt_ordered_line(line: &str) -> bool {
+    matches!(
+        ordered_list_start(quote_body(line).unwrap_or(line)),
+        Some(n) if n != 1
+    )
+}
+
+/// Same-depth quoted title lines plus a matching-depth underline.
+///
+/// A list opener as the first line is a list, not a paragraph
+/// continuation. Start != 1 mid title does not interrupt, so
+/// `> Foo` / `> 2. Bar` / `> =======` (and hung `>    =======`)
+/// is one heading.
+fn quoted_setext_end(lines: &[Line<'_>], start: usize) -> Option<usize> {
+    let title = lines[start].text;
+    let depth = quote_marker_depth(title);
+    if depth == 0 {
+        return None;
+    }
+    if is_list_opener_line(title) {
+        return None;
+    }
+    let title_body = strip_quote_markers(title, depth)?;
+    if !is_setext_title_line(title_body) {
+        return None;
+    }
+    let mut j = start + 1;
+    while j < lines.len() {
+        let line = lines[j].text;
+        if quote_marker_depth(line) != depth {
+            return None;
+        }
+        let body = strip_quote_markers(line, depth)?;
+        if is_setext_underline(body) {
+            return Some(j);
+        }
+        if list_interrupts_paragraph(body) {
+            return None;
+        }
+        if !is_setext_title_line(body) && !is_noninterrupt_ordered_line(body) {
+            return None;
+        }
+        j += 1;
+    }
+    None
+}
+
 /// Pandoc / academic Markdown display math: a line that starts with `$$`.
 fn display_math_open(line: &str) -> bool {
     line.trim().starts_with("$$")
@@ -1397,10 +1480,12 @@ impl FormatParser for MarkdownParser {
             // Pairing only i with i+1 left earlier title lines as Prose.
             // Start from current_prose, not a title-line walk-back: HTML
             // comments and indented code are already emitted.
-            if i + 1 < total
-                && is_setext_title_line(line_text)
-                && is_setext_underline(lines[i + 1].text)
-            {
+            // CommonMark 5.2: ordered start != 1 continues an open
+            // paragraph, so it is title text (GitHub #258).
+            let open_para = !current_prose.is_empty() && !in_list_item;
+            let title_ok = is_setext_title_line(line_text)
+                || (open_para && is_noninterrupt_ordered_line(line_text));
+            if i + 1 < total && title_ok && is_setext_underline(lines[i + 1].text) {
                 // List/quote items reuse `in_list_item`; do not walk back
                 // into the marker line. A lazy `---` after `> Foo` is a
                 // break (CM ex. 93), not a heading of the quote.
@@ -1431,6 +1516,49 @@ impl FormatParser for MarkdownParser {
                 }
                 regions.push(SpannedRegion::structure(input, lines[i + 1].span()));
                 i += 2;
+                continue;
+            }
+
+            // One-line list setext: `1. Bar` / `   =======`.
+            // Column-0 underline is outside the item; a hung underline is not.
+            if i + 1 < total
+                && is_list_opener_line(line_text)
+                && is_setext_underline(lines[i + 1].text)
+                && line_indent(lines[i + 1].text) > 0
+            {
+                close_list_item(
+                    &mut in_list_item,
+                    &mut list_hang,
+                    &mut current_prose,
+                    &mut prose_span,
+                    &mut list_term,
+                    input,
+                    &mut regions,
+                );
+                flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
+                regions.push(SpannedRegion::structure(input, line.span()));
+                regions.push(SpannedRegion::structure(input, lines[i + 1].span()));
+                i += 2;
+                continue;
+            }
+
+            // Quoted same-depth setext. `> =======` is not SETEXT_UNDERLINE_RE
+            // on the raw line; start != 1 mid-title does not interrupt.
+            if let Some(under) = quoted_setext_end(&lines, i) {
+                close_list_item(
+                    &mut in_list_item,
+                    &mut list_hang,
+                    &mut current_prose,
+                    &mut prose_span,
+                    &mut list_term,
+                    input,
+                    &mut regions,
+                );
+                flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
+                for row in &lines[i..=under] {
+                    regions.push(SpannedRegion::structure(input, row.span()));
+                }
+                i = under + 1;
                 continue;
             }
 
@@ -1682,38 +1810,42 @@ impl FormatParser for MarkdownParser {
 
             // List item: emit marker as Structure, start accumulating text as prose.
             // Continuation lines are appended until a block boundary.
+            // CommonMark 5.2: start != 1 does not interrupt an open paragraph.
             if let Some(caps) = LIST_ITEM_RE.captures(line_text) {
-                close_list_item(
-                    &mut in_list_item,
-                    &mut list_hang,
-                    &mut current_prose,
-                    &mut prose_span,
-                    &mut list_term,
-                    input,
-                    &mut regions,
-                );
-                flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
-                let marker = caps.get(1).unwrap().as_str();
-                let marker_span = ByteSpan::new(line.start, line.start + marker.len());
-                regions.push(SpannedRegion::structure(input, marker_span));
-                in_list_item = true;
-                list_hang = Some(marker.len());
-                list_after_blank = false;
-                append_piece(
-                    &mut ProseAcc {
-                        text: &mut current_prose,
-                        span: &mut prose_span,
-                        term: &mut list_term,
-                    },
-                    line,
-                    marker.len(),
-                    false,
-                    false,
-                    input,
-                    &mut regions,
-                );
-                i += 1;
-                continue;
+                let open_para = !current_prose.is_empty() && !in_list_item;
+                if !open_para || list_interrupts_paragraph(line_text) {
+                    close_list_item(
+                        &mut in_list_item,
+                        &mut list_hang,
+                        &mut current_prose,
+                        &mut prose_span,
+                        &mut list_term,
+                        input,
+                        &mut regions,
+                    );
+                    flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
+                    let marker = caps.get(1).unwrap().as_str();
+                    let marker_span = ByteSpan::new(line.start, line.start + marker.len());
+                    regions.push(SpannedRegion::structure(input, marker_span));
+                    in_list_item = true;
+                    list_hang = Some(marker.len());
+                    list_after_blank = false;
+                    append_piece(
+                        &mut ProseAcc {
+                            text: &mut current_prose,
+                            span: &mut prose_span,
+                            term: &mut list_term,
+                        },
+                        line,
+                        marker.len(),
+                        false,
+                        false,
+                        input,
+                        &mut regions,
+                    );
+                    i += 1;
+                    continue;
+                }
             }
 
             // pulldown ENABLE_DEFINITION_LIST: a `: ` marker on the next
@@ -3052,6 +3184,30 @@ mod tests {
                 .any(|r| matches!(r, Region::Structure(s) if s == "Heading only\n")),
             "setext after comment must be Structure, got: {regions:?}"
         );
+    }
+
+    /// GitHub #258 / CommonMark 5.2: only start 1 and bullets interrupt.
+    #[test]
+    fn list_interrupt_matches_commonmark_5_2() {
+        assert!(list_interrupts_paragraph("1. Bar"));
+        assert!(list_interrupts_paragraph("1) Bar"));
+        assert!(list_interrupts_paragraph("01. Bar"));
+        assert!(list_interrupts_paragraph("- Bar"));
+        assert!(list_interrupts_paragraph("* Bar"));
+        assert!(list_interrupts_paragraph("+ Bar"));
+        assert!(list_interrupts_paragraph("> 1. Bar"));
+        assert!(!list_interrupts_paragraph("2. Bar"));
+        assert!(!list_interrupts_paragraph("0. Bar"));
+        assert!(!list_interrupts_paragraph("10. Bar"));
+        assert!(!list_interrupts_paragraph("2) Bar"));
+        assert!(!list_interrupts_paragraph("> 2. Bar"));
+        assert!(!list_interrupts_paragraph("Foo bar"));
+        assert!(is_noninterrupt_ordered_line("2. Bar"));
+        assert!(is_noninterrupt_ordered_line("0. Bar"));
+        assert!(is_noninterrupt_ordered_line("10. Bar"));
+        assert!(is_noninterrupt_ordered_line("2) Bar"));
+        assert!(!is_noninterrupt_ordered_line("1. Bar"));
+        assert!(!is_noninterrupt_ordered_line("- Bar"));
     }
 
     #[test]
