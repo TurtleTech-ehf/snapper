@@ -11,6 +11,7 @@
 //! GitHub #250: moreverb verbatimtab is the same raw class as boxedverbatim.
 //! GitHub #249: pythontex.sty pyblock / pyverbatim / pyconsole are the same
 //! VerbatimEnvironment class as pycode.
+//! GitHub #274: pythontex.sty pygments is the same VerbatimEnvironment class.
 
 use snapper_fmt::format::Format;
 use snapper_fmt::parser::latex::LatexParser;
@@ -657,6 +658,69 @@ fn pythontex_pyblock_pyverbatim_pyconsole_fixture_is_code_and_does_not_reflow() 
         );
         assert_eq!(format_text(&out, &latex_cfg()).unwrap(), out);
     }
+}
+
+/// Ticket fixture (GitHub #274): pythontex.sty `pygments` required
+/// `{lang}` stays on the begin header; body stays Code; following
+/// prose still splits.
+#[test]
+fn pythontex_pygments_fixture_is_code_and_does_not_reflow() {
+    let input = concat!(
+        "\\begin{pygments}{python}\n",
+        "First line. Second line.\n",
+        "\\end{pygments}\n",
+        "After the block. Next.\n",
+    );
+    let regions = LatexParser::default().parse(input);
+    let code = regions.iter().find_map(|r| match r {
+        Region::Code {
+            header,
+            body,
+            footer,
+            ..
+        } => Some((header.as_str(), body.as_str(), footer.as_str())),
+        _ => None,
+    });
+    let Some((header, body, footer)) = code else {
+        panic!("pygments must be Code, got: {regions:?}");
+    };
+    assert!(
+        header.contains(r"\begin{pygments}{python}"),
+        "required lexer arg must stay on the begin header, got header={header:?}"
+    );
+    assert!(
+        body.contains("First line. Second line."),
+        "pygments body must keep both sentences, got body={body:?}"
+    );
+    assert!(
+        footer.contains(r"\end{pygments}"),
+        "pygments footer must stay, got footer={footer:?}"
+    );
+    assert!(
+        !regions.iter().any(|r| matches!(
+            r,
+            Region::Prose(p) if p.contains("First line") || p.contains("{python}")
+        )),
+        "pygments lexer/body must not be Prose, got: {regions:?}"
+    );
+    let out = format_text(input, &latex_cfg()).unwrap();
+    assert!(
+        out.contains(r"\begin{pygments}{python}") && out.contains(r"\end{pygments}"),
+        "pygments begin/end must stay, got:\n{out}"
+    );
+    assert!(
+        out.contains("First line. Second line."),
+        "pygments body must stay one source line, got:\n{out}"
+    );
+    assert!(
+        !out.contains("First line.\nSecond line."),
+        "pygments must not reflow as prose, got:\n{out}"
+    );
+    assert!(
+        out.contains("After the block.\nNext."),
+        "prose after pygments must still split, got:\n{out}"
+    );
+    assert_eq!(format_text(&out, &latex_cfg()).unwrap(), out);
 }
 
 /// Ticket fixture (GitHub #245): `\mintinline{python}|a.b! c|` is one
