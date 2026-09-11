@@ -661,6 +661,10 @@ fn md_opens_block(line: &str) -> bool {
 }
 
 fn org_opens_block(line: &str) -> bool {
+    // org-element-paragraph-separate: `%%(` is column-0 only.
+    if line.starts_with("%%(") {
+        return true;
+    }
     let t = line.trim_start();
     if t.starts_with('|') {
         return true;
@@ -2919,6 +2923,20 @@ They are endowed with reason and conscience and should act towards one another i
                 "{token} stays with the previous line:\n{result}"
             );
         }
+    }
+
+    #[test]
+    fn wrap_created_org_diary_sexp_is_not_a_block() {
+        let result = wrap_fmt(
+            "The options are apples %%(or extra words here.",
+            23,
+            crate::format::Format::Org,
+        );
+        assert_no_col0_block(&result, &["%%(", "%%(or"]);
+        assert!(
+            result.contains("apples %%("),
+            "%%( stays with the previous line:\n{result}"
+        );
     }
 
     #[test]
