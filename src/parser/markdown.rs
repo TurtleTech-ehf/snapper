@@ -7,9 +7,9 @@ use crate::parser::{
 };
 
 /// CommonMark 0.31.2 §4.2 ATX heading: 0–3 spaces, then 1–6 `#`, then
-/// whitespace. Four spaces is indented code (ex. 80), not a heading.
+/// space/tab or EOL. Four spaces is indented code (ex. 80), not a heading.
 static HEADING_RE: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"^( {0,3}#{1,6}\s+)(.*)$").unwrap());
+    LazyLock::new(|| Regex::new(r"^( {0,3}#{1,6}(?:\s+|$))(.*)$").unwrap());
 
 static FENCED_CODE_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^(`{3,}|~{3,})").unwrap());
 
@@ -1471,6 +1471,7 @@ impl FormatParser for MarkdownParser {
             //   `cargo binstall` (preferred binary install)
             // CommonMark ATX headings are single-line; do not reflow them.
             // 0–3 space indent is still a heading (CM 0.31.2 §4.2).
+            // Hash then space/tab or EOL (no title) is still a heading.
             if HEADING_RE.is_match(line_text) {
                 close_list_item(
                     &mut in_list_item,
@@ -2910,6 +2911,28 @@ mod tests {
                 "level {hashes}"
             );
         }
+    }
+
+    #[test]
+    fn empty_atx_heading_is_structure() {
+        // snapper-owq3 / GitHub #327 — CommonMark 0.31.2 §4.2: 1–6 `#`
+        // then space/tab or EOL. A lone `#` is an empty ATX heading.
+        for hashes in 1..=6 {
+            let line = "#".repeat(hashes);
+            let regions = MarkdownParser.parse(&line);
+            assert_eq!(
+                regions,
+                vec![Region::Structure(line.clone())],
+                "empty level {hashes} must be Structure"
+            );
+        }
+        let seven = MarkdownParser.parse("#######");
+        assert!(
+            seven
+                .iter()
+                .any(|r| matches!(r, Region::Prose(p) if p == "#######")),
+            "7 hashes at EOL is not an ATX heading, got: {seven:?}"
+        );
     }
 
     #[test]
