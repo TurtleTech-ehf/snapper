@@ -84,6 +84,9 @@ pub struct CodeSpans {
 pub struct SpannedRegion {
     pub region: Region,
     pub origin: Option<RegionOrigin>,
+    /// When true, splice keeps the source physical line (Org verse-line).
+    /// The region stays [`Region::Prose`]; sentence breaks do not invent lines.
+    pub line_preserving: bool,
 }
 
 impl SpannedRegion {
@@ -91,6 +94,7 @@ impl SpannedRegion {
         Self {
             region,
             origin: None,
+            line_preserving: false,
         }
     }
 
@@ -98,6 +102,7 @@ impl SpannedRegion {
         Self {
             region: Region::Prose(text),
             origin: Some(RegionOrigin::Whole(span)),
+            line_preserving: false,
         }
     }
 
@@ -105,6 +110,7 @@ impl SpannedRegion {
         Self {
             region: Region::Structure(input[span.start..span.end].to_string()),
             origin: Some(RegionOrigin::Whole(span)),
+            line_preserving: false,
         }
     }
 
@@ -112,6 +118,7 @@ impl SpannedRegion {
         Self {
             region: Region::BlankLines(input[span.start..span.end].to_string()),
             origin: Some(RegionOrigin::Whole(span)),
+            line_preserving: false,
         }
     }
 
@@ -134,6 +141,7 @@ impl SpannedRegion {
                 body,
                 footer,
             }),
+            line_preserving: false,
         }
     }
 }
