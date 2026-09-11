@@ -251,3 +251,268 @@ fn setext_after_indented_code_emits_code_once() {
         "body Prose must still split, got:\n{out}"
     );
 }
+
+/// GitHub #258 / CommonMark 5.2: only ordered start 1 interrupts a
+/// paragraph. `2.` continues the open paragraph, so the following
+/// underline promotes Foo and Bar.
+fn ordered_start_fixture(marker: &str) -> String {
+    format!(
+        concat!(
+            "Foo is the first title line. Still title.\n",
+            "{marker} Bar is the second title line.\n",
+            "=======\n",
+            "\n",
+            "Body after setext. Second body.\n",
+        ),
+        marker = marker
+    )
+}
+
+fn assert_cm52_setext_promoted(input: &str, second_title: &str) {
+    let regions = MarkdownParser.parse(input);
+    assert!(
+        regions.iter().any(|r| matches!(
+            r,
+            Region::Structure(s) if s == "Foo is the first title line. Still title.\n"
+        )),
+        "first title line must be Structure, got: {regions:?}"
+    );
+    assert!(
+        regions.iter().any(|r| matches!(
+            r,
+            Region::Structure(s) if s == second_title
+        )),
+        "second title line must be Structure, got: {regions:?}"
+    );
+    assert!(
+        regions
+            .iter()
+            .any(|r| matches!(r, Region::Structure(s) if s.trim() == "=======")),
+        "underline must be Structure, got: {regions:?}"
+    );
+    assert!(
+        !regions.iter().any(|r| matches!(
+            r,
+            Region::Prose(p)
+                if p.contains("Still title")
+                    || p.contains("Foo is the first")
+                    || p.contains("Bar is the second")
+        )),
+        "title lines must not be Prose: {regions:?}"
+    );
+
+    let out = format_text(input, &md_cfg()).unwrap();
+    assert!(
+        !out.contains("first title line.\nStill"),
+        "must not sentence-split the setext title, got:\n{out}"
+    );
+    assert!(
+        out.contains("Body after setext.\nSecond body."),
+        "body Prose must still split, got:\n{out}"
+    );
+    assert!(
+        !out.contains("Body after setext. Second body."),
+        "fused body must not survive, got:\n{out}"
+    );
+    assert_eq!(format_text(&out, &md_cfg()).unwrap(), out);
+}
+
+#[test]
+fn ordered_start_not_one_setext_is_structure() {
+    for marker in ["2.", "0.", "10.", "2)"] {
+        let input = ordered_start_fixture(marker);
+        let second = format!("{marker} Bar is the second title line.\n");
+        assert_cm52_setext_promoted(&input, &second);
+    }
+}
+
+#[test]
+fn quoted_ordered_start_not_one_setext_is_structure() {
+    let input = concat!(
+        "> Foo is the first title line. Still title.\n",
+        "> 2. Bar is the second title line.\n",
+        "> =======\n",
+        "\n",
+        "Body after setext. Second body.\n",
+    );
+    let regions = MarkdownParser.parse(input);
+    assert!(
+        regions.iter().any(|r| matches!(
+            r,
+            Region::Structure(s) if s == "> Foo is the first title line. Still title.\n"
+        )),
+        "quoted first title must be Structure, got: {regions:?}"
+    );
+    assert!(
+        regions.iter().any(|r| matches!(
+            r,
+            Region::Structure(s) if s == "> 2. Bar is the second title line.\n"
+        )),
+        "quoted 2. title must be Structure, got: {regions:?}"
+    );
+    assert!(
+        regions
+            .iter()
+            .any(|r| matches!(r, Region::Structure(s) if s.trim() == "> =======")),
+        "quoted underline must be Structure, got: {regions:?}"
+    );
+    assert!(
+        !regions.iter().any(|r| matches!(
+            r,
+            Region::Prose(p)
+                if p.contains("Still title")
+                    || p.contains("Foo is the first")
+                    || p.contains("Bar is the second")
+        )),
+        "quoted title lines must not be Prose: {regions:?}"
+    );
+
+    let out = format_text(input, &md_cfg()).unwrap();
+    assert!(
+        !out.contains("first title line.\nStill"),
+        "must not sentence-split the quoted setext title, got:\n{out}"
+    );
+    assert!(
+        out.contains("Body after setext.\nSecond body."),
+        "body Prose must still split, got:\n{out}"
+    );
+}
+
+#[test]
+fn quoted_hung_ordered_start_not_one_setext_is_structure() {
+    let input = concat!(
+        "> Foo is the first title line. Still title.\n",
+        "> 2. Bar is the second title line.\n",
+        ">    =======\n",
+        "\n",
+        "Body after setext. Second body.\n",
+    );
+    let regions = MarkdownParser.parse(input);
+    assert!(
+        regions.iter().any(|r| matches!(
+            r,
+            Region::Structure(s) if s == "> Foo is the first title line. Still title.\n"
+        )),
+        "hung quoted first title must be Structure, got: {regions:?}"
+    );
+    assert!(
+        regions.iter().any(|r| matches!(
+            r,
+            Region::Structure(s) if s.contains("2. Bar is the second title line")
+        )),
+        "hung quoted 2. title must be Structure, got: {regions:?}"
+    );
+    assert!(
+        regions
+            .iter()
+            .any(|r| matches!(r, Region::Structure(s) if s.contains("======="))),
+        "hung quoted underline must be Structure, got: {regions:?}"
+    );
+    assert!(
+        !regions.iter().any(|r| matches!(
+            r,
+            Region::Prose(p) if p.contains("Still title") || p.contains("Bar is the second")
+        )),
+        "hung quoted title must not be Prose: {regions:?}"
+    );
+}
+
+/// CM 5.2 ex. 301: `1.` after an open paragraph still interrupts.
+#[test]
+fn ordered_start_one_still_interrupts() {
+    let input = concat!(
+        "Foo is the first title line. Still title.\n",
+        "1. Bar is the second title line.\n",
+        "=======\n",
+        "\n",
+        "Body after setext. Second body.\n",
+    );
+    let regions = MarkdownParser.parse(input);
+    assert!(
+        regions.iter().any(|r| matches!(
+            r,
+            Region::Prose(p) if p.contains("Still title") || p.contains("Foo is the first")
+        )),
+        "interrupted Foo must stay Prose, got: {regions:?}"
+    );
+    assert!(
+        regions
+            .iter()
+            .any(|r| matches!(r, Region::Structure(s) if s.trim() == "1.")),
+        "1. must stay a list opener, got: {regions:?}"
+    );
+    assert!(
+        !regions.iter().any(|r| matches!(
+            r,
+            Region::Structure(s) if s == "Foo is the first title line. Still title.\n"
+        )),
+        "1. must not promote Foo into the heading, got: {regions:?}"
+    );
+
+    let out = format_text(input, &md_cfg()).unwrap();
+    assert!(
+        out.contains("Foo is the first title line.\nStill title."),
+        "interrupted Foo must still split, got:\n{out}"
+    );
+}
+
+/// Bullets still interrupt a paragraph (CM 5.2).
+#[test]
+fn bullet_still_interrupts_setext_paragraph() {
+    for marker in ["-", "*", "+"] {
+        let input = format!(
+            concat!(
+                "Foo is the first title line. Still title.\n",
+                "{marker} Bar is the second title line.\n",
+                "=======\n",
+                "\n",
+                "Body after setext. Second body.\n",
+            ),
+            marker = marker
+        );
+        let regions = MarkdownParser.parse(&input);
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(p) if p.contains("Still title") || p.contains("Foo is the first")
+            )),
+            "{marker} must leave Foo as Prose, got: {regions:?}"
+        );
+        assert!(
+            !regions.iter().any(|r| matches!(
+                r,
+                Region::Structure(s) if s == "Foo is the first title line. Still title.\n"
+            )),
+            "{marker} must not promote Foo, got: {regions:?}"
+        );
+    }
+}
+
+/// snapper-705k: quoted list plus quote-relative column-0 underline is
+/// not a heading. Unchanged by the start != 1 rule.
+#[test]
+fn quoted_list_column0_underline_is_not_setext() {
+    let input = concat!(
+        "> - Foo is the first title line. Still title.\n",
+        ">   Bar is the second title line.\n",
+        "> =======\n",
+        "\n",
+        "Body after setext. Second body.\n",
+    );
+    let regions = MarkdownParser.parse(input);
+    assert!(
+        regions.iter().any(|r| matches!(
+            r,
+            Region::Prose(p) if p.contains("Still title") || p.contains("Foo is the first")
+        )),
+        "quoted list title must stay Prose, got: {regions:?}"
+    );
+    assert!(
+        !regions.iter().any(|r| matches!(
+            r,
+            Region::Structure(s)
+                if s.contains("Foo is the first") && s.contains("=======")
+        )),
+        "quoted list plus col-0 underline must not be one Structure heading, got: {regions:?}"
+    );
+}
