@@ -7,6 +7,7 @@
 //! GitHub #235: spverbatim.sty env and \\spverb are the same class as verb.
 //! GitHub #244: fancyvrb Verbatim* / BVerbatim* / LVerbatim* are the same FV@Scan class.
 //! GitHub #245: minted.sty \\mintinline / \\mint take {lang} then a FancyVerb body.
+//! GitHub #275: fancyvrb \\SaveVerb{name}|body| is the same delimiter body as \\Verb.
 //! GitHub #246: tcolorbox listings tcblisting* is the starred twin of tcblisting.
 //! GitHub #250: moreverb verbatimtab is the same raw class as boxedverbatim.
 //! GitHub #249: pythontex.sty pyblock / pyverbatim / pyconsole are the same
@@ -769,6 +770,33 @@ fn mintinline_and_mint_fixture_is_atomic_and_does_not_reflow() {
     assert!(
         mint_out.contains("Use \\mint{python}|a.b! c| here.\nNext sentence."),
         "prose after mint must still split, got:\n{mint_out}"
+    );
+    assert_eq!(format_text(&out, &latex_cfg()).unwrap(), out);
+}
+
+/// Ticket fixture (GitHub #275): `\SaveVerb{foo}|done. Next|` is one
+/// token; following `After.` still splits.
+#[test]
+fn saveverb_fixture_is_atomic_and_does_not_reflow() {
+    let input =
+        "\\begin{document}\nUse \\SaveVerb{foo}|done. Next| here. After.\n\\end{document}\n";
+    let regions = LatexParser::default().parse(input);
+    assert!(
+        !regions.iter().any(|r| matches!(r, Region::Prose(p) if p.contains("|done. Next|") && !p.contains(r"\SaveVerb"))),
+        "SaveVerb leftover |body| must not be prose, got: {regions:?}"
+    );
+    let out = format_text(input, &latex_cfg()).unwrap();
+    assert!(
+        out.contains(r"\SaveVerb{foo}|done. Next|"),
+        "\\SaveVerb{{foo}}|done. Next| must stay one token, got:\n{out}"
+    );
+    assert!(
+        !out.contains("\\SaveVerb{foo}|done.\n") && !out.contains("\\SaveVerb{foo}|done. Next|\n"),
+        "inner . must not split SaveVerb, got:\n{out}"
+    );
+    assert!(
+        out.contains("Use \\SaveVerb{foo}|done. Next| here.\nAfter."),
+        "prose after SaveVerb must still split, got:\n{out}"
     );
     assert_eq!(format_text(&out, &latex_cfg()).unwrap(), out);
 }
