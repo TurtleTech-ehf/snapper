@@ -33,6 +33,36 @@ fn plaintext_period_before_backticks_quote_is_span_safe() {
     );
 }
 
+/// GitHub #266. `(. aA. )A` is not idempotent on origin/main: first
+/// pass collapses the space (`(. aA.)A\n`), second pass splits
+/// (`(. aA.)\nA\n`). format_text twice must be identity.
+#[test]
+fn plaintext_paren_space_before_closer_then_capital_is_idempotent() {
+    let input = "(. aA. )A";
+    let out = format_plain(input);
+    let again = format_plain(&out);
+    assert_eq!(out, "(. aA.)\nA\n");
+    assert_eq!(
+        again, out,
+        "idempotence\n in={input:?}\n out={out:?}\n again={again:?}"
+    );
+}
+
+/// snapper-rgxt / GitHub #266 leftover. `(. aA. )"A` is not
+/// idempotent on 32934c2: first pass `(. aA.)"A\n`, second
+/// `(. aA.)" A\n`. format_text twice must be identity.
+#[test]
+fn plaintext_paren_quote_after_closer_then_capital_is_idempotent() {
+    let input = r#"(. aA. )"A"#;
+    let out = format_plain(input);
+    let again = format_plain(&out);
+    assert_eq!(out, "(. aA.)\n\"A\n");
+    assert_eq!(
+        again, out,
+        "idempotence\n in={input:?}\n out={out:?}\n again={again:?}"
+    );
+}
+
 /// GitHub #96 / macos proptest seed: `!` inside `` `=!a` `` is not a
 /// sentence end. The iCloud keep-break must not split that span.
 #[test]
