@@ -9,11 +9,12 @@ use crate::parser::{
 static HEADLINE_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"^(\*+\s+(?:TODO\s+|DONE\s+|NEXT\s+|WAIT\s+)?)(.*)$").unwrap());
 
-/// Org unordered/ordered marker plus a trailing space.
+/// Org unordered/ordered marker plus a trailing space or EOL.
+/// Emacs 30.2 `org-item-re` is bullet then `[ \t]+` or `$` (GitHub #320).
 /// org-syntax 4.2.6 / orgize: `*` is a bullet only when indent > 0;
 /// column-0 `*` is a headline (`HEADLINE_RE` is matched first).
 static LIST_ITEM_RE: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"^(\s*(?:[-+]|\d+[.)]) |[ \t]+\* )(.*)$").unwrap());
+    LazyLock::new(|| Regex::new(r"^(\s*(?:[-+]|\d+[.)])(?: |$)|[ \t]+\*(?: |$))(.*)$").unwrap());
 
 /// Matches LaTeX \begin{env} lines embedded in org prose.
 static LATEX_BEGIN_RE: LazyLock<Regex> =
@@ -1279,6 +1280,66 @@ mod tests {
         assert_eq!(regions.len(), 5);
         assert_eq!(regions[0], Region::Structure("- ".to_string()));
         assert_eq!(regions[1], Region::Prose("First item text".to_string()));
+    }
+
+    /// GitHub #320: Emacs `org-item-re` accepts a bullet at EOL.
+    #[test]
+    fn empty_list_item_at_eol_is_structure() {
+        let input =
+            "Intro sentence here. Another intro sentence.\n-\nAfter empty item. Next sentence.\n";
+        let regions = OrgParser.parse(input);
+        assert!(
+            regions
+                .iter()
+                .any(|r| matches!(r, Region::Structure(s) if s == "-")),
+            "lone - at EOL must be a list marker, got {regions:?}"
+        );
+        assert!(
+            !regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(p) if p.contains('-') && p.contains("After empty item.")
+            )),
+            "empty dash must not join the following prose, got {regions:?}"
+        );
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(p) if p.contains("After empty item.") && p.contains("Next sentence.")
+            )),
+            "following prose must stay Prose, got {regions:?}"
+        );
+    }
+
+    #[test]
+    fn numbered_empty_item_at_eol_is_structure_not_uax() {
+        let input =
+            "Intro sentence here. Another intro sentence.\n1.\nAfter empty item. Next sentence.\n";
+        let regions = OrgParser.parse(input);
+        assert!(
+            regions
+                .iter()
+                .any(|r| matches!(r, Region::Structure(s) if s == "1.")),
+            "1. at EOL must be a list marker, not a UAX sentence, got {regions:?}"
+        );
+        assert!(
+            !regions
+                .iter()
+                .any(|r| matches!(r, Region::Prose(p) if p.contains("1."))),
+            "1. at EOL must not stay Prose, got {regions:?}"
+        );
+    }
+
+    #[test]
+    fn column_0_star_at_eol_is_not_a_list() {
+        let input =
+            "Intro sentence here. Another intro sentence.\n*\nAfter empty item. Next sentence.\n";
+        let regions = OrgParser.parse(input);
+        assert!(
+            !regions
+                .iter()
+                .any(|r| matches!(r, Region::Structure(s) if s.trim() == "*")),
+            "column-0 * is a headline, not a list, got {regions:?}"
+        );
     }
 
     #[test]
