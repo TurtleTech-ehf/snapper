@@ -622,6 +622,13 @@ fn quoted_list_hung_underline_is_setext() {
     assert!(
         regions.iter().any(|r| matches!(
             r,
+            Region::Structure(s) if s.contains("Foo is the first")
+        )),
+        "hung quoted list Foo must be Structure, got: {regions:?}"
+    );
+    assert!(
+        regions.iter().any(|r| matches!(
+            r,
             Region::Structure(s) if s.contains("Bar is the second")
         )),
         "hung quoted list title must be Structure, got: {regions:?}"
@@ -636,7 +643,10 @@ fn quoted_list_hung_underline_is_setext() {
     assert!(
         !regions.iter().any(|r| matches!(
             r,
-            Region::Prose(p) if p.contains("Bar is the second")
+            Region::Prose(p)
+                if p.contains("Bar is the second")
+                    || p.contains("Foo is the first")
+                    || p.contains("Still title")
         )),
         "hung quoted list title must not be Prose: {regions:?}"
     );

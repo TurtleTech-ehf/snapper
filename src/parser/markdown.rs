@@ -1080,14 +1080,14 @@ fn quoted_setext_end(lines: &[Line<'_>], start: usize) -> Option<usize> {
     if depth == 0 {
         return None;
     }
-    if is_list_opener_line(title) {
-        return None;
-    }
     let title_body = strip_quote_markers(title, depth)?;
-    if !is_setext_title_line(title_body) {
+    let start_is_list = is_list_opener_line(title);
+    // A list opener is the list-setext title (6g55 hung). Column-0
+    // underlines are rejected after the walk, not by skipping the opener.
+    if !start_is_list && !is_setext_title_line(title_body) {
         return None;
     }
-    let list_item = quoted_open_list_opener(lines, start, depth);
+    let list_item = start_is_list || quoted_open_list_opener(lines, start, depth);
     let mut j = start + 1;
     while j < lines.len() {
         let line = lines[j].text;
