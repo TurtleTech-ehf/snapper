@@ -102,6 +102,7 @@ These tokens within prose are not split across lines:
 - fancyvrb =Verbatim= / =Verbatim*= / =BVerbatim= / =BVerbatim*= / =LVerbatim= / =LVerbatim*= / =SaveVerbatim= / =VerbatimOut= / fvextra =VerbatimWrite= / =VerbatimBuffer= are built-in code regions (same FV@Scan class)
 - fvextra =VerbEnv= is the environment form of =\Verb= (raw body through matching =\end{VerbEnv}=)
 - moreverb =verbatimtab= is a built-in code region (tab-expanding verbatim; same raw class as =boxedverbatim=)
+- moreverb =verbatimwrite= writes the env body raw via =verbatim@start= (same class as =VerbatimOut= / =tcbverbatimwrite=)
 - moreverb =listing= / =listingcont= / =listing*= / =listingcont*= are built-in code regions (=verbatim@start= raw body; starred twins do not expand tabs)
 - =alltt= (standard =alltt.sty=) is a built-in code region (raw line breaks)
 - listings.sty =lstlisting*= is the same raw body scan as =lstlisting=

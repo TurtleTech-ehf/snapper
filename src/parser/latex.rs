@@ -151,8 +151,8 @@ static LSTLISTING_LANG_RE: LazyLock<Regex> = LazyLock::new(|| {
 /// `Verbatim*` / `BVerbatim` / `BVerbatim*` / `LVerbatim` /
 /// `LVerbatim*` / `SaveVerbatim` / `VerbatimOut` / `VerbatimWrite` /
 /// `VerbatimBuffer` / fvextra `VerbEnv`,
-/// moreverb `boxedverbatim` / `verbatimtab` / `listing` / `listingcont` /
-/// `listing*` / `listingcont*`, tcolorbox `tcblisting` /
+/// moreverb `boxedverbatim` / `verbatimtab` / `verbatimwrite` / `listing` /
+/// `listingcont` / `listing*` / `listingcont*`, tcolorbox `tcblisting` /
 /// `tcblisting*` / `codeexample` / `tcbverbatimwrite` / `tcbwritetemp`,
 /// standard `alltt` (alltt.sty: macros
 /// still apply, line breaks stay raw; GitHub #230), spverbatim.sty `spverbatim`
@@ -177,6 +177,8 @@ static LSTLISTING_LANG_RE: LazyLock<Regex> = LazyLock::new(|| {
 /// write the env body raw to a file (same verbatim grab as
 /// `VerbatimOut`; GitHub #280). moreverb `verbatimtab` is the same
 /// tab-expanding raw class as `boxedverbatim` (GitHub #250). moreverb
+/// `verbatimwrite` writes the env body raw via `verbatim@start` (same
+/// class as `VerbatimOut` / `tcbverbatimwrite`; GitHub #306). moreverb
 /// `listing` / `listingcont` / `listing*` / `listingcont*` are
 /// `verbatim@start` raw bodies (starred twins do not expand tabs;
 /// GitHub #279). minted.sty
@@ -209,6 +211,7 @@ fn is_builtin_code_env(name: &str) -> bool {
             | "alltt"
             | "boxedverbatim"
             | "verbatimtab"
+            | "verbatimwrite"
             | "listing"
             | "listingcont"
             | "listing*"
@@ -3851,6 +3854,102 @@ Some text.
             "prose after listing must still split, got:\n{out}"
         );
         assert_eq!(format_text(&out, &latex_cfg()).unwrap(), out);
+    }
+
+    /// Ticket fixture (GitHub #306): moreverb `verbatimwrite` writes the
+    /// env body raw via `verbatim@start` (same class as `VerbatimOut` /
+    /// `tcbverbatimwrite`). Required `{out.tex}` stays on the begin
+    /// header. Body stays Code; following prose still splits. Landed
+    /// `VerbatimWrite` / `tcbverbatimwrite` / listing family stay Code.
+    #[test]
+    fn moreverb_verbatimwrite_is_code_not_prose() {
+        use crate::format_text;
+
+        let input = concat!(
+            "\\begin{verbatimwrite}{out.tex}\n",
+            "First line. Second line.\n",
+            "\\end{verbatimwrite}\n",
+            "After the block. Next.\n",
+        );
+        let regions = LatexParser::default().parse(input);
+        let code = regions.iter().find_map(|r| match r {
+            Region::Code {
+                header,
+                body,
+                footer,
+                ..
+            } => Some((header.as_str(), body.as_str(), footer.as_str())),
+            _ => None,
+        });
+        let Some((header, body, footer)) = code else {
+            panic!("verbatimwrite must be Code, got: {regions:?}");
+        };
+        assert!(
+            header.contains(r"\begin{verbatimwrite}{out.tex}"),
+            "required file arg must stay on the begin header, got header={header:?}"
+        );
+        assert!(
+            body.contains("First line. Second line."),
+            "verbatimwrite body must keep both sentences, got body={body:?}"
+        );
+        assert!(
+            footer.contains(r"\end{verbatimwrite}"),
+            "verbatimwrite footer must stay, got footer={footer:?}"
+        );
+        assert!(
+            !regions
+                .iter()
+                .any(|r| matches!(r, Region::Prose(p) if p.contains("First line"))),
+            "verbatimwrite body must not leak into Prose, got: {regions:?}"
+        );
+        let out = format_text(input, &latex_cfg()).unwrap();
+        assert!(
+            out.contains(r"\begin{verbatimwrite}{out.tex}") && out.contains(r"\end{verbatimwrite}"),
+            "verbatimwrite begin/end must stay, got:\n{out}"
+        );
+        assert!(
+            out.contains("First line. Second line."),
+            "verbatimwrite body must stay one source line, got:\n{out}"
+        );
+        assert!(
+            !out.contains("First line.\nSecond line."),
+            "verbatimwrite must not reflow as prose, got:\n{out}"
+        );
+        assert!(
+            out.contains("After the block.\nNext."),
+            "prose after verbatimwrite must still split, got:\n{out}"
+        );
+        assert_eq!(format_text(&out, &latex_cfg()).unwrap(), out);
+
+        // Landed neighbours stay Code (GitHub #247 / #280 / #279).
+        let landed = [
+            ("VerbatimWrite", "{out.tex}"),
+            ("tcbverbatimwrite", "{out.tex}"),
+            ("listing", "{1}"),
+            ("listingcont", ""),
+            ("listing*", "{1}"),
+            ("listingcont*", ""),
+        ];
+        for (name, arg) in landed {
+            let begin = format!("\\begin{{{name}}}{arg}");
+            let input = format!(
+                "{begin}\nFirst line. Second line.\n\\end{{{name}}}\nAfter the block. Next.\n"
+            );
+            let regions = LatexParser::default().parse(&input);
+            assert!(
+                regions.iter().any(|r| matches!(
+                    r,
+                    Region::Code { body, .. } if body.contains("First line. Second line.")
+                )),
+                "landed {name} must stay Code, got: {regions:?}"
+            );
+            let out = format_text(&input, &latex_cfg()).unwrap();
+            assert!(
+                out.contains("First line. Second line.") && out.contains("After the block.\nNext."),
+                "landed {name} must stay verbatim with following prose split, got:\n{out}"
+            );
+            assert_eq!(format_text(&out, &latex_cfg()).unwrap(), out);
+        }
     }
 
     /// Ticket fixture (GitHub #279): moreverb `listingcont` / `listing*`
