@@ -12,7 +12,7 @@
 //!
 //! - **Org-mode**: drawers, tables, keywords preserved; `#+BEGIN_SRC` is
 //!   `Region::Code` (comment reflow via `[code.<lang>]`, optional formatters)
-//! - **LaTeX**: preamble and math preserved; `minted` / `minted*` / `lstlisting` / `lstlisting*` are code regions
+//! - **LaTeX**: preamble and math preserved; `minted` / `minted*` / `lstlisting` / `lstlisting*` / `Piton` are code regions
 //! - **Markdown**: front matter and headings preserved; fenced blocks are code regions
 //! - **RST**: directives and literals preserved; admonition/figure/topic/sidebar/container bodies reflow; `.. code-block::` is a code region
 //! - **Plaintext**: everything treated as prose
@@ -124,7 +124,7 @@ pub struct FormatConfig {
     /// fancyvrb BVerbatim/LVerbatim/SaveVerbatim/VerbatimOut/VerbatimWrite/
     /// VerbatimBuffer and Verbatim*/BVerbatim*/LVerbatim*, fvextra VerbEnv,
     /// moreverb boxedverbatim/verbatimtab/listing/listingcont/listing*/listingcont*,
-    /// standard alltt, spverbatim,
+    /// standard alltt, spverbatim, piton.sty Piton,
     /// tree-sitter sagesilent/sageblock, sagetex sageverbatim/sageexample/
     /// sagecommandline,
     /// and pythontex pycode/pycode*/pyblock/pyblock*/pyverbatim/pyverbatim*/
@@ -136,7 +136,7 @@ pub struct FormatConfig {
     /// to `NON_PROSE_ENVS`. Empty keeps the built-in list.
     pub latex_structure_envs: Vec<String>,
     /// Extra LaTeX command names tokenized like `\verb` before split.
-    /// Empty keeps verb/lstinline/spverb/mintinline/mint/Verb/SaveVerb.
+    /// Empty keeps verb/lstinline/spverb/mintinline/mint/Verb/SaveVerb/piton.
     pub latex_verbatim_commands: Vec<String>,
 }
 

@@ -34,6 +34,8 @@
 //! are the same raw grab.
 //! GitHub #298: sagetex.sty sageverbatim / sageexample / sagecommandline
 //! use verbatim@start like tree-sitter sagesilent / sageblock.
+//! GitHub #305: piton.sty Piton is a verbatim listing env; \\piton|...|
+//! is verb-like; \\piton{...} stays one token via generic cmd-arg.
 
 use snapper_fmt::format::Format;
 use snapper_fmt::parser::latex::LatexParser;
@@ -1705,4 +1707,125 @@ fn saveverb_fixture_is_atomic_and_does_not_reflow() {
         "prose after SaveVerb must still split, got:\n{out}"
     );
     assert_eq!(format_text(&out, &latex_cfg()).unwrap(), out);
+}
+
+/// Ticket fixture (GitHub #305): piton.sty `{Piton}` body stays Code
+/// on one source line; `\piton|done. Next|` is one token; following
+/// prose still splits. minted / lstlisting / `\verb` unchanged.
+#[test]
+fn piton_env_and_pipe_cmd_fixture_is_code_and_does_not_reflow() {
+    let input = concat!(
+        "\\begin{Piton}\n",
+        "First line. Second line.\n",
+        "\\end{Piton}\n",
+        "After the block. Next.\n",
+    );
+    let regions = LatexParser::default().parse(input);
+    assert!(
+        regions.iter().any(|r| matches!(
+            r,
+            Region::Code { body, .. } if body.contains("First line. Second line.")
+        )),
+        "Piton body must be Code, got: {regions:?}"
+    );
+    assert!(
+        !regions
+            .iter()
+            .any(|r| matches!(r, Region::Prose(p) if p.contains("First line"))),
+        "Piton body must not be Prose, got: {regions:?}"
+    );
+    let out = format_text(input, &latex_cfg()).unwrap();
+    assert!(
+        out.contains("\\begin{Piton}") && out.contains("\\end{Piton}"),
+        "Piton begin/end must stay, got:\n{out}"
+    );
+    assert!(
+        out.contains("First line. Second line."),
+        "Piton body must stay one source line, got:\n{out}"
+    );
+    assert!(
+        !out.contains("First line.\nSecond line."),
+        "Piton must not reflow as prose, got:\n{out}"
+    );
+    assert!(
+        out.contains("After the block.\nNext."),
+        "prose after Piton must still split, got:\n{out}"
+    );
+    assert_eq!(format_text(&out, &latex_cfg()).unwrap(), out);
+
+    let cmd = "See \\piton|done. Next| here. After.\n";
+    let cmd_out = format_text(cmd, &latex_cfg()).unwrap();
+    assert!(
+        cmd_out.contains(r"\piton|done. Next|"),
+        "\\piton|done. Next| must stay one token, got:\n{cmd_out}"
+    );
+    assert!(
+        !cmd_out.contains("\\piton|done.\n") && !cmd_out.contains("\\piton|done. Next|\n"),
+        "pipe span must stay atomic, got:\n{cmd_out}"
+    );
+    assert!(
+        cmd_out.contains("See \\piton|done. Next| here.\nAfter."),
+        "prose after \\piton|...| must still split, got:\n{cmd_out}"
+    );
+    assert_eq!(format_text(&cmd_out, &latex_cfg()).unwrap(), cmd_out);
+
+    let brace = "See \\piton{done. Next} here. After.\n";
+    let brace_out = format_text(brace, &latex_cfg()).unwrap();
+    assert!(
+        brace_out.contains(r"\piton{done. Next}"),
+        "\\piton{{done. Next}} must stay one token, got:\n{brace_out}"
+    );
+    assert!(
+        brace_out.contains("See \\piton{done. Next} here.\nAfter."),
+        "prose after \\piton{{...}} must still split, got:\n{brace_out}"
+    );
+    assert_eq!(format_text(&brace_out, &latex_cfg()).unwrap(), brace_out);
+
+    let minted = concat!(
+        "\\begin{minted}{python}\n",
+        "print(1)\n",
+        "print(2)\n",
+        "\\end{minted}\n",
+        "After the block. Next.\n",
+    );
+    let minted_out = format_text(minted, &latex_cfg()).unwrap();
+    assert!(
+        minted_out.contains("\\begin{minted}{python}\nprint(1)\nprint(2)\n\\end{minted}"),
+        "minted must stay a code env, got:\n{minted_out}"
+    );
+    assert!(
+        minted_out.contains("After the block.\nNext."),
+        "prose after minted must still split, got:\n{minted_out}"
+    );
+
+    let listing = concat!(
+        "\\begin{lstlisting}\n",
+        "First line. Second line.\n",
+        "\\end{lstlisting}\n",
+        "After the block. Next.\n",
+    );
+    let listing_out = format_text(listing, &latex_cfg()).unwrap();
+    assert!(
+        listing_out.contains("First line. Second line."),
+        "lstlisting body must stay one source line, got:\n{listing_out}"
+    );
+    assert!(
+        !listing_out.contains("First line.\nSecond line."),
+        "lstlisting must not reflow as prose, got:\n{listing_out}"
+    );
+    assert!(
+        listing_out.contains("After the block.\nNext."),
+        "prose after lstlisting must still split, got:\n{listing_out}"
+    );
+
+    let verb = "Use \\verb|a.b! c| here. Next sentence.\n";
+    let verb_out = format_text(verb, &latex_cfg()).unwrap();
+    assert!(
+        verb_out.contains(r"\verb|a.b! c|"),
+        "\\verb must stay intact, got:\n{verb_out}"
+    );
+    assert!(
+        verb_out.contains("Use \\verb|a.b! c| here.\nNext sentence."),
+        "prose after \\verb must still split, got:\n{verb_out}"
+    );
 }
