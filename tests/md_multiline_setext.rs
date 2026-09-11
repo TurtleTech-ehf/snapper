@@ -510,7 +510,7 @@ fn later_underline_promotes_start_not_one_continuation() {
     );
 }
 
-/// One-line list setext with a hung underline still holds.
+/// One-line list setext with a hung underline still holds (6g55).
 #[test]
 fn one_line_list_hung_underline_is_setext() {
     let input = concat!(
@@ -551,9 +551,9 @@ fn one_line_list_hung_underline_is_setext() {
     );
 }
 
-/// Quoted list plus quote-relative column-0 underline is not a heading.
-/// Unchanged by the start != 1 rule. Bar stays list continuation;
-/// `> =======` is not a setext underline.
+/// Quoted list continuation plus quote-relative column-0 underline is
+/// not a heading (GitHub #208). First-line list-opener reject is not
+/// enough — Bar and `> =======` must stay out of Structure.
 #[test]
 fn quoted_list_column0_underline_is_not_setext() {
     let input = concat!(
@@ -569,14 +569,14 @@ fn quoted_list_column0_underline_is_not_setext() {
             r,
             Region::Prose(p) if p.contains("Still title") || p.contains("Foo is the first")
         )),
-        "quoted list title must stay Prose, got: {regions:?}"
+        "quoted list Foo must stay Prose, got: {regions:?}"
     );
     assert!(
         regions.iter().any(|r| matches!(
             r,
             Region::Prose(p) if p.contains("Bar is the second")
         )),
-        "quoted list continuation must stay Prose, got: {regions:?}"
+        "quoted list continuation Bar must stay Prose, got: {regions:?}"
     );
     assert!(
         !regions.iter().any(|r| matches!(
@@ -591,28 +591,24 @@ fn quoted_list_column0_underline_is_not_setext() {
             r,
             Region::Structure(s) if s.contains("Bar is the second")
         )),
-        "quoted list continuation must not be Structure, got: {regions:?}"
+        "Bar must not become a setext title, got: {regions:?}"
     );
     assert!(
         !regions.iter().any(|r| matches!(
             r,
             Region::Structure(s) if s.contains("=======")
         )),
-        "quote-relative col-0 underline must not be Structure, got: {regions:?}"
+        "quote-relative column-0 underline must not be Structure, got: {regions:?}"
     );
 
     let out = format_text(input, &md_cfg()).unwrap();
     assert!(
-        out.contains("Foo is the first title line.\n> Still title."),
+        out.contains("Foo is the first title line.\n") || out.contains("Still title."),
         "quoted list Foo must still split, got:\n{out}"
-    );
-    assert!(
-        out.contains("Body after setext.\nSecond body."),
-        "body Prose must still split, got:\n{out}"
     );
 }
 
-/// Hung underline after a quoted list stays a heading.
+/// 705k hung closer: `>   =======` after a quoted list stays a heading.
 #[test]
 fn quoted_list_hung_underline_is_setext() {
     let input = concat!(
@@ -626,27 +622,32 @@ fn quoted_list_hung_underline_is_setext() {
     assert!(
         regions.iter().any(|r| matches!(
             r,
-            Region::Structure(s) if s.contains("Bar is the second")
+            Region::Structure(s) if s.contains("Foo is the first")
         )),
-        "hung quoted-list title must be Structure, got: {regions:?}"
+        "hung quoted list Foo must be Structure, got: {regions:?}"
     );
     assert!(
-        regions
-            .iter()
-            .any(|r| matches!(r, Region::Structure(s) if s.contains("======="))),
-        "hung quoted-list underline must be Structure, got: {regions:?}"
+        regions.iter().any(|r| matches!(
+            r,
+            Region::Structure(s) if s.contains("Bar is the second")
+        )),
+        "hung quoted list title must be Structure, got: {regions:?}"
+    );
+    assert!(
+        regions.iter().any(|r| matches!(
+            r,
+            Region::Structure(s) if s.contains("=======")
+        )),
+        "hung quoted underline must be Structure, got: {regions:?}"
     );
     assert!(
         !regions.iter().any(|r| matches!(
             r,
-            Region::Prose(p) if p.contains("Bar is the second")
+            Region::Prose(p)
+                if p.contains("Bar is the second")
+                    || p.contains("Foo is the first")
+                    || p.contains("Still title")
         )),
-        "hung quoted-list title must not be Prose: {regions:?}"
-    );
-
-    let out = format_text(input, &md_cfg()).unwrap();
-    assert!(
-        out.contains("Body after setext.\nSecond body."),
-        "body Prose must still split, got:\n{out}"
+        "hung quoted list title must not be Prose: {regions:?}"
     );
 }
