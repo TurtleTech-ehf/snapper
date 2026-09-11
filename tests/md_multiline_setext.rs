@@ -651,3 +651,136 @@ fn quoted_list_hung_underline_is_setext() {
         "hung quoted list title must not be Prose: {regions:?}"
     );
 }
+
+/// GitHub #258: `2.` after a quoted list opener is a sibling item, not
+/// title text of the previous item. Hung underline promotes only Bar.
+fn assert_quoted_sibling_list_setext(input: &str, bar_line: &str) {
+    let regions = MarkdownParser.parse(input);
+    assert!(
+        !regions.iter().any(|r| matches!(
+            r,
+            Region::Structure(s)
+                if s.contains("Foo is the first") && s.contains("Bar is the second")
+        )),
+        "Foo must not share Bar's heading, got: {regions:?}"
+    );
+    assert!(
+        !regions.iter().any(|r| matches!(
+            r,
+            Region::Structure(s) if s.contains("Foo is the first")
+        )),
+        "Foo must stay out of the Bar heading, got: {regions:?}"
+    );
+    assert!(
+        regions.iter().any(|r| matches!(
+            r,
+            Region::Prose(p) if p.contains("Still title") || p.contains("Foo is the first")
+        )),
+        "Foo must stay list/Prose, got: {regions:?}"
+    );
+    assert!(
+        regions.iter().any(|r| matches!(
+            r,
+            Region::Structure(s) if s.contains(bar_line)
+        )),
+        "Bar plus hung underline must be Structure, got: {regions:?}"
+    );
+    assert!(
+        regions
+            .iter()
+            .any(|r| matches!(r, Region::Structure(s) if s.contains("======="))),
+        "hung underline must be Structure, got: {regions:?}"
+    );
+
+    let out = format_text(input, &md_cfg()).unwrap();
+    assert!(
+        out.contains("Foo is the first title line.\n") || out.contains("Still title."),
+        "Foo must still split, got:\n{out}"
+    );
+    assert!(
+        !out.contains("Bar is the second title line.\nStill"),
+        "must not sentence-split the Bar heading, got:\n{out}"
+    );
+    assert!(
+        out.contains("Body after setext.\nSecond body."),
+        "body Prose must still split, got:\n{out}"
+    );
+}
+
+#[test]
+fn quoted_sibling_start_not_one_is_not_prior_item_heading() {
+    for marker in ["2.", "0.", "10.", "2)"] {
+        let input = format!(
+            concat!(
+                "> 1. Foo is the first title line. Still title.\n",
+                "> {marker} Bar is the second title line.\n",
+                ">    =======\n",
+                "\n",
+                "Body after setext. Second body.\n",
+            ),
+            marker = marker
+        );
+        let bar = format!("{marker} Bar is the second title line");
+        assert_quoted_sibling_list_setext(&input, &bar);
+    }
+}
+
+#[test]
+fn quoted_bullet_then_sibling_start_not_one_is_not_prior_item_heading() {
+    let input = concat!(
+        "> - Foo is the first title line. Still title.\n",
+        "> 2. Bar is the second title line.\n",
+        ">    =======\n",
+        "\n",
+        "Body after setext. Second body.\n",
+    );
+    assert_quoted_sibling_list_setext(input, "2. Bar is the second title line");
+}
+
+/// Lookback: `> 2. Foo` opens a list (no open paragraph). Column-0
+/// `> =======` after the continuation is not a heading.
+#[test]
+fn quoted_start_not_one_opener_column0_underline_is_not_setext() {
+    let input = concat!(
+        "> 2. Foo is the first title line. Still title.\n",
+        ">   Bar is the second title line.\n",
+        "> =======\n",
+        "\n",
+        "Body after setext. Second body.\n",
+    );
+    let regions = MarkdownParser.parse(input);
+    assert!(
+        regions.iter().any(|r| matches!(
+            r,
+            Region::Prose(p) if p.contains("Still title") || p.contains("Foo is the first")
+        )),
+        "quoted 2. Foo must stay Prose, got: {regions:?}"
+    );
+    assert!(
+        regions.iter().any(|r| matches!(
+            r,
+            Region::Prose(p) if p.contains("Bar is the second")
+        )),
+        "quoted 2. continuation Bar must stay Prose, got: {regions:?}"
+    );
+    assert!(
+        !regions.iter().any(|r| matches!(
+            r,
+            Region::Structure(s) if s.contains("Bar is the second")
+        )),
+        "Bar must not become a setext title, got: {regions:?}"
+    );
+    assert!(
+        !regions.iter().any(|r| matches!(
+            r,
+            Region::Structure(s) if s.contains("=======")
+        )),
+        "quote-relative column-0 underline must not be Structure, got: {regions:?}"
+    );
+
+    let out = format_text(input, &md_cfg()).unwrap();
+    assert!(
+        out.contains("Foo is the first title line.\n") || out.contains("Still title."),
+        "quoted 2. Foo must still split, got:\n{out}"
+    );
+}
