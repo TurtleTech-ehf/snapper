@@ -11,6 +11,8 @@
 //! GitHub #275: fancyvrb \\SaveVerb{name}|body| is the same delimiter body as \\Verb.
 //! GitHub #246: tcolorbox listings tcblisting* is the starred twin of tcblisting.
 //! GitHub #250: moreverb verbatimtab is the same raw class as boxedverbatim.
+//! GitHub #279: moreverb listing / listingcont / listing* / listingcont*
+//! are verbatim@start raw bodies (starred twins do not expand tabs).
 //! GitHub #249: pythontex.sty pyblock / pyverbatim / pyconsole are the same
 //! VerbatimEnvironment class as pycode.
 //! GitHub #276: pythontex.sty pycode* / pyblock* / pyverbatim* / pyconsole*
@@ -138,6 +140,135 @@ fn verbatimtab_fixture_is_code_and_does_not_reflow() {
         "prose after verbatimtab must still split, got:\n{out}"
     );
     assert_eq!(format_text(&out, &latex_cfg()).unwrap(), out);
+}
+
+/// Ticket fixture (GitHub #279): moreverb `listing` required `{1}`
+/// stays on begin; body stays Code; following prose still splits.
+#[test]
+fn listing_fixture_is_code_and_does_not_reflow() {
+    let input = concat!(
+        "\\begin{listing}{1}\n",
+        "First line. Second line.\n",
+        "\\end{listing}\n",
+        "After the block. Next.\n",
+    );
+    let regions = LatexParser::default().parse(input);
+    let code = regions.iter().find_map(|r| match r {
+        Region::Code {
+            header,
+            body,
+            footer,
+            ..
+        } => Some((header.as_str(), body.as_str(), footer.as_str())),
+        _ => None,
+    });
+    let Some((header, body, footer)) = code else {
+        panic!("listing must be Code, got: {regions:?}");
+    };
+    assert!(
+        header.contains("\\begin{listing}{1}"),
+        "required start-line arg must stay on the begin header, got header={header:?}"
+    );
+    assert!(
+        body.contains("First line. Second line."),
+        "listing body must be Code, got body={body:?}"
+    );
+    assert!(
+        footer.contains("\\end{listing}"),
+        "listing footer must stay, got footer={footer:?}"
+    );
+    assert!(
+        !regions.iter().any(|r| matches!(
+            r,
+            Region::Prose(p) if p.contains("First line") || p.contains("{1}")
+        )),
+        "listing start-line/body must not be Prose, got: {regions:?}"
+    );
+    let out = format_text(input, &latex_cfg()).unwrap();
+    assert!(
+        out.contains("\\begin{listing}{1}") && out.contains("\\end{listing}"),
+        "listing begin/end must stay, got:\n{out}"
+    );
+    assert!(
+        out.contains("First line. Second line."),
+        "listing body must stay one source line, got:\n{out}"
+    );
+    assert!(
+        !out.contains("First line.\nSecond line."),
+        "listing must not reflow as prose, got:\n{out}"
+    );
+    assert!(
+        out.contains("After the block.\nNext."),
+        "prose after listing must still split, got:\n{out}"
+    );
+    assert_eq!(format_text(&out, &latex_cfg()).unwrap(), out);
+}
+
+/// Ticket fixture (GitHub #279): moreverb `listingcont` / `listing*` /
+/// `listingcont*` stay Code; `listing*` keeps `{1}` on begin; following
+/// prose still splits.
+#[test]
+fn listing_twins_fixture_is_code_and_does_not_reflow() {
+    let cases = [
+        ("listingcont", ""),
+        ("listing*", "{1}"),
+        ("listingcont*", ""),
+    ];
+    for (name, arg) in cases {
+        let begin = format!("\\begin{{{name}}}{arg}");
+        let input =
+            format!("{begin}\nFirst line. Second line.\n\\end{{{name}}}\nAfter the block. Next.\n");
+        let regions = LatexParser::default().parse(&input);
+        let code = regions.iter().find_map(|r| match r {
+            Region::Code {
+                header,
+                body,
+                footer,
+                ..
+            } => Some((header.as_str(), body.as_str(), footer.as_str())),
+            _ => None,
+        });
+        let Some((header, body, footer)) = code else {
+            panic!("{name} must be Code, got: {regions:?}");
+        };
+        assert!(
+            header.contains(&begin),
+            "{name} begin must stay on the header, got header={header:?}"
+        );
+        assert!(
+            body.contains("First line. Second line."),
+            "{name} body must be Code, got body={body:?}"
+        );
+        assert!(
+            footer.contains(&format!("\\end{{{name}}}")),
+            "{name} footer must stay, got footer={footer:?}"
+        );
+        assert!(
+            !regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(p) if p.contains("First line") || p.contains("{1}")
+            )),
+            "{name} body/arg must not be Prose, got: {regions:?}"
+        );
+        let out = format_text(&input, &latex_cfg()).unwrap();
+        assert!(
+            out.contains(&begin) && out.contains(&format!("\\end{{{name}}}")),
+            "{name} begin/end must stay, got:\n{out}"
+        );
+        assert!(
+            out.contains("First line. Second line."),
+            "{name} body must stay one source line, got:\n{out}"
+        );
+        assert!(
+            !out.contains("First line.\nSecond line."),
+            "{name} must not reflow as prose, got:\n{out}"
+        );
+        assert!(
+            out.contains("After the block.\nNext."),
+            "prose after {name} must still split, got:\n{out}"
+        );
+        assert_eq!(format_text(&out, &latex_cfg()).unwrap(), out);
+    }
 }
 
 /// Ticket fixture (GitHub #246): tcolorbox listings `tcblisting*`

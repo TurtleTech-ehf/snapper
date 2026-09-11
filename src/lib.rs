@@ -118,7 +118,8 @@ pub struct FormatConfig {
     /// trivia, Overleaf Verbatim/boxedverbatim/tcblisting/tcblisting*/codeexample,
     /// fancyvrb BVerbatim/LVerbatim/SaveVerbatim/VerbatimOut/VerbatimWrite and
     /// Verbatim*/BVerbatim*/LVerbatim*,
-    /// moreverb boxedverbatim/verbatimtab, standard alltt, spverbatim,
+    /// moreverb boxedverbatim/verbatimtab/listing/listingcont/listing*/listingcont*,
+    /// standard alltt, spverbatim,
     /// and pythontex pycode/pycode*/pyblock/pyblock*/pyverbatim/pyverbatim*/
     /// pyconsole/pyconsole*/pygments plus sympy and pylab families and
     /// starred twins. Empty keeps
