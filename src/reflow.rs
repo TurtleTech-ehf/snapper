@@ -538,7 +538,12 @@ fn atx_heading_start(text: &str) -> bool {
 }
 
 fn md_list_start(text: &str) -> bool {
-    text.starts_with("- ")
+    // CommonMark 5.2 / GitHub #326: marker then space or empty rest.
+    // Wrap must not create a column-0 lone `-` / `*` / `+` (setext or list).
+    text == "-"
+        || text == "*"
+        || text == "+"
+        || text.starts_with("- ")
         || text.starts_with("* ")
         || text.starts_with("+ ")
         || md_ordered_list_start(text)
@@ -2958,6 +2963,25 @@ They are endowed with reason and conscience and should act towards one another i
             result.contains("apples %%("),
             "%%( stays with the previous line:\n{result}"
         );
+    }
+
+    #[test]
+    fn wrap_created_md_empty_list_marker_is_not_a_block() {
+        for token in ["-", "*", "+"] {
+            let result = wrap_fmt(
+                &format!("The options are apples {token} extra words here."),
+                23,
+                crate::format::Format::Markdown,
+            );
+            assert_no_col0_block(&result, &[token]);
+            assert!(
+                result.contains(&format!("apples {token}"))
+                    || result
+                        .lines()
+                        .any(|l| l.trim_start().starts_with('\\') && l.contains(token)),
+                "{token} must not open a column-0 list/setext:\n{result}"
+            );
+        }
     }
 
     #[test]
