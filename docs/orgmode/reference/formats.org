@@ -111,6 +111,7 @@ These tokens within prose are not split across lines:
 - latexindent =filecontents= / =filecontents*= write the env body raw to a file
 - filecontentsdef.sty =filecontentsdef= writes the env body verbatim into a macro (same raw grab as =filecontents=)
 - filecontentsdef.sty leftover siblings =filecontentsgdef= / =filecontentsdefmacro= / =filecontentsgdefmacro= / =filecontentshere= and starred twins =filecontentsdef*= / =filecontentsgdef*= / =filecontentshere*= are the same raw grab
+- scontents.sty =scontents= stores the env body verbatim into a sequence; =verbatimsc= is the package verbatim display env
 - spverbatim.sty =spverbatim= is a built-in code region (raw line breaks)
 - pythontex.sty =pyblock= / =pyverbatim= / =pyconsole= / =pycode*= / =pyblock*= / =pyverbatim*= / =pyconsole*= / =pygments= / =sympycode= / =sympyblock= / =sympyverbatim= / =sympyconsole= / =pylabcode= / =pylabblock= / =pylabverbatim= / =pylabconsole= and starred twins are the same =VerbatimEnvironment= class as =pycode=
 - sagetex.sty =sageverbatim= / =sageexample= / =sagecommandline= are the same =verbatim@start= class as tree-sitter-latex =sagesilent= / =sageblock=

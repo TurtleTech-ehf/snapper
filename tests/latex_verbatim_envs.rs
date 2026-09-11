@@ -34,6 +34,8 @@
 //! are the same raw grab.
 //! GitHub #298: sagetex.sty sageverbatim / sageexample / sagecommandline
 //! use verbatim@start like tree-sitter sagesilent / sageblock.
+//! GitHub #304: scontents.sty scontents stores verbatim into a sequence;
+//! verbatimsc is the package verbatim display env.
 //! GitHub #305: piton.sty Piton is a verbatim listing env; \\piton|...|
 //! is verb-like; \\piton{...} stays one token via generic cmd-arg.
 
@@ -743,6 +745,111 @@ fn sagetex_sageverbatim_family_fixture_is_code_and_does_not_reflow() {
         );
         assert_eq!(format_text(&out, &latex_cfg()).unwrap(), out);
     }
+}
+
+/// Ticket fixture (GitHub #304): scontents.sty `scontents` stores
+/// verbatim into a sequence; `verbatimsc` is the package verbatim
+/// display env. Body stays Code; following prose still splits.
+/// Landed filecontentsdef family stays Code.
+#[test]
+fn scontents_verbatimsc_fixture_is_code_and_does_not_reflow() {
+    for name in ["scontents", "verbatimsc"] {
+        let input = format!(
+            concat!(
+                "\\begin{{{name}}}\n",
+                "First line. Second line.\n",
+                "\\end{{{name}}}\n",
+                "After the block. Next.\n",
+            ),
+            name = name
+        );
+        let regions = LatexParser::default().parse(&input);
+        let code = regions.iter().find_map(|r| match r {
+            Region::Code {
+                header,
+                body,
+                footer,
+                ..
+            } => Some((header.as_str(), body.as_str(), footer.as_str())),
+            _ => None,
+        });
+        let Some((header, body, footer)) = code else {
+            panic!("{name} must be Code, got: {regions:?}");
+        };
+        assert!(
+            header.contains(&format!("\\begin{{{name}}}")),
+            "{name} begin must stay on the header, got header={header:?}"
+        );
+        assert!(
+            body.contains("First line. Second line."),
+            "{name} body must be Code, got body={body:?}"
+        );
+        assert!(
+            footer.contains(&format!("\\end{{{name}}}")),
+            "{name} footer must stay, got footer={footer:?}"
+        );
+        assert!(
+            !regions
+                .iter()
+                .any(|r| matches!(r, Region::Prose(p) if p.contains("First line"))),
+            "{name} body must not be Prose, got: {regions:?}"
+        );
+        let out = format_text(&input, &latex_cfg()).unwrap();
+        assert!(
+            out.contains(&format!("\\begin{{{name}}}"))
+                && out.contains(&format!("\\end{{{name}}}")),
+            "{name} begin/end must stay, got:\n{out}"
+        );
+        assert!(
+            out.contains("First line. Second line."),
+            "{name} body must stay one source line, got:\n{out}"
+        );
+        assert!(
+            !out.contains("First line.\nSecond line."),
+            "{name} must not reflow as prose, got:\n{out}"
+        );
+        assert!(
+            out.contains("After the block.\nNext."),
+            "prose after {name} must still split, got:\n{out}"
+        );
+        assert_eq!(format_text(&out, &latex_cfg()).unwrap(), out);
+    }
+
+    let landed = concat!(
+        "\\begin{filecontents}{x.tex}\n",
+        "First line. Second line.\n",
+        "\\end{filecontents}\n",
+        "\\begin{filecontents*}\n",
+        "First line. Second line.\n",
+        "\\end{filecontents*}\n",
+        "\\begin{filecontentsdef}{\\body}\n",
+        "First line. Second line.\n",
+        "\\end{filecontentsdef}\n",
+        "After the block. Next.\n",
+    );
+    let landed_out = format_text(landed, &latex_cfg()).unwrap();
+    assert!(
+        landed_out.contains(
+            "\\begin{filecontents}{x.tex}\nFirst line. Second line.\n\\end{filecontents}"
+        ),
+        "landed filecontents must stay a code env, got:\n{landed_out}"
+    );
+    assert!(
+        landed_out
+            .contains("\\begin{filecontents*}\nFirst line. Second line.\n\\end{filecontents*}"),
+        "landed filecontents* must stay a code env, got:\n{landed_out}"
+    );
+    assert!(
+        landed_out.contains(
+            "\\begin{filecontentsdef}{\\body}\nFirst line. Second line.\n\\end{filecontentsdef}"
+        ),
+        "landed filecontentsdef must stay a code env, got:\n{landed_out}"
+    );
+    assert!(
+        landed_out.contains("After the block.\nNext."),
+        "prose after landed filecontentsdef must still split, got:\n{landed_out}"
+    );
+    assert_eq!(format_text(&landed_out, &latex_cfg()).unwrap(), landed_out);
 }
 
 /// Ticket fixture (GitHub #209): fancyvrb BVerbatim and LVerbatim
