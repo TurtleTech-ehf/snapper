@@ -19,7 +19,8 @@ pub struct FormatOverrides {
     /// fancyvrb BVerbatim/LVerbatim/SaveVerbatim/VerbatimOut/VerbatimWrite and
     /// Verbatim*/BVerbatim*/LVerbatim*,
     /// moreverb boxedverbatim/verbatimtab, standard alltt, spverbatim,
-    /// and pythontex pycode/pyblock/pyverbatim/pyconsole/pygments; entries are
+    /// and pythontex pycode/pycode*/pyblock/pyblock*/pyverbatim/pyverbatim*/
+    /// pyconsole/pyconsole*/pygments; entries are
     /// added to it.
     pub verbatim_envs: Vec<String>,
     /// Extra LaTeX environments treated as structure (no reflow).

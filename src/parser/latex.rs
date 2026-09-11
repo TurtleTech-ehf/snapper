@@ -131,8 +131,9 @@ static LSTLISTING_LANG_RE: LazyLock<Regex> = LazyLock::new(|| {
 /// (`filecontents`, `filecontents*`) and tree-sitter-latex raw trivia envs
 /// (`asy`, `asydef`, `pycode`, `luacode`, `luacode*`, `sagesilent`,
 /// `sageblock`), pythontex.sty `pyblock` / `pyverbatim` / `pyconsole`
-/// / `pygments` (same `VerbatimEnvironment` class as `pycode`;
-/// GitHub #249 / #274),
+/// / `pycode*` / `pyblock*` / `pyverbatim*` / `pyconsole*` / `pygments`
+/// (same `VerbatimEnvironment` class as `pycode`; GitHub #249 / #274
+/// / #276),
 /// plus latex2e `verbatim*` / fancyvrb `Verbatim` /
 /// `Verbatim*` / `BVerbatim` / `BVerbatim*` / `LVerbatim` /
 /// `LVerbatim*` / `SaveVerbatim` / `VerbatimOut` / `VerbatimWrite`,
@@ -185,9 +186,13 @@ fn is_builtin_code_env(name: &str) -> bool {
             | "asy"
             | "asydef"
             | "pycode"
+            | "pycode*"
             | "pyblock"
+            | "pyblock*"
             | "pyverbatim"
+            | "pyverbatim*"
             | "pyconsole"
+            | "pyconsole*"
             | "pygments"
             | "luacode"
             | "luacode*"
@@ -2840,6 +2845,60 @@ Some text.
         use crate::format_text;
 
         for name in ["pyblock", "pyverbatim", "pyconsole"] {
+            let input = format!(
+                concat!(
+                    "\\begin{{{name}}}\n",
+                    "First line. Second line.\n",
+                    "\\end{{{name}}}\n",
+                    "After the block. Next.\n",
+                ),
+                name = name
+            );
+            let regions = LatexParser::default().parse(&input);
+            assert!(
+                regions.iter().any(|r| matches!(
+                    r,
+                    Region::Code { body, .. } if body.contains("First line. Second line.")
+                )),
+                "{name} body must be Code, got: {regions:?}"
+            );
+            assert!(
+                !regions
+                    .iter()
+                    .any(|r| matches!(r, Region::Prose(p) if p.contains("First line"))),
+                "{name} body must not leak into Prose, got: {regions:?}"
+            );
+            let out = format_text(&input, &latex_cfg()).unwrap();
+            assert!(
+                out.contains(&format!("\\begin{{{name}}}"))
+                    && out.contains(&format!("\\end{{{name}}}")),
+                "{name} begin/end must stay, got:\n{out}"
+            );
+            assert!(
+                out.contains("First line. Second line."),
+                "{name} body must stay one source line, got:\n{out}"
+            );
+            assert!(
+                !out.contains("First line.\nSecond line."),
+                "{name} must not reflow as prose, got:\n{out}"
+            );
+            assert!(
+                out.contains("After the block.\nNext."),
+                "prose after {name} must still split, got:\n{out}"
+            );
+            assert_eq!(format_text(&out, &latex_cfg()).unwrap(), out);
+        }
+    }
+
+    /// Ticket fixture (GitHub #276): pythontex.sty `pycode*` /
+    /// `pyblock*` / `pyverbatim*` / `pyconsole*` are the same
+    /// `VerbatimEnvironment` class as the unstarred twins. Body stays
+    /// Code; following prose still splits.
+    #[test]
+    fn pythontex_starred_py_envs_are_code_not_prose() {
+        use crate::format_text;
+
+        for name in ["pycode*", "pyblock*", "pyverbatim*", "pyconsole*"] {
             let input = format!(
                 concat!(
                     "\\begin{{{name}}}\n",
