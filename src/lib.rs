@@ -125,6 +125,8 @@ pub struct FormatConfig {
     /// VerbatimBuffer and Verbatim*/BVerbatim*/LVerbatim*, fvextra VerbEnv,
     /// moreverb boxedverbatim/verbatimtab/listing/listingcont/listing*/listingcont*,
     /// standard alltt, spverbatim,
+    /// tree-sitter sagesilent/sageblock, sagetex sageverbatim/sageexample/
+    /// sagecommandline,
     /// and pythontex pycode/pycode*/pyblock/pyblock*/pyverbatim/pyverbatim*/
     /// pyconsole/pyconsole*/pygments plus sympy and pylab families and
     /// starred twins. Empty keeps
