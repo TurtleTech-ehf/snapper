@@ -148,6 +148,20 @@ struct OpenGreater {
     kind: GreaterKind,
 }
 
+/// org-element-drawer-re NAME: `(any ?- ?_ word)` — hyphen, underscore,
+/// or Unicode word characters (letters and digits). `:END:` is the closer.
+pub(crate) fn is_org_drawer_begin(line: &str) -> bool {
+    let trimmed = line.trim();
+    let Some(name) = trimmed.strip_prefix(':').and_then(|s| s.strip_suffix(':')) else {
+        return false;
+    };
+    !name.is_empty()
+        && !name.eq_ignore_ascii_case("END")
+        && name
+            .chars()
+            .all(|c| c == '-' || c == '_' || c.is_alphanumeric())
+}
+
 pub struct OrgParser;
 
 impl OrgParser {
@@ -207,17 +221,9 @@ impl OrgParser {
         Self::block_end_name(line).as_deref() == Some("SRC")
     }
 
-    /// org-element drawer: `:NAME:` with NAME = `[A-Za-z_-]+`. Not `:END:`.
+    /// org-element-drawer-re NAME: `(any ?- ?_ word)`. Not `:END:`.
     fn is_drawer_begin(line: &str) -> bool {
-        let trimmed = line.trim();
-        let Some(name) = trimmed.strip_prefix(':').and_then(|s| s.strip_suffix(':')) else {
-            return false;
-        };
-        !name.is_empty()
-            && !name.eq_ignore_ascii_case("END")
-            && name
-                .bytes()
-                .all(|b| matches!(b, b'A'..=b'Z' | b'a'..=b'z' | b'_' | b'-'))
+        is_org_drawer_begin(line)
     }
 
     /// Check if a line ends a drawer
@@ -2286,6 +2292,65 @@ mod tests {
             "prose after :END: must reflow, got:\n{out}"
         );
         assert_eq!(format_text(&out, &org_cfg()).unwrap(), out);
+    }
+
+    /// GitHub #318 / snapper-p6ng: NAME is hyphen, underscore, or word.
+    #[test]
+    fn is_org_drawer_begin_matches_emacs_word_hyphen() {
+        assert!(is_org_drawer_begin(":LOG1:"));
+        assert!(is_org_drawer_begin(":föö:"));
+        assert!(is_org_drawer_begin(":1:"));
+        assert!(is_org_drawer_begin(":ID2:"));
+        assert!(is_org_drawer_begin(":LOGBOOK:"));
+        assert!(is_org_drawer_begin("  :LOG1:  "));
+        assert!(!is_org_drawer_begin(":END:"));
+        assert!(!is_org_drawer_begin(":end:"));
+        assert!(!is_org_drawer_begin(":See also:"));
+        assert!(!is_org_drawer_begin(": text"));
+        assert!(!is_org_drawer_begin(":"));
+        assert!(!is_org_drawer_begin("::"));
+    }
+
+    /// GitHub #318 / snapper-p6ng: Emacs `org-element-drawer-re` NAME is
+    /// `(any ?- ?_ word)`, so digits and unicode letters open a drawer.
+    #[test]
+    fn word_char_drawer_names_are_structure_until_end() {
+        use crate::format_text;
+
+        for name in ["LOG1", "föö", "1", "ID2"] {
+            let input = format!(":{name}:\npayload text. More text.\n:END:\nAfter drawer. Next.\n");
+            let regions = OrgParser.parse(&input);
+            assert!(
+                regions
+                    .iter()
+                    .any(|r| matches!(r, Region::Structure(s) if s.contains(&format!(":{name}:")))),
+                ":{name}: must be a drawer opener, got: {regions:?}"
+            );
+            assert!(
+                regions.iter().any(|r| matches!(
+                    r,
+                    Region::Structure(s) if s.contains("payload text. More text.")
+                )),
+                ":{name}: body must stay Structure, got: {regions:?}"
+            );
+            assert!(
+                !regions.iter().any(|r| matches!(
+                    r,
+                    Region::Prose(p) if p.contains("payload text.")
+                )),
+                ":{name}: body must not become Prose, got: {regions:?}"
+            );
+            let out = format_text(&input, &org_cfg()).unwrap();
+            assert!(
+                out.contains(&format!(":{name}:\npayload text. More text.\n:END:")),
+                ":{name}: drawer must not reflow, got:\n{out}"
+            );
+            assert!(
+                out.contains("After drawer.\nNext."),
+                "prose after :{name}: :END: must reflow, got:\n{out}"
+            );
+            assert_eq!(format_text(&out, &org_cfg()).unwrap(), out);
+        }
     }
 
     #[test]
