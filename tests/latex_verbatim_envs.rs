@@ -7,6 +7,7 @@
 //! GitHub #235: spverbatim.sty env and \\spverb are the same class as verb.
 //! GitHub #244: fancyvrb Verbatim* / BVerbatim* / LVerbatim* are the same FV@Scan class.
 //! GitHub #245: minted.sty \\mintinline / \\mint take {lang} then a FancyVerb body.
+//! GitHub #273: minted.sty minted* is the starred twin of minted (same raw body).
 //! GitHub #246: tcolorbox listings tcblisting* is the starred twin of tcblisting.
 //! GitHub #250: moreverb verbatimtab is the same raw class as boxedverbatim.
 //! GitHub #249: pythontex.sty pyblock / pyverbatim / pyconsole are the same
@@ -550,6 +551,71 @@ fn lstlisting_star_fixture_is_code_and_does_not_reflow() {
         "prose after lstlisting* must still split, got:\n{out}"
     );
     assert_eq!(format_text(&out, &latex_cfg()).unwrap(), out);
+}
+
+/// Ticket fixture (GitHub #273): minted.sty `minted*` bodies stay
+/// Code; following prose still splits. Unstarred `minted` is unchanged.
+#[test]
+fn minted_star_fixture_is_code_and_does_not_reflow() {
+    let input = concat!(
+        "\\begin{minted*}\n",
+        "First line. Second line.\n",
+        "\\end{minted*}\n",
+        "After the block. Next.\n",
+    );
+    let regions = LatexParser::default().parse(input);
+    assert!(
+        regions.iter().any(|r| matches!(
+            r,
+            Region::Code { body, .. } if body.contains("First line. Second line.")
+        )),
+        "minted* body must be Code, got: {regions:?}"
+    );
+    assert!(
+        !regions
+            .iter()
+            .any(|r| matches!(r, Region::Prose(p) if p.contains("First line"))),
+        "minted* body must not be Prose, got: {regions:?}"
+    );
+    let out = format_text(input, &latex_cfg()).unwrap();
+    assert!(
+        out.contains("\\begin{minted*}") && out.contains("\\end{minted*}"),
+        "minted* begin/end must stay, got:\n{out}"
+    );
+    assert!(
+        out.contains("First line. Second line."),
+        "minted* body must stay one source line, got:\n{out}"
+    );
+    assert!(
+        !out.contains("First line.\nSecond line."),
+        "minted* must not reflow as prose, got:\n{out}"
+    );
+    assert!(
+        out.contains("After the block.\nNext."),
+        "prose after minted* must still split, got:\n{out}"
+    );
+    assert_eq!(format_text(&out, &latex_cfg()).unwrap(), out);
+
+    let unstarred = concat!(
+        "\\begin{minted}{python}\n",
+        "print(1)\n",
+        "print(2)\n",
+        "\\end{minted}\n",
+        "After the block. Next.\n",
+    );
+    let unstarred_out = format_text(unstarred, &latex_cfg()).unwrap();
+    assert!(
+        unstarred_out.contains("\\begin{minted}{python}\nprint(1)\nprint(2)\n\\end{minted}"),
+        "unstarred minted must stay a code env, got:\n{unstarred_out}"
+    );
+    assert!(
+        unstarred_out.contains("After the block.\nNext."),
+        "prose after unstarred minted must still split, got:\n{unstarred_out}"
+    );
+    assert_eq!(
+        format_text(&unstarred_out, &latex_cfg()).unwrap(),
+        unstarred_out
+    );
 }
 
 /// Ticket fixture (GitHub #235): spverbatim.sty `spverbatim` body stays
