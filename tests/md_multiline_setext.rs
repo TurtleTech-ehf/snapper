@@ -377,3 +377,86 @@ fn quoted_list_underline_below_hang_is_not_setext() {
         "quoted list plus >   ======= must stay a heading, got: {at_hang_regions:?}"
     );
 }
+
+/// snapper-34pr / GitHub #259: `>  >` interrupts like `>>`. Foo stays
+/// Prose and still splits; Bar plus the underline are Structure. Same
+/// for three spaces and a tab. Five spaces after `>` is not a second
+/// marker.
+#[test]
+fn two_or_three_space_nested_quote_leaves_outer_quote_prose() {
+    for inner in [">  >", ">   >", ">\t>"] {
+        let input = format!(
+            concat!(
+                "> Foo is the first title line. Still title.\n",
+                "{inner} Bar is the second title line.\n",
+                "{inner} =======\n",
+                "\n",
+                "Body after setext. Second body.\n",
+            ),
+            inner = inner
+        );
+        let regions = MarkdownParser.parse(&input);
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(p) if p.contains("Still title") || p.contains("Foo is the first")
+            )),
+            "{inner:?} nested quote interrupts: Foo must stay Prose, got: {regions:?}"
+        );
+        assert!(
+            !regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(p) if p.contains("Bar is the second")
+            )),
+            "{inner:?} inner setext title must not be Prose: {regions:?}"
+        );
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Structure(s) if s.contains("Bar is the second title line.")
+            )),
+            "{inner:?} Bar plus underline must be Structure, got: {regions:?}"
+        );
+        let out = format_text(&input, &md_cfg()).unwrap();
+        assert!(
+            out.contains("first title line.\n"),
+            "{inner:?} Foo must still split, got:\n{out}"
+        );
+        assert!(
+            out.contains("Body after setext.\nSecond body."),
+            "{inner:?} body Prose must still split, got:\n{out}"
+        );
+    }
+
+    let five = concat!(
+        "> Foo is the first title line. Still title.\n",
+        ">     > Bar is the second title line.\n",
+        ">     > =======\n",
+        "\n",
+        "Body after setext. Second body.\n",
+    );
+    let five_regions = MarkdownParser.parse(five);
+    assert!(
+        five_regions.iter().any(|r| matches!(
+            r,
+            Region::Prose(p) if p.contains("Still title") || p.contains("Foo is the first")
+        )),
+        "five spaces after > must stay quote Prose, got: {five_regions:?}"
+    );
+    assert!(
+        five_regions.iter().any(|r| matches!(
+            r,
+            Region::Prose(p) if p.contains("Bar is the second")
+        )),
+        "five-space leftover > is not a nested opener, got: {five_regions:?}"
+    );
+    let five_out = format_text(five, &md_cfg()).unwrap();
+    assert!(
+        five_out.contains("first title line.\n"),
+        "five-space Foo must still split, got:\n{five_out}"
+    );
+    assert!(
+        five_out.contains("Body after setext.\nSecond body."),
+        "five-space body Prose must still split, got:\n{five_out}"
+    );
+}

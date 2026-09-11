@@ -770,28 +770,46 @@ fn is_gfm_alert_marker(text: &str) -> bool {
     )
 }
 
+/// After `>`, the optional following space may be a tab (CM 2.2 / 5.1).
+fn quote_after_gt(after: &str) -> &str {
+    after
+        .strip_prefix(' ')
+        .or_else(|| after.strip_prefix('\t'))
+        .unwrap_or(after)
+}
+
 /// Count CommonMark blockquote markers at the start of `line`.
-/// Each marker is `>` plus an optional space. Leading whitespace is skipped.
+/// Each marker is `>` plus an optional space or tab. A marker may be
+/// indented 0–3 spaces ([`html_block_rest`]); four spaces or a tab is
+/// not a first `>` opener. After one marker the remainder is a new
+/// block and may start another `>` indented 0–3 spaces, so `>  >` /
+/// `>   >` / `>\t>` are depth 2 (GitHub #259).
 fn quote_marker_depth(line: &str) -> usize {
-    let mut rest = line.trim_start();
+    let mut rest = line;
     let mut depth = 0;
-    while let Some(after) = rest.strip_prefix('>') {
+    loop {
+        rest = html_block_rest(rest);
+        let Some(after) = rest.strip_prefix('>') else {
+            break;
+        };
         depth += 1;
-        rest = after.strip_prefix(' ').unwrap_or(after);
+        rest = quote_after_gt(after);
     }
     depth
 }
 
-/// Strip exactly `depth` blockquote markers (`>` plus optional space).
-/// Leading whitespace is skipped once, matching [`quote_marker_depth`].
+/// Strip exactly `depth` blockquote markers (`>` plus optional space
+/// or tab). Indent before each marker matches [`quote_marker_depth`]:
+/// 0–3 spaces only.
 fn strip_quote_markers(line: &str, depth: usize) -> Option<&str> {
     if depth == 0 {
         return Some(line);
     }
-    let mut rest = line.trim_start();
+    let mut rest = line;
     for _ in 0..depth {
+        rest = html_block_rest(rest);
         rest = rest.strip_prefix('>')?;
-        rest = rest.strip_prefix(' ').unwrap_or(rest);
+        rest = quote_after_gt(rest);
     }
     Some(rest)
 }
@@ -819,6 +837,23 @@ fn is_list_setext_pair(title: &str, underline: &str) -> bool {
         return false;
     };
     is_setext_underline(under_body) && line_indent(under_body) >= hang
+}
+
+/// Quoted title plus matching-depth underline after stripping markers.
+/// `is_setext_title_line` rejects `QUOTE_RE`, so `>  > Bar` / `>  > ===`
+/// would otherwise never pair (GitHub #259).
+fn is_quoted_setext_pair(title: &str, underline: &str) -> bool {
+    let depth = quote_marker_depth(title);
+    if depth == 0 {
+        return false;
+    }
+    let Some(title_body) = strip_quote_markers(title, depth) else {
+        return false;
+    };
+    let Some(under_body) = strip_quote_markers(underline, depth) else {
+        return false;
+    };
+    is_setext_title_line(title_body) && is_setext_underline(under_body)
 }
 
 /// Closing fence: same marker char, length at least the opener, indent at
@@ -1424,17 +1459,24 @@ impl FormatParser for MarkdownParser {
             // comments and indented code are already emitted.
             if i + 1 < total
                 && ((is_setext_title_line(line_text) && is_setext_underline(lines[i + 1].text))
-                    || is_list_setext_pair(line_text, lines[i + 1].text))
+                    || is_list_setext_pair(line_text, lines[i + 1].text)
+                    || is_quoted_setext_pair(line_text, lines[i + 1].text))
             {
                 // List/quote items reuse `in_list_item`; do not walk back
                 // into the marker line. A list opener as the last title
                 // line interrupts (CM 5.2): only that line is the heading.
-                // A lazy `---` after `> Foo` is a break (CM ex. 93), not a
-                // heading of the quote. Empty `current_prose` means the last
-                // flush already closed the paragraph (HTML comment, …).
+                // A deeper nested quote (`>  >` after `>`) interrupts the
+                // outer quote paragraph (GitHub #259). A lazy `---` after
+                // `> Foo` is a break (CM ex. 93), not a heading of the quote.
+                // Empty `current_prose` means the last flush already closed
+                // the paragraph (HTML comment, …).
+                let nested_quote = is_quoted_setext_pair(line_text, lines[i + 1].text)
+                    && i > 0
+                    && quote_marker_depth(line_text) > quote_marker_depth(lines[i - 1].text);
                 let start = if in_list_item
                     || current_prose.is_empty()
                     || is_list_setext_pair(line_text, lines[i + 1].text)
+                    || nested_quote
                 {
                     i
                 } else {
@@ -2760,6 +2802,32 @@ mod tests {
             ),
             "quoted hang 2 plus two-space-in-quote is at hang"
         );
+    }
+
+    #[test]
+    fn quote_marker_depth_allows_up_to_three_spaces_between_markers() {
+        assert_eq!(quote_marker_depth(">> Bar"), 2);
+        assert_eq!(quote_marker_depth("> > Bar"), 2);
+        assert_eq!(quote_marker_depth(">  > Bar"), 2);
+        assert_eq!(quote_marker_depth(">   > Bar"), 2);
+        assert_eq!(quote_marker_depth(">    > Bar"), 2);
+        assert_eq!(quote_marker_depth(">     > Bar"), 1);
+        assert_eq!(quote_marker_depth(">\t> Bar"), 2);
+        assert_eq!(quote_marker_depth("    > ======="), 0);
+        assert_eq!(quote_marker_depth("\t> ======="), 0);
+        assert_eq!(quote_marker_depth("   > ======="), 1);
+        assert_eq!(strip_quote_markers(">  > =======", 2), Some("======="));
+        assert_eq!(strip_quote_markers(">   > =======", 2), Some("======="));
+        assert_eq!(strip_quote_markers(">\t> =======", 2), Some("======="));
+        assert_eq!(strip_quote_markers(">     > Bar", 1), Some("    > Bar"));
+        assert!(is_quoted_setext_pair(
+            ">  > Bar is the second title line.",
+            ">  > ======="
+        ));
+        assert!(!is_quoted_setext_pair(
+            "> Foo is the first title line. Still title.",
+            ">  > ======="
+        ));
     }
 
     #[test]
