@@ -138,7 +138,8 @@ static LSTLISTING_LANG_RE: LazyLock<Regex> = LazyLock::new(|| {
 /// `Verbatim*` / `BVerbatim` / `BVerbatim*` / `LVerbatim` /
 /// `LVerbatim*` / `SaveVerbatim` / `VerbatimOut` / `VerbatimWrite`,
 /// moreverb `boxedverbatim` / `verbatimtab`, tcolorbox `tcblisting` /
-/// `tcblisting*` / `codeexample`, standard `alltt` (alltt.sty: macros
+/// `tcblisting*` / `codeexample` / `tcbverbatimwrite` / `tcbwritetemp`,
+/// standard `alltt` (alltt.sty: macros
 /// still apply, line breaks stay raw; GitHub #230), spverbatim.sty `spverbatim`
 /// (raw body; `\spverb` is the matching delimiter-body command,
 /// GitHub #235), and the `comment` package env (tree-sitter
@@ -153,7 +154,9 @@ static LSTLISTING_LANG_RE: LazyLock<Regex> = LazyLock::new(|| {
 /// `\lstnewenvironment{lstlisting}` also defines `lstlisting*` (same
 /// raw body scan; GitHub #234). tcolorbox listings library
 /// `tcblisting*` is the starred twin of `tcblisting` (same raw listing
-/// body; GitHub #246). moreverb `verbatimtab` is the same tab-expanding
+/// body; GitHub #246). tcolorbox `tcbverbatimwrite` / `tcbwritetemp`
+/// write the env body raw to a file (same verbatim grab as `VerbatimOut`;
+/// GitHub #280). moreverb `verbatimtab` is the same tab-expanding
 /// raw class as `boxedverbatim` (GitHub #250). minted.sty `minted*` is
 /// the starred twin of `minted` (same FV@Scan / minted body; GitHub #273).
 fn is_builtin_code_env(name: &str) -> bool {
@@ -179,6 +182,8 @@ fn is_builtin_code_env(name: &str) -> bool {
             | "verbatimtab"
             | "tcblisting"
             | "tcblisting*"
+            | "tcbverbatimwrite"
+            | "tcbwritetemp"
             | "codeexample"
             | "spverbatim"
             | "filecontents"
@@ -3531,6 +3536,74 @@ Some text.
             "prose after tcblisting* must still split, got:\n{out}"
         );
         assert_eq!(format_text(&out, &latex_cfg()).unwrap(), out);
+    }
+
+    /// Ticket fixture (GitHub #280): tcolorbox `tcbverbatimwrite` /
+    /// `tcbwritetemp` write the env body raw to a file (same verbatim
+    /// grab as `VerbatimOut`). Body stays Code; following prose still
+    /// splits. `tcbverbatimwrite` keeps the required `{file}` arg on
+    /// the begin header; `tcbwritetemp` has no file arg.
+    #[test]
+    fn tcolorbox_tcbverbatimwrite_tcbwritetemp_are_code_not_prose() {
+        use crate::format_text;
+
+        for (name, begin) in [
+            ("tcbverbatimwrite", r"\begin{tcbverbatimwrite}{out.tex}"),
+            ("tcbwritetemp", r"\begin{tcbwritetemp}"),
+        ] {
+            let input = format!(
+                "{begin}\nFirst line. Second line.\n\\end{{{name}}}\nAfter the block. Next.\n"
+            );
+            let regions = LatexParser::default().parse(&input);
+            let code = regions.iter().find_map(|r| match r {
+                Region::Code {
+                    header,
+                    body,
+                    footer,
+                    ..
+                } => Some((header.as_str(), body.as_str(), footer.as_str())),
+                _ => None,
+            });
+            let Some((header, body, footer)) = code else {
+                panic!("{name} must be Code, got: {regions:?}");
+            };
+            assert!(
+                header.contains(begin),
+                "{name} begin header must stay intact, got header={header:?}"
+            );
+            assert!(
+                body.contains("First line. Second line."),
+                "{name} body must keep both sentences, got body={body:?}"
+            );
+            assert!(
+                footer.contains(&format!("\\end{{{name}}}")),
+                "{name} footer must be \\end{{{name}}}, got footer={footer:?}"
+            );
+            assert!(
+                !regions
+                    .iter()
+                    .any(|r| matches!(r, Region::Prose(p) if p.contains("First line"))),
+                "{name} body must not leak into Prose, got: {regions:?}"
+            );
+            let out = format_text(&input, &latex_cfg()).unwrap();
+            assert!(
+                out.contains(begin) && out.contains(&format!("\\end{{{name}}}")),
+                "{name} begin/end must stay, got:\n{out}"
+            );
+            assert!(
+                out.contains("First line. Second line."),
+                "{name} body must stay one source line, got:\n{out}"
+            );
+            assert!(
+                !out.contains("First line.\nSecond line."),
+                "{name} must not reflow as prose, got:\n{out}"
+            );
+            assert!(
+                out.contains("After the block.\nNext."),
+                "prose after {name} must still split, got:\n{out}"
+            );
+            assert_eq!(format_text(&out, &latex_cfg()).unwrap(), out);
+        }
     }
 
     #[test]

@@ -116,6 +116,7 @@ pub struct FormatConfig {
     /// Extra LaTeX environments treated as code (no reflow), added to
     /// minted/minted*/lstlisting/lstlisting*/verbatim/comment, filecontents, tree-sitter
     /// trivia, Overleaf Verbatim/boxedverbatim/tcblisting/tcblisting*/codeexample,
+    /// tcolorbox tcbverbatimwrite/tcbwritetemp,
     /// fancyvrb BVerbatim/LVerbatim/SaveVerbatim/VerbatimOut/VerbatimWrite and
     /// Verbatim*/BVerbatim*/LVerbatim*,
     /// moreverb boxedverbatim/verbatimtab, standard alltt, spverbatim,
