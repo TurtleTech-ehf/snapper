@@ -21,7 +21,7 @@ The classification depends on the format.
 - Non-source =#+BEGIN_*= ...
 =#+END_*= fences, and the bodies of literal blocks (example, export, comment)
 - Dynamic blocks (=#+BEGIN: NAME= ... =#+END:=), including the generated body
-- Quote, verse, center, and special-block (NOTE and other unknown NAME) open/close lines; verse inner lines stay unjoined
+- Quote, verse, center, and special-block (NOTE and other unknown NAME) open/close lines; verse inner lines stay unjoined, and a two-sentence verse line stays one physical line
 - Special-block interiors (NOTE, ABSTRACT, WARNING, ...) reflow as prose
 - =:PROPERTIES:= ...
 =:END:= drawers
