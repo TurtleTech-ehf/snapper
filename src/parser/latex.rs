@@ -113,9 +113,11 @@ fn is_float_env(name: &str) -> bool {
     matches!(name, "figure" | "figure*" | "table" | "table*")
 }
 
-/// `\begin{minted}{LANG}` -- the language is the brace argument after the env.
+/// `\begin{minted}{LANG}` / `\begin{minted*}{LANG}` -- language is the brace
+/// argument after the env. minted.sty `minted*` is the starred twin (same
+/// FV@Scan / minted body; GitHub #273).
 static MINTED_LANG_RE: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"\\begin\{minted\}\s*(?:\[[^\]]*\])?\s*\{([^}]+)\}").unwrap());
+    LazyLock::new(|| Regex::new(r"\\begin\{minted\*?\}\s*(?:\[[^\]]*\])?\s*\{([^}]+)\}").unwrap());
 
 /// `\begin{lstlisting}[language=LANG, ...]` / `\begin{lstlisting*}[...]`.
 /// listings.sty `\lstnewenvironment{lstlisting}` defines both names.
@@ -151,11 +153,13 @@ static LSTLISTING_LANG_RE: LazyLock<Regex> = LazyLock::new(|| {
 /// raw body scan; GitHub #234). tcolorbox listings library
 /// `tcblisting*` is the starred twin of `tcblisting` (same raw listing
 /// body; GitHub #246). moreverb `verbatimtab` is the same tab-expanding
-/// raw class as `boxedverbatim` (GitHub #250).
+/// raw class as `boxedverbatim` (GitHub #250). minted.sty `minted*` is
+/// the starred twin of `minted` (same FV@Scan / minted body; GitHub #273).
 fn is_builtin_code_env(name: &str) -> bool {
     matches!(
         name,
         "minted"
+            | "minted*"
             | "lstlisting"
             | "lstlisting*"
             | "verbatim"
@@ -770,7 +774,7 @@ impl<'a> ParseState<'a> {
     fn enter_code(&mut self, env_name: &str, line: Line<'_>, hit_start: usize) {
         self.flush();
         let header_src = &line.text[hit_start..];
-        self.code_lang = if env_name == "minted" {
+        self.code_lang = if env_name == "minted" || env_name == "minted*" {
             MINTED_LANG_RE
                 .captures(header_src)
                 .map(|c| c.get(1).unwrap().as_str().to_string())
@@ -3133,6 +3137,127 @@ Some text.
                 .iter()
                 .any(|r| matches!(r, Region::Prose(p) if p.contains("After the block"))),
             "prose after lstlisting* % closer must resume, got: {raw_regions:?}"
+        );
+    }
+
+    /// Ticket fixture (GitHub #273): minted.sty `minted*` is the starred
+    /// twin of `minted`. Body stays Code; following prose still splits.
+    /// Unstarred `minted` is unchanged.
+    #[test]
+    fn minted_star_is_code_not_prose() {
+        use crate::format_text;
+
+        let input = concat!(
+            "\\begin{minted*}\n",
+            "First line. Second line.\n",
+            "\\end{minted*}\n",
+            "After the block. Next.\n",
+        );
+        let regions = LatexParser::default().parse(input);
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Code { body, .. } if body.contains("First line. Second line.")
+            )),
+            "minted* body must be Code, got: {regions:?}"
+        );
+        assert!(
+            !regions
+                .iter()
+                .any(|r| matches!(r, Region::Prose(p) if p.contains("First line"))),
+            "minted* body must not leak into Prose, got: {regions:?}"
+        );
+        let out = format_text(input, &latex_cfg()).unwrap();
+        assert!(
+            out.contains("\\begin{minted*}") && out.contains("\\end{minted*}"),
+            "minted* begin/end must stay, got:\n{out}"
+        );
+        assert!(
+            out.contains("First line. Second line."),
+            "minted* body must stay one source line, got:\n{out}"
+        );
+        assert!(
+            !out.contains("First line.\nSecond line."),
+            "minted* must not reflow as prose, got:\n{out}"
+        );
+        assert!(
+            out.contains("After the block.\nNext."),
+            "prose after minted* must still split, got:\n{out}"
+        );
+        assert_eq!(format_text(&out, &latex_cfg()).unwrap(), out);
+
+        let lang = concat!(
+            "\\begin{minted*}{python}\n",
+            "print(1) # First. Second.\n",
+            "\\end{minted*}\n",
+            "After the block. Next.\n",
+        );
+        let lang_regions = LatexParser::default().parse(lang);
+        let lang_code = lang_regions.iter().find_map(|r| match r {
+            Region::Code {
+                lang, body, header, ..
+            } => Some((lang.as_deref(), body.as_str(), header.as_str())),
+            _ => None,
+        });
+        let Some((got_lang, body, header)) = lang_code else {
+            panic!("minted* with {{lang}} must be Code, got: {lang_regions:?}");
+        };
+        assert_eq!(
+            got_lang,
+            Some("python"),
+            "minted* language arg must parse like minted, got lang={got_lang:?}"
+        );
+        assert!(
+            header.contains(r"\begin{minted*}{python}"),
+            "required language arg must stay on the begin header, got header={header:?}"
+        );
+        assert!(
+            body.contains("print(1) # First. Second."),
+            "minted* language body must stay Code, got body={body:?}"
+        );
+        let lang_out = format_text(lang, &latex_cfg()).unwrap();
+        assert!(
+            lang_out.contains("print(1) # First. Second."),
+            "minted* language body must not reflow, got:\n{lang_out}"
+        );
+        assert!(
+            lang_out.contains("After the block.\nNext."),
+            "prose after minted* language must still split, got:\n{lang_out}"
+        );
+        assert_eq!(format_text(&lang_out, &latex_cfg()).unwrap(), lang_out);
+
+        let unstarred = concat!(
+            "\\begin{minted}{python}\n",
+            "print(1)\n",
+            "print(2)\n",
+            "\\end{minted}\n",
+            "After the block. Next.\n",
+        );
+        let unstarred_regions = LatexParser::default().parse(unstarred);
+        let unstarred_code = unstarred_regions.iter().find_map(|r| match r {
+            Region::Code { lang, body, .. } => Some((lang.as_deref(), body.as_str())),
+            _ => None,
+        });
+        let Some((got_lang, body)) = unstarred_code else {
+            panic!("unstarred minted must stay Code, got: {unstarred_regions:?}");
+        };
+        assert_eq!(got_lang, Some("python"));
+        assert!(
+            body.contains("print(1)") && body.contains("print(2)"),
+            "unstarred minted body must stay Code, got body={body:?}"
+        );
+        let unstarred_out = format_text(unstarred, &latex_cfg()).unwrap();
+        assert!(
+            unstarred_out.contains("\\begin{minted}{python}\nprint(1)\nprint(2)\n\\end{minted}"),
+            "unstarred minted must stay a code env, got:\n{unstarred_out}"
+        );
+        assert!(
+            unstarred_out.contains("After the block.\nNext."),
+            "prose after unstarred minted must still split, got:\n{unstarred_out}"
+        );
+        assert_eq!(
+            format_text(&unstarred_out, &latex_cfg()).unwrap(),
+            unstarred_out
         );
     }
 
