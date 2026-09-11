@@ -243,13 +243,17 @@ impl OrgParser {
     }
 
     /// org-element planning (`DEADLINE:`/`SCHEDULED:`/`CLOSED:`) or clock (`CLOCK:`).
-    /// Leading space/tab is allowed; keywords are the default org strings.
+    /// Leading space/tab is allowed. `org-element--current-element` binds
+    /// `case-fold-search` t before `org-element-planning-line-re` and
+    /// `org-element-clock-line-re`, so prefixes compare ignore ASCII case.
     fn is_planning_or_clock(line: &str) -> bool {
         let t = line.trim_start_matches([' ', '\t']);
-        t.starts_with("DEADLINE:")
-            || t.starts_with("SCHEDULED:")
-            || t.starts_with("CLOSED:")
-            || t.starts_with("CLOCK:")
+        const KEYS: [&str; 4] = ["DEADLINE:", "SCHEDULED:", "CLOSED:", "CLOCK:"];
+        KEYS.iter().any(|k| {
+            t.as_bytes()
+                .get(..k.len())
+                .is_some_and(|head| head.eq_ignore_ascii_case(k.as_bytes()))
+        })
     }
 
     /// org-element-diary-sexp-parser / org-element-paragraph-separate:
@@ -2627,6 +2631,131 @@ mod tests {
         assert!(
             out.contains("Body starts here.\nSecond sentence."),
             "prose after planning must still reflow, got:\n{out}"
+        );
+        assert_eq!(format_text(&out, &org_cfg()).unwrap(), out);
+    }
+
+    /// GitHub #319 / snapper-svbp: Emacs binds `case-fold-search` t, so
+    /// lowercase planning/clock stay Structure and do not join prose.
+    fn svbp_lowercase_deadline_fixture() -> &'static str {
+        "deadline: <2026-01-01 Wed>\nAfter planning. Next sentence.\n"
+    }
+
+    #[test]
+    fn lowercase_deadline_is_structure_not_joined_prose() {
+        use crate::format_text;
+
+        let input = svbp_lowercase_deadline_fixture();
+        let regions = OrgParser.parse(input);
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Structure(s) if s.contains("deadline: <2026-01-01 Wed>")
+            )),
+            "deadline: must be Structure, got: {regions:?}"
+        );
+        assert!(
+            !regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(p) if p.contains("deadline:")
+            )),
+            "deadline: must not join the following paragraph, got: {regions:?}"
+        );
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(p) if p.contains("After planning.") && p.contains("Next sentence.")
+            )),
+            "prose after deadline: must stay Prose, got: {regions:?}"
+        );
+        let out = format_text(input, &org_cfg()).unwrap();
+        assert!(
+            out.contains("deadline: <2026-01-01 Wed>\nAfter planning."),
+            "deadline: must stay its own line, got:\n{out}"
+        );
+        assert!(
+            !out.contains("deadline: <2026-01-01 Wed> After planning."),
+            "deadline: must not glue onto the next paragraph, got:\n{out}"
+        );
+        assert!(
+            out.contains("After planning.\nNext sentence."),
+            "prose after deadline: must still reflow, got:\n{out}"
+        );
+        assert_eq!(format_text(&out, &org_cfg()).unwrap(), out);
+    }
+
+    #[test]
+    fn lowercase_clock_is_structure_not_joined_prose() {
+        use crate::format_text;
+
+        let input = "clock: [2026-01-01 Thu 10:00]\nAfter planning. Next sentence.\n";
+        let regions = OrgParser.parse(input);
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Structure(s) if s.contains("clock: [2026-01-01 Thu 10:00]")
+            )),
+            "clock: must be Structure, got: {regions:?}"
+        );
+        assert!(
+            !regions
+                .iter()
+                .any(|r| matches!(r, Region::Prose(p) if p.contains("clock:"))),
+            "clock: must not join the following paragraph, got: {regions:?}"
+        );
+        let out = format_text(input, &org_cfg()).unwrap();
+        assert!(
+            out.contains("clock: [2026-01-01 Thu 10:00]\nAfter planning."),
+            "clock: must stay its own line, got:\n{out}"
+        );
+        assert!(
+            !out.contains("clock: [2026-01-01 Thu 10:00] After planning."),
+            "clock: must not glue onto the next paragraph, got:\n{out}"
+        );
+        assert!(
+            out.contains("After planning.\nNext sentence."),
+            "prose after clock: must still reflow, got:\n{out}"
+        );
+        assert_eq!(format_text(&out, &org_cfg()).unwrap(), out);
+    }
+
+    #[test]
+    fn mixed_case_planning_and_clock_are_structure() {
+        use crate::format_text;
+
+        let input = concat!(
+            "* TODO Task\n",
+            "Deadline: <2026-01-01 Wed>\n",
+            "Scheduled: <2026-01-02 Thu>\n",
+            "Closed: [2026-01-01 Wed 09:00]\n",
+            "Clock: [2026-01-01 Thu 10:00]\n",
+            "After planning. Next sentence.\n",
+        );
+        let regions = OrgParser.parse(input);
+        for token in ["Deadline:", "Scheduled:", "Closed:", "Clock:"] {
+            assert!(
+                regions.iter().any(|r| matches!(
+                    r,
+                    Region::Structure(s) if s.contains(token)
+                )),
+                "{token} must be Structure, got: {regions:?}"
+            );
+            assert!(
+                !regions.iter().any(|r| matches!(
+                    r,
+                    Region::Prose(p) if p.contains(token)
+                )),
+                "{token} must not join prose, got: {regions:?}"
+            );
+        }
+        let out = format_text(input, &org_cfg()).unwrap();
+        assert!(
+            out.contains("Deadline: <2026-01-01 Wed>\nScheduled: <2026-01-02 Thu>\nClosed: [2026-01-01 Wed 09:00]\nClock: [2026-01-01 Thu 10:00]\nAfter planning."),
+            "mixed-case planning/clock must stay their own lines, got:\n{out}"
+        );
+        assert!(
+            out.contains("After planning.\nNext sentence."),
+            "prose after mixed-case planning must still reflow, got:\n{out}"
         );
         assert_eq!(format_text(&out, &org_cfg()).unwrap(), out);
     }
