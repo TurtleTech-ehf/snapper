@@ -618,3 +618,78 @@ fn matching_two_space_nested_quote_setext_promotes_both_title_lines() {
         "one-line >  > setext must not leave Foo Prose, got: {one_regions:?}"
     );
 }
+
+/// snapper-grff / GitHub #260: underline indent 1..hang-1 is outside the
+/// list item. Setext cannot be a lazy continuation (CM 4.3). Hang of
+/// `- ` is 2, so ` =======` is not a closer. One-space `---` is a
+/// thematic break. Hung indent == hang stays a heading.
+#[test]
+fn list_underline_indent_below_hang_is_not_setext() {
+    let input = concat!(
+        "- Foo is the first title line. Still title.\n",
+        "  Bar is the second title line.\n",
+        " =======\n",
+        "\n",
+        "Body after setext. Second body.\n",
+    );
+    let regions = MarkdownParser.parse(input);
+    assert!(
+        regions.iter().any(|r| matches!(
+            r,
+            Region::Prose(p) if p.contains("Still title") || p.contains("Foo is the first")
+        )),
+        "indent-1 ======= must not promote the list item, got: {regions:?}"
+    );
+    assert!(
+        !regions.iter().any(|r| matches!(
+            r,
+            Region::Structure(s) if s.contains("Foo is the first title line.")
+        )),
+        "Foo must stay Prose, got: {regions:?}"
+    );
+    let out = format_text(input, &md_cfg()).unwrap();
+    assert!(
+        out.contains("first title line.\n"),
+        "Foo must still split, got:\n{out}"
+    );
+    assert!(
+        out.contains("Body after setext.\nSecond body."),
+        "body Prose must still split, got:\n{out}"
+    );
+
+    let dash = concat!(
+        "- Foo is the first title line. Still title.\n",
+        "  Bar is the second title line.\n",
+        " ---\n",
+        "\n",
+        "Body after setext. Second body.\n",
+    );
+    let dash_regions = MarkdownParser.parse(dash);
+    assert!(
+        dash_regions.iter().any(|r| matches!(
+            r,
+            Region::Prose(p) if p.contains("Still title") || p.contains("Foo is the first")
+        )),
+        "Foo must stay Prose under space-dash, got: {dash_regions:?}"
+    );
+    assert!(
+        dash_regions
+            .iter()
+            .any(|r| matches!(r, Region::Structure(s) if s.trim() == "---")),
+        "one-space --- after a list is a thematic break, got: {dash_regions:?}"
+    );
+
+    let hung = concat!(
+        "- Foo is the first title line. Still title.\n",
+        "  Bar is the second title line.\n",
+        "  =======\n",
+    );
+    let hung_regions = MarkdownParser.parse(hung);
+    assert!(
+        !hung_regions.iter().any(|r| matches!(
+            r,
+            Region::Prose(p) if p.contains("Still title") || p.contains("Foo is the first")
+        )),
+        "hang-2 ======= must stay a heading, got: {hung_regions:?}"
+    );
+}
