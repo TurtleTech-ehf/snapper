@@ -141,7 +141,7 @@ static LSTLISTING_LANG_RE: LazyLock<Regex> = LazyLock::new(|| {
 /// plus latex2e `verbatim*` / fancyvrb `Verbatim` /
 /// `Verbatim*` / `BVerbatim` / `BVerbatim*` / `LVerbatim` /
 /// `LVerbatim*` / `SaveVerbatim` / `VerbatimOut` / `VerbatimWrite` /
-/// fvextra `VerbEnv`,
+/// `VerbatimBuffer` / fvextra `VerbEnv`,
 /// moreverb `boxedverbatim` / `verbatimtab` / `listing` / `listingcont` /
 /// `listing*` / `listingcont*`, tcolorbox `tcblisting` /
 /// `tcblisting*` / `codeexample` / `tcbverbatimwrite` / `tcbwritetemp`,
@@ -155,8 +155,10 @@ static LSTLISTING_LANG_RE: LazyLock<Regex> = LazyLock::new(|| {
 /// class as `Verbatim` (GitHub #209). `SaveVerbatim` / `VerbatimOut`
 /// are the same `FV@Scan` class (GitHub #213). fvextra `VerbatimWrite`
 /// is the same `FV@Scan` class as `VerbatimOut` (GitHub #247). fvextra
-/// `VerbEnv` is the environment form of `Verb` (single-line raw body,
-/// closer on its own line; GitHub #293). fancyvrb
+/// `VerbatimBuffer` is the same raw grab as `VerbatimWrite`
+/// (detokenize buffer; GitHub #292). fvextra `VerbEnv` is the
+/// environment form of `Verb` (single-line raw body, closer on its
+/// own line; GitHub #293). fancyvrb
 /// `Verbatim*` / `BVerbatim*` / `LVerbatim*` are the starred twins
 /// (same `\FV@Scan`; GitHub #244). listings.sty
 /// `\lstnewenvironment{lstlisting}` also defines `lstlisting*` (same
@@ -189,6 +191,7 @@ fn is_builtin_code_env(name: &str) -> bool {
             | "SaveVerbatim"
             | "VerbatimOut"
             | "VerbatimWrite"
+            | "VerbatimBuffer"
             | "VerbEnv"
             | "alltt"
             | "boxedverbatim"
@@ -2872,6 +2875,70 @@ Some text.
         assert!(
             out.contains("After the block.\nNext."),
             "prose after VerbatimWrite must still split, got:\n{out}"
+        );
+        assert_eq!(format_text(&out, &latex_cfg()).unwrap(), out);
+    }
+
+    /// Ticket fixture (GitHub #292): fvextra VerbatimBuffer is the same
+    /// raw grab as VerbatimWrite (detokenize buffer). Body stays Code;
+    /// following prose still splits.
+    #[test]
+    fn fvextra_verbatimbuffer_is_code_not_prose() {
+        use crate::format_text;
+
+        let input = concat!(
+            "\\begin{VerbatimBuffer}\n",
+            "First line. Second line.\n",
+            "\\end{VerbatimBuffer}\n",
+            "After the block. Next.\n",
+        );
+        let regions = LatexParser::default().parse(input);
+        let code = regions.iter().find_map(|r| match r {
+            Region::Code {
+                header,
+                body,
+                footer,
+                ..
+            } => Some((header.as_str(), body.as_str(), footer.as_str())),
+            _ => None,
+        });
+        let Some((header, body, footer)) = code else {
+            panic!("VerbatimBuffer must be Code, got: {regions:?}");
+        };
+        assert!(
+            header.contains(r"\begin{VerbatimBuffer}"),
+            "VerbatimBuffer begin must stay on the header, got header={header:?}"
+        );
+        assert!(
+            body.contains("First line. Second line."),
+            "VerbatimBuffer body must keep both sentences, got body={body:?}"
+        );
+        assert!(
+            footer.contains(r"\end{VerbatimBuffer}"),
+            "VerbatimBuffer footer must be \\end{{VerbatimBuffer}}, got footer={footer:?}"
+        );
+        assert!(
+            !regions
+                .iter()
+                .any(|r| matches!(r, Region::Prose(p) if p.contains("First line"))),
+            "VerbatimBuffer body must not leak into Prose, got: {regions:?}"
+        );
+        let out = format_text(input, &latex_cfg()).unwrap();
+        assert!(
+            out.contains(r"\begin{VerbatimBuffer}") && out.contains(r"\end{VerbatimBuffer}"),
+            "VerbatimBuffer begin/end must stay, got:\n{out}"
+        );
+        assert!(
+            out.contains("First line. Second line."),
+            "VerbatimBuffer body must stay one source line, got:\n{out}"
+        );
+        assert!(
+            !out.contains("First line.\nSecond line."),
+            "VerbatimBuffer must not reflow as prose, got:\n{out}"
+        );
+        assert!(
+            out.contains("After the block.\nNext."),
+            "prose after VerbatimBuffer must still split, got:\n{out}"
         );
         assert_eq!(format_text(&out, &latex_cfg()).unwrap(), out);
     }
