@@ -134,7 +134,8 @@ static LSTLISTING_LANG_RE: LazyLock<Regex> = LazyLock::new(|| {
 /// plus latex2e `verbatim*` / fancyvrb `Verbatim` /
 /// `Verbatim*` / `BVerbatim` / `BVerbatim*` / `LVerbatim` /
 /// `LVerbatim*` / `SaveVerbatim` / `VerbatimOut` / `VerbatimWrite`,
-/// moreverb `boxedverbatim` / `verbatimtab`, tcolorbox `tcblisting` /
+/// moreverb `boxedverbatim` / `verbatimtab` / `listing` / `listingcont` /
+/// `listing*` / `listingcont*`, tcolorbox `tcblisting` /
 /// `tcblisting*` / `codeexample`, standard `alltt` (alltt.sty: macros
 /// still apply, line breaks stay raw; GitHub #230), spverbatim.sty `spverbatim`
 /// (raw body; `\spverb` is the matching delimiter-body command,
@@ -151,7 +152,10 @@ static LSTLISTING_LANG_RE: LazyLock<Regex> = LazyLock::new(|| {
 /// raw body scan; GitHub #234). tcolorbox listings library
 /// `tcblisting*` is the starred twin of `tcblisting` (same raw listing
 /// body; GitHub #246). moreverb `verbatimtab` is the same tab-expanding
-/// raw class as `boxedverbatim` (GitHub #250).
+/// raw class as `boxedverbatim` (GitHub #250). moreverb `listing` /
+/// `listingcont` / `listing*` / `listingcont*` grab a raw
+/// `verbatim@start` body (`listing` / `listing*` take a start-line
+/// arg; starred twins do not expand tabs; GitHub #279).
 fn is_builtin_code_env(name: &str) -> bool {
     matches!(
         name,
@@ -172,6 +176,10 @@ fn is_builtin_code_env(name: &str) -> bool {
             | "alltt"
             | "boxedverbatim"
             | "verbatimtab"
+            | "listing"
+            | "listingcont"
+            | "listing*"
+            | "listingcont*"
             | "tcblisting"
             | "tcblisting*"
             | "codeexample"
@@ -3281,6 +3289,81 @@ Some text.
             "prose after verbatimtab must still split, got:\n{out}"
         );
         assert_eq!(format_text(&out, &latex_cfg()).unwrap(), out);
+    }
+
+    /// Ticket fixture (GitHub #279): moreverb `listing` / `listingcont`
+    /// / `listing*` / `listingcont*` grab a raw `verbatim@start` body.
+    /// `listing` / `listing*` keep the required start-line arg on the
+    /// begin header. Body stays Code; following prose still splits.
+    #[test]
+    fn moreverb_listing_envs_are_code_not_prose() {
+        use crate::format_text;
+
+        let cases = [
+            ("listing", Some("{1}")),
+            ("listingcont", None),
+            ("listing*", Some("{1}")),
+            ("listingcont*", None),
+        ];
+        for (name, arg) in cases {
+            let begin = match arg {
+                Some(a) => format!("\\begin{{{name}}}{a}"),
+                None => format!("\\begin{{{name}}}"),
+            };
+            let input = format!(
+                "{begin}\nFirst line. Second line.\n\\end{{{name}}}\nAfter the block. Next.\n"
+            );
+            let regions = LatexParser::default().parse(&input);
+            let code = regions.iter().find_map(|r| match r {
+                Region::Code {
+                    header,
+                    body,
+                    footer,
+                    ..
+                } => Some((header.as_str(), body.as_str(), footer.as_str())),
+                _ => None,
+            });
+            let Some((header, body, footer)) = code else {
+                panic!("{name} must be Code, got: {regions:?}");
+            };
+            assert!(
+                header.contains(&begin),
+                "{name} begin must stay on the header, got header={header:?}"
+            );
+            assert!(
+                body.contains("First line. Second line."),
+                "{name} body must keep both sentences, got body={body:?}"
+            );
+            assert!(
+                footer.contains(&format!("\\end{{{name}}}")),
+                "{name} footer must stay, got footer={footer:?}"
+            );
+            assert!(
+                !regions.iter().any(|r| matches!(
+                    r,
+                    Region::Prose(p) if p.contains("First line") || p.contains("{1}")
+                )),
+                "{name} body/arg must not leak into Prose, got: {regions:?}"
+            );
+            let out = format_text(&input, &latex_cfg()).unwrap();
+            assert!(
+                out.contains(&begin) && out.contains(&format!("\\end{{{name}}}")),
+                "{name} begin/end must stay, got:\n{out}"
+            );
+            assert!(
+                out.contains("First line. Second line."),
+                "{name} body must stay one source line, got:\n{out}"
+            );
+            assert!(
+                !out.contains("First line.\nSecond line."),
+                "{name} must not reflow as prose, got:\n{out}"
+            );
+            assert!(
+                out.contains("After the block.\nNext."),
+                "prose after {name} must still split, got:\n{out}"
+            );
+            assert_eq!(format_text(&out, &latex_cfg()).unwrap(), out);
+        }
     }
 
     /// Ticket fixture (GitHub #246): tcolorbox listings `tcblisting*`

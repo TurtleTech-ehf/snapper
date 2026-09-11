@@ -18,7 +18,8 @@ pub struct FormatOverrides {
     /// trivia, Overleaf Verbatim/boxedverbatim/tcblisting/tcblisting*/codeexample,
     /// fancyvrb BVerbatim/LVerbatim/SaveVerbatim/VerbatimOut/VerbatimWrite and
     /// Verbatim*/BVerbatim*/LVerbatim*,
-    /// moreverb boxedverbatim/verbatimtab, standard alltt, spverbatim,
+    /// moreverb boxedverbatim/verbatimtab/listing/listingcont/listing*/listingcont*,
+    /// standard alltt, spverbatim,
     /// and pythontex pycode/pyblock/pyverbatim/pyconsole/pygments; entries are
     /// added to it.
     pub verbatim_envs: Vec<String>,
