@@ -1494,7 +1494,41 @@ impl FormatParser for MarkdownParser {
                             lines[i + 1].text,
                             lines[i - 1].text,
                         )))
+                // Open list item: underline indent below hang is lazy
+                // paragraph text, not a closer (GitHub #260).
+                && !(in_list_item
+                    && list_hang.is_some_and(|hang| {
+                        is_setext_underline(lines[i + 1].text)
+                            && line_indent(lines[i + 1].text) < hang
+                    }))
             {
+                // Open list item plus at-hang underline: Foo is already
+                // marker Structure + prose. Promote that prose with the
+                // last title line (GitHub #260).
+                if in_list_item
+                    && list_hang.is_some_and(|hang| {
+                        is_setext_underline(lines[i + 1].text)
+                            && line_indent(lines[i + 1].text) >= hang
+                    })
+                {
+                    flush_prose_as_structure(
+                        &mut current_prose,
+                        &mut prose_span,
+                        input,
+                        &mut regions,
+                    );
+                    if let Some(span) = list_term.take() {
+                        if !span.is_empty() {
+                            regions.push(SpannedRegion::structure(input, span));
+                        }
+                    }
+                    in_list_item = false;
+                    list_hang = None;
+                    regions.push(SpannedRegion::structure(input, line.span()));
+                    regions.push(SpannedRegion::structure(input, lines[i + 1].span()));
+                    i += 2;
+                    continue;
+                }
                 // List/quote items reuse `in_list_item`; do not walk back
                 // into the marker line. A list opener as the last title
                 // line interrupts (CM 5.2): only that line is the heading.
