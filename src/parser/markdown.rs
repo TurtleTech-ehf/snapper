@@ -856,6 +856,20 @@ fn is_quoted_setext_pair(title: &str, underline: &str) -> bool {
     is_setext_title_line(title_body) && is_setext_underline(under_body)
 }
 
+/// Lazy 4-space/tab `> -` title text plus a matching-depth quote underline.
+/// `QUOTE_RE` would treat four spaces as a marker; [`quote_marker_depth`]
+/// does not (GitHub #263). The previous line supplies the open quote depth.
+fn is_quote_continuation_setext_pair(last_title: &str, underline: &str, prev: &str) -> bool {
+    let depth = quote_marker_depth(prev);
+    if depth == 0 || quote_marker_depth(last_title) >= depth {
+        return false;
+    }
+    let Some(under_body) = strip_quote_markers(underline, depth) else {
+        return false;
+    };
+    is_setext_title_line(last_title) && is_setext_underline(under_body)
+}
+
 /// Closing fence: same marker char, length at least the opener, indent at
 /// most `max(3, opener_indent)`. CommonMark allows 0–3 spaces on a closer;
 /// list-nested openers keep their own indent so a matching 4-space closer
@@ -1009,7 +1023,7 @@ fn is_setext_title_line(line: &str) -> bool {
     if TABLE_ROW_RE.is_match(line) {
         return false;
     }
-    if LIST_ITEM_RE.is_match(line) || QUOTE_RE.is_match(line) {
+    if LIST_ITEM_RE.is_match(line) || quote_marker_depth(line) > 0 {
         return false;
     }
     if is_thematic_break(line) {
@@ -1460,7 +1474,13 @@ impl FormatParser for MarkdownParser {
             if i + 1 < total
                 && ((is_setext_title_line(line_text) && is_setext_underline(lines[i + 1].text))
                     || is_list_setext_pair(line_text, lines[i + 1].text)
-                    || is_quoted_setext_pair(line_text, lines[i + 1].text))
+                    || is_quoted_setext_pair(line_text, lines[i + 1].text)
+                    || (i > 0
+                        && is_quote_continuation_setext_pair(
+                            line_text,
+                            lines[i + 1].text,
+                            lines[i - 1].text,
+                        )))
             {
                 // List/quote items reuse `in_list_item`; do not walk back
                 // into the marker line. A list opener as the last title
@@ -1470,6 +1490,36 @@ impl FormatParser for MarkdownParser {
                 // `> Foo` is a break (CM ex. 93), not a heading of the quote.
                 // Empty `current_prose` means the last flush already closed
                 // the paragraph (HTML comment, …).
+                let continuation = i > 0
+                    && is_quote_continuation_setext_pair(
+                        line_text,
+                        lines[i + 1].text,
+                        lines[i - 1].text,
+                    );
+                // Open quote item already emitted `>` as Structure and
+                // holds Foo in current_prose. Promote that prose plus
+                // the lookalike title and underline (GitHub #263).
+                if continuation {
+                    if in_list_item {
+                        flush_prose_as_structure(
+                            &mut current_prose,
+                            &mut prose_span,
+                            input,
+                            &mut regions,
+                        );
+                        if let Some(span) = list_term.take() {
+                            if !span.is_empty() {
+                                regions.push(SpannedRegion::structure(input, span));
+                            }
+                        }
+                        in_list_item = false;
+                        list_hang = None;
+                    }
+                    regions.push(SpannedRegion::structure(input, line.span()));
+                    regions.push(SpannedRegion::structure(input, lines[i + 1].span()));
+                    i += 2;
+                    continue;
+                }
                 let nested_quote = is_quoted_setext_pair(line_text, lines[i + 1].text)
                     && i > 0
                     && quote_marker_depth(line_text) > quote_marker_depth(lines[i - 1].text);
@@ -2827,6 +2877,19 @@ mod tests {
         assert!(!is_quoted_setext_pair(
             "> Foo is the first title line. Still title.",
             ">  > ======="
+        ));
+        assert_eq!(quote_marker_depth("    > - Bar"), 0);
+        assert_eq!(quote_marker_depth("\t> - Bar"), 0);
+        assert_eq!(quote_marker_depth("   > - Bar"), 1);
+        assert!(is_quote_continuation_setext_pair(
+            "    > - Bar is the second title line.",
+            "> =======",
+            "> Foo is the first title line. Still title.",
+        ));
+        assert!(!is_quote_continuation_setext_pair(
+            "   > - Bar is the second title line.",
+            "   >   =======",
+            "> Foo is the first title line. Still title.",
         ));
     }
 

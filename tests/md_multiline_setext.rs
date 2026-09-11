@@ -460,3 +460,93 @@ fn two_or_three_space_nested_quote_leaves_outer_quote_prose() {
         "five-space body Prose must still split, got:\n{five_out}"
     );
 }
+
+/// snapper-48gu / GitHub #263: four spaces is not a `>` marker (CM 5.1)
+/// and indented code cannot interrupt a paragraph (4.4). `    > - Bar`
+/// is title text. Three-space `   > - Bar` is a real quoted list opener
+/// and must still interrupt.
+#[test]
+fn four_space_quoted_list_lookalike_stays_quote_setext_title() {
+    let input = concat!(
+        "> Foo is the first title line. Still title.\n",
+        "    > - Bar is the second title line.\n",
+        "> =======\n",
+        "\n",
+        "Body after setext. Second body.\n",
+    );
+    let regions = MarkdownParser.parse(input);
+    assert!(
+        !regions.iter().any(|r| matches!(
+            r,
+            Region::Prose(p)
+                if p.contains("Still title")
+                    || p.contains("Foo is the first")
+                    || p.contains("Bar is the second")
+        )),
+        "4-space > - lookalike must stay quote setext, got: {regions:?}"
+    );
+    assert!(
+        regions.iter().any(|r| matches!(
+            r,
+            Region::Structure(s) if s.contains("Foo is the first title line.")
+        )),
+        "Foo must be Structure, got: {regions:?}"
+    );
+    assert!(
+        regions.iter().any(|r| matches!(
+            r,
+            Region::Structure(s) if s.contains("Bar is the second title line.")
+        )),
+        "Bar lookalike must be Structure, got: {regions:?}"
+    );
+    let out = format_text(input, &md_cfg()).unwrap();
+    assert!(
+        !out.contains("first title line.\n"),
+        "must not sentence-split the quote setext, got:\n{out}"
+    );
+    assert!(
+        out.contains("Body after setext.\nSecond body."),
+        "body Prose must still split, got:\n{out}"
+    );
+
+    let tab = concat!(
+        "> Foo is the first title line. Still title.\n",
+        "\t> - Bar is the second title line.\n",
+        "> =======\n",
+        "\n",
+        "Body after setext. Second body.\n",
+    );
+    let tab_regions = MarkdownParser.parse(tab);
+    assert!(
+        !tab_regions.iter().any(|r| matches!(
+            r,
+            Region::Prose(p)
+                if p.contains("Still title")
+                    || p.contains("Foo is the first")
+                    || p.contains("Bar is the second")
+        )),
+        "tab > - lookalike must stay quote setext, got: {tab_regions:?}"
+    );
+
+    let three = concat!(
+        "> Foo is the first title line. Still title.\n",
+        "   > - Bar is the second title line.\n",
+        "   >   =======\n",
+    );
+    let three_regions = MarkdownParser.parse(three);
+    assert!(
+        three_regions.iter().any(|r| matches!(
+            r,
+            Region::Prose(p)
+                if p.contains("Still title") || p.contains("Foo is the first")
+        )),
+        "3-space > - must interrupt, got: {three_regions:?}"
+    );
+    assert!(
+        three_regions.iter().any(|r| matches!(
+            r,
+            Region::Structure(s) if s.contains("Bar is the second title line.")
+        )),
+        "3-space quoted list must be the setext title, got: {three_regions:?}"
+    );
+}
