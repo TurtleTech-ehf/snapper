@@ -31,12 +31,6 @@ static LIST_ITEM_RE: LazyLock<Regex> =
 static LIST_LOOKING_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"^[\t ]*(?:[-*+]|\d{1,9}[.)]) ").unwrap());
 
-/// Markdown blockquote prefix: optional indent plus one or more `>`
-/// each followed by an optional space (CommonMark 0.31.2 ex. 229).
-/// Nested `>>text` / `> > text` keeps the full prefix so reflow can
-/// repeat it.
-static QUOTE_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^(\s*(?:> ?)+)(.*)$").unwrap());
-
 /// Match a markdown table row: line whose trimmed form starts and ends with `|`.
 /// Also matches separator rows like `|---|---|`.
 /// GFM 4.10 makes leading/trailing pipes optional; those rows are
@@ -870,6 +864,21 @@ fn is_quote_continuation_setext_pair(last_title: &str, underline: &str, prev: &s
     is_setext_title_line(last_title) && is_setext_underline(under_body)
 }
 
+/// Quoted setext that still respects list hang (GitHub #261 / #262).
+fn quoted_setext_ok(title: &str, underline: &str, prev: Option<&str>) -> bool {
+    if !is_quoted_setext_pair(title, underline) {
+        return false;
+    }
+    let hang = prev
+        .and_then(list_opener_hang)
+        .or_else(|| list_opener_hang(title));
+    let Some(hang) = hang else {
+        return true;
+    };
+    let depth = quote_marker_depth(title);
+    strip_quote_markers(underline, depth).is_some_and(|under_body| line_indent(under_body) >= hang)
+}
+
 /// Closing fence: same marker char, length at least the opener, indent at
 /// most `max(3, opener_indent)`. CommonMark allows 0–3 spaces on a closer;
 /// list-nested openers keep their own indent so a matching 4-space closer
@@ -1474,7 +1483,11 @@ impl FormatParser for MarkdownParser {
             if i + 1 < total
                 && ((is_setext_title_line(line_text) && is_setext_underline(lines[i + 1].text))
                     || is_list_setext_pair(line_text, lines[i + 1].text)
-                    || is_quoted_setext_pair(line_text, lines[i + 1].text)
+                    || quoted_setext_ok(
+                        line_text,
+                        lines[i + 1].text,
+                        if i > 0 { Some(lines[i - 1].text) } else { None },
+                    )
                     || (i > 0
                         && is_quote_continuation_setext_pair(
                             line_text,
@@ -1520,9 +1533,35 @@ impl FormatParser for MarkdownParser {
                     i += 2;
                     continue;
                 }
-                let nested_quote = is_quoted_setext_pair(line_text, lines[i + 1].text)
+                let prev = if i > 0 { Some(lines[i - 1].text) } else { None };
+                let nested_quote = quoted_setext_ok(line_text, lines[i + 1].text, prev)
                     && i > 0
                     && quote_marker_depth(line_text) > quote_marker_depth(lines[i - 1].text);
+                let same_quote = quoted_setext_ok(line_text, lines[i + 1].text, prev)
+                    && i > 0
+                    && quote_marker_depth(line_text) == quote_marker_depth(lines[i - 1].text);
+                // Matching-depth `>  > Foo` / `>  > Bar` / `>  > ===` is
+                // one heading. The first title is already an open quote
+                // item (GitHub #262).
+                if same_quote && in_list_item {
+                    flush_prose_as_structure(
+                        &mut current_prose,
+                        &mut prose_span,
+                        input,
+                        &mut regions,
+                    );
+                    if let Some(span) = list_term.take() {
+                        if !span.is_empty() {
+                            regions.push(SpannedRegion::structure(input, span));
+                        }
+                    }
+                    in_list_item = false;
+                    list_hang = None;
+                    regions.push(SpannedRegion::structure(input, line.span()));
+                    regions.push(SpannedRegion::structure(input, lines[i + 1].span()));
+                    i += 2;
+                    continue;
+                }
                 let start = if in_list_item
                     || current_prose.is_empty()
                     || is_list_setext_pair(line_text, lines[i + 1].text)
@@ -1745,7 +1784,11 @@ impl FormatParser for MarkdownParser {
             // its own `>` (no pre-emitted resume marker). Lazy lines
             // without `>` stay in the open item (`in_list_item`) so
             // hanging_prefix repeats the marker (ex. 228).
-            if let Some(caps) = QUOTE_RE.captures(line_text) {
+            // Count every `>` with the 0–3 space rule. QUOTE_RE stops after
+            // one optional space, so `>  > Foo` was a depth-1 quote plus
+            // leftover `> Foo` text (GitHub #262).
+            let quote_depth = quote_marker_depth(line_text);
+            if quote_depth > 0 {
                 close_list_item(
                     &mut in_list_item,
                     &mut list_hang,
@@ -1756,8 +1799,8 @@ impl FormatParser for MarkdownParser {
                     &mut regions,
                 );
                 flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
-                let marker = caps.get(1).unwrap().as_str();
-                let text = caps.get(2).unwrap().as_str();
+                let text = strip_quote_markers(line_text, quote_depth).unwrap_or(line_text);
+                let marker_len = line_text.len() - text.len();
                 if text.trim().is_empty() {
                     regions.push(SpannedRegion::structure(input, line.span()));
                     i += 1;
@@ -1781,7 +1824,7 @@ impl FormatParser for MarkdownParser {
                     i += 1;
                     continue;
                 }
-                let marker_span = ByteSpan::new(line.start, line.start + marker.len());
+                let marker_span = ByteSpan::new(line.start, line.start + marker_len);
                 regions.push(SpannedRegion::structure(input, marker_span));
                 in_list_item = true;
                 append_piece(
@@ -1791,7 +1834,7 @@ impl FormatParser for MarkdownParser {
                         term: &mut list_term,
                     },
                     line,
-                    marker.len(),
+                    marker_len,
                     false,
                     false,
                     input,

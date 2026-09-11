@@ -550,3 +550,71 @@ fn four_space_quoted_list_lookalike_stays_quote_setext_title() {
         "3-space quoted list must be the setext title, got: {three_regions:?}"
     );
 }
+
+/// snapper-do12 / GitHub #262: matching-depth `>  >` setext. Both title
+/// lines plus the underline are Structure; body still splits. Same for
+/// one-line and three-space forms. `>>` / `> >` still hold.
+#[test]
+fn matching_two_space_nested_quote_setext_promotes_both_title_lines() {
+    for inner in [">  >", ">   >", ">>", "> >"] {
+        let input = format!(
+            concat!(
+                "{inner} Foo is the first title line. Still title.\n",
+                "{inner} Bar is the second title line.\n",
+                "{inner} =======\n",
+                "\n",
+                "Body after setext. Second body.\n",
+            ),
+            inner = inner
+        );
+        let regions = MarkdownParser.parse(&input);
+        assert!(
+            !regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(p)
+                    if p.contains("Still title")
+                        || p.contains("Foo is the first")
+                        || p.contains("Bar is the second")
+            )),
+            "{inner:?} matching nested setext must not leave title Prose, got: {regions:?}"
+        );
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Structure(s) if s.contains("Foo is the first title line.")
+            )),
+            "{inner:?} Foo must be Structure, got: {regions:?}"
+        );
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Structure(s) if s.contains("Bar is the second title line.")
+            )),
+            "{inner:?} Bar must be Structure, got: {regions:?}"
+        );
+        let out = format_text(&input, &md_cfg()).unwrap();
+        assert!(
+            !out.contains("first title line.\n"),
+            "{inner:?} must not sentence-split the nested quote setext, got:\n{out}"
+        );
+        assert!(
+            out.contains("Body after setext.\nSecond body."),
+            "{inner:?} body Prose must still split, got:\n{out}"
+        );
+    }
+
+    let one = concat!(
+        ">  > Foo is the first title line. Still title.\n",
+        ">  > =======\n",
+        "\n",
+        "Body after setext. Second body.\n",
+    );
+    let one_regions = MarkdownParser.parse(one);
+    assert!(
+        !one_regions.iter().any(|r| matches!(
+            r,
+            Region::Prose(p) if p.contains("Still title") || p.contains("Foo is the first")
+        )),
+        "one-line >  > setext must not leave Foo Prose, got: {one_regions:?}"
+    );
+}
