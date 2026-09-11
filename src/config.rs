@@ -19,7 +19,7 @@ pub struct FormatOverrides {
     /// trivia, Overleaf Verbatim/boxedverbatim/tcblisting/tcblisting*/codeexample/
     /// tcbverbatimwrite/tcbwritetemp,
     /// fancyvrb BVerbatim/LVerbatim/SaveVerbatim/VerbatimOut/VerbatimWrite and
-    /// Verbatim*/BVerbatim*/LVerbatim*,
+    /// Verbatim*/BVerbatim*/LVerbatim*, fvextra VerbEnv,
     /// moreverb boxedverbatim/verbatimtab/listing/listingcont/listing*/listingcont*,
     /// standard alltt, spverbatim,
     /// and pythontex pycode/pycode*/pyblock/pyblock*/pyverbatim/pyverbatim*/
