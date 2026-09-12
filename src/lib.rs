@@ -134,7 +134,10 @@ pub struct FormatConfig {
     /// pythontex pycode/pycode*/pyblock/pyblock*/pyverbatim/pyverbatim*/
     /// pyconsole/pyconsole*/pygments plus sympy and pylab families and
     /// starred twins, leftover default-family pyconcode/pyconverbatim/
-    /// pysub/pyconsub/sympycon*/pylabcon*/pythontexcustomcode, and
+    /// pysub/pyconsub/sympycon*/pylabcon*/pythontexcustomcode, option-family
+    /// usefamily leftovers (rubycode representative; ruby/rb/julia/
+    /// juliacon/jl/matlab/octave/bash/sage/rust/rs/R/Rcon/perl/pl/
+    /// perlsix/psix/javascript/js), and
     /// pythonhighlight python, pyluatex pythonq/pythonrepl,
     /// showexpl LTXexample, luamplib mplibcode, and codehigh.sty
     /// codehigh/demohigh plus starred twins. Empty keeps the built-in list.
