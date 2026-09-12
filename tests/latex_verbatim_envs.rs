@@ -76,6 +76,8 @@
 //! following flush prose does not join the command line.
 //! GitHub #419: pythontex.sty \\inputpy / \\inputpycon is one leftover
 //! command; following flush prose does not join the command line.
+//! GitHub #433: pythontex.sty \\inputpylab / \\inputsympy (and con
+//! twins) are the same leftover family as \\inputpy.
 //! GitHub #424: moreverb.sty \\listinginput is one leftover command;
 //! following flush prose does not join the command line.
 //! GitHub #428: sagetex.sty \\sageinput is one leftover command;
@@ -3793,6 +3795,100 @@ fn inputpy_fixture_does_not_join_following_prose() {
     assert!(
         !piton_out.contains("\\PitonInputFile{foo.py} After."),
         "PitonInputFile must not join following prose, got:\n{piton_out}"
+    );
+}
+
+/// Ticket fixture (GitHub #433): pythontex.sty `\inputpylab{file}` /
+/// `\inputsympy{file}` and con twins stay one atomic command.
+/// Following flush `After.` does not join the command line.
+/// `After.` / `Next.` still split. inputpy / listinginput / sageinput
+/// unchanged.
+#[test]
+fn inputpylab_inputsympy_fixture_does_not_join_following_prose() {
+    for name in ["inputpylab", "inputpylabcon", "inputsympy", "inputsympycon"] {
+        let cmd = format!("\\{name}{{foo.py}}");
+        let input = format!("Before. Next.\n{cmd}\nAfter. Next.\n");
+        let regions = LatexParser::default().parse(&input);
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Structure(s) if s.contains(cmd.as_str())
+            )),
+            "{name} must stay one Structure command, got: {regions:?}"
+        );
+        assert!(
+            !regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(p) if p.contains(cmd.as_str())
+            )),
+            "{name} must not leak into Prose, got: {regions:?}"
+        );
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(p) if p.contains("After.") && p.contains("Next.")
+            )),
+            "After. / Next. must stay Prose after {name}, got: {regions:?}"
+        );
+        let out = format_text(&input, &latex_cfg()).unwrap();
+        assert!(
+            out.contains(&format!("{cmd}\n")),
+            "{name} must stay one atomic command, got:\n{out}"
+        );
+        assert!(
+            !out.contains(&format!("{cmd} After.")),
+            "following flush prose must not join the {name} line, got:\n{out}"
+        );
+        assert!(
+            out.contains("Before.\nNext."),
+            "prose before {name} must still split, got:\n{out}"
+        );
+        assert!(
+            out.contains("After.\nNext."),
+            "prose after {name} must still split, got:\n{out}"
+        );
+        assert_eq!(format_text(&out, &latex_cfg()).unwrap(), out);
+    }
+
+    let py = concat!("Before. Next.\n", "\\inputpy{foo.py}\n", "After. Next.\n",);
+    let py_out = format_text(py, &latex_cfg()).unwrap();
+    assert!(
+        py_out.contains("\\inputpy{foo.py}\n"),
+        "inputpy must stay unchanged, got:\n{py_out}"
+    );
+    assert!(
+        !py_out.contains("\\inputpy{foo.py} After."),
+        "inputpy must not join following prose, got:\n{py_out}"
+    );
+
+    let listing = concat!(
+        "Before. Next.\n",
+        "\\listinginput{1}{foo.py}\n",
+        "After. Next.\n",
+    );
+    let listing_out = format_text(listing, &latex_cfg()).unwrap();
+    assert!(
+        listing_out.contains("\\listinginput{1}{foo.py}\n"),
+        "listinginput must stay unchanged, got:\n{listing_out}"
+    );
+    assert!(
+        !listing_out.contains("\\listinginput{1}{foo.py} After."),
+        "listinginput must not join following prose, got:\n{listing_out}"
+    );
+
+    let sage = concat!(
+        "Before. Next.\n",
+        "\\sageinput{foo.sage}\n",
+        "After. Next.\n",
+    );
+    let sage_out = format_text(sage, &latex_cfg()).unwrap();
+    assert!(
+        sage_out.contains("\\sageinput{foo.sage}\n"),
+        "sageinput must stay unchanged, got:\n{sage_out}"
+    );
+    assert!(
+        !sage_out.contains("\\sageinput{foo.sage} After."),
+        "sageinput must not join following prose, got:\n{sage_out}"
     );
 }
 
