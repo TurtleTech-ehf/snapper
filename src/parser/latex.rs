@@ -501,7 +501,8 @@ impl LatexParser {
 
     /// Byte offset of the first `%` that is not escaped as `\%` and is not
     /// inside `\verb` / `\lstinline` / `\spverb` / `\mintinline` / `\mint` /
-    /// `\Verb` / `\SaveVerb` / `\piton` / configured verbatim commands.
+    /// `\inputminted` / `\Verb` / `\SaveVerb` / `\piton` / configured
+    /// verbatim commands.
     fn unescaped_percent(&self, line: &str) -> Option<usize> {
         unescaped_percent_with(line, &self.extra_verbatim_commands)
     }
@@ -873,8 +874,8 @@ fn find_tex_cs(line: &str, from: usize, cs: &str) -> Option<usize> {
 }
 
 /// `\iffalse` in ordinary TeX, skipping `\verb` / `\lstinline` /
-/// `\spverb` / `\mintinline` / `\mint` / `\Verb` / `\SaveVerb` /
-/// `\piton` spans.
+/// `\spverb` / `\mintinline` / `\mint` / `\inputminted` / `\Verb` /
+/// `\SaveVerb` / `\piton` spans.
 fn find_iffalse_at(line: &str, from: usize, extra_cmds: &[String]) -> Option<usize> {
     let bytes = line.as_bytes();
     let mut i = from;
@@ -895,6 +896,45 @@ fn find_iffalse_at(line: &str, from: usize, extra_cmds: &[String]) -> Option<usi
         i += 1;
     }
     None
+}
+
+/// Leftover minted.sty `\inputminted` / `\inputminted*` (optional
+/// `[...]`, `{lang}`, `{file}`; GitHub #394). Other verb spans are
+/// skipped so `\verb|\inputminted{python}{x}|` is not stolen. Walk
+/// stops at an unescaped `%` so a comment is not a command tail.
+fn find_inputminted_at(line: &str, from: usize, extra_cmds: &[String]) -> Option<(usize, usize)> {
+    let bytes = line.as_bytes();
+    let mut i = from;
+    let stop = unescaped_percent_with(line, extra_cmds).unwrap_or(line.len());
+    while i < stop {
+        if bytes[i] == b'\\' {
+            if inputminted_cs_at(line, i) {
+                if let Some(end) = latex_verb_span_end_with(line, i, extra_cmds) {
+                    return Some((i, end));
+                }
+            }
+            if let Some(end) = latex_verb_span_end_with(line, i, extra_cmds) {
+                i = end;
+                continue;
+            }
+            if let Some(name) = tex_cs_at(line, i) {
+                i += name.len();
+                continue;
+            }
+        }
+        i += 1;
+    }
+    None
+}
+
+fn inputminted_cs_at(line: &str, at: usize) -> bool {
+    let Some(tail) = line.get(at..).and_then(|s| s.strip_prefix('\\')) else {
+        return false;
+    };
+    let Some(after) = tail.strip_prefix("inputminted") else {
+        return false;
+    };
+    !after.starts_with(|c: char| c.is_ascii_alphabetic())
 }
 
 struct ParseState<'a> {
@@ -1578,6 +1618,17 @@ impl<'a> ParseState<'a> {
                     ByteSpan::new(line.start + open, line.end),
                 ));
                 return true;
+            }
+            if let Some((start, end)) =
+                find_inputminted_at(code, i, &self.parser.extra_verbatim_commands)
+            {
+                self.append_item_or_prose(line.start + i, &code[i..start]);
+                self.push_structure(ByteSpan::new(
+                    line.start + start,
+                    thru_eol_if_blank_rest(line, end),
+                ));
+                i = end;
+                continue;
             }
             if SECTION_CMD_RE.is_match(rest) {
                 self.push_structure(ByteSpan::new(line.start + i, line.end));
@@ -2296,6 +2347,104 @@ Some text.
             "prose after lstinline must remain, got:\n{out}"
         );
         assert_eq!(format_text(&out, &latex_cfg()).unwrap(), out);
+    }
+
+    /// Ticket fixture (GitHub #394): minted.sty `\inputminted{lang}{file}`
+    /// is one leftover command. Following flush prose does not join the
+    /// command line. `After.` / `Next.` still split. `mintinline` /
+    /// `minted` unchanged.
+    #[test]
+    fn inputminted_does_not_join_following_prose() {
+        use crate::format_text;
+
+        let input = concat!(
+            "Before. Next.\n",
+            "\\inputminted{python}{foo.py}\n",
+            "After. Next.\n",
+        );
+        let regions = LatexParser::default().parse(input);
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Structure(s) if s.contains(r"\inputminted{python}{foo.py}")
+            )),
+            "inputminted must stay one Structure command, got: {regions:?}"
+        );
+        assert!(
+            !regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(p) if p.contains(r"\inputminted{python}{foo.py}")
+            )),
+            "inputminted must not leak into Prose, got: {regions:?}"
+        );
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(p) if p.contains("After.") && p.contains("Next.")
+            )),
+            "After. / Next. must stay Prose, got: {regions:?}"
+        );
+        let out = format_text(input, &latex_cfg()).unwrap();
+        assert!(
+            out.contains("\\inputminted{python}{foo.py}\n"),
+            "inputminted must stay one atomic command, got:\n{out}"
+        );
+        assert!(
+            !out.contains("\\inputminted{python}{foo.py} After."),
+            "following flush prose must not join the command line, got:\n{out}"
+        );
+        assert!(
+            out.contains("Before.\nNext."),
+            "prose before inputminted must still split, got:\n{out}"
+        );
+        assert!(
+            out.contains("After.\nNext."),
+            "prose after inputminted must still split, got:\n{out}"
+        );
+        assert_eq!(format_text(&out, &latex_cfg()).unwrap(), out);
+
+        let opts = concat!(
+            "Before. Next.\n",
+            "\\inputminted[linenos]{python}{foo.py}\n",
+            "After. Next.\n",
+        );
+        let opts_out = format_text(opts, &latex_cfg()).unwrap();
+        assert!(
+            opts_out.contains("\\inputminted[linenos]{python}{foo.py}\n"),
+            "inputminted optional args must stay atomic, got:\n{opts_out}"
+        );
+        assert!(
+            !opts_out.contains("\\inputminted[linenos]{python}{foo.py} After."),
+            "optional-arg inputminted must not join following prose, got:\n{opts_out}"
+        );
+        assert!(
+            opts_out.contains("After.\nNext."),
+            "prose after optional-arg inputminted must still split, got:\n{opts_out}"
+        );
+
+        let mintinline = "Use \\mintinline{python}|a.b! c| here. Next sentence.\n";
+        let mintinline_out = format_text(mintinline, &latex_cfg()).unwrap();
+        assert!(
+            mintinline_out.contains("Use \\mintinline{python}|a.b! c| here.\nNext sentence."),
+            "mintinline must stay intact and still split, got:\n{mintinline_out}"
+        );
+
+        let minted = concat!(
+            "\\begin{minted}{python}\n",
+            "First line. Second line.\n",
+            "\\end{minted}\n",
+            "After the block. Next.\n",
+        );
+        let minted_out = format_text(minted, &latex_cfg()).unwrap();
+        assert!(
+            minted_out.contains("\\begin{minted}{python}\nFirst line. Second line.\n\\end{minted}"),
+            "minted must stay a code env, got:\n{minted_out}"
+        );
+        assert!(
+            minted_out.contains("After the block.\nNext."),
+            "prose after minted must still split, got:\n{minted_out}"
+        );
+        assert_eq!(format_text(&minted_out, &latex_cfg()).unwrap(), minted_out);
     }
 
     /// Ticket fixture (GitHub #245): minted `\mintinline{lang}|body|` is
