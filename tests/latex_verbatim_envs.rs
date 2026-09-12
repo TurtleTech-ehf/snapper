@@ -65,6 +65,8 @@
 //! body is a raw listing.
 //! GitHub #342: texments.sty / pygmentex.sty pygmented is
 //! VerbatimEnvironment plus VerbatimOut.
+//! GitHub #391: listings.sty \\lstinputlisting is one atomic command;
+//! following flush prose does not join the command line.
 
 use snapper_fmt::format::Format;
 use snapper_fmt::parser::latex::LatexParser;
@@ -2893,6 +2895,82 @@ fn saveverb_fixture_is_atomic_and_does_not_reflow() {
         "prose after SaveVerb must still split, got:\n{out}"
     );
     assert_eq!(format_text(&out, &latex_cfg()).unwrap(), out);
+}
+
+/// Ticket fixture (GitHub #391): listings.sty `\lstinputlisting{file}`
+/// stays one atomic command. Following flush `After.` does not join
+/// the command line. `After.` / `Next.` still split. lstinline /
+/// lstlisting unchanged.
+#[test]
+fn lstinputlisting_fixture_does_not_join_following_prose() {
+    let input = concat!(
+        "Before. Next.\n",
+        "\\lstinputlisting{foo.py}\n",
+        "After. Next.\n",
+    );
+    let regions = LatexParser::default().parse(input);
+    assert!(
+        regions.iter().any(|r| matches!(
+            r,
+            Region::Structure(s) if s.contains(r"\lstinputlisting{foo.py}")
+        )),
+        "lstinputlisting must stay one Structure command, got: {regions:?}"
+    );
+    assert!(
+        !regions.iter().any(|r| matches!(
+            r,
+            Region::Prose(p) if p.contains(r"\lstinputlisting{foo.py}")
+        )),
+        "lstinputlisting must not leak into Prose, got: {regions:?}"
+    );
+    assert!(
+        regions.iter().any(|r| matches!(
+            r,
+            Region::Prose(p) if p.contains("After.") && p.contains("Next.")
+        )),
+        "After. / Next. must stay Prose, got: {regions:?}"
+    );
+    let out = format_text(input, &latex_cfg()).unwrap();
+    assert!(
+        out.contains("\\lstinputlisting{foo.py}\n"),
+        "lstinputlisting must stay one atomic command, got:\n{out}"
+    );
+    assert!(
+        !out.contains("\\lstinputlisting{foo.py} After."),
+        "following flush prose must not join the command line, got:\n{out}"
+    );
+    assert!(
+        out.contains("Before.\nNext."),
+        "prose before lstinputlisting must still split, got:\n{out}"
+    );
+    assert!(
+        out.contains("After.\nNext."),
+        "prose after lstinputlisting must still split, got:\n{out}"
+    );
+    assert_eq!(format_text(&out, &latex_cfg()).unwrap(), out);
+
+    let lstinline = "Use \\lstinline!a.b! here. Next sentence.\n";
+    let lstinline_out = format_text(lstinline, &latex_cfg()).unwrap();
+    assert!(
+        lstinline_out.contains("Use \\lstinline!a.b! here.\nNext sentence."),
+        "lstinline must stay intact and still split, got:\n{lstinline_out}"
+    );
+
+    let lstlisting = concat!(
+        "\\begin{lstlisting}\n",
+        "First line. Second line.\n",
+        "\\end{lstlisting}\n",
+        "After the block. Next.\n",
+    );
+    let lstlisting_out = format_text(lstlisting, &latex_cfg()).unwrap();
+    assert!(
+        lstlisting_out.contains("\\begin{lstlisting}\nFirst line. Second line.\n\\end{lstlisting}"),
+        "lstlisting must stay a code env, got:\n{lstlisting_out}"
+    );
+    assert!(
+        lstlisting_out.contains("After the block.\nNext."),
+        "prose after lstlisting must still split, got:\n{lstlisting_out}"
+    );
 }
 
 /// Ticket fixture (GitHub #305): piton.sty `{Piton}` body stays Code
