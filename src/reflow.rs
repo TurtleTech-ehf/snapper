@@ -1859,6 +1859,10 @@ They are endowed with reason and conscience and should act towards one another i
         assert_eq!(hanging_indent_width(".. note:: "), 10);
         assert_eq!(hanging_prefix(".. note:: "), "          ");
         assert_eq!(hanging_indent_width(".. warning:: "), 13);
+        assert_eq!(hanging_indent_width(".. header:: "), 12);
+        assert_eq!(hanging_prefix(".. header:: "), "            ");
+        assert_eq!(hanging_indent_width(".. footer:: "), 12);
+        assert_eq!(hanging_prefix(".. footer:: "), "            ");
         assert_eq!(hanging_indent_width(".. figure:: "), 0);
         assert_eq!(hanging_indent_width(".. |v| replace:: "), 17);
         assert_eq!(hanging_prefix(".. |v| replace:: "), "                 ");

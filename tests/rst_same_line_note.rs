@@ -154,6 +154,8 @@ fn leftover_specific_admonitions_same_line_hang() {
         "hint",
         "error",
         "attention",
+        "header",
+        "footer",
     ] {
         let opener = format!(".. {name}:: ");
         let hang = " ".repeat(opener.len());

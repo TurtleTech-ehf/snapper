@@ -58,9 +58,9 @@ impl FormatParser for RstParser {
 /// statements (`{% ... %}`), line blocks, tables, definition lists, and
 /// block-quote hang spaces as structure regions. Docutils container
 /// directives (admonitions, figure, topic, sidebar, container, leftover
-/// body.py parsed-literal / epigraph / highlights / pull-quote / compound)
-/// nested-parse their body: the opener and option fields stay Structure;
-/// the body hangs as Prose.
+/// body.py parsed-literal / epigraph / highlights / pull-quote / compound
+/// / header / footer) nested-parse their body: the opener and option
+/// fields stay Structure; the body hangs as Prose.
 fn parse_line_based(input: &str) -> Vec<SpannedRegion> {
     let mut regions = Vec::new();
     let mut current_prose = String::new();
@@ -259,17 +259,19 @@ fn parse_line_based(input: &str) -> Vec<SpannedRegion> {
 
         // RST directive (`.. name::`). Container directives (admonitions,
         // figure, topic, sidebar, container, leftover body.py
-        // parsed-literal / epigraph / highlights / pull-quote / compound)
-        // nested-parse their body: the opener and `:option:` fields stay
-        // Structure; the body hangs and reflows like a block quote.
-        // Opaque names keep the old freeze (GitHub #54 / #351 / #386).
-        // A flush paragraph after a compact
-        // container body is a new paragraph, not more note (GitHub #344).
-        // Specific admonitions nested-parse same-line text after `::`
-        // as the first body paragraph: marker Structure, body hung
-        // Prose that still splits (GitHub #349). SubstitutionDef
+        // parsed-literal / epigraph / highlights / pull-quote / compound
+        // / header / footer) nested-parse their body: the opener and
+        // `:option:` fields stay Structure; the body hangs and reflows
+        // like a block quote. Opaque names keep the old freeze
+        // (GitHub #54 / #351 / #386 / #422). A flush paragraph after a
+        // compact container body is a new paragraph, not more note
+        // (GitHub #344). Specific admonitions nested-parse same-line
+        // text after `::` as the first body paragraph: marker Structure,
+        // body hung Prose that still splits (GitHub #349). SubstitutionDef
         // `.. |name| replace::` is the same leftover: the replace body
-        // is a nested-parsed paragraph (GitHub #417).
+        // is a nested-parsed paragraph (GitHub #417). header / footer
+        // take no argument; same-line text after `::` is leftover Prose
+        // (GitHub #422).
         let trimmed = line_text.trim_start();
         if trimmed.starts_with(".. ") && trimmed.contains("::") {
             flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
@@ -779,9 +781,9 @@ fn rst_directive_name(trimmed: &str) -> Option<String> {
 }
 
 /// Docutils specific admonitions plus leftover body.py names with no
-/// arguments (epigraph / highlights / pull-quote / compound): same-line
-/// text after `::` is the first nested-parsed body paragraph
-/// (GitHub #349 / #351).
+/// arguments (epigraph / highlights / pull-quote / compound / header /
+/// footer): same-line text after `::` is the first nested-parsed body
+/// paragraph (GitHub #349 / #351 / #422).
 fn is_rst_specific_admonition(name: &str) -> bool {
     matches!(
         name,
@@ -798,6 +800,8 @@ fn is_rst_specific_admonition(name: &str) -> bool {
             | "highlights"
             | "pull-quote"
             | "compound"
+            | "header"
+            | "footer"
     )
 }
 
@@ -3430,6 +3434,8 @@ mod tests {
             "highlights",
             "pull-quote",
             "compound",
+            "header",
+            "footer",
         ] {
             let arg = if matches!(name, "figure" | "admonition" | "sidebar" | "topic") {
                 " Title"
@@ -3563,6 +3569,193 @@ mod tests {
             "After. must not inherit the parsed-literal hang, got:\n{out}"
         );
         assert_eq!(format_text(&out, &cfg).unwrap(), out);
+    }
+
+    /// Ticket fixture (Format::Rst / GitHub #422): leftover body.py
+    /// header / footer same-line body hangs and splits; flush After. /
+    /// Next. stay unindented. epigraph / replace:: stay unchanged.
+    fn leftover_header_fixture() -> &'static str {
+        concat!(".. header:: fig. 1 is here. After.\n", "After. Next.\n",)
+    }
+
+    fn leftover_footer_fixture() -> &'static str {
+        concat!(".. footer:: fig. 1 is here. After.\n", "After. Next.\n",)
+    }
+
+    #[test]
+    fn leftover_header_same_line_body_hangs_and_splits() {
+        use crate::format::Format;
+        use crate::{FormatConfig, format_text};
+
+        let input = leftover_header_fixture();
+        let regions = RstParser.parse(input);
+        assert!(
+            regions
+                .iter()
+                .any(|r| matches!(r, Region::Structure(s) if s == ".. header:: ")),
+            "opener .. header:: must stay Structure, got {regions:?}"
+        );
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(s) if s.contains("fig. 1 is here.") && s.contains("After.")
+            )),
+            "same-line header body must be Prose, got {regions:?}"
+        );
+        assert!(
+            !regions.iter().any(|r| matches!(
+                r,
+                Region::Structure(s) if s.contains("fig. 1 is here")
+            )),
+            "same-line header body must not stay whole-line Structure, got {regions:?}"
+        );
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(s) if s.contains("After.") && s.contains("Next.")
+            )),
+            "flush After. / Next. must stay unindented Prose, got {regions:?}"
+        );
+        assert_eq!(
+            rst_admonition_marker_len(".. header:: "),
+            Some(".. header:: ".len())
+        );
+        assert_eq!(
+            rst_admonition_marker_len(".. header:: fig. 1 is here. After."),
+            Some(".. header:: ".len())
+        );
+        assert_eq!(
+            rst_admonition_marker_len(".. footer:: fig. 1 is here. After."),
+            Some(".. footer:: ".len())
+        );
+
+        let cfg = FormatConfig {
+            format: Format::Rst,
+            max_width: 0,
+            ..Default::default()
+        }
+        .without_safety_backstops();
+        let out = format_text(input, &cfg).unwrap();
+        assert_eq!(
+            out,
+            concat!(
+                ".. header:: fig. 1 is here.\n",
+                "            After.\n",
+                "After.\n",
+                "Next.\n",
+            ),
+            "header same-line body must hang and split; After. / Next. stay flush, got:\n{out}"
+        );
+        assert!(
+            !out.contains(".. header:: fig. 1 is here. After."),
+            "same-line header body must not stay one line, got:\n{out}"
+        );
+        assert!(
+            !out.contains("\n            After.\n            Next."),
+            "flush After. / Next. must not inherit the header hang, got:\n{out}"
+        );
+        assert_eq!(format_text(&out, &cfg).unwrap(), out);
+    }
+
+    #[test]
+    fn leftover_footer_same_line_body_hangs_and_splits() {
+        use crate::format::Format;
+        use crate::{FormatConfig, format_text};
+
+        let input = leftover_footer_fixture();
+        let regions = RstParser.parse(input);
+        assert!(
+            regions
+                .iter()
+                .any(|r| matches!(r, Region::Structure(s) if s == ".. footer:: ")),
+            "opener .. footer:: must stay Structure, got {regions:?}"
+        );
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(s) if s.contains("fig. 1 is here.") && s.contains("After.")
+            )),
+            "same-line footer body must be Prose, got {regions:?}"
+        );
+        assert!(
+            !regions.iter().any(|r| matches!(
+                r,
+                Region::Structure(s) if s.contains("fig. 1 is here")
+            )),
+            "same-line footer body must not stay whole-line Structure, got {regions:?}"
+        );
+
+        let cfg = FormatConfig {
+            format: Format::Rst,
+            max_width: 0,
+            ..Default::default()
+        }
+        .without_safety_backstops();
+        let out = format_text(input, &cfg).unwrap();
+        assert_eq!(
+            out,
+            concat!(
+                ".. footer:: fig. 1 is here.\n",
+                "            After.\n",
+                "After.\n",
+                "Next.\n",
+            ),
+            "footer same-line body must hang and split; After. / Next. stay flush, got:\n{out}"
+        );
+        assert!(
+            !out.contains(".. footer:: fig. 1 is here. After."),
+            "same-line footer body must not stay one line, got:\n{out}"
+        );
+        assert_eq!(format_text(&out, &cfg).unwrap(), out);
+    }
+
+    #[test]
+    fn leftover_epigraph_and_replace_stay_unchanged() {
+        use crate::format::Format;
+        use crate::{FormatConfig, format_text};
+
+        let cfg = FormatConfig {
+            format: Format::Rst,
+            max_width: 0,
+            ..Default::default()
+        }
+        .without_safety_backstops();
+        let epigraph = concat!(
+            ".. epigraph::\n",
+            "\n",
+            "   This is a long note sentence that must reflow. Second sentence.\n",
+            "After. Next.\n",
+        );
+        let epigraph_out = format_text(epigraph, &cfg).unwrap();
+        assert_eq!(
+            epigraph_out,
+            concat!(
+                ".. epigraph::\n",
+                "\n",
+                "   This is a long note sentence that must reflow.\n",
+                "   Second sentence.\n",
+                "After.\n",
+                "Next.\n",
+            ),
+            "epigraph leftover walker must stay, got:\n{epigraph_out}"
+        );
+        let replace = concat!(
+            "See |v|. Next.\n",
+            "\n",
+            ".. |v| replace:: fig. 1 is here. After.\n",
+        );
+        let replace_out = format_text(replace, &cfg).unwrap();
+        assert_eq!(
+            replace_out,
+            concat!(
+                "See |v|.\n",
+                "Next.\n",
+                "\n",
+                ".. |v| replace:: fig. 1 is here.\n",
+                "                 After.\n",
+            ),
+            "replace:: leftover walker must stay, got:\n{replace_out}"
+        );
     }
 
     #[test]

@@ -157,6 +157,8 @@ fn leftover_container_names_do_not_swallow_flush_prose() {
         "highlights",
         "pull-quote",
         "compound",
+        "header",
+        "footer",
     ] {
         let arg = if matches!(name, "figure" | "admonition" | "sidebar" | "topic") {
             " Title"

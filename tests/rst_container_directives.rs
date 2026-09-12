@@ -1,7 +1,8 @@
 //! RST container directive bodies hang and reflow.
 //! Docutils admonitions/figure/topic/sidebar nested-parse their body.
-//! Leftover body.py parsed-literal (GitHub #386) and epigraph / highlights /
-//! pull-quote / compound (GitHub #351) hang and split like note. Option fields
+//! Leftover body.py parsed-literal (GitHub #386), epigraph / highlights /
+//! pull-quote / compound (GitHub #351), and header / footer (GitHub #422)
+//! hang and split like note. Option fields
 //! stay Structure; code-block/raw/include/csv-table stay opaque.
 
 use snapper_fmt::format::Format;
@@ -277,6 +278,8 @@ fn leftover_body_py_container_names_reflow_like_note() {
         "pull-quote",
         "compound",
         "parsed-literal",
+        "header",
+        "footer",
     ] {
         let input = format!(
             ".. {name}::\n\n   This is a long note sentence that must reflow. Second sentence.\nAfter. Next.\n"
