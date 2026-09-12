@@ -544,13 +544,15 @@ fn rst_substitution_ref_span_end(text: &str, at: usize) -> Option<usize> {
 /// org-element-inline-src-block-parser / org-element-inline-babel-call-parser.
 /// `src_LANG[headers]{body}` and `call_NAME[inside](args)[end]` stay one
 /// object so an interior period is not a sentence or wrap boundary.
-/// Footnote references run in the same walk (GitHub #231).
+/// Footnote references and org-match-substring-regexp brace scripts run
+/// in the same walk (GitHub #231 / #338).
 fn protect_org_inline_src_and_call(text: &str, placeholders: &mut Vec<String>) -> String {
     let mut out = String::with_capacity(text.len());
     let mut i = 0;
     while i < text.len() {
         if let Some(end) = org_inline_src_or_call_span_end(text, i)
             .or_else(|| org_footnote_reference_span_end(text, i))
+            .or_else(|| org_brace_script_span_end(text, i))
         {
             push_placeholder(&mut out, placeholders, &text[i..end]);
             i = end;
@@ -728,6 +730,43 @@ fn org_inline_call_span_end(text: &str, at: usize) -> Option<usize> {
         }
     }
     Some(i)
+}
+
+/// org-match-substring-regexp brace/paren arms (Emacs 30.2 / GitHub #338).
+///
+/// `\\(\\S-\\)\\([_^]\\)` then `org-create-multibrace-regexp` on `{` `}`
+/// or `(` `)` (`org_scan_lists` is the nest). Interior punct is not a
+/// wrap boundary. Bare `H_2` / `x^n` is the other arm and is unchanged.
+/// A space or `\` before `[_^]` is not a match (`\_` is escaped).
+/// Distinct from latex-fragment `\(...\)` / `\name{arg}`. Leftover
+/// `foo_call_name(1. 2)` is `_name` then `(...)`, not `_(...)`.
+fn org_brace_script_span_end(text: &str, at: usize) -> Option<usize> {
+    let rest = text.get(at..)?;
+    let marker = rest.as_bytes().first()?;
+    if *marker != b'_' && *marker != b'^' {
+        return None;
+    }
+    if !org_brace_script_predecessor_ok(text, at) {
+        return None;
+    }
+    let open_at = at + 1;
+    let open = *text.as_bytes().get(open_at)?;
+    let close = match open {
+        b'{' => b'}',
+        b'(' => b')',
+        _ => return None,
+    };
+    org_scan_lists(text, open_at, open, close)
+}
+
+/// Emacs `\\S-` predecessor: one non-whitespace character. Reject `\` so
+/// `\_` is not a subscript opener. BOL / after newline is not `\\S-`.
+fn org_brace_script_predecessor_ok(text: &str, at: usize) -> bool {
+    if at == 0 {
+        return false;
+    }
+    let prev = text[..at].chars().next_back().expect("at > 0");
+    !prev.is_whitespace() && prev != '\\'
 }
 
 /// Org `=`/`~`, Markdown backtick spans, CommonMark `*`/`**`, and GFM `~~`,
@@ -1007,8 +1046,9 @@ fn find_md_code_span(text: &str, open_at: usize) -> Option<usize> {
 /// Org `{{{name}}}` / `{{{name(args)}}}`, Org timestamps
 /// (`<YYYY-MM-DD…>`, `[YYYY-MM-DD…]`, ranges `--`, diary `<%%(...)>`),
 /// Org latex-fragments (`\(...\)`, `$...$`, `\cmd{arg}`, `\cmd[opt]{arg}`),
-/// Org `src_lang{...}` / `call_name(...)`, RST `|fig. 1|` / `|name|_` /
-/// `|name|__`, paired spans).
+/// Org `src_lang{...}` / `call_name(...)`, Org brace `H_{...}` / `x^{...}`
+/// (org-match-substring-regexp), RST `|fig. 1|` / `|name|_` / `|name|__`,
+/// paired spans).
 ///
 /// Ranges are half-open `[start, end)`, sorted, non-overlapping, and merged
 /// when a regex match wraps a paired span.
@@ -1031,6 +1071,12 @@ pub fn atomic_inline_spans(text: &str) -> Vec<(usize, usize)> {
         }
         if let Some(end) = org_footnote_reference_span_end(text, i) {
             spans.push((i, end));
+            i = end;
+            continue;
+        }
+        if let Some(end) = org_brace_script_span_end(text, i) {
+            spans.push((i, end));
+            org_src_call_spans.push((i, end));
             i = end;
             continue;
         }
@@ -2847,6 +2893,121 @@ mod tests {
                 "Next sentence. still splits, got {parts:?} for {text:?}"
             );
         }
+    }
+
+    #[test]
+    fn inline_org_brace_subscript_is_atomic_wrap_span() {
+        // GitHub #338 / snapper-upgw: org-match-substring-regexp brace
+        // arm. `H_{2. 0}` stays one wrap token. `Next.` still splits.
+        let token = "_{2. 0}";
+        let text = "See H_{2. 0} today. Next.";
+        let (_, placeholders) = protect_inline_tokens(text);
+        assert!(
+            placeholders.iter().any(|p| p == token),
+            "brace subscript must be one token, got {placeholders:?}"
+        );
+        let spans = atomic_inline_spans(text);
+        assert!(
+            spans.iter().any(|&(s, e)| &text[s..e] == token),
+            "brace subscript must be an atomic wrap span, got {:?}",
+            spans.iter().map(|&(s, e)| &text[s..e]).collect::<Vec<_>>()
+        );
+        assert_eq!(
+            split(text),
+            vec!["See H_{2. 0} today.".to_string(), "Next.".to_string()]
+        );
+    }
+
+    #[test]
+    fn inline_org_brace_superscript_is_atomic_wrap_span() {
+        let token = "^{n. 1}";
+        let text = "See x^{n. 1} today. Next.";
+        let (_, placeholders) = protect_inline_tokens(text);
+        assert!(
+            placeholders.iter().any(|p| p == token),
+            "brace superscript must be one token, got {placeholders:?}"
+        );
+        let spans = atomic_inline_spans(text);
+        assert!(
+            spans.iter().any(|&(s, e)| &text[s..e] == token),
+            "brace superscript must be an atomic wrap span, got {:?}",
+            spans.iter().map(|&(s, e)| &text[s..e]).collect::<Vec<_>>()
+        );
+        assert_eq!(
+            split(text),
+            vec!["See x^{n. 1} today.".to_string(), "Next.".to_string()]
+        );
+    }
+
+    #[test]
+    fn no_space_org_brace_subscript_is_unchanged() {
+        let token = "_{2.0}";
+        let text = "See H_{2.0} today. Next.";
+        let spans = atomic_inline_spans(text);
+        assert!(
+            spans.iter().any(|&(s, e)| &text[s..e] == token),
+            "no-space brace form stays one span, got {:?}",
+            spans.iter().map(|&(s, e)| &text[s..e]).collect::<Vec<_>>()
+        );
+        assert_eq!(
+            split(text),
+            vec!["See H_{2.0} today.".to_string(), "Next.".to_string()]
+        );
+    }
+
+    #[test]
+    fn space_before_org_brace_script_is_not_a_span() {
+        let text = "See _{2. 0} today. Next.";
+        let (_, placeholders) = protect_inline_tokens(text);
+        assert!(
+            !placeholders.iter().any(|p| p.contains("_{2. 0}")),
+            "space before [_^] is not a subscript, got {placeholders:?}"
+        );
+        let spans = atomic_inline_spans(text);
+        assert!(
+            !spans.iter().any(|&(s, e)| text[s..e].contains("_{2. 0}")),
+            "space before [_^] must not be an atomic wrap span, got {:?}",
+            spans.iter().map(|&(s, e)| &text[s..e]).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn bol_org_brace_script_is_not_a_span() {
+        // `\\S-` requires a predecessor. `_{2. 0}` at BOL is not a match.
+        let text = "_{2. 0} today. Next.";
+        let spans = atomic_inline_spans(text);
+        assert!(
+            !spans.iter().any(|&(s, e)| text[s..e].contains("_{2. 0}")),
+            "BOL [_^] must not be an atomic wrap span, got {:?}",
+            spans.iter().map(|&(s, e)| &text[s..e]).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn escaped_org_brace_script_is_not_a_span() {
+        let text = "See H\\_{2. 0} today. Next.";
+        let (_, placeholders) = protect_inline_tokens(text);
+        assert!(
+            !placeholders.iter().any(|p| p.contains("_{2. 0}")),
+            "backslash before [_^] is not a subscript, got {placeholders:?}"
+        );
+    }
+
+    #[test]
+    fn inline_org_paren_subscript_is_atomic_wrap_span() {
+        // Same regexp: org-create-multibrace-regexp on `(` `)`.
+        let token = "_(2. 0)";
+        let text = "See H_(2. 0) today. Next.";
+        let spans = atomic_inline_spans(text);
+        assert!(
+            spans.iter().any(|&(s, e)| &text[s..e] == token),
+            "paren subscript must be an atomic wrap span, got {:?}",
+            spans.iter().map(|&(s, e)| &text[s..e]).collect::<Vec<_>>()
+        );
+        assert_eq!(
+            split(text),
+            vec!["See H_(2. 0) today.".to_string(), "Next.".to_string()]
+        );
     }
 
     #[test]

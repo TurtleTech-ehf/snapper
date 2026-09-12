@@ -3484,6 +3484,70 @@ mod tests {
         assert_eq!(format_text(&wrapped, &wrap_cfg).unwrap(), wrapped);
     }
 
+    /// Ticket fixture (Format::Org / GitHub #338): org-match-substring-regexp
+    /// brace subscript stays one wrap token. `Next.` still splits.
+    /// Distinct from latex-fragment (snapper-e6tw).
+    fn brace_subscript_fixture() -> &'static str {
+        "See H_{2. 0} today. Next.\n"
+    }
+
+    #[test]
+    fn org_brace_subscript_wrap_keeps_interior_punct() {
+        use crate::format_text;
+
+        let token = "H_{2. 0}";
+        let input = brace_subscript_fixture();
+        let regions = OrgParser.parse(input);
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(p) if p.contains(token) && p.contains("Next.")
+            )),
+            "brace subscript stays inline Prose, got: {regions:?}"
+        );
+        let wrap_cfg = crate::FormatConfig {
+            format: crate::format::Format::Org,
+            max_width: 10,
+            ..Default::default()
+        }
+        .without_safety_backstops();
+        let wrapped = format_text(input, &wrap_cfg).unwrap();
+        assert!(
+            wrapped.lines().any(|l| l.contains(token)),
+            "wrap must not cut inside the brace subscript, got:\n{wrapped}"
+        );
+        assert!(
+            !wrapped.contains("2.\n0") && !wrapped.contains("H_{2.\n"),
+            "must not wrap on the interior period, got:\n{wrapped}"
+        );
+        assert!(
+            wrapped.contains("today.\nNext."),
+            "following sentence must still split, got:\n{wrapped}"
+        );
+        assert_eq!(format_text(&wrapped, &wrap_cfg).unwrap(), wrapped);
+
+        let super_in = "See x^{n. 1} today. Next.\n";
+        let super_out = format_text(super_in, &wrap_cfg).unwrap();
+        assert!(
+            super_out.lines().any(|l| l.contains("x^{n. 1}")),
+            "wrap must not cut inside the brace superscript, got:\n{super_out}"
+        );
+        assert!(
+            super_out.contains("today.\nNext."),
+            "following sentence must still split after superscript, got:\n{super_out}"
+        );
+
+        let tight = format_text("See H_{2.0} today. Next.\n", &wrap_cfg).unwrap();
+        assert!(
+            tight.lines().any(|l| l.contains("H_{2.0}")),
+            "no-space H_{{2.0}} unchanged, got:\n{tight}"
+        );
+        assert!(
+            tight.contains("today.\nNext."),
+            "following sentence must still split after no-space form, got:\n{tight}"
+        );
+    }
+
     /// Ticket fixture (Format::Org / GitHub #231): org-element inline
     /// footnote references stay one token so an interior period is not
     /// a sentence boundary. `Next sentence.` still splits.
