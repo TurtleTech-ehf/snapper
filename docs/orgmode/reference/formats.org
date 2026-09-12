@@ -105,6 +105,7 @@ These tokens within prose are not split across lines:
 - =\\begin{...}= / =\\end{...}= lines are structure
 - fancyvrb =Verbatim= / =Verbatim*= / =BVerbatim= / =BVerbatim*= / =LVerbatim= / =LVerbatim*= / =SaveVerbatim= / =VerbatimOut= / fvextra =VerbatimWrite= / =VerbatimBuffer= are built-in code regions (same FV@Scan class)
 - verbments.sty =pyglist= wraps fancyvrb =VerbatimOut= (raw listing body)
+- texments.sty / pygmentex.sty =pygmented= is =VerbatimEnvironment= plus =VerbatimOut= (raw listing body)
 - fvextra =VerbEnv= is the environment form of =\Verb= (raw body through matching =\end{VerbEnv}=)
 - moreverb =verbatimtab= is a built-in code region (tab-expanding verbatim; same raw class as =boxedverbatim=)
 - moreverb =verbatimwrite= writes the env body raw via =verbatim@start= (same class as =VerbatimOut= / =tcbverbatimwrite=)
