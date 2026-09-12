@@ -200,7 +200,8 @@ pub fn protect_inline_tokens_with(
 /// `\mintinline{lang}|...|` / `\mint{lang}{...}` /
 /// `\inputminted{lang}{file}` / `\Verb|...|` /
 /// `\SaveVerb{name}|...|` / `\piton|...|` /
-/// `\lstinputlisting[...]{file}` / `\verbatiminput{file}` so inner `.!?%` cannot
+/// `\lstinputlisting[...]{file}` / `\verbatiminput{file}` /
+/// `\PitonInputFile[...]{file}` so inner `.!?%` cannot
 /// split or comment. `\piton{...}` stays on the generic `\cmd{arg}`
 /// path (piton.sty brace syntax is not verbatim; GitHub #305).
 fn protect_latex_verbatim(
@@ -228,7 +229,7 @@ fn protect_latex_verbatim(
 
 /// Byte end of a `\verb` / `\lstinline` / `\spverb` / `\mintinline` /
 /// `\mint` / `\inputminted` / `\Verb` / `\SaveVerb` / `\piton` /
-/// `\lstinputlisting` / `\verbatiminput` /
+/// `\lstinputlisting` / `\verbatiminput` / `\PitonInputFile` /
 /// extra-name span starting at `at`.
 ///
 /// `\verb` / `\verb*` / `\spverb` / `\spverb*` / `\Verb` / `\Verb*`: next
@@ -249,9 +250,12 @@ fn protect_latex_verbatim(
 /// GitHub #391) take optional `[...]` then a required `{filename}`;
 /// no brace is not a span. `\verbatiminput` / `\verbatiminput*`
 /// (tools/verbatim.sty leftover; GitHub #398) take a required
-/// `{filename}`; no brace is not a span. Extra names are tokenized
-/// like `\verb`. With no closer, the span runs to end of line so an
-/// inner `%` is not a comment.
+/// `{filename}`; no brace is not a span. `\PitonInputFile`
+/// (piton.sty leftover; `d < > O { } m`; GitHub #406) takes optional
+/// `<...>`, optional `[...]`, then a required `{filename}`; no brace
+/// is not a span. Extra names are tokenized like `\verb`. With no
+/// closer, the span runs to end of line so an inner `%` is not a
+/// comment.
 pub(crate) fn latex_verb_span_end_with(
     text: &str,
     at: usize,
@@ -290,6 +294,13 @@ pub(crate) fn latex_verb_span_end_with(
             return None;
         }
         (after_bs + "verbatiminput".len(), VerbKind::Verbatiminput)
+    } else if let Some(stripped) = tail.strip_prefix("PitonInputFile") {
+        // Longer than `\piton` and a different case; match by full name
+        // so this leftover is not `\piton` + alphabetic leftover.
+        if stripped.starts_with(|c: char| c.is_ascii_alphabetic()) {
+            return None;
+        }
+        (after_bs + "PitonInputFile".len(), VerbKind::PitonInputFile)
     } else if let Some(stripped) = tail.strip_prefix("lstinline") {
         if stripped.starts_with(|c: char| c.is_ascii_alphabetic()) {
             return None;
@@ -355,6 +366,28 @@ pub(crate) fn latex_verb_span_end_with(
                 None => return Some(line_end(text, i)),
             }
         }
+    }
+
+    // piton.sty `\PitonInputFile<range>[opts]{file}` (`d < > O { } m`).
+    if kind == VerbKind::PitonInputFile {
+        i = skip_ascii_ws(text, i);
+        if text.get(i..).is_some_and(|s| s.starts_with('<')) {
+            match skip_angle_group(text, i) {
+                Some(end) => i = skip_ascii_ws(text, end),
+                None => return Some(line_end(text, i)),
+            }
+        }
+        if text.get(i..).is_some_and(|s| s.starts_with('[')) {
+            match skip_bracket_group(text, i) {
+                Some(end) => i = skip_ascii_ws(text, end),
+                None => return Some(line_end(text, i)),
+            }
+        }
+        if !text.get(i..).is_some_and(|s| s.starts_with('{')) {
+            return None;
+        }
+        i += 1;
+        return Some(find_unescaped_brace_close(text, i).unwrap_or_else(|| line_end(text, i)));
     }
 
     // listings.sty `\lstinputlisting[opts]{file}` is brace-only.
@@ -429,6 +462,8 @@ enum VerbKind {
     Lstinputlisting,
     /// `\verbatiminput`: required `{filename}` (verbatim.sty leftover).
     Verbatiminput,
+    /// `\PitonInputFile`: optional `<...>` / `[...]` then `{filename}`.
+    PitonInputFile,
     /// `\mintinline` / `\mint` / `\inputminted`: optional `[...]`,
     /// `{lang}`, then body.
     Mint,
@@ -458,6 +493,7 @@ fn match_extra_verb_command<'a>(tail: &'a str, extras: &'a [String]) -> Option<&
             || name == "mintinline"
             || name == "inputminted"
             || name == "verbatiminput"
+            || name == "PitonInputFile"
             || name == "mint"
             || name == "Verb"
             || name == "SaveVerb"
@@ -505,6 +541,23 @@ fn skip_bracket_group(text: &str, open_at: usize) -> Option<usize> {
             _ => {}
         }
         i += 1;
+    }
+    None
+}
+
+/// xparse `d < >`: one optional delimited group. Not nested.
+fn skip_angle_group(text: &str, open_at: usize) -> Option<usize> {
+    let bytes = text.as_bytes();
+    if bytes.get(open_at) != Some(&b'<') {
+        return None;
+    }
+    let mut i = open_at + 1;
+    while i < bytes.len() {
+        match bytes[i] {
+            b'\n' => return None,
+            b'>' => return Some(i + 1),
+            _ => i += 1,
+        }
     }
     None
 }
@@ -2404,6 +2457,76 @@ mod tests {
             latex_verb_span_end_with(r"\inputminted{python}{foo.py}", 0, &[]),
             Some(r"\inputminted{python}{foo.py}".len()),
             "verbatiminput must not steal inputminted"
+        );
+    }
+
+    /// Ticket fixture (GitHub #406): piton.sty `\PitonInputFile{file}`
+    /// is one leftover command; following `After.` still splits.
+    /// Optional `[...]` and `d < >` stay in the span. `\piton` /
+    /// `\verbatiminput` / fancyvrb `\VerbatimInput` are not stolen.
+    #[test]
+    fn latex_pitoninputfile_stays_atomic() {
+        let text = r"See \PitonInputFile{foo.py} here. After.";
+        let (_, placeholders) = protect_inline_tokens(text);
+        assert!(
+            placeholders.iter().any(|p| p == r"\PitonInputFile{foo.py}"),
+            "PitonInputFile span must be protected, got {placeholders:?}"
+        );
+        assert_eq!(
+            latex_verb_span_end_with(r"\PitonInputFile{foo.py}", 0, &[]),
+            Some(r"\PitonInputFile{foo.py}".len())
+        );
+        assert_eq!(
+            split(text),
+            vec![
+                r"See \PitonInputFile{foo.py} here.".to_string(),
+                "After.".to_string()
+            ]
+        );
+        let opts = r"See \PitonInputFile[language=python]{foo.py} here. After.";
+        let (_, opt_ph) = protect_inline_tokens(opts);
+        assert!(
+            opt_ph
+                .iter()
+                .any(|p| p == r"\PitonInputFile[language=python]{foo.py}"),
+            "PitonInputFile optional args must be protected, got {opt_ph:?}"
+        );
+        assert_eq!(
+            latex_verb_span_end_with(r"\PitonInputFile[language=python]{foo.py}", 0, &[]),
+            Some(r"\PitonInputFile[language=python]{foo.py}".len())
+        );
+        assert_eq!(
+            split(opts),
+            vec![
+                r"See \PitonInputFile[language=python]{foo.py} here.".to_string(),
+                "After.".to_string()
+            ]
+        );
+        let range = r"\PitonInputFile<1-10>[language=python]{foo.py}";
+        assert_eq!(
+            latex_verb_span_end_with(range, 0, &[]),
+            Some(range.len()),
+            "PitonInputFile d<> plus optional args must stay one span"
+        );
+        assert_eq!(
+            latex_verb_span_end_with(r"\PitonInputFile foo.py", 0, &[]),
+            None,
+            "PitonInputFile without a brace file arg is not a verb span"
+        );
+        assert_eq!(
+            latex_verb_span_end_with(r"\piton|done. Next|", 0, &[]),
+            Some(r"\piton|done. Next|".len()),
+            "PitonInputFile must not steal piton"
+        );
+        assert_eq!(
+            latex_verb_span_end_with(r"\verbatiminput{foo.py}", 0, &[]),
+            Some(r"\verbatiminput{foo.py}".len()),
+            "PitonInputFile must not steal verbatiminput"
+        );
+        assert_eq!(
+            latex_verb_span_end_with(r"\VerbatimInput{foo.py}", 0, &[]),
+            None,
+            "PitonInputFile must not steal VerbatimInput"
         );
     }
 
