@@ -187,6 +187,7 @@ fn leftover_parsed_literal_fixture_hangs_and_splits() {
         "After. must not inherit the parsed-literal hang, got:\n{out}"
     );
     assert_eq!(format_text(&out, &rst_cfg()).unwrap(), out);
+}
 
 /// Ticket fixture (Format::Rst / GitHub #351): leftover body.py
 /// containers hang and split; flush After. / Next. stay unindented.
