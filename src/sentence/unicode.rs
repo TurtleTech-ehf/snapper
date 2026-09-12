@@ -205,7 +205,8 @@ pub fn protect_inline_tokens_with(
 /// `\PitonInputFile<...>[...]{file}` /
 /// `\tcbinputlisting{keyvals}` /
 /// `\inputpy[...]{file}` / `\inputpycon[...]{file}` /
-/// `\listinginput[interval]{start}{file}` so inner `.!?%` cannot
+/// `\listinginput[interval]{start}{file}` /
+/// `\sageinput[...]{file}` so inner `.!?%` cannot
 /// split or comment. `\piton{...}` stays on the generic `\cmd{arg}`
 /// path (piton.sty brace syntax is not verbatim; GitHub #305).
 fn protect_latex_verbatim(
@@ -236,7 +237,7 @@ fn protect_latex_verbatim(
 /// `\lstinputlisting` / `\verbatiminput` / `\VerbatimInput` /
 /// `\BVerbatimInput` / `\LVerbatimInput` / `\PitonInputFile` /
 /// `\tcbinputlisting` / `\inputpy` / `\inputpycon` /
-/// `\listinginput` / extra-name span starting at `at`.
+/// `\listinginput` / `\sageinput` / extra-name span starting at `at`.
 ///
 /// `\verb` / `\verb*` / `\spverb` / `\spverb*` / `\Verb` / `\Verb*`: next
 /// character is the
@@ -272,9 +273,12 @@ fn protect_latex_verbatim(
 /// a span (`inputpy` + alphabetic leftover). `\listinginput` (moreverb
 /// leftover; GitHub #424) takes optional `[interval]` then required
 /// `{start-line}` and `{filename}`; no second brace is not a span.
-/// There is no `*` form. Extra names are tokenized like `\verb`.
-/// With no closer, the span runs to end of line so an inner `%` is
-/// not a comment.
+/// There is no `*` form. `\sageinput` (sagetex leftover; GitHub #428)
+/// takes optional `[...]` then a required `{filename}`; no brace is
+/// not a span. Alphabetic leftover rejects a longer name. `\sage` is
+/// a different, shorter name and is not this span. Extra names are
+/// tokenized like `\verb`. With no closer, the span runs to end of
+/// line so an inner `%` is not a comment.
 pub(crate) fn latex_verb_span_end_with(
     text: &str,
     at: usize,
@@ -314,6 +318,13 @@ pub(crate) fn latex_verb_span_end_with(
             return None;
         }
         (after_bs + "listinginput".len(), VerbKind::Listinginput)
+    } else if let Some(stripped) = tail.strip_prefix("sageinput") {
+        // sagetex leftover file-input (GitHub #428). Alphabetic tail
+        // rejects a longer name. `\sage` is a different, shorter name.
+        if stripped.starts_with(|c: char| c.is_ascii_alphabetic()) {
+            return None;
+        }
+        (after_bs + "sageinput".len(), VerbKind::Lstinputlisting)
     } else if let Some(name_len) = verbatiminput_cmd_len(tail) {
         (after_bs + name_len, VerbKind::Lstinputlisting)
     } else if let Some(stripped) = tail.strip_prefix("lstinputlisting") {
@@ -542,8 +553,8 @@ enum VerbKind {
     /// `\lstinline`: optional `[...]` then delimiter or `{...}`.
     Lstinline,
     /// `\lstinputlisting` / fancyvrb `\VerbatimInput` family /
-    /// `\inputpy` / `\inputpycon`: optional `[...]` then required
-    /// `{filename}`.
+    /// `\inputpy` / `\inputpycon` / `\sageinput`: optional `[...]`
+    /// then required `{filename}`.
     Lstinputlisting,
     /// `\verbatiminput`: required `{filename}` (verbatim.sty leftover).
     Verbatiminput,
@@ -619,6 +630,7 @@ fn match_extra_verb_command<'a>(tail: &'a str, extras: &'a [String]) -> Option<&
             || name == "inputpy"
             || name == "inputpycon"
             || name == "listinginput"
+            || name == "sageinput"
             || name == "mint"
             || name == "Verb"
             || name == "VerbatimInput"
@@ -2934,6 +2946,76 @@ mod tests {
             latex_verb_span_end_with(r"\lstinputlisting{foo.py}", 0, &[]),
             Some(r"\lstinputlisting{foo.py}".len()),
             "listinginput must not steal lstinputlisting"
+        );
+        assert_eq!(
+            latex_verb_span_end_with(r"\sageinput{foo.sage}", 0, &[]),
+            Some(r"\sageinput{foo.sage}".len()),
+            "listinginput must not steal sageinput"
+        );
+    }
+
+    /// Ticket fixture (GitHub #428): sagetex `\sageinput{file}` is one
+    /// leftover file-input command; following `After.` still splits.
+    /// Optional `[...]` stays in the span. sageverbatim / listinginput
+    /// / inputpy unchanged. `\sage` is not stolen.
+    #[test]
+    fn latex_sageinput_stays_atomic() {
+        let text = r"See \sageinput{foo.sage} here. After.";
+        let (_, placeholders) = protect_inline_tokens(text);
+        assert!(
+            placeholders.iter().any(|p| p == r"\sageinput{foo.sage}"),
+            "sageinput span must be protected, got {placeholders:?}"
+        );
+        assert_eq!(
+            latex_verb_span_end_with(r"\sageinput{foo.sage}", 0, &[]),
+            Some(r"\sageinput{foo.sage}".len())
+        );
+        assert_eq!(
+            split(text),
+            vec![
+                r"See \sageinput{foo.sage} here.".to_string(),
+                "After.".to_string()
+            ]
+        );
+        assert_eq!(
+            latex_verb_span_end_with(r"\sageinput[firstline=1]{foo.sage}", 0, &[]),
+            Some(r"\sageinput[firstline=1]{foo.sage}".len()),
+            "sageinput optional args must stay in the span"
+        );
+        assert_eq!(
+            latex_verb_span_end_with(r"\sageinput {foo.sage}", 0, &[]),
+            Some(r"\sageinput {foo.sage}".len()),
+            "sageinput may skip space before the file brace"
+        );
+        assert_eq!(
+            latex_verb_span_end_with(r"\sageinput foo.sage", 0, &[]),
+            None,
+            "sageinput without a brace file arg is not a verb span"
+        );
+        assert_eq!(
+            latex_verb_span_end_with(r"\sage{2+2}", 0, &[]),
+            None,
+            "sageinput must not steal sage"
+        );
+        assert_eq!(
+            latex_verb_span_end_with(r"\listinginput{1}{foo.py}", 0, &[]),
+            Some(r"\listinginput{1}{foo.py}".len()),
+            "sageinput must not steal listinginput"
+        );
+        assert_eq!(
+            latex_verb_span_end_with(r"\inputpy{foo.py}", 0, &[]),
+            Some(r"\inputpy{foo.py}".len()),
+            "sageinput must not steal inputpy"
+        );
+        assert_eq!(
+            latex_verb_span_end_with(r"\tcbinputlisting{listing file=foo.py}", 0, &[]),
+            Some(r"\tcbinputlisting{listing file=foo.py}".len()),
+            "sageinput must not steal tcbinputlisting"
+        );
+        assert_eq!(
+            latex_verb_span_end_with(r"\PitonInputFile{foo.py}", 0, &[]),
+            Some(r"\PitonInputFile{foo.py}".len()),
+            "sageinput must not steal PitonInputFile"
         );
     }
 
