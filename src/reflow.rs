@@ -538,14 +538,18 @@ fn atx_heading_start(text: &str) -> bool {
 }
 
 fn md_list_start(text: &str) -> bool {
-    // CommonMark 5.2 / GitHub #326: marker then space or empty rest.
-    // Wrap must not create a column-0 lone `-` / `*` / `+` (setext or list).
+    // CommonMark 5.2 / GitHub #326 / #337: marker then space, tab, two
+    // spaces at EOL, or empty rest. Wrap must not create a column-0 lone
+    // `-` / `*` / `+` (setext or list).
     text == "-"
         || text == "*"
         || text == "+"
         || text.starts_with("- ")
         || text.starts_with("* ")
         || text.starts_with("+ ")
+        || text.starts_with("-\t")
+        || text.starts_with("*\t")
+        || text.starts_with("+\t")
         || md_ordered_list_start(text)
 }
 
@@ -560,7 +564,8 @@ fn md_ordered_list_start(text: &str) -> bool {
     if i == 0 || i > 9 {
         return false;
     }
-    matches!(bytes.get(i), Some(b'.') | Some(b')')) && matches!(bytes.get(i + 1), Some(b' ') | None)
+    matches!(bytes.get(i), Some(b'.') | Some(b')'))
+        && matches!(bytes.get(i + 1), Some(b' ') | Some(b'\t') | None)
 }
 
 fn md_link_ref_def(text: &str) -> bool {
