@@ -27,6 +27,7 @@ pub struct FormatOverrides {
     /// VerbatimBuffer and Verbatim*/BVerbatim*/LVerbatim*, fvextra VerbEnv,
     /// verbments pyglist, texments/pygmentex pygmented,
     /// moreverb boxedverbatim/verbatimtab/verbatimwrite/listing/listingcont/listing*/listingcont*,
+    /// leftover sverb verbwrite/ignore/demo/demo*,
     /// standard alltt, spverbatim, piton.sty Piton,
     /// tree-sitter sagesilent/sageblock, sagetex sageverbatim/sageexample/
     /// sagecommandline,
