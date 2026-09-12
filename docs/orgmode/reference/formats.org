@@ -113,6 +113,7 @@ These tokens within prose are not split across lines:
 - =alltt= (standard =alltt.sty=) is a built-in code region (raw line breaks)
 - listings.sty =lstlisting*= is the same raw body scan as =lstlisting=
 - pythonhighlight.sty =python= (`lstnewenvironment{python}`) is the same listings raw scan as =lstlisting=
+- showexpl.sty =LTXexample= (`lstnewenvironment{LTXexample}`) is the same listings raw scan as =lstlisting=
 - minted.sty =minted*= is the starred twin of =minted= (same raw minted body)
 - tcolorbox listings =tcblisting*= is the starred twin of =tcblisting= (same raw listing body)
 - tcolorbox =tcbverbatimwrite= / =tcbwritetemp= write the env body raw to a file (same class as =VerbatimOut=)

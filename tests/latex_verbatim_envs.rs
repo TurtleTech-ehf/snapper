@@ -48,6 +48,8 @@
 //! is verb-like; \\piton{...} stays one token via generic cmd-arg.
 //! GitHub #307: pythonhighlight.sty python (lstnewenvironment python)
 //! is the same listings raw scan as lstlisting.
+//! GitHub #345: showexpl.sty LTXexample (lstnewenvironment LTXexample)
+//! is the same listings raw scan as lstlisting.
 //! GitHub #308: verbments.sty pyglist wraps fancyvrb VerbatimOut; the
 //! body is a raw listing.
 //! GitHub #342: texments.sty / pygmentex.sty pygmented is
@@ -1777,6 +1779,72 @@ fn pythonhighlight_python_fixture_is_code_and_does_not_reflow() {
         "prose after pycode must still split, got:\n{pycode_out}"
     );
     assert_eq!(format_text(&pycode_out, &latex_cfg()).unwrap(), pycode_out);
+}
+
+/// Ticket fixture (GitHub #345): showexpl.sty `LTXexample`
+/// (`lstnewenvironment{LTXexample}`) is the same listings raw scan as
+/// `lstlisting`. Body stays Code and one source line; following prose
+/// still splits. `lstlisting` unchanged.
+#[test]
+fn showexpl_ltxexample_fixture_is_code_and_does_not_reflow() {
+    let input = concat!(
+        "\\begin{LTXexample}\n",
+        "First line. Second line.\n",
+        "\\end{LTXexample}\n",
+        "After the block. Next.\n",
+    );
+    let regions = LatexParser::default().parse(input);
+    assert!(
+        regions.iter().any(|r| matches!(
+            r,
+            Region::Code { body, .. } if body.contains("First line. Second line.")
+        )),
+        "LTXexample body must be Code, got: {regions:?}"
+    );
+    assert!(
+        !regions
+            .iter()
+            .any(|r| matches!(r, Region::Prose(p) if p.contains("First line"))),
+        "LTXexample body must not be Prose, got: {regions:?}"
+    );
+    let out = format_text(input, &latex_cfg()).unwrap();
+    assert!(
+        out.contains("\\begin{LTXexample}") && out.contains("\\end{LTXexample}"),
+        "LTXexample begin/end must stay, got:\n{out}"
+    );
+    assert!(
+        out.contains("First line. Second line."),
+        "LTXexample body must stay one source line, got:\n{out}"
+    );
+    assert!(
+        !out.contains("First line.\nSecond line."),
+        "LTXexample must not reflow as prose, got:\n{out}"
+    );
+    assert!(
+        out.contains("After the block.\nNext."),
+        "prose after LTXexample must still split, got:\n{out}"
+    );
+    assert_eq!(format_text(&out, &latex_cfg()).unwrap(), out);
+
+    let lstlisting = concat!(
+        "\\begin{lstlisting}\n",
+        "First line. Second line.\n",
+        "\\end{lstlisting}\n",
+        "After the block. Next.\n",
+    );
+    let lstlisting_out = format_text(lstlisting, &latex_cfg()).unwrap();
+    assert!(
+        lstlisting_out.contains("\\begin{lstlisting}\nFirst line. Second line.\n\\end{lstlisting}"),
+        "lstlisting must stay a code env, got:\n{lstlisting_out}"
+    );
+    assert!(
+        lstlisting_out.contains("After the block.\nNext."),
+        "prose after lstlisting must still split, got:\n{lstlisting_out}"
+    );
+    assert_eq!(
+        format_text(&lstlisting_out, &latex_cfg()).unwrap(),
+        lstlisting_out
+    );
 }
 
 /// Ticket fixture (GitHub #273): minted.sty `minted*` bodies stay
