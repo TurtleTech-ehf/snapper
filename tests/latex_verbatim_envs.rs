@@ -9,8 +9,6 @@
 //! GitHub #235: spverbatim.sty env and \\spverb are the same class as verb.
 //! GitHub #244: fancyvrb Verbatim* / BVerbatim* / LVerbatim* are the same FV@Scan class.
 //! GitHub #245: minted.sty \\mintinline / \\mint take {lang} then a FancyVerb body.
-//! GitHub #394: minted.sty \\inputminted is one leftover command;
-//! following flush prose stays on its own line.
 //! GitHub #273: minted.sty minted* is the starred twin of minted (same raw body).
 //! GitHub #275: fancyvrb \\SaveVerb{name}|body| is the same delimiter body as \\Verb.
 //! GitHub #246: tcolorbox listings tcblisting* is the starred twin of tcblisting.
@@ -68,6 +66,8 @@
 //! body is a raw listing.
 //! GitHub #342: texments.sty / pygmentex.sty pygmented is
 //! VerbatimEnvironment plus VerbatimOut.
+//! GitHub #394: minted.sty \\inputminted is one leftover command;
+//! following flush prose does not join the command line.
 
 use snapper_fmt::format::Format;
 use snapper_fmt::parser::latex::LatexParser;
@@ -2885,8 +2885,58 @@ fn pythontex_option_family_envs_fixture_is_code_and_does_not_reflow() {
     assert_eq!(format_text(&landed_out, &latex_cfg()).unwrap(), landed_out);
 }
 
+/// Ticket fixture (GitHub #245): `\mintinline{python}|a.b! c|` is one
+/// token; following `Next sentence.` still splits. `{lang}{body}` and
+/// `\mint` are the same class.
+#[test]
+fn mintinline_and_mint_fixture_is_atomic_and_does_not_reflow() {
+    let input = "\\begin{document}\nUse \\mintinline{python}|a.b! c| here. Next sentence.\n\\end{document}\n";
+    let regions = LatexParser::default().parse(input);
+    assert!(
+        !regions.iter().any(|r| matches!(r, Region::Prose(p) if p.contains("|a.b! c|") && !p.contains(r"\mintinline"))),
+        "mintinline leftover |body| must not be prose, got: {regions:?}"
+    );
+    let out = format_text(input, &latex_cfg()).unwrap();
+    assert!(
+        out.contains(r"\mintinline{python}|a.b! c|"),
+        "\\mintinline{{python}}|a.b! c| must stay one token, got:\n{out}"
+    );
+    assert!(
+        !out.contains("\\mintinline{python}|a.\n") && !out.contains("\\mintinline{python}|a.b!\n"),
+        "inner .!? must not split mintinline, got:\n{out}"
+    );
+    assert!(
+        out.contains("Use \\mintinline{python}|a.b! c| here.\nNext sentence."),
+        "prose after mintinline must still split, got:\n{out}"
+    );
+
+    let brace = "\\begin{document}\nUse \\mintinline{python}{a.b! c} here. Next sentence.\n\\end{document}\n";
+    let brace_out = format_text(brace, &latex_cfg()).unwrap();
+    assert!(
+        brace_out.contains(r"\mintinline{python}{a.b! c}"),
+        "mintinline {{lang}}{{body}} must stay one token, got:\n{brace_out}"
+    );
+    assert!(
+        brace_out.contains("Use \\mintinline{python}{a.b! c} here.\nNext sentence."),
+        "prose after mintinline brace body must still split, got:\n{brace_out}"
+    );
+
+    let mint =
+        "\\begin{document}\nUse \\mint{python}|a.b! c| here. Next sentence.\n\\end{document}\n";
+    let mint_out = format_text(mint, &latex_cfg()).unwrap();
+    assert!(
+        mint_out.contains(r"\mint{python}|a.b! c|"),
+        "\\mint{{python}}|a.b! c| must stay one token, got:\n{mint_out}"
+    );
+    assert!(
+        mint_out.contains("Use \\mint{python}|a.b! c| here.\nNext sentence."),
+        "prose after mint must still split, got:\n{mint_out}"
+    );
+    assert_eq!(format_text(&out, &latex_cfg()).unwrap(), out);
+}
+
 /// Ticket fixture (GitHub #394): minted.sty `\inputminted{lang}{file}`
-/// stays one atomic command. Following flush `After.` does not join
+/// stays one leftover command. Following flush `After.` does not join
 /// the command line. `After.` / `Next.` still split. mintinline /
 /// minted unchanged.
 #[test]
@@ -2959,56 +3009,6 @@ fn inputminted_fixture_does_not_join_following_prose() {
         minted_out.contains("After the block.\nNext."),
         "prose after minted must still split, got:\n{minted_out}"
     );
-}
-
-/// Ticket fixture (GitHub #245): `\mintinline{python}|a.b! c|` is one
-/// token; following `Next sentence.` still splits. `{lang}{body}` and
-/// `\mint` are the same class.
-#[test]
-fn mintinline_and_mint_fixture_is_atomic_and_does_not_reflow() {
-    let input = "\\begin{document}\nUse \\mintinline{python}|a.b! c| here. Next sentence.\n\\end{document}\n";
-    let regions = LatexParser::default().parse(input);
-    assert!(
-        !regions.iter().any(|r| matches!(r, Region::Prose(p) if p.contains("|a.b! c|") && !p.contains(r"\mintinline"))),
-        "mintinline leftover |body| must not be prose, got: {regions:?}"
-    );
-    let out = format_text(input, &latex_cfg()).unwrap();
-    assert!(
-        out.contains(r"\mintinline{python}|a.b! c|"),
-        "\\mintinline{{python}}|a.b! c| must stay one token, got:\n{out}"
-    );
-    assert!(
-        !out.contains("\\mintinline{python}|a.\n") && !out.contains("\\mintinline{python}|a.b!\n"),
-        "inner .!? must not split mintinline, got:\n{out}"
-    );
-    assert!(
-        out.contains("Use \\mintinline{python}|a.b! c| here.\nNext sentence."),
-        "prose after mintinline must still split, got:\n{out}"
-    );
-
-    let brace = "\\begin{document}\nUse \\mintinline{python}{a.b! c} here. Next sentence.\n\\end{document}\n";
-    let brace_out = format_text(brace, &latex_cfg()).unwrap();
-    assert!(
-        brace_out.contains(r"\mintinline{python}{a.b! c}"),
-        "mintinline {{lang}}{{body}} must stay one token, got:\n{brace_out}"
-    );
-    assert!(
-        brace_out.contains("Use \\mintinline{python}{a.b! c} here.\nNext sentence."),
-        "prose after mintinline brace body must still split, got:\n{brace_out}"
-    );
-
-    let mint =
-        "\\begin{document}\nUse \\mint{python}|a.b! c| here. Next sentence.\n\\end{document}\n";
-    let mint_out = format_text(mint, &latex_cfg()).unwrap();
-    assert!(
-        mint_out.contains(r"\mint{python}|a.b! c|"),
-        "\\mint{{python}}|a.b! c| must stay one token, got:\n{mint_out}"
-    );
-    assert!(
-        mint_out.contains("Use \\mint{python}|a.b! c| here.\nNext sentence."),
-        "prose after mint must still split, got:\n{mint_out}"
-    );
-    assert_eq!(format_text(&out, &latex_cfg()).unwrap(), out);
 }
 
 /// Ticket fixture (GitHub #275): `\SaveVerb{foo}|done. Next|` is one

@@ -391,7 +391,7 @@ enum VerbKind {
     /// `\lstinline`: optional `[...]` then delimiter or `{...}`.
     Lstinline,
     /// `\mintinline` / `\mint` / `\inputminted`: optional `[...]`,
-    /// `{lang}`, then body.
+    /// `{lang}`, then body (`{file}` for `\inputminted`).
     Mint,
     /// `\SaveVerb`: optional `[...]`, `{name}`, then delimiter body like `\Verb`.
     SaveVerb,
@@ -2066,6 +2066,74 @@ mod tests {
         );
     }
 
+    /// Ticket fixture (GitHub #394): minted.sty `\inputminted{lang}{file}`
+    /// is one token like `\mintinline`; following `After.` still splits.
+    #[test]
+    fn latex_inputminted_stays_atomic() {
+        let text = r"See \inputminted{python}{foo.py} here. After.";
+        let (_, placeholders) = protect_inline_tokens(text);
+        assert!(
+            placeholders
+                .iter()
+                .any(|p| p == r"\inputminted{python}{foo.py}"),
+            "inputminted span must be protected, got {placeholders:?}"
+        );
+        assert_eq!(
+            latex_verb_span_end_with(r"\inputminted{python}{foo.py}", 0, &[]),
+            Some(r"\inputminted{python}{foo.py}".len())
+        );
+        assert_eq!(
+            split(text),
+            vec![
+                r"See \inputminted{python}{foo.py} here.".to_string(),
+                "After.".to_string()
+            ]
+        );
+        let opts = r"See \inputminted[linenos]{python}{foo.py} here. After.";
+        let (_, opt_ph) = protect_inline_tokens(opts);
+        assert!(
+            opt_ph
+                .iter()
+                .any(|p| p == r"\inputminted[linenos]{python}{foo.py}"),
+            "inputminted optional args must be protected, got {opt_ph:?}"
+        );
+        assert_eq!(
+            latex_verb_span_end_with(r"\inputminted[linenos]{python}{foo.py}", 0, &[]),
+            Some(r"\inputminted[linenos]{python}{foo.py}".len())
+        );
+        assert_eq!(
+            split(opts),
+            vec![
+                r"See \inputminted[linenos]{python}{foo.py} here.".to_string(),
+                "After.".to_string()
+            ]
+        );
+        assert_eq!(
+            latex_verb_span_end_with(r"\inputminted*{python}{foo.py}", 0, &[]),
+            Some(r"\inputminted*{python}{foo.py}".len())
+        );
+        assert_eq!(
+            latex_verb_span_end_with(r"\inputminted foo.py", 0, &[]),
+            None,
+            "inputminted without a {{lang}} arg is not a verb span"
+        );
+        assert_eq!(
+            latex_verb_span_end_with(r"\mintinline{python}|a.b! c|", 0, &[]),
+            Some(r"\mintinline{python}|a.b! c|".len()),
+            "inputminted must not steal mintinline"
+        );
+        assert_eq!(
+            latex_verb_span_end_with(r"\mint{python}|a.b! c|", 0, &[]),
+            Some(r"\mint{python}|a.b! c|".len()),
+            "inputminted must not steal mint"
+        );
+        assert_eq!(
+            latex_verb_span_end_with(r"\input{foo.py}", 0, &[]),
+            None,
+            "inputminted must not steal \\input"
+        );
+    }
+
     /// Ticket fixture (GitHub #245): minted.sty `\mintinline{lang}|body|`
     /// is one token; following `Next sentence.` still splits.
     #[test]
@@ -2186,74 +2254,6 @@ mod tests {
                 r"See \mintinline[escapeinside=||]{python}|a.b%| please.".to_string(),
                 "Next.".to_string()
             ]
-        );
-    }
-
-    /// Ticket fixture (GitHub #394): minted.sty `\inputminted{lang}{file}`
-    /// is one token like `\mintinline`; following `After.` still splits.
-    #[test]
-    fn latex_inputminted_stays_atomic() {
-        let text = r"See \inputminted{python}{foo.py} here. After.";
-        let (_, placeholders) = protect_inline_tokens(text);
-        assert!(
-            placeholders
-                .iter()
-                .any(|p| p == r"\inputminted{python}{foo.py}"),
-            "inputminted span must be protected, got {placeholders:?}"
-        );
-        assert_eq!(
-            latex_verb_span_end_with(r"\inputminted{python}{foo.py}", 0, &[]),
-            Some(r"\inputminted{python}{foo.py}".len())
-        );
-        assert_eq!(
-            split(text),
-            vec![
-                r"See \inputminted{python}{foo.py} here.".to_string(),
-                "After.".to_string()
-            ]
-        );
-        let opts = r"See \inputminted[linenos]{python}{foo.py} here. After.";
-        let (_, opt_ph) = protect_inline_tokens(opts);
-        assert!(
-            opt_ph
-                .iter()
-                .any(|p| p == r"\inputminted[linenos]{python}{foo.py}"),
-            "inputminted optional args must be protected, got {opt_ph:?}"
-        );
-        assert_eq!(
-            latex_verb_span_end_with(r"\inputminted[linenos]{python}{foo.py}", 0, &[]),
-            Some(r"\inputminted[linenos]{python}{foo.py}".len())
-        );
-        assert_eq!(
-            split(opts),
-            vec![
-                r"See \inputminted[linenos]{python}{foo.py} here.".to_string(),
-                "After.".to_string()
-            ]
-        );
-        assert_eq!(
-            latex_verb_span_end_with(r"\inputminted*{python}{foo.py}", 0, &[]),
-            Some(r"\inputminted*{python}{foo.py}".len())
-        );
-        assert_eq!(
-            latex_verb_span_end_with(r"\inputminted foo.py", 0, &[]),
-            None,
-            "inputminted without a {{lang}} arg is not a verb span"
-        );
-        assert_eq!(
-            latex_verb_span_end_with(r"\mintinline{python}|a.b! c|", 0, &[]),
-            Some(r"\mintinline{python}|a.b! c|".len()),
-            "inputminted must not steal mintinline"
-        );
-        assert_eq!(
-            latex_verb_span_end_with(r"\mint{python}|a.b! c|", 0, &[]),
-            Some(r"\mint{python}|a.b! c|".len()),
-            "inputminted must not steal mint"
-        );
-        assert_eq!(
-            latex_verb_span_end_with(r"\input{foo.py}", 0, &[]),
-            None,
-            "inputminted must not steal \\input"
         );
     }
 
