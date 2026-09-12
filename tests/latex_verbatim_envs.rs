@@ -9,6 +9,8 @@
 //! GitHub #235: spverbatim.sty env and \\spverb are the same class as verb.
 //! GitHub #244: fancyvrb Verbatim* / BVerbatim* / LVerbatim* are the same FV@Scan class.
 //! GitHub #245: minted.sty \\mintinline / \\mint take {lang} then a FancyVerb body.
+//! GitHub #394: minted.sty \\inputminted is one leftover command;
+//! following flush prose stays on its own line.
 //! GitHub #273: minted.sty minted* is the starred twin of minted (same raw body).
 //! GitHub #275: fancyvrb \\SaveVerb{name}|body| is the same delimiter body as \\Verb.
 //! GitHub #246: tcolorbox listings tcblisting* is the starred twin of tcblisting.
@@ -2883,6 +2885,82 @@ fn pythontex_option_family_envs_fixture_is_code_and_does_not_reflow() {
         "prose after landed pycode/pyconsole must still split, got:\n{landed_out}"
     );
     assert_eq!(format_text(&landed_out, &latex_cfg()).unwrap(), landed_out);
+}
+
+/// Ticket fixture (GitHub #394): minted.sty `\inputminted{lang}{file}`
+/// stays one atomic command. Following flush `After.` does not join
+/// the command line. `After.` / `Next.` still split. mintinline /
+/// minted unchanged.
+#[test]
+fn inputminted_fixture_does_not_join_following_prose() {
+    let input = concat!(
+        "Before. Next.\n",
+        "\\inputminted{python}{foo.py}\n",
+        "After. Next.\n",
+    );
+    let regions = LatexParser::default().parse(input);
+    assert!(
+        regions.iter().any(|r| matches!(
+            r,
+            Region::Structure(s) if s.contains(r"\inputminted{python}{foo.py}")
+        )),
+        "inputminted must stay one Structure command, got: {regions:?}"
+    );
+    assert!(
+        !regions.iter().any(|r| matches!(
+            r,
+            Region::Prose(p) if p.contains(r"\inputminted{python}{foo.py}")
+        )),
+        "inputminted must not leak into Prose, got: {regions:?}"
+    );
+    assert!(
+        regions.iter().any(|r| matches!(
+            r,
+            Region::Prose(p) if p.contains("After.") && p.contains("Next.")
+        )),
+        "After. / Next. must stay Prose, got: {regions:?}"
+    );
+    let out = format_text(input, &latex_cfg()).unwrap();
+    assert!(
+        out.contains("\\inputminted{python}{foo.py}\n"),
+        "inputminted must stay one atomic command, got:\n{out}"
+    );
+    assert!(
+        !out.contains("\\inputminted{python}{foo.py} After."),
+        "following flush prose must not join the command line, got:\n{out}"
+    );
+    assert!(
+        out.contains("Before.\nNext."),
+        "prose before inputminted must still split, got:\n{out}"
+    );
+    assert!(
+        out.contains("After.\nNext."),
+        "prose after inputminted must still split, got:\n{out}"
+    );
+    assert_eq!(format_text(&out, &latex_cfg()).unwrap(), out);
+
+    let mintinline = "Use \\mintinline{python}|a.b! c| here. Next sentence.\n";
+    let mintinline_out = format_text(mintinline, &latex_cfg()).unwrap();
+    assert!(
+        mintinline_out.contains("Use \\mintinline{python}|a.b! c| here.\nNext sentence."),
+        "mintinline must stay intact and still split, got:\n{mintinline_out}"
+    );
+
+    let minted = concat!(
+        "\\begin{minted}{python}\n",
+        "First line. Second line.\n",
+        "\\end{minted}\n",
+        "After the block. Next.\n",
+    );
+    let minted_out = format_text(minted, &latex_cfg()).unwrap();
+    assert!(
+        minted_out.contains("\\begin{minted}{python}\nFirst line. Second line.\n\\end{minted}"),
+        "minted must stay a code env, got:\n{minted_out}"
+    );
+    assert!(
+        minted_out.contains("After the block.\nNext."),
+        "prose after minted must still split, got:\n{minted_out}"
+    );
 }
 
 /// Ticket fixture (GitHub #245): `\mintinline{python}|a.b! c|` is one
