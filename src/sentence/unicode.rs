@@ -197,7 +197,8 @@ pub fn protect_inline_tokens_with(
 }
 
 /// `\verb|...|` / `\lstinline[...]!...!` / `\spverb|...|` /
-/// `\mintinline{lang}|...|` / `\mint{lang}{...}` / `\Verb|...|` /
+/// `\mintinline{lang}|...|` / `\mint{lang}{...}` /
+/// `\inputminted{lang}{file}` / `\Verb|...|` /
 /// `\SaveVerb{name}|...|` / `\piton|...|` so inner `.!?%` cannot
 /// split or comment. `\piton{...}` stays on the generic `\cmd{arg}`
 /// path (piton.sty brace syntax is not verbatim; GitHub #305).
@@ -225,8 +226,8 @@ fn protect_latex_verbatim(
 }
 
 /// Byte end of a `\verb` / `\lstinline` / `\spverb` / `\mintinline` /
-/// `\mint` / `\Verb` / `\SaveVerb` / `\piton` / extra-name span
-/// starting at `at`.
+/// `\mint` / `\inputminted` / `\Verb` / `\SaveVerb` / `\piton` /
+/// extra-name span starting at `at`.
 ///
 /// `\verb` / `\verb*` / `\spverb` / `\spverb*` / `\Verb` / `\Verb*`: next
 /// character is the
@@ -234,14 +235,16 @@ fn protect_latex_verbatim(
 /// `\lstinline*` may take optional `[...]` before a delimiter or a
 /// `{...}` brace body. `\mintinline` / `\mint` (and stars) take optional
 /// `[...]`, a required `{lang}`, then a delimiter or `{...}` body
-/// (minted.sty / FVExtraReadVArg; GitHub #245). `\SaveVerb` / `\SaveVerb*`
-/// take optional `[...]`, a required `{name}`, then the same delimiter
-/// body as `\Verb` (fancyvrb FVExtraReadVArg; GitHub #275). `\piton`
-/// (piton.sty; GitHub #305) is verb-like for a non-brace delimiter
-/// (`\piton|...|`); a following `{` is not a delimiter so `\piton{...}`
-/// stays on the generic `\cmd{arg}` path. Extra names are tokenized
-/// like `\verb`. With no closer, the span runs to end of line so an
-/// inner `%` is not a comment.
+/// (minted.sty / FVExtraReadVArg; GitHub #245). `\inputminted` /
+/// `\inputminted*` (minted.sty leftover; GitHub #394) use the same
+/// `{lang}` then brace-body walk as `\mintinline`. `\SaveVerb` /
+/// `\SaveVerb*` take optional `[...]`, a required `{name}`, then the
+/// same delimiter body as `\Verb` (fancyvrb FVExtraReadVArg; GitHub
+/// #275). `\piton` (piton.sty; GitHub #305) is verb-like for a
+/// non-brace delimiter (`\piton|...|`); a following `{` is not a
+/// delimiter so `\piton{...}` stays on the generic `\cmd{arg}` path.
+/// Extra names are tokenized like `\verb`. With no closer, the span
+/// runs to end of line so an inner `%` is not a comment.
 pub(crate) fn latex_verb_span_end_with(
     text: &str,
     at: usize,
@@ -253,12 +256,19 @@ pub(crate) fn latex_verb_span_end_with(
     }
     let after_bs = at + 1;
     let tail = text.get(after_bs..)?;
-    // `mintinline` before `mint` so `\mintinline` is not `\mint` + leftover.
+    // `mintinline` / `inputminted` before `mint` so those names are not
+    // `\mint` + leftover. `inputminted` is the same `{lang}` + body
+    // walk as mintinline (minted.sty leftover; GitHub #394).
     let (mut i, kind) = if let Some(stripped) = tail.strip_prefix("mintinline") {
         if stripped.starts_with(|c: char| c.is_ascii_alphabetic()) {
             return None;
         }
         (after_bs + "mintinline".len(), VerbKind::Mint)
+    } else if let Some(stripped) = tail.strip_prefix("inputminted") {
+        if stripped.starts_with(|c: char| c.is_ascii_alphabetic()) {
+            return None;
+        }
+        (after_bs + "inputminted".len(), VerbKind::Mint)
     } else if let Some(stripped) = tail.strip_prefix("lstinline") {
         if stripped.starts_with(|c: char| c.is_ascii_alphabetic()) {
             return None;
@@ -380,7 +390,8 @@ enum VerbKind {
     Delim,
     /// `\lstinline`: optional `[...]` then delimiter or `{...}`.
     Lstinline,
-    /// `\mintinline` / `\mint`: optional `[...]`, `{lang}`, then body.
+    /// `\mintinline` / `\mint` / `\inputminted`: optional `[...]`,
+    /// `{lang}`, then body (`{file}` for `\inputminted`).
     Mint,
     /// `\SaveVerb`: optional `[...]`, `{name}`, then delimiter body like `\Verb`.
     SaveVerb,
@@ -405,6 +416,7 @@ fn match_extra_verb_command<'a>(tail: &'a str, extras: &'a [String]) -> Option<&
             || name == "lstinline"
             || name == "spverb"
             || name == "mintinline"
+            || name == "inputminted"
             || name == "mint"
             || name == "Verb"
             || name == "SaveVerb"
@@ -2051,6 +2063,74 @@ mod tests {
                 r"See \lstinline[language=TeX]!a.b%! please.".to_string(),
                 "Next.".to_string()
             ]
+        );
+    }
+
+    /// Ticket fixture (GitHub #394): minted.sty `\inputminted{lang}{file}`
+    /// is one token like `\mintinline`; following `After.` still splits.
+    #[test]
+    fn latex_inputminted_stays_atomic() {
+        let text = r"See \inputminted{python}{foo.py} here. After.";
+        let (_, placeholders) = protect_inline_tokens(text);
+        assert!(
+            placeholders
+                .iter()
+                .any(|p| p == r"\inputminted{python}{foo.py}"),
+            "inputminted span must be protected, got {placeholders:?}"
+        );
+        assert_eq!(
+            latex_verb_span_end_with(r"\inputminted{python}{foo.py}", 0, &[]),
+            Some(r"\inputminted{python}{foo.py}".len())
+        );
+        assert_eq!(
+            split(text),
+            vec![
+                r"See \inputminted{python}{foo.py} here.".to_string(),
+                "After.".to_string()
+            ]
+        );
+        let opts = r"See \inputminted[linenos]{python}{foo.py} here. After.";
+        let (_, opt_ph) = protect_inline_tokens(opts);
+        assert!(
+            opt_ph
+                .iter()
+                .any(|p| p == r"\inputminted[linenos]{python}{foo.py}"),
+            "inputminted optional args must be protected, got {opt_ph:?}"
+        );
+        assert_eq!(
+            latex_verb_span_end_with(r"\inputminted[linenos]{python}{foo.py}", 0, &[]),
+            Some(r"\inputminted[linenos]{python}{foo.py}".len())
+        );
+        assert_eq!(
+            split(opts),
+            vec![
+                r"See \inputminted[linenos]{python}{foo.py} here.".to_string(),
+                "After.".to_string()
+            ]
+        );
+        assert_eq!(
+            latex_verb_span_end_with(r"\inputminted*{python}{foo.py}", 0, &[]),
+            Some(r"\inputminted*{python}{foo.py}".len())
+        );
+        assert_eq!(
+            latex_verb_span_end_with(r"\inputminted foo.py", 0, &[]),
+            None,
+            "inputminted without a {{lang}} arg is not a verb span"
+        );
+        assert_eq!(
+            latex_verb_span_end_with(r"\mintinline{python}|a.b! c|", 0, &[]),
+            Some(r"\mintinline{python}|a.b! c|".len()),
+            "inputminted must not steal mintinline"
+        );
+        assert_eq!(
+            latex_verb_span_end_with(r"\mint{python}|a.b! c|", 0, &[]),
+            Some(r"\mint{python}|a.b! c|".len()),
+            "inputminted must not steal mint"
+        );
+        assert_eq!(
+            latex_verb_span_end_with(r"\input{foo.py}", 0, &[]),
+            None,
+            "inputminted must not steal \\input"
         );
     }
 
