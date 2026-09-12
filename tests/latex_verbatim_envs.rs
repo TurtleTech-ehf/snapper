@@ -48,6 +48,8 @@
 //! is verb-like; \\piton{...} stays one token via generic cmd-arg.
 //! GitHub #307: pythonhighlight.sty python (lstnewenvironment python)
 //! is the same listings raw scan as lstlisting.
+//! GitHub #346: pyluatex.sty pythonq / pythonrepl are verbatim python /
+//! REPL bodies (landed python stays Code).
 //! GitHub #345: showexpl.sty LTXexample (lstnewenvironment LTXexample)
 //! is the same listings raw scan as lstlisting.
 //! GitHub #308: verbments.sty pyglist wraps fancyvrb VerbatimOut; the
@@ -1845,6 +1847,68 @@ fn showexpl_ltxexample_fixture_is_code_and_does_not_reflow() {
         format_text(&lstlisting_out, &latex_cfg()).unwrap(),
         lstlisting_out
     );
+}
+
+/// Ticket fixture (GitHub #346): pyluatex.sty `pythonq` / `pythonrepl`
+/// are verbatim python / REPL bodies. Body stays Code and one source
+/// line; following prose still splits. Landed `python` stays Code.
+#[test]
+fn pyluatex_pythonq_and_pythonrepl_fixture_is_code_and_does_not_reflow() {
+    for name in ["pythonq", "pythonrepl"] {
+        let input = format!(
+            "\\begin{{{name}}}\nFirst line. Second line.\n\\end{{{name}}}\nAfter the block. Next.\n"
+        );
+        let regions = LatexParser::default().parse(&input);
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Code { body, .. } if body.contains("First line. Second line.")
+            )),
+            "{name} body must be Code, got: {regions:?}"
+        );
+        assert!(
+            !regions
+                .iter()
+                .any(|r| matches!(r, Region::Prose(p) if p.contains("First line"))),
+            "{name} body must not be Prose, got: {regions:?}"
+        );
+        let out = format_text(&input, &latex_cfg()).unwrap();
+        assert!(
+            out.contains(&format!("\\begin{{{name}}}"))
+                && out.contains(&format!("\\end{{{name}}}")),
+            "{name} begin/end must stay, got:\n{out}"
+        );
+        assert!(
+            out.contains("First line. Second line."),
+            "{name} body must stay one source line, got:\n{out}"
+        );
+        assert!(
+            !out.contains("First line.\nSecond line."),
+            "{name} must not reflow as prose, got:\n{out}"
+        );
+        assert!(
+            out.contains("After the block.\nNext."),
+            "prose after {name} must still split, got:\n{out}"
+        );
+        assert_eq!(format_text(&out, &latex_cfg()).unwrap(), out);
+    }
+
+    let python = concat!(
+        "\\begin{python}\n",
+        "First line. Second line.\n",
+        "\\end{python}\n",
+        "After the block. Next.\n",
+    );
+    let python_out = format_text(python, &latex_cfg()).unwrap();
+    assert!(
+        python_out.contains("\\begin{python}\nFirst line. Second line.\n\\end{python}"),
+        "landed python must stay a code env, got:\n{python_out}"
+    );
+    assert!(
+        python_out.contains("After the block.\nNext."),
+        "prose after python must still split, got:\n{python_out}"
+    );
+    assert_eq!(format_text(&python_out, &latex_cfg()).unwrap(), python_out);
 }
 
 /// Ticket fixture (GitHub #273): minted.sty `minted*` bodies stay
