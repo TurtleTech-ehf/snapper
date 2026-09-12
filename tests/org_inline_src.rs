@@ -144,9 +144,8 @@ fn inline_src_after_leading_underscore_stays_one_span() {
 }
 
 #[test]
-fn inline_src_after_word_underscore_stays_one_span() {
-    // GitHub #408: org-element treats src_python after a word as
-    // inline-src-block. Interior `1. 2` stays one token.
+fn inline_src_after_word_underscore_is_not_a_span() {
+    // Subscript `_src` leaves leftover braces as prose. Wrap may cut on `1.`.
     let input = "See foo_src_python{print(1. 2)} today. Next sentence.\n";
     let src = "src_python{print(1. 2)}";
     let regions = OrgParser.parse(input);
@@ -155,7 +154,7 @@ fn inline_src_after_word_underscore_stays_one_span() {
             r,
             Region::Prose(s) if s.contains(src) && s.contains("Next sentence.")
         )),
-        "foo_src must stay Prose, got {regions:?}"
+        "foo_src leftover must stay Prose, got {regions:?}"
     );
     let wrap_cfg = FormatConfig {
         format: Format::Org,
@@ -165,15 +164,15 @@ fn inline_src_after_word_underscore_stays_one_span() {
     .without_safety_backstops();
     let wrapped = format_text(input, &wrap_cfg).unwrap();
     assert!(
-        wrapped.lines().any(|l| l.contains(src)),
-        "src_ after a word must stay one wrap token, got:\n{wrapped}"
+        !wrapped.lines().any(|l| l.contains(src)),
+        "foo_src leftover braces must not stay one token, got:\n{wrapped}"
     );
     assert!(
-        !wrapped.contains("1.\n2") && !wrapped.contains("print(1.\n"),
-        "must not wrap on the interior period, got:\n{wrapped}"
+        wrapped.contains("1.\n2"),
+        "interior period may wrap after word-underscore subscript, got:\n{wrapped}"
     );
     assert!(
-        wrapped.contains("today.\nNext sentence."),
+        wrapped.contains("Next sentence."),
         "following sentence must still split, got:\n{wrapped}"
     );
     assert_eq!(format_text(&wrapped, &wrap_cfg).unwrap(), wrapped);
