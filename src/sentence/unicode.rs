@@ -3911,7 +3911,7 @@ mod tests {
     #[test]
     fn plaintext_format_keeps_dialogue_quote_together() {
         use crate::format::Format;
-        use crate::{format_text, FormatConfig};
+        use crate::{FormatConfig, format_text};
 
         let input = "He said \"Hello world. How are you?\" Then he left.\n";
         let cfg = FormatConfig {
@@ -4028,7 +4028,7 @@ mod tests {
     #[test]
     fn newlines_invariant_holds_on_dialogue_output() {
         use crate::format::Format;
-        use crate::{format_text, FormatConfig};
+        use crate::{FormatConfig, format_text};
 
         let samples = [
             "He said \"Hello world. How are you?\" Then he left.\n",
@@ -4276,7 +4276,7 @@ mod tests {
     #[test]
     fn markdown_period_inside_closers_survives_format_roundtrip() {
         use crate::format::Format;
-        use crate::{format_text, FormatConfig};
+        use crate::{FormatConfig, format_text};
 
         let cfg = FormatConfig {
             format: Format::Markdown,
@@ -4290,7 +4290,7 @@ mod tests {
     #[test]
     fn org_markdown_style_bold_period_splits_without_headline() {
         use crate::format::Format;
-        use crate::{format_text, FormatConfig};
+        use crate::{FormatConfig, format_text};
 
         let cfg = FormatConfig {
             format: Format::Org,
@@ -4351,7 +4351,7 @@ mod tests {
     #[test]
     fn markdown_emphasis_format_text_does_not_break_inside_span() {
         use crate::format::Format;
-        use crate::{format_text, FormatConfig};
+        use crate::{FormatConfig, format_text};
 
         let cfg = FormatConfig {
             format: Format::Markdown,
@@ -4399,7 +4399,7 @@ mod tests {
     #[test]
     fn plaintext_bang_inside_code_span_stays_atomic_after_keep_break() {
         use crate::format::Format;
-        use crate::{format_text, FormatConfig};
+        use crate::{FormatConfig, format_text};
 
         let input = "?=\"`=!a`\n";
         let cfg = FormatConfig {
@@ -4419,7 +4419,7 @@ mod tests {
     #[test]
     fn keeps_break_before_lowercase_proper_noun() {
         use crate::format::Format;
-        use crate::{format_text, FormatConfig};
+        use crate::{FormatConfig, format_text};
 
         let input = "First sentence.\niCloud starts the second sentence.\n";
         for format in [
@@ -4446,7 +4446,7 @@ mod tests {
     #[test]
     fn splits_same_line_lowercase_proper_noun() {
         use crate::format::Format;
-        use crate::{format_text, FormatConfig};
+        use crate::{FormatConfig, format_text};
 
         assert_eq!(
             split("First sentence. iCloud starts the second sentence."),
