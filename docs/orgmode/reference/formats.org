@@ -217,7 +217,7 @@ These tokens within prose are not split across lines:
 :CUSTOM_ID: rst-prose
 :END:
 - Paragraph text between structural elements
-- Indented bodies of container directives (admonitions, figure captions, topic, sidebar, container); hang spaces stay structure
+- Indented bodies of container directives (admonitions, figure captions, topic, sidebar, container, epigraph, highlights, pull-quote, compound); hang spaces stay structure
 
 *** Inline tokens (kept atomic)
 :PROPERTIES:

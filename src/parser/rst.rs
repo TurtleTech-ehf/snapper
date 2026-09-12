@@ -57,9 +57,10 @@ impl FormatParser for RstParser {
 /// footnotes, citations, comments, anonymous hyperlink targets, Jinja
 /// statements (`{% ... %}`), line blocks, tables, definition lists, and
 /// block-quote hang spaces as structure regions. Docutils container
-/// directives (admonitions, figure, topic, sidebar, container)
-/// nested-parse their body: the opener and option fields stay Structure;
-/// the body hangs as Prose.
+/// directives (admonitions, figure, topic, sidebar, container,
+/// epigraph, highlights, pull-quote, compound) nested-parse their
+/// body: the opener and option fields stay Structure; the body hangs
+/// as Prose.
 fn parse_line_based(input: &str) -> Vec<SpannedRegion> {
     let mut regions = Vec::new();
     let mut current_prose = String::new();
@@ -254,11 +255,12 @@ fn parse_line_based(input: &str) -> Vec<SpannedRegion> {
         }
 
         // RST directive (`.. name::`). Container directives (admonitions,
-        // figure, topic, sidebar, container) nested-parse their body:
-        // the opener and `:option:` fields stay Structure; the body
-        // hangs and reflows like a block quote. Opaque names keep the
-        // old freeze (GitHub #54). A flush paragraph after a compact
-        // container body is a new paragraph, not more note (GitHub #344).
+        // figure, topic, sidebar, container, epigraph, highlights,
+        // pull-quote, compound) nested-parse their body: the opener
+        // and `:option:` fields stay Structure; the body hangs and
+        // reflows like a block quote. Opaque names keep the old freeze
+        // (GitHub #54). A flush paragraph after a compact container
+        // body is a new paragraph, not more note (GitHub #344).
         let trimmed = line_text.trim_start();
         if trimmed.starts_with(".. ") && trimmed.contains("::") {
             flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
@@ -743,8 +745,9 @@ fn rst_directive_name(trimmed: &str) -> Option<String> {
     Some(name.to_ascii_lowercase())
 }
 
-/// Docutils admonitions plus figure/topic/sidebar/container: bodies
-/// nested-parse, so hang + reflow. Option fields stay Structure via
+/// Docutils admonitions plus figure/topic/sidebar/container and the
+/// leftover Body nested-parse names (epigraph/highlights/pull-quote/
+/// compound): bodies hang + reflow. Option fields stay Structure via
 /// the field-list arm. Other directive names stay opaque.
 fn is_rst_container_directive(name: &str) -> bool {
     matches!(
@@ -763,6 +766,10 @@ fn is_rst_container_directive(name: &str) -> bool {
             | "topic"
             | "sidebar"
             | "container"
+            | "epigraph"
+            | "highlights"
+            | "pull-quote"
+            | "compound"
     )
 }
 
@@ -2138,8 +2145,15 @@ mod tests {
             "definition sentences after the directive must be one Prose, got {regions:?}"
         );
         assert!(
-            !prose.iter().any(|s| s.contains("What happens?")),
-            "pull-quote body must not be Prose, got {regions:?}"
+            prose.iter().any(|s| s.contains("What happens?")),
+            "pull-quote body must hang as Prose, got {regions:?}"
+        );
+        assert!(
+            !regions.iter().any(|r| matches!(
+                r,
+                Region::Structure(s) if s.contains("What happens?")
+            )),
+            "pull-quote body must not freeze as Structure, got {regions:?}"
         );
     }
 
@@ -3133,6 +3147,10 @@ mod tests {
             "topic",
             "sidebar",
             "container",
+            "epigraph",
+            "highlights",
+            "pull-quote",
+            "compound",
         ] {
             let arg = if matches!(name, "figure" | "admonition" | "sidebar" | "topic") {
                 " Title"
