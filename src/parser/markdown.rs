@@ -201,7 +201,10 @@ enum HtmlBlock {
     /// Block tag (`<div`, `</p`, …) until a matching close or a following
     /// blank line (GitHub #332). May interrupt.
     Type6,
-    /// Complete open/close tag until a following blank line. Must not interrupt.
+    /// Complete open/close tag until a matching close or a following blank
+    /// line (GitHub #356). Unclosed type-7 must not interrupt; a closed
+    /// type-7 (`<span>…</span>`) ends at the matching close so the next
+    /// paragraph stays Prose.
     Type7,
 }
 
@@ -263,6 +266,18 @@ fn html_tag_self_closes(after_name: &str) -> bool {
     }
 }
 
+/// HTML tag name length at the start of `src` (`[A-Za-z][A-Za-z0-9-]*`).
+fn html_tag_name_len(src: &str) -> usize {
+    let mut iter = src.chars();
+    match iter.next() {
+        Some(c) if c.is_ascii_alphabetic() => {}
+        _ => return 0,
+    }
+    1 + iter
+        .take_while(|c| c.is_ascii_alphanumeric() || *c == '-')
+        .count()
+}
+
 /// Apply type-6 open/close tags named `tag` on `line` to `nest`.
 /// Returns true when `nest` reaches 0 (the matching close is on this line).
 fn apply_type6_named_tags(line: &str, tag: &str, nest: &mut i32) -> bool {
@@ -278,9 +293,7 @@ fn apply_type6_named_tags(line: &str, tag: &str, nest: &mut i32) -> bool {
         } else {
             (false, after_lt)
         };
-        let name_len = name_src
-            .find(|c: char| !c.is_ascii_alphanumeric())
-            .unwrap_or(name_src.len());
+        let name_len = html_tag_name_len(name_src);
         if name_len == 0 || !name_src[..name_len].eq_ignore_ascii_case(tag) {
             i = pos + 1;
             continue;
@@ -324,6 +337,58 @@ fn type7_start(rest: &str) -> bool {
         && !name.eq_ignore_ascii_case("textarea")
 }
 
+/// Type-7 start tag name on `rest` (already indent-stripped), if any.
+fn type7_tag_name(rest: &str) -> Option<&str> {
+    if !type7_start(rest) {
+        return None;
+    }
+    let after = if let Some(a) = rest.strip_prefix("</") {
+        a
+    } else {
+        rest.strip_prefix('<')?
+    };
+    let tag_len = html_tag_name_len(after);
+    if tag_len == 0 {
+        None
+    } else {
+        Some(&after[..tag_len])
+    }
+}
+
+/// Walk from `start_idx` counting open/close tags named `tag`.
+/// Returns the line where nest hits 0, or the last non-blank if unclosed.
+fn named_html_end_idx(lines: &[Line<'_>], start_idx: usize, tag: &str) -> usize {
+    let mut nest = 0i32;
+    let mut j = start_idx;
+    loop {
+        if apply_type6_named_tags(lines[j].text, tag, &mut nest) {
+            return j;
+        }
+        if j + 1 >= lines.len() || lines[j + 1].text.trim().is_empty() {
+            return j;
+        }
+        j += 1;
+    }
+}
+
+/// True when a type-7 opener at `start_idx` has a matching close before a blank.
+fn type7_closed(lines: &[Line<'_>], start_idx: usize) -> bool {
+    let Some(tag) = type7_tag_name(html_block_rest(lines[start_idx].text)) else {
+        return false;
+    };
+    let mut nest = 0i32;
+    let mut j = start_idx;
+    loop {
+        if apply_type6_named_tags(lines[j].text, tag, &mut nest) {
+            return true;
+        }
+        if j + 1 >= lines.len() || lines[j + 1].text.trim().is_empty() {
+            return false;
+        }
+        j += 1;
+    }
+}
+
 fn html_block_kind(line: &str) -> Option<HtmlBlock> {
     let rest = html_block_rest(line);
     if HTML_TYPE1_OPEN_RE.is_match(rest) {
@@ -363,30 +428,19 @@ fn html_block_line_ends(line: &str, kind: HtmlBlock) -> bool {
 
 fn html_block_end_idx(kind: HtmlBlock, lines: &[Line<'_>], start_idx: usize) -> usize {
     match kind {
-        HtmlBlock::Type6 => {
-            // Closed type-6 (`<div>…</div>`) ends at the matching close so
-            // the next paragraph stays Prose (GitHub #332 / snapper-v85k).
-            // Unclosed type-6 still runs to a following blank, as in 4.6.
-            if let Some(tag) = type6_tag_name(html_block_rest(lines[start_idx].text)) {
-                let mut nest = 0i32;
-                let mut j = start_idx;
-                loop {
-                    if apply_type6_named_tags(lines[j].text, tag, &mut nest) {
-                        return j;
-                    }
-                    if j + 1 >= lines.len() || lines[j + 1].text.trim().is_empty() {
-                        return j;
-                    }
-                    j += 1;
-                }
+        HtmlBlock::Type6 | HtmlBlock::Type7 => {
+            // Closed type-6 (`<div>…</div>`) and type-7 (`<span>…</span>`)
+            // end at the matching close so the next paragraph stays Prose
+            // (GitHub #332 / #356). Unclosed still runs to a following blank.
+            let rest = html_block_rest(lines[start_idx].text);
+            let tag = if kind == HtmlBlock::Type6 {
+                type6_tag_name(rest)
+            } else {
+                type7_tag_name(rest)
+            };
+            if let Some(tag) = tag {
+                return named_html_end_idx(lines, start_idx, tag);
             }
-            let mut j = start_idx;
-            while j + 1 < lines.len() && !lines[j + 1].text.trim().is_empty() {
-                j += 1;
-            }
-            j
-        }
-        HtmlBlock::Type7 => {
             let mut j = start_idx;
             while j + 1 < lines.len() && !lines[j + 1].text.trim().is_empty() {
                 j += 1;
@@ -462,6 +516,54 @@ fn quoted_html_next_continues(lines: &[Line<'_>], j: usize, depth: usize) -> boo
         && quoted_html_inner(lines[j + 1].text, depth).is_some_and(|t| !t.trim().is_empty())
 }
 
+/// Walk a quoted HTML block counting open/close tags named `tag`.
+fn quoted_named_html_end_idx(
+    lines: &[Line<'_>],
+    start_idx: usize,
+    depth: usize,
+    tag: &str,
+) -> usize {
+    let mut nest = 0i32;
+    let mut j = start_idx;
+    loop {
+        if let Some(inner) = quoted_html_inner(lines[j].text, depth) {
+            if apply_type6_named_tags(inner, tag, &mut nest) {
+                return j;
+            }
+        } else {
+            return j.saturating_sub(1).max(start_idx);
+        }
+        if !quoted_html_next_continues(lines, j, depth) {
+            return j;
+        }
+        j += 1;
+    }
+}
+
+/// True when a quoted type-7 opener has a matching close before the quote ends.
+fn quoted_type7_closed(lines: &[Line<'_>], start_idx: usize, depth: usize) -> bool {
+    let Some(tag) = quoted_html_inner(lines[start_idx].text, depth)
+        .and_then(|t| type7_tag_name(html_block_rest(t)))
+    else {
+        return false;
+    };
+    let mut nest = 0i32;
+    let mut j = start_idx;
+    loop {
+        if let Some(inner) = quoted_html_inner(lines[j].text, depth) {
+            if apply_type6_named_tags(inner, tag, &mut nest) {
+                return true;
+            }
+        } else {
+            return false;
+        }
+        if !quoted_html_next_continues(lines, j, depth) {
+            return false;
+        }
+        j += 1;
+    }
+}
+
 /// Quoted HTML-block end (GitHub #340). Same type rules as
 /// [`html_block_end_idx`], but only while the line stays in the quote.
 fn quoted_html_block_end_idx(
@@ -471,33 +573,18 @@ fn quoted_html_block_end_idx(
     depth: usize,
 ) -> usize {
     match kind {
-        HtmlBlock::Type6 => {
-            if let Some(tag) = quoted_html_inner(lines[start_idx].text, depth)
-                .and_then(|t| type6_tag_name(html_block_rest(t)))
-            {
-                let mut nest = 0i32;
-                let mut j = start_idx;
-                loop {
-                    if let Some(inner) = quoted_html_inner(lines[j].text, depth) {
-                        if apply_type6_named_tags(inner, tag, &mut nest) {
-                            return j;
-                        }
-                    } else {
-                        return j.saturating_sub(1).max(start_idx);
-                    }
-                    if !quoted_html_next_continues(lines, j, depth) {
-                        return j;
-                    }
-                    j += 1;
+        HtmlBlock::Type6 | HtmlBlock::Type7 => {
+            let tag = quoted_html_inner(lines[start_idx].text, depth).and_then(|t| {
+                let rest = html_block_rest(t);
+                if kind == HtmlBlock::Type6 {
+                    type6_tag_name(rest)
+                } else {
+                    type7_tag_name(rest)
                 }
+            });
+            if let Some(tag) = tag {
+                return quoted_named_html_end_idx(lines, start_idx, depth, tag);
             }
-            let mut j = start_idx;
-            while quoted_html_next_continues(lines, j, depth) {
-                j += 1;
-            }
-            j
-        }
-        HtmlBlock::Type7 => {
             let mut j = start_idx;
             while quoted_html_next_continues(lines, j, depth) {
                 j += 1;
@@ -2050,10 +2137,14 @@ impl FormatParser for MarkdownParser {
             }
 
             // CommonMark 4.6 HTML blocks types 1 and 3–7. Type 2 is above.
-            // Type 7 cannot interrupt a paragraph (open prose / list item).
+            // Unclosed type-7 cannot interrupt a paragraph. Closed type-7
+            // (`<span>…</span>`) is a leaf island (GitHub #356).
             if let Some(kind) = html_block_kind(line_text) {
                 let in_paragraph = !current_prose.is_empty() || in_list_item;
-                if kind.can_interrupt() || !in_paragraph {
+                if kind.can_interrupt()
+                    || !in_paragraph
+                    || (kind == HtmlBlock::Type7 && type7_closed(&lines, i))
+                {
                     close_list_item(
                         &mut in_list_item,
                         &mut list_hang,
@@ -2088,7 +2179,10 @@ impl FormatParser for MarkdownParser {
                 // the next unquoted line is a new paragraph.
                 if let Some(kind) = quoted_html_kind(text) {
                     let in_paragraph = !current_prose.is_empty() || in_list_item;
-                    if kind.can_interrupt() || !in_paragraph {
+                    if kind.can_interrupt()
+                        || !in_paragraph
+                        || (kind == HtmlBlock::Type7 && quoted_type7_closed(&lines, i, quote_depth))
+                    {
                         close_list_item(
                             &mut in_list_item,
                             &mut list_hang,
@@ -4646,6 +4740,91 @@ mod tests {
             )),
             "type 7 must stay in the paragraph, got: {regions:?}"
         );
+    }
+
+    /// GitHub #356 / snapper-615s: closed type-7 must not swallow
+    /// the following paragraph.
+    fn ticket_html_type7_close_fixture() -> &'static str {
+        concat!(
+            "Intro sentence here. Another intro sentence.\n",
+            "<span class=\"note\">\n",
+            "First. Second.\n",
+            "</span>\n",
+            "After html. Next.\n",
+        )
+    }
+
+    #[test]
+    fn html_type7_closed_span_does_not_swallow_next_paragraph() {
+        let regions = MarkdownParser.parse(ticket_html_type7_close_fixture());
+        let span = regions.iter().find_map(|r| match r {
+            Region::Structure(s) if s.contains("<span") => Some(s.as_str()),
+            _ => None,
+        });
+        let span = span.expect(&format!("span block must be Structure, got {regions:?}"));
+        assert!(span.contains("<span class=\"note\">"), "{span}");
+        assert!(span.contains("First. Second."), "{span}");
+        assert!(span.contains("</span>"), "{span}");
+        assert!(
+            !span.contains("After html"),
+            "closed type-7 must end at </span>, got {span}"
+        );
+        assert!(
+            !regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(p) if p.contains("First.") || p.contains("<span")
+            )),
+            "span body must not be Prose: {regions:?}"
+        );
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(p) if p.contains("After html.") && p.contains("Next.")
+            )),
+            "following paragraph must stay Prose: {regions:?}"
+        );
+    }
+
+    #[test]
+    fn html_type7_closed_span_following_prose_still_splits() {
+        use crate::format::Format;
+        use crate::{FormatConfig, format_text};
+
+        let input = ticket_html_type7_close_fixture();
+        let cfg = FormatConfig {
+            format: Format::Markdown,
+            ..Default::default()
+        };
+        let out = format_text(input, &cfg).unwrap();
+        assert!(
+            out.contains("Intro sentence here.\nAnother intro sentence.\n"),
+            "surrounding prose must still reflow, got:\n{out}"
+        );
+        assert!(
+            out.contains("<span class=\"note\">\nFirst. Second.\n</span>\n"),
+            "span HTML block must stay raw through </span>, got:\n{out}"
+        );
+        assert!(
+            out.contains("After html.\nNext.\n"),
+            "following paragraph must stay Prose and split, got:\n{out}"
+        );
+        assert!(
+            !out.contains("First.\nSecond."),
+            "span interior must not sentence-split, got:\n{out}"
+        );
+        assert_eq!(format_text(&out, &cfg).unwrap(), out);
+
+        let raw = FormatConfig {
+            format: Format::Markdown,
+            ..Default::default()
+        }
+        .without_safety_backstops();
+        let raw_out = format_text(input, &raw).unwrap();
+        assert_eq!(
+            raw_out, out,
+            "oracle-silent path must match, got:\n{raw_out}"
+        );
+        assert_eq!(format_text(&raw_out, &raw).unwrap(), raw_out);
     }
 
     #[test]
