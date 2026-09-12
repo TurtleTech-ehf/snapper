@@ -83,6 +83,9 @@ fn parse_line_based(input: &str) -> Vec<SpannedRegion> {
     // the body hangs as a block quote, so a column-0 line must close that
     // hang instead of joining After markup into the note Prose.
     let mut in_container_body = false;
+    // Line-block hang (`| `): first flush line that is not `| ` and not
+    // a hang is a new paragraph, not more line-block (GitHub #409).
+    let mut in_line_block = false;
     let mut pragma_off = false;
 
     // Code-block directive bookkeeping. Mutually exclusive with `in_directive`.
@@ -531,10 +534,12 @@ fn parse_line_based(input: &str) -> Vec<SpannedRegion> {
 
         // Line block: Docutils Body.line_block (`\|( +|$)`) is checked
         // before grid_table_top. `| ` is Structure; the rest hangs as
-        // Prose so SemBr still splits (GitHub #174).
+        // Prose so SemBr still splits (GitHub #174). A following flush
+        // line is a new paragraph, not more hang (GitHub #409).
         if let Some(marker_len) = rst_line_block_marker_len(line_text) {
             flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
             list_hang = Some(marker_len);
+            in_line_block = true;
             regions.push(SpannedRegion::structure(
                 input,
                 ByteSpan::new(line.start, line.start + marker_len),
@@ -648,9 +653,12 @@ fn parse_line_based(input: &str) -> Vec<SpannedRegion> {
             // Docutils ends a container at the first less-indented line.
             // Without a blank, the hung body is still in current_prose;
             // flush so After markup stays column-0 Prose (GitHub #344).
-            if in_container_body && leading == 0 {
+            // Same close for line-block: first flush line that is not
+            // `| ` and not a hang is a new paragraph (GitHub #409).
+            if (in_container_body || in_line_block) && leading == 0 {
                 flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
                 in_container_body = false;
+                in_line_block = false;
             }
         }
 
@@ -676,6 +684,7 @@ fn parse_line_based(input: &str) -> Vec<SpannedRegion> {
 
         // Regular prose
         in_container_body = false;
+        in_line_block = false;
         push_prose_line(&mut current_prose, &mut prose_span, line, true, true);
         i += 1;
     }
@@ -1895,6 +1904,76 @@ mod tests {
             )),
             "line-block sentences must not be full-line Structure, got {regions:?}"
         );
+    }
+
+    /// GitHub #409 / snapper-zy5o: a line-block ends at the first flush
+    /// line that is not `| ` and not a hang. After. is a new paragraph.
+    fn line_block_flush_prose_fixture() -> &'static str {
+        concat!("| First line. Second line.\n", "After. Next.\n",)
+    }
+
+    #[test]
+    fn line_block_does_not_swallow_following_flush_prose() {
+        use crate::format::Format;
+        use crate::{FormatConfig, format_text};
+
+        let input = line_block_flush_prose_fixture();
+        let regions = RstParser.parse(input);
+        assert!(
+            regions
+                .iter()
+                .any(|r| matches!(r, Region::Structure(s) if s == "| ")),
+            "| plus space must stay Structure, got {regions:?}"
+        );
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(s)
+                    if s.contains("First line.") && s.contains("Second line.")
+            )),
+            "line-block body must stay Prose, got {regions:?}"
+        );
+        assert!(
+            !regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(s)
+                    if s.contains("First line.") && s.contains("After.")
+            )),
+            "After. must not join the line-block body, got {regions:?}"
+        );
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(s) if s.contains("After.") && s.contains("Next.")
+            )),
+            "After. / Next. must stay Prose, got {regions:?}"
+        );
+        assert!(
+            !regions.iter().any(|r| matches!(
+                r,
+                Region::Structure(s)
+                    if s.contains("After.") || s.contains("Next.")
+            )),
+            "After. / Next. must not be Structure, got {regions:?}"
+        );
+
+        let cfg = FormatConfig {
+            format: Format::Rst,
+            max_width: 0,
+            ..Default::default()
+        }
+        .without_safety_backstops();
+        let out = format_text(input, &cfg).unwrap();
+        assert_eq!(
+            out,
+            concat!("| First line.\n", "  Second line.\n", "After.\n", "Next.\n",),
+            "line-block splits; After. stays flush and splits, got:\n{out}"
+        );
+        assert!(
+            !out.contains("\n  After."),
+            "After. must not inherit the line-block hang, got:\n{out}"
+        );
+        assert_eq!(format_text(&out, &cfg).unwrap(), out);
     }
 
     #[test]
