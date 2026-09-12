@@ -101,7 +101,6 @@ fn splice(
         match (&sr.region, origin) {
             (Region::Prose(text), RegionOrigin::Whole(span)) => {
                 if sr.line_preserving {
-                    // Org verse-line: keep the source physical line (GitHub #281).
                     continue;
                 }
                 let replacement = reflow_prose(text, idx, &regions, splitter, config);
@@ -231,9 +230,6 @@ fn reflow_prose(
     splitter: &dyn SentenceSplitter,
     config: &ReflowConfig,
 ) -> String {
-    if config.format == Format::Org && crate::parser::org::org_verse_inner_prose(idx, regions) {
-        return reflow_verse_line(text, idx, regions);
-    }
     let mut output = String::new();
     let hang = match idx.checked_sub(1).and_then(|i| regions.get(i)) {
         Some(Region::Structure(s)) => hanging_prefix(s),
@@ -301,28 +297,6 @@ fn reflow_prose(
         if !suppress {
             output.push('\n');
         }
-    }
-    output
-}
-
-/// Org verse-line: keep the source physical line. Sentence, clause, or
-/// wrap breaks would invent lineation the Org manual says to preserve.
-fn reflow_verse_line(text: &str, idx: usize, regions: &[Region]) -> String {
-    let mut output = text.trim_end_matches(['\n', '\r']).to_string();
-    if output.is_empty() && text.is_empty() {
-        return output;
-    }
-    let suppress = match regions.get(idx + 1) {
-        Some(Region::Structure(s)) if suppress_prose_trailing_newline(s) => true,
-        Some(Region::Structure(s))
-            if s.trim_start().starts_with('%') && text.ends_with([' ', '\t']) =>
-        {
-            true
-        }
-        _ => false,
-    };
-    if !suppress {
-        output.push('\n');
     }
     output
 }
@@ -1285,7 +1259,7 @@ mod tests {
     fn org_verse_two_sentence_line_stays_one_physical_line() {
         let regions = vec![
             Region::Structure("#+BEGIN_VERSE\n".into()),
-            Region::Prose("First line. Second line.".into()),
+            Region::Structure("First line. Second line.\n".into()),
             Region::Structure("#+END_VERSE\n".into()),
             Region::Prose("After the block. Next.".into()),
         ];
@@ -1303,7 +1277,7 @@ mod tests {
                 "After the block.\n",
                 "Next.\n",
             ),
-            "verse line stays one physical line; after-block still splits, got:\n{result}"
+            "verse body is Structure; after-block still splits, got:\n{result}"
         );
     }
 
