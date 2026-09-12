@@ -52,6 +52,7 @@
 //! REPL bodies (landed python stays Code).
 //! GitHub #345: showexpl.sty LTXexample (lstnewenvironment LTXexample)
 //! is the same listings raw scan as lstlisting.
+//! GitHub #348: luamplib.dtx mplibcode is the same raw grab class as luacode.
 //! GitHub #308: verbments.sty pyglist wraps fancyvrb VerbatimOut; the
 //! body is a raw listing.
 //! GitHub #342: texments.sty / pygmentex.sty pygmented is
@@ -1909,6 +1910,69 @@ fn pyluatex_pythonq_and_pythonrepl_fixture_is_code_and_does_not_reflow() {
         "prose after python must still split, got:\n{python_out}"
     );
     assert_eq!(format_text(&python_out, &latex_cfg()).unwrap(), python_out);
+}
+
+/// Ticket fixture (GitHub #348): luamplib.dtx `mplibcode` is the same
+/// raw grab class as `luacode`. Body stays Code and one source line;
+/// following prose still splits. `luacode` / `luacode*` unchanged.
+#[test]
+fn luamplib_mplibcode_fixture_is_code_and_does_not_reflow() {
+    let input = concat!(
+        "\\begin{mplibcode}\n",
+        "First line. Second line.\n",
+        "\\end{mplibcode}\n",
+        "After the block. Next.\n",
+    );
+    let regions = LatexParser::default().parse(input);
+    assert!(
+        regions.iter().any(|r| matches!(
+            r,
+            Region::Code { body, .. } if body.contains("First line. Second line.")
+        )),
+        "mplibcode body must be Code, got: {regions:?}"
+    );
+    assert!(
+        !regions
+            .iter()
+            .any(|r| matches!(r, Region::Prose(p) if p.contains("First line"))),
+        "mplibcode body must not be Prose, got: {regions:?}"
+    );
+    let out = format_text(input, &latex_cfg()).unwrap();
+    assert!(
+        out.contains("\\begin{mplibcode}") && out.contains("\\end{mplibcode}"),
+        "mplibcode begin/end must stay, got:\n{out}"
+    );
+    assert!(
+        out.contains("First line. Second line."),
+        "mplibcode body must stay one source line, got:\n{out}"
+    );
+    assert!(
+        !out.contains("First line.\nSecond line."),
+        "mplibcode must not reflow as prose, got:\n{out}"
+    );
+    assert!(
+        out.contains("After the block.\nNext."),
+        "prose after mplibcode must still split, got:\n{out}"
+    );
+    assert_eq!(format_text(&out, &latex_cfg()).unwrap(), out);
+
+    for name in ["luacode", "luacode*"] {
+        let landed = format!(
+            "\\begin{{{name}}}\nFirst line. Second line.\n\\end{{{name}}}\nAfter the block. Next.\n"
+        );
+        let landed_out = format_text(&landed, &latex_cfg()).unwrap();
+        assert!(
+            landed_out.contains(&format!(
+                "\\begin{{{name}}}\nFirst line. Second line.\n\\end{{{name}}}"
+            )),
+            "{name} must stay a code env, got:\n{landed_out}"
+        );
+        assert!(
+            landed_out.contains("After the block.\nNext."),
+            "prose after {name} must still split, got:\n{landed_out}"
+        );
+        assert_eq!(format_text(&landed_out, &latex_cfg()).unwrap(), landed_out);
+    }
 }
 
 /// Ticket fixture (GitHub #273): minted.sty `minted*` bodies stay

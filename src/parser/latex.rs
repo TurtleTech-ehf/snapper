@@ -138,7 +138,8 @@ static LSTLISTING_LANG_RE: LazyLock<Regex> = LazyLock::new(|| {
 /// verbatim display env; GitHub #304), and tree-sitter-latex
 /// raw trivia envs
 /// (`asy`, `asydef`, `pycode`, `luacode`, `luacode*`, `sagesilent`,
-/// `sageblock`), sagetex.sty `sageverbatim` / `sageexample` /
+/// `sageblock`), luamplib.dtx `mplibcode` (same raw grab class as
+/// `luacode`; GitHub #348), sagetex.sty `sageverbatim` / `sageexample` /
 /// `sagecommandline` (same `verbatim@start` class as tree-sitter
 /// `sagesilent` / `sageblock`; GitHub #298), pythontex.sty
 /// `pyblock` / `pyverbatim` / `pyconsole`
@@ -157,6 +158,8 @@ static LSTLISTING_LANG_RE: LazyLock<Regex> = LazyLock::new(|| {
 /// bodies; GitHub #346),
 /// showexpl.sty `LTXexample` (`\lstnewenvironment{LTXexample}`; same
 /// listings raw scan as `lstlisting`; GitHub #345),
+/// luamplib.dtx `mplibcode` (same raw grab class as `luacode`;
+/// GitHub #348),
 /// plus latex2e `verbatim*` / fancyvrb `Verbatim` /
 /// `Verbatim*` / `BVerbatim` / `BVerbatim*` / `LVerbatim` /
 /// `LVerbatim*` / `SaveVerbatim` / `VerbatimOut` / `VerbatimWrite` /
@@ -213,6 +216,8 @@ static LSTLISTING_LANG_RE: LazyLock<Regex> = LazyLock::new(|| {
 /// bodies (GitHub #346). Landed `python` stays Code.
 /// showexpl.sty `LTXexample` (`\lstnewenvironment{LTXexample}`) is the
 /// same listings raw scan as `lstlisting` (GitHub #345).
+/// luamplib.dtx `mplibcode` is the same raw grab class as `luacode`
+/// (GitHub #348).
 /// verbments.sty `pyglist` wraps fancyvrb `VerbatimOut` (raw listing
 /// body; GitHub #308). texments.sty / pygmentex.sty `pygmented` is
 /// `VerbatimEnvironment` plus `VerbatimOut` (raw listing body;
@@ -317,6 +322,7 @@ fn is_builtin_code_env(name: &str) -> bool {
             | "pylabconsub"
             | "luacode"
             | "luacode*"
+            | "mplibcode"
             | "sagesilent"
             | "sageblock"
             | "sageverbatim"
@@ -4146,6 +4152,72 @@ Some text.
         assert_eq!(format_text(&python_out, &latex_cfg()).unwrap(), python_out);
     }
 
+    /// Ticket fixture (GitHub #348): luamplib.dtx `mplibcode` is the
+    /// same raw grab class as `luacode`. Body stays Code and one source
+    /// line; following prose still splits. `luacode` / `luacode*`
+    /// unchanged.
+    #[test]
+    fn luamplib_mplibcode_is_code_not_prose() {
+        use crate::format_text;
+
+        let input = concat!(
+            "\\begin{mplibcode}\n",
+            "First line. Second line.\n",
+            "\\end{mplibcode}\n",
+            "After the block. Next.\n",
+        );
+        let regions = LatexParser::default().parse(input);
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Code { body, .. } if body.contains("First line. Second line.")
+            )),
+            "mplibcode body must be Code, got: {regions:?}"
+        );
+        assert!(
+            !regions
+                .iter()
+                .any(|r| matches!(r, Region::Prose(p) if p.contains("First line"))),
+            "mplibcode body must not leak into Prose, got: {regions:?}"
+        );
+        let out = format_text(input, &latex_cfg()).unwrap();
+        assert!(
+            out.contains("\\begin{mplibcode}") && out.contains("\\end{mplibcode}"),
+            "mplibcode begin/end must stay, got:\n{out}"
+        );
+        assert!(
+            out.contains("First line. Second line."),
+            "mplibcode body must stay one source line, got:\n{out}"
+        );
+        assert!(
+            !out.contains("First line.\nSecond line."),
+            "mplibcode must not reflow as prose, got:\n{out}"
+        );
+        assert!(
+            out.contains("After the block.\nNext."),
+            "prose after mplibcode must still split, got:\n{out}"
+        );
+        assert_eq!(format_text(&out, &latex_cfg()).unwrap(), out);
+
+        for name in ["luacode", "luacode*"] {
+            let landed = format!(
+                "\\begin{{{name}}}\nFirst line. Second line.\n\\end{{{name}}}\nAfter the block. Next.\n"
+            );
+            let landed_out = format_text(&landed, &latex_cfg()).unwrap();
+            assert!(
+                landed_out.contains(&format!(
+                    "\\begin{{{name}}}\nFirst line. Second line.\n\\end{{{name}}}"
+                )),
+                "{name} must stay a code env, got:\n{landed_out}"
+            );
+            assert!(
+                landed_out.contains("After the block.\nNext."),
+                "prose after {name} must still split, got:\n{landed_out}"
+            );
+            assert_eq!(format_text(&landed_out, &latex_cfg()).unwrap(), landed_out);
+        }
+    }
+
     /// Ticket fixture (GitHub #273): minted.sty `minted*` is the starred
     /// twin of `minted`. Body stays Code; following prose still splits.
     /// Unstarred `minted` is unchanged.
@@ -5436,6 +5508,7 @@ Some text.
             "asydef",
             "luacode",
             "luacode*",
+            "mplibcode",
             "sagesilent",
             "sageblock",
         ];
