@@ -700,15 +700,21 @@ fn org_scan_lists_same_line(text: &str, open_at: usize, open: u8, close: u8) -> 
     None
 }
 
-/// `\<` in org-element-inline-src-block-parser / inline-babel-call-parser
-/// (`looking-at` `\<src_` / `\<call_`). Word-start, not symbol-start.
-///
-/// `org-element--object-lex` matches `[_^][-{(*+.,[:alnum:]]` first, so
-/// after a word the subscript parser consumes `_src` / `_call` and the
-/// leftover braces stay prose. `_src_` / `_call_` at BOL or after
-/// whitespace is still an object (`\<` matches at `s`). Hyphen is not a
-/// subscript opener here, so `foo-src_python` is an object. Word
-/// characters (`asrc_`, `1src_`) are not.
+/// Emacs `\<` word-start (`looking-at` `\<src_`). `_` is symbol syntax,
+/// not word, so `foo_src_python{...}` is still `\<src_`. Word characters
+/// (`asrc_`, `1src_`) are not. Hyphen is not a word char either
+/// (`foo-src_python` is an object).
+fn org_inline_src_word_start(text: &str, at: usize) -> bool {
+    if at == 0 {
+        return true;
+    }
+    let prev = text[..at].chars().next_back().expect("at > 0");
+    !prev.is_ascii_alphanumeric()
+}
+
+/// `call_` still yields to leftover subscript after a word (`foo_call_`).
+/// `_call_` at BOL or after whitespace is an object. Distinct from
+/// `src_`, which follows `\<src_` even after a word-underscore.
 fn org_inline_object_start(text: &str, at: usize) -> bool {
     if at == 0 {
         return true;
@@ -754,9 +760,10 @@ fn org_scan_lists(text: &str, open_at: usize, open: u8, close: u8) -> Option<usi
 
 /// `src_LANG` then optional `[parameters]` then required `{body}`.
 /// `case-fold-search` is nil; language is `[^ \t\n[{]+`.
+/// GitHub #408: `\<src_` wins over leftover word-underscore subscript.
 fn org_inline_src_span_end(text: &str, at: usize) -> Option<usize> {
     let rest = text.get(at..)?;
-    if !rest.starts_with("src_") || !org_inline_object_start(text, at) {
+    if !rest.starts_with("src_") || !org_inline_src_word_start(text, at) {
         return None;
     }
     let bytes = text.as_bytes();
@@ -3153,30 +3160,34 @@ mod tests {
     }
 
     #[test]
-    fn inline_org_src_after_word_underscore_is_subscript() {
-        // org-element--object-regexp matches the subscript first, so
-        // `foo_src_` / `x_src_` are not inline-src-block. Leftover braces
-        // stay prose.
+    fn inline_org_src_after_word_underscore_is_inline_src() {
+        // GitHub #408: `\<src_` matches after a word. `foo_src_python{...}`
+        // stays one token. `Next sentence.` splits.
         let src = "src_python{print(1. 2)}";
-        for text in [
-            "See foo_src_python{print(1. 2)} today. Next sentence.",
-            "See x_src_python{print(1. 2)} today. Next sentence.",
+        for (text, first) in [
+            (
+                "See foo_src_python{print(1. 2)} today. Next sentence.",
+                "See foo_src_python{print(1. 2)} today.",
+            ),
+            (
+                "See x_src_python{print(1. 2)} today. Next sentence.",
+                "See x_src_python{print(1. 2)} today.",
+            ),
         ] {
             let (_, placeholders) = protect_inline_tokens(text);
             assert!(
-                !placeholders.iter().any(|p| p.contains(src) || p == src),
-                "src_ after word-underscore is a subscript, got {placeholders:?} for {text:?}"
+                placeholders.iter().any(|p| p == src),
+                "src_ after word-underscore must be one token, got {placeholders:?} for {text:?}"
             );
             let spans = atomic_inline_spans(text);
             assert!(
-                !spans.iter().any(|&(s, e)| text[s..e].contains(src)),
-                "src_ after word-underscore must not be an atomic wrap span, got {:?} for {text:?}",
+                spans.iter().any(|&(s, e)| &text[s..e] == src),
+                "src_ after word-underscore must be an atomic wrap span, got {:?} for {text:?}",
                 spans.iter().map(|&(s, e)| &text[s..e]).collect::<Vec<_>>()
             );
-            let parts = split(text);
-            assert!(
-                parts.iter().any(|p| p.contains("Next sentence.")),
-                "Next sentence. still splits, got {parts:?} for {text:?}"
+            assert_eq!(
+                split(text),
+                vec![first.to_string(), "Next sentence.".to_string()]
             );
         }
     }

@@ -3475,7 +3475,9 @@ mod tests {
     }
 
     #[test]
-    fn org_inline_src_after_word_underscore_is_subscript() {
+    fn org_inline_src_after_word_underscore_stays_atomic() {
+        // GitHub #408: `\<src_` after a word stays one wrap token.
+        // `1. 2` is atomic. `Next sentence.` still splits.
         use crate::format_text;
 
         let src = "src_python{print(1. 2)}";
@@ -3487,7 +3489,7 @@ mod tests {
                 Region::Prose(p)
                     if p.contains(src) && p.contains("Next sentence.")
             )),
-            "foo_src leftover stays inline Prose, got: {regions:?}"
+            "foo_src_python stays inline Prose, got: {regions:?}"
         );
         let wrap_cfg = crate::FormatConfig {
             format: crate::format::Format::Org,
@@ -3497,15 +3499,15 @@ mod tests {
         .without_safety_backstops();
         let wrapped = format_text(input, &wrap_cfg).unwrap();
         assert!(
-            !wrapped.lines().any(|l| l.contains(src)),
-            "foo_src leftover braces must not stay atomic, got:\n{wrapped}"
+            wrapped.lines().any(|l| l.contains(src)),
+            "src_ after a word must stay one wrap token, got:\n{wrapped}"
         );
         assert!(
-            wrapped.contains("1.\n2"),
-            "interior period may wrap after word-underscore subscript, got:\n{wrapped}"
+            !wrapped.contains("1.\n2") && !wrapped.contains("print(1.\n"),
+            "interior period must stay atomic after word-underscore src_, got:\n{wrapped}"
         );
         assert!(
-            wrapped.contains("Next sentence."),
+            wrapped.contains("today.\nNext sentence."),
             "following sentence must still reflow, got:\n{wrapped}"
         );
         assert_eq!(format_text(&wrapped, &wrap_cfg).unwrap(), wrapped);
