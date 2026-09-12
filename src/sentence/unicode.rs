@@ -49,11 +49,16 @@ static INLINE_TOKEN_RE: LazyLock<Regex> = LazyLock::new(|| {
             // is not matched: that would swallow every bracket group.
             r"!\[[^\]]*\]\[[^\]]*\]", // Markdown reference images: ![alt][ref]
             r"\[[^\]]+\]\[[^\]]*\]",  // Markdown reference links: [text][ref]
-            r"\$\$[^$\n]+\$\$",       // Display math: $$...$$
-            r"\$[^$\n]+\$",           // Inline math: $...$
-            r"\\\([^\\\n]+\\\)",      // LaTeX inline math: \(...\)
-            r"\\\[[^\n]+?\\\]",       // Org / LaTeX display math fragment: \[...\]
-            r"\\([a-zA-Z]+)\{[^}]*\}", // LaTeX commands: \cmd{arg}
+            r"\$\$[^$\n]+\$\$", // Display math: $$...$$
+            r"\$[^$\n]+\$",     // Inline math: $...$
+            // org-element-latex-fragment-parser: \(...\) may contain \cmd.
+            // `[^\\\n]` dropped interior backslash so \(\alpha. \beta\)
+            // split on wrap (GitHub #336).
+            r"\\\([^\n]+?\\\)",
+            r"\\\[[^\n]+?\\\]", // Org / LaTeX display math fragment: \[...\]
+            // org-element-latex-fragment-parser: \cmd{arg} or \cmd[opt]{arg}.
+            // Optional [arg] so \sqrt[2]{a. b} stays one token (GitHub #336).
+            r"\\([a-zA-Z]+)(?:\[[^\]]*\])?\{[^}]*\}",
             // Org emphasis must be protected before sentence splits so a line
             // cannot begin with `*rest` (false headline) or leave markers open.
             // Org requires a non-space immediately after the opener and before
@@ -993,6 +998,7 @@ fn find_md_code_span(text: &str, open_at: usize) -> Option<usize> {
 /// Org `[cite...]`, Org `[fn::…]` / `[fn:LABEL:…]`, Org `<<<...>>>` /
 /// `<<...>>`, Org `{{{name}}}` / `{{{name(args)}}}`, Org timestamps
 /// (`<YYYY-MM-DD…>`, `[YYYY-MM-DD…]`, ranges `--`, diary `<%%(...)>`),
+/// Org latex-fragments (`\(...\)`, `$...$`, `\cmd{arg}`, `\cmd[opt]{arg}`),
 /// Org `src_lang{...}` / `call_name(...)`, RST `|fig. 1|` / `|name|_` /
 /// `|name|__`, paired spans).
 ///
@@ -1729,6 +1735,57 @@ mod tests {
             vec![
                 r"According to X, \(E=mc^2\).".to_string(),
                 "Next.".to_string(),
+            ]
+        );
+    }
+
+    #[test]
+    fn latex_inline_math_interior_backslash_stays_atomic() {
+        // GitHub #336 / snapper-e6tw: \(\alpha. \beta\) has an interior
+        // backslash; the period is not a sentence or wrap boundary.
+        let frag = r"\(\alpha. \beta\)";
+        let text = r"The root is \(\alpha. \beta\) today. Next.";
+        let (_, placeholders) = protect_inline_tokens(text);
+        assert!(
+            placeholders.iter().any(|p| p == frag),
+            "\\( fragment with interior \\cmd must be one token, got {placeholders:?}"
+        );
+        let spans = atomic_inline_spans(text);
+        assert!(
+            spans.iter().any(|&(s, e)| &text[s..e] == frag),
+            "fragment must be an atomic wrap span, got {:?}",
+            spans.iter().map(|&(s, e)| &text[s..e]).collect::<Vec<_>>()
+        );
+        assert_eq!(
+            split(text),
+            vec![
+                r"The root is \(\alpha. \beta\) today.".to_string(),
+                "Next.".to_string()
+            ]
+        );
+    }
+
+    #[test]
+    fn latex_command_optional_arg_stays_atomic() {
+        // GitHub #336: org-element optional [arg] before {arg}.
+        let frag = r"\sqrt[2]{a. b}";
+        let text = r"See \sqrt[2]{a. b} today. Next.";
+        let (_, placeholders) = protect_inline_tokens(text);
+        assert!(
+            placeholders.iter().any(|p| p == frag),
+            "\\sqrt[2]{{arg}} must be one token, got {placeholders:?}"
+        );
+        let spans = atomic_inline_spans(text);
+        assert!(
+            spans.iter().any(|&(s, e)| &text[s..e] == frag),
+            "optional-arg command must be an atomic wrap span, got {:?}",
+            spans.iter().map(|&(s, e)| &text[s..e]).collect::<Vec<_>>()
+        );
+        assert_eq!(
+            split(text),
+            vec![
+                r"See \sqrt[2]{a. b} today.".to_string(),
+                "Next.".to_string()
             ]
         );
     }
