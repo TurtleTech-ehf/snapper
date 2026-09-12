@@ -2380,6 +2380,20 @@ They are endowed with reason and conscience and should act towards one another i
     }
 
     #[test]
+    fn max_width_keeps_org_angle_link_atomic() {
+        let token = "<file:fig. 1.png>";
+        let sentence = "See <file:fig. 1.png> today. Next.";
+        for clause in [false, true] {
+            let wrapped = wrap_sentence(sentence, 16, clause);
+            assert_atomic_token(&wrapped, token);
+            assert!(
+                !wrapped.contains("fig.\n") && !wrapped.contains("fig. \n"),
+                "must not wrap on the interior period, got:\n{wrapped}"
+            );
+        }
+    }
+
+    #[test]
     fn max_width_keeps_org_macro_atomic() {
         let token = "{{{cite(Smith. 2020)}}}";
         let sentence = "See {{{cite(Smith. 2020)}}} for the source. Next sentence.";
