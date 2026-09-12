@@ -3511,6 +3511,102 @@ mod tests {
         assert_eq!(format_text(&wrapped, &wrap_cfg).unwrap(), wrapped);
     }
 
+    /// GitHub #408 / snapper-kyhx: object-lex leftover.
+    /// `foo_src_python{...}` / `foo_call_name(...)` are subscripts plus
+    /// leftover braces/args (prose). Wrap 20 may cut interior `1. 2`.
+    /// After space / hyphen the object stays atomic. `Next sentence.`
+    /// still splits. `H_{2. 0}` is unchanged.
+    #[test]
+    fn leftover_object_lex_steals_src_after_word_underscore() {
+        use crate::format_text;
+
+        let wrap_cfg = crate::FormatConfig {
+            format: crate::format::Format::Org,
+            max_width: 20,
+            ..Default::default()
+        }
+        .without_safety_backstops();
+        let wrapped = format_text(
+            "See foo_src_python{print(1. 2)} today. Next sentence.\n",
+            &wrap_cfg,
+        )
+        .unwrap();
+        assert!(
+            wrapped.contains("1.\n2"),
+            "leftover braces are prose so wrap 20 may cut 1. 2, got:\n{wrapped}"
+        );
+        assert!(
+            !wrapped
+                .lines()
+                .any(|l| l.contains("src_python{print(1. 2)}")),
+            "stolen src_ must not stay one wrap token, got:\n{wrapped}"
+        );
+        assert!(
+            wrapped.contains("Next sentence."),
+            "following sentence must still split, got:\n{wrapped}"
+        );
+        assert_eq!(format_text(&wrapped, &wrap_cfg).unwrap(), wrapped);
+
+        let call_wrapped = format_text(
+            "See foo_call_name(print(1. 2)) today. Next sentence.\n",
+            &wrap_cfg,
+        )
+        .unwrap();
+        assert!(
+            call_wrapped.contains("1.\n2"),
+            "leftover call args are prose so wrap 20 may cut 1. 2, got:\n{call_wrapped}"
+        );
+        assert!(
+            !call_wrapped
+                .lines()
+                .any(|l| l.contains("call_name(print(1. 2))")),
+            "stolen call_ must not stay one wrap token, got:\n{call_wrapped}"
+        );
+        assert!(
+            call_wrapped.contains("Next sentence."),
+            "following sentence must still split after leftover call, got:\n{call_wrapped}"
+        );
+
+        for input in [
+            "See _src_python{print(1. 2)} today. Next sentence.\n",
+            "See foo-src_python{print(1. 2)} today. Next sentence.\n",
+        ] {
+            let out = format_text(input, &wrap_cfg).unwrap();
+            assert!(
+                out.lines().any(|l| l.contains("src_python{print(1. 2)}")),
+                "after space / hyphen src_ stays one object, got:\n{out}"
+            );
+            assert!(
+                !out.contains("1.\n2"),
+                "object body must stay atomic after space / hyphen, got:\n{out}"
+            );
+            assert!(
+                out.contains("Next sentence."),
+                "following sentence must still split after a real object, got:\n{out}"
+            );
+        }
+
+        let brace_cfg = crate::FormatConfig {
+            format: crate::format::Format::Org,
+            max_width: 10,
+            ..Default::default()
+        }
+        .without_safety_backstops();
+        let brace = format_text("See H_{2. 0} today. Next.\n", &brace_cfg).unwrap();
+        assert!(
+            brace.lines().any(|l| l.contains("H_{2. 0}")),
+            "brace subscript must stay atomic, got:\n{brace}"
+        );
+        assert!(
+            !brace.contains("2.\n0") && !brace.contains("H_{2.\n"),
+            "must not wrap inside H_{{2. 0}}, got:\n{brace}"
+        );
+        assert!(
+            brace.contains("today.\nNext."),
+            "following sentence must still split after brace subscript, got:\n{brace}"
+        );
+    }
+
     /// Ticket fixture (Format::Org / GitHub #338): org-match-substring-regexp
     /// brace subscript stays one wrap token. `Next.` still splits.
     /// Distinct from latex-fragment (snapper-e6tw).
