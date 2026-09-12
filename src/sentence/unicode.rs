@@ -452,6 +452,8 @@ enum VerbKind {
     Lstinputlisting,
     /// `\\verbatiminput`: required `{filename}` (verbatim.sty leftover).
     Verbatiminput,
+    /// `\tcbinputlisting`: one required `{keyvals}` group.
+    Tcbinputlisting,
     /// `\mintinline` / `\mint` / `\inputminted`: optional `[...]`,
     /// `{lang}`, then body.
     Mint,
@@ -494,6 +496,8 @@ fn match_extra_verb_command<'a>(tail: &'a str, extras: &'a [String]) -> Option<&
             || name == "spverb"
             || name == "mintinline"
             || name == "inputminted"
+            || name == "verbatiminput"
+            || name == "tcbinputlisting"
             || name == "mint"
             || name == "Verb"
             || name == "SaveVerb"
