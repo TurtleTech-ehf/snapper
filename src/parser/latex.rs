@@ -2,7 +2,7 @@ use regex::Regex;
 use std::sync::LazyLock;
 
 use crate::parser::{
-    flush_prose_spanned, iter_lines, join_prose_gap, ByteSpan, FormatParser, Line, SpannedRegion,
+    ByteSpan, FormatParser, Line, SpannedRegion, flush_prose_spanned, iter_lines, join_prose_gap,
 };
 use crate::sentence::unicode::latex_verb_span_end_with;
 
@@ -1925,7 +1925,7 @@ mod tests {
     #[test]
     fn multi_sentence_section_title_stays_one_line() {
         use crate::format::Format;
-        use crate::{format_text, FormatConfig};
+        use crate::{FormatConfig, format_text};
 
         let input = "\\begin{document}\n\\section{A long title. With two sentences.}\nBody text here. More body.\n\\end{document}\n";
         let cfg = FormatConfig {
@@ -1982,7 +1982,7 @@ mod tests {
     fn section_optional_short_title_stays_one_line() {
         use crate::format::Format;
         use crate::oracle;
-        use crate::{format_text, FormatConfig};
+        use crate::{FormatConfig, format_text};
 
         let input =
             "\\section[Short. Title.]{A long title. With two sentences.}\nBody. More body.\n";
@@ -2014,7 +2014,7 @@ mod tests {
     #[test]
     fn koma_addsec_addchap_addpart_optional_short_title_is_structure() {
         use crate::format::Format;
-        use crate::{format_text, FormatConfig};
+        use crate::{FormatConfig, format_text};
 
         let cfg = FormatConfig {
             format: Format::Latex,
@@ -2058,7 +2058,7 @@ mod tests {
     #[test]
     fn fragment_without_begin_document_is_prose() {
         use crate::format::Format;
-        use crate::{format_text, FormatConfig};
+        use crate::{FormatConfig, format_text};
 
         let input = "This sentence is a test. This sentence is also a test.\n";
         let cfg = FormatConfig {
@@ -2076,7 +2076,7 @@ mod tests {
     #[test]
     fn no_preamble_pragma_formats_body() {
         use crate::format::Format;
-        use crate::{format_text, FormatConfig};
+        use crate::{FormatConfig, format_text};
 
         let input =
             "% snapper:no-preamble\nThis sentence is a test. This sentence is also a test.\n";
@@ -2099,7 +2099,7 @@ mod tests {
     #[test]
     fn documentclass_without_begin_stays_preamble() {
         use crate::format::Format;
-        use crate::{format_text, FormatConfig};
+        use crate::{FormatConfig, format_text};
 
         let input =
             "\\documentclass{article}\nThis sentence is a test. This sentence is also a test.\n";
@@ -2167,7 +2167,7 @@ Some text.
     #[test]
     fn trailing_percent_is_nospace_join() {
         use crate::format::Format;
-        use crate::{format_text, FormatConfig};
+        use crate::{FormatConfig, format_text};
 
         let input = "\\begin{document}\nfoo%\nbar. Next sentence.\n\\end{document}\n";
         let cfg = FormatConfig {
@@ -2191,7 +2191,7 @@ Some text.
     #[test]
     fn escaped_percent_is_not_a_comment() {
         use crate::format::Format;
-        use crate::{format_text, FormatConfig};
+        use crate::{FormatConfig, format_text};
 
         let input = "\\begin{document}\n50\\% of cases. More text.\n\\end{document}\n";
         let cfg = FormatConfig {
@@ -2210,7 +2210,7 @@ Some text.
     #[test]
     fn mid_line_percent_comment_is_structure() {
         use crate::format::Format;
-        use crate::{format_text, FormatConfig};
+        use crate::{FormatConfig, format_text};
 
         let input = "\\begin{document}\nSee Fig. 1. % TODO cite\nNext sentence.\n\\end{document}\n";
         let cfg = FormatConfig {
@@ -6223,7 +6223,7 @@ Some text.
     fn enumerate_item_hangs_next_sentence() {
         use crate::format::Format;
         use crate::oracle;
-        use crate::{format_text, FormatConfig};
+        use crate::{FormatConfig, format_text};
 
         let cfg = FormatConfig {
             format: Format::Latex,

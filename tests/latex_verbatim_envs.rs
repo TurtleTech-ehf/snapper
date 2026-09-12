@@ -77,7 +77,7 @@
 use snapper_fmt::format::Format;
 use snapper_fmt::parser::latex::LatexParser;
 use snapper_fmt::parser::{FormatParser, Region};
-use snapper_fmt::{format_text, FormatConfig};
+use snapper_fmt::{FormatConfig, format_text};
 
 fn latex_cfg() -> FormatConfig {
     FormatConfig {
