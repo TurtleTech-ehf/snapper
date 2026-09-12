@@ -60,7 +60,8 @@ impl FormatParser for RstParser {
 /// directives (admonitions, figure, topic, sidebar, container, leftover
 /// body.py parsed-literal / epigraph / highlights / pull-quote / compound
 /// / header / footer / line-block) nested-parse their body: the opener
-/// and option fields stay Structure; the body hangs as Prose.
+/// and option fields stay Structure; the body hangs as Prose. `meta` field
+/// values are leftover Prose; bibliographic `:Author:` stays Structure.
 fn parse_line_based(input: &str) -> Vec<SpannedRegion> {
     let mut regions = Vec::new();
     let mut current_prose = String::new();
@@ -83,6 +84,11 @@ fn parse_line_based(input: &str) -> Vec<SpannedRegion> {
     // the body hangs as a block quote, so a column-0 line must close that
     // hang instead of joining After markup into the note Prose.
     let mut in_container_body = false;
+    // Docutils `meta` body is a field list whose values are paragraphs.
+    // Field markers stay Structure; same-line bodies hang as Prose
+    // (GitHub #434). Top-level `:Author:` and directive `:option:`
+    // fields stay whole-line Structure.
+    let mut in_meta = false;
     // Line-block hang (`| `): first flush line that is not `| ` and not
     // a hang is a new paragraph, not more line-block (GitHub #409).
     let mut in_line_block = false;
@@ -275,7 +281,8 @@ fn parse_line_based(input: &str) -> Vec<SpannedRegion> {
         // text after `::` is leftover Prose (GitHub #426). `line-block`
         // takes no argument; same-line text after `::` is leftover Prose
         // (GitHub #430). `| ` line-blocks already end at the first flush
-        // paragraph (#409).
+        // paragraph (#409). `meta` takes no argument; its body is a
+        // field list whose values are leftover paragraphs (GitHub #434).
         let trimmed = line_text.trim_start();
         if trimmed.starts_with(".. ") && trimmed.contains("::") {
             flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
@@ -285,6 +292,7 @@ fn parse_line_based(input: &str) -> Vec<SpannedRegion> {
                 if line_text.len() > marker_len && !line_text[marker_len..].trim().is_empty() {
                     list_hang = Some(marker_len);
                     in_container_body = true;
+                    in_meta = false;
                     regions.push(SpannedRegion::structure(
                         input,
                         ByteSpan::new(line.start, line.start + marker_len),
@@ -296,14 +304,19 @@ fn parse_line_based(input: &str) -> Vec<SpannedRegion> {
                 }
             }
             regions.push(SpannedRegion::structure(input, line.span()));
-            if rst_directive_name(trimmed).is_some_and(|n| is_rst_container_directive(&n))
+            let dir_name = rst_directive_name(trimmed);
+            if dir_name
+                .as_deref()
+                .is_some_and(|n| is_rst_container_directive(n) || is_rst_meta_directive(n))
                 || rst_substitution_replace_marker_len(line_text).is_some()
             {
                 in_container_body = true;
+                in_meta = dir_name.as_deref().is_some_and(is_rst_meta_directive);
                 i += 1;
                 continue;
             }
             in_container_body = false;
+            in_meta = false;
             let leading = line_text.len() - trimmed.len();
             // Docutils accepts a two-space body; +3 is convention only.
             directive_indent = leading + 2;
@@ -421,7 +434,9 @@ fn parse_line_based(input: &str) -> Vec<SpannedRegion> {
         // `:role:`text`` is interpreted text, not a field.
         // Empty `:name:` and simple `:Author:` stay whole-line
         // Structure (GitHub #330). Interior-colon names hang the body
-        // as Prose so SemBr still splits.
+        // as Prose so SemBr still splits. Meta field values are
+        // leftover paragraphs: marker Structure, same-line body Prose
+        // (GitHub #434). Directive `:option:` fields stay Structure.
         if let Some(marker_len) = rst_field_marker_len(line_text) {
             flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
             let body = &line_text[marker_len..];
@@ -430,7 +445,7 @@ fn parse_line_based(input: &str) -> Vec<SpannedRegion> {
                 .strip_prefix(':')
                 .and_then(|s| s.strip_suffix(':'))
                 .is_some_and(|inner| inner.contains(':'));
-            if interior_colon && !body.trim().is_empty() {
+            if (interior_colon || in_meta) && !body.trim().is_empty() {
                 list_hang = Some(marker_len);
                 regions.push(SpannedRegion::structure(
                     input,
@@ -670,6 +685,7 @@ fn parse_line_based(input: &str) -> Vec<SpannedRegion> {
             if (in_container_body || in_line_block) && leading == 0 {
                 flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
                 in_container_body = false;
+                in_meta = false;
                 in_line_block = false;
             }
         }
@@ -696,6 +712,7 @@ fn parse_line_based(input: &str) -> Vec<SpannedRegion> {
 
         // Regular prose
         in_container_body = false;
+        in_meta = false;
         in_line_block = false;
         push_prose_line(&mut current_prose, &mut prose_span, line, true, true);
         i += 1;
@@ -817,12 +834,20 @@ fn is_rst_specific_admonition(name: &str) -> bool {
 /// `is_rst_specific_admonition` (including parsed-literal / line-block)
 /// are the same class. Option fields stay Structure via the field-list
 /// arm. Other directive names stay opaque. GitHub #386 / #426 / #430.
+/// `meta` is a sibling leftover: its body is a field list, not a
+/// nested-parsed paragraph (GitHub #434).
 fn is_rst_container_directive(name: &str) -> bool {
     is_rst_specific_admonition(name)
         || matches!(
             name,
             "admonition" | "figure" | "topic" | "sidebar" | "container"
         )
+}
+
+/// Docutils `meta` directive. Takes no argument; the body is a field
+/// list whose values are paragraphs (GitHub #434).
+fn is_rst_meta_directive(name: &str) -> bool {
+    name == "meta"
 }
 
 /// Byte length of a specific-admonition opener (`.. note::` plus
@@ -3753,6 +3778,93 @@ mod tests {
         assert!(
             !out.contains(".. line-block:: fig. 1 is here. After."),
             "same-line line-block body must not stay one line, got:\n{out}"
+        );
+        assert_eq!(format_text(&out, &cfg).unwrap(), out);
+    }
+
+    /// Ticket fixture (Format::Rst / GitHub #434): leftover `meta`
+    /// field same-line body is leftover Prose.
+    fn leftover_meta_fixture() -> &'static str {
+        concat!(
+            ".. meta::\n",
+            "   :description: fig. 1 is here. After.\n",
+            "After. Next.\n",
+        )
+    }
+
+    #[test]
+    fn leftover_meta_field_marker_is_structure_body_is_hung_prose() {
+        let input = leftover_meta_fixture();
+        let regions = RstParser.parse(input);
+        assert!(
+            regions
+                .iter()
+                .any(|r| matches!(r, Region::Structure(s) if s.trim() == ".. meta::")),
+            "opener .. meta:: must stay Structure, got {regions:?}"
+        );
+        assert!(
+            regions
+                .iter()
+                .any(|r| matches!(r, Region::Structure(s) if s == "   :description: ")),
+            "meta field marker must stay Structure, got {regions:?}"
+        );
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(s) if s.contains("fig. 1 is here.") && s.contains("After.")
+            )),
+            "same-line meta field body must be leftover Prose, got {regions:?}"
+        );
+        assert!(
+            !regions.iter().any(|r| matches!(
+                r,
+                Region::Structure(s) if s.contains("fig. 1 is here")
+            )),
+            "same-line meta field body must not stay whole-line Structure, got {regions:?}"
+        );
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(s)
+                    if s.contains("After.") && s.contains("Next.") && !s.contains("fig. 1")
+            )),
+            "flush After. / Next. must stay a separate Prose after meta, got {regions:?}"
+        );
+        assert!(
+            !regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(s) if s.contains("fig. 1 is here.") && s.contains("Next.")
+            )),
+            "flush After. / Next. must not join the meta field body, got {regions:?}"
+        );
+        assert!(is_rst_meta_directive("meta"));
+        assert!(!is_rst_meta_directive("note"));
+        assert!(!is_rst_container_directive("meta"));
+    }
+
+    #[test]
+    fn leftover_meta_fixture_hangs_and_splits() {
+        use crate::format::Format;
+        use crate::{FormatConfig, format_text};
+
+        let cfg = FormatConfig {
+            format: Format::Rst,
+            max_width: 0,
+            ..Default::default()
+        }
+        .without_safety_backstops();
+        let input = leftover_meta_fixture();
+        let marker = "   :description: ";
+        let hang = " ".repeat(marker.len());
+        let out = format_text(input, &cfg).unwrap();
+        assert_eq!(
+            out,
+            format!(".. meta::\n{marker}fig. 1 is here.\n{hang}After.\nAfter.\nNext.\n"),
+            "meta field same-line body must hang and split; flush After. / Next. stay flush, got:\n{out}"
+        );
+        assert!(
+            !out.contains(":description: fig. 1 is here. After."),
+            "same-line meta field body must not stay one line, got:\n{out}"
         );
         assert_eq!(format_text(&out, &cfg).unwrap(), out);
     }
