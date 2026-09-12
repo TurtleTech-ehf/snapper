@@ -982,23 +982,30 @@ fn is_link_title_continuation(line: &str) -> bool {
     rest_is_md_link_title(line.trim_start_matches([' ', '\t']))
 }
 
+/// Byte length of a pulldown `ENABLE_FOOTNOTES` opener: 0–3 spaces,
+/// `[^id]:`, then following spaces. Trailing spaces stay in the marker
+/// so the same-line body is leftover Prose (GitHub #410).
+pub(crate) fn md_footnote_definition_marker_len(line: &str) -> Option<usize> {
+    let rest = md_leaf_rest(line)?;
+    let indent = line.len() - rest.len();
+    let after = rest.strip_prefix("[^")?;
+    let rb = after.find(']')?;
+    let label = &after[..rb];
+    if label.is_empty() || label.bytes().any(|b| b.is_ascii_whitespace()) {
+        return None;
+    }
+    let after_colon = after[rb + 1..].strip_prefix(':')?;
+    let spaces = after_colon
+        .bytes()
+        .take_while(|&b| b == b' ' || b == b'\t')
+        .count();
+    Some(indent + 2 + rb + 1 + 1 + spaces)
+}
+
 /// pulldown `ENABLE_FOOTNOTES`: `[^id]:` with 0–3 spaces of indent.
 /// The label has no whitespace (GFM / GitHub).
 fn is_footnote_definition(line: &str) -> bool {
-    let Some(rest) = md_leaf_rest(line) else {
-        return false;
-    };
-    let Some(after) = rest.strip_prefix("[^") else {
-        return false;
-    };
-    let Some(rb) = after.find(']') else {
-        return false;
-    };
-    let label = &after[..rb];
-    if label.is_empty() || label.bytes().any(|b| b.is_ascii_whitespace()) {
-        return false;
-    }
-    after[rb + 1..].starts_with(':')
+    md_footnote_definition_marker_len(line).is_some()
 }
 
 /// Indented footnote body line (pulldown GFM continuation).
@@ -1993,9 +2000,10 @@ impl FormatParser for MarkdownParser {
                 continue;
             }
 
-            // pulldown ENABLE_FOOTNOTES: [^id]: plus indented continuation.
+            // pulldown ENABLE_FOOTNOTES: [^id]: opener is Structure; the
+            // same-line body is a paragraph (GFM leftover Prose, #410).
             // Can interrupt a paragraph (unlike CM 4.7 link-reference defs).
-            if is_footnote_definition(line_text) {
+            if let Some(marker_len) = md_footnote_definition_marker_len(line_text) {
                 close_list_item(
                     &mut in_list_item,
                     &mut list_hang,
@@ -2006,9 +2014,44 @@ impl FormatParser for MarkdownParser {
                     &mut regions,
                 );
                 flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
+                let marker_span = ByteSpan::new(line.start, line.start + marker_len);
+                regions.push(SpannedRegion::structure(input, marker_span));
+                in_list_item = true;
+                list_hang = Some(marker_len);
+                list_after_blank = false;
+                append_piece(
+                    &mut ProseAcc {
+                        text: &mut current_prose,
+                        span: &mut prose_span,
+                        term: &mut list_term,
+                    },
+                    line,
+                    marker_len,
+                    false,
+                    false,
+                    input,
+                    &mut regions,
+                );
                 let end = footnote_def_end(&lines, i);
-                for row in &lines[i..=end] {
-                    regions.push(SpannedRegion::structure(input, row.span()));
+                for row in &lines[i + 1..=end] {
+                    let hang = line_indent(row.text);
+                    if hang > 0 {
+                        let hang_span = ByteSpan::new(row.start, row.start + hang);
+                        regions.push(SpannedRegion::structure(input, hang_span));
+                    }
+                    append_piece(
+                        &mut ProseAcc {
+                            text: &mut current_prose,
+                            span: &mut prose_span,
+                            term: &mut list_term,
+                        },
+                        row,
+                        hang,
+                        false,
+                        false,
+                        input,
+                        &mut regions,
+                    );
                 }
                 i = end + 1;
                 continue;
@@ -5635,6 +5678,17 @@ mod tests {
         assert!(!is_footnote_definition("    [^1]: indented-code"));
         assert!(!is_footnote_definition("[foo]: /url"));
         assert!(!is_footnote_definition("[^]: empty"));
+        assert_eq!(
+            md_footnote_definition_marker_len("[^1]: fig. 1 is here. After."),
+            Some(6)
+        );
+        assert_eq!(
+            md_footnote_definition_marker_len("  [^note]: body"),
+            Some(11)
+        );
+        assert_eq!(md_footnote_definition_marker_len("[^1]:"), Some(5));
+        assert_eq!(md_footnote_definition_marker_len("[^foo:bar]: x"), Some(12));
+        assert_eq!(md_footnote_definition_marker_len("    [^1]: x"), None);
         assert!(is_footnote_continuation(
             "    Continuation of the footnote."
         ));
@@ -5763,23 +5817,35 @@ mod tests {
     }
 
     #[test]
-    fn footnote_definition_is_structure_not_prose() {
-        let input = "See [^1]. Next.\n\n[^1]: Footnote text. Second sentence.\n";
+    fn footnote_definition_marker_is_structure_body_is_prose() {
+        let input = "See [^1]. Next.\n\n[^1]: fig. 1 is here. After.\n";
         let regions = MarkdownParser.parse(input);
+        assert!(
+            regions
+                .iter()
+                .any(|r| matches!(r, Region::Structure(s) if s == "[^1]: ")),
+            "footnote opener must be Structure, got: {regions:?}"
+        );
         assert!(
             regions.iter().any(|r| matches!(
                 r,
-                Region::Structure(s)
-                    if s.contains("[^1]: Footnote text. Second sentence.")
+                Region::Prose(p) if p.contains("fig. 1 is here.") && p.contains("After.")
             )),
-            "footnote definition must be Structure, got: {regions:?}"
+            "footnote body must be Prose, got: {regions:?}"
         );
         assert!(
             !regions.iter().any(|r| matches!(
                 r,
-                Region::Prose(p) if p.contains("[^1]:") || p.contains("Footnote text")
+                Region::Prose(p) if p.contains("[^1]:")
             )),
-            "footnote body must not be Prose, got: {regions:?}"
+            "footnote marker must not stay Prose, got: {regions:?}"
+        );
+        assert!(
+            !regions.iter().any(|r| matches!(
+                r,
+                Region::Structure(s) if s.contains("fig. 1 is here.")
+            )),
+            "footnote body must not stay Structure, got: {regions:?}"
         );
         assert!(
             regions.iter().any(|r| matches!(
@@ -5792,13 +5858,12 @@ mod tests {
 
     #[test]
     fn footnote_definition_interrupts_paragraph() {
-        let input = "See [^1]. Next.\n[^1]: Footnote text. Second sentence.\n";
+        let input = "See [^1]. Next.\n[^1]: fig. 1 is here. After.\n";
         let regions = MarkdownParser.parse(input);
         assert!(
-            regions.iter().any(|r| matches!(
-                r,
-                Region::Structure(s) if s.contains("[^1]: Footnote text. Second sentence.")
-            )),
+            regions
+                .iter()
+                .any(|r| matches!(r, Region::Structure(s) if s == "[^1]: ")),
             "footnote must interrupt the paragraph, got: {regions:?}"
         );
         assert!(
@@ -5806,39 +5871,48 @@ mod tests {
                 r,
                 Region::Prose(p) if p.contains("[^1]:")
             )),
-            "interrupting footnote must not stay Prose, got: {regions:?}"
+            "interrupting marker must not stay Prose, got: {regions:?}"
+        );
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(p) if p.contains("fig. 1 is here.") && p.contains("After.")
+            )),
+            "interrupting body must be Prose, got: {regions:?}"
         );
     }
 
     #[test]
-    fn footnote_indented_continuation_is_structure() {
+    fn footnote_indented_continuation_is_prose() {
         let input = concat!(
-            "[^1]: Footnote text. Second sentence.\n",
+            "[^1]: fig. 1 is here. After.\n",
             "    Continuation. More footnote.\n",
         );
         let regions = MarkdownParser.parse(input);
         assert!(
+            regions
+                .iter()
+                .any(|r| matches!(r, Region::Structure(s) if s == "[^1]: ")),
+            "footnote opener must be Structure, got: {regions:?}"
+        );
+        assert!(
             regions.iter().any(|r| matches!(
                 r,
-                Region::Structure(s)
-                    if s.contains("[^1]: Footnote text. Second sentence.")
-                        && s.contains("Continuation. More footnote.")
-            )) || (regions.iter().any(|r| matches!(
-                r,
-                Region::Structure(s) if s.contains("[^1]: Footnote text. Second sentence.")
-            )) && regions.iter().any(|r| matches!(
-                r,
-                Region::Structure(s) if s.contains("Continuation. More footnote.")
-            ))),
-            "footnote opener and indent must be Structure, got: {regions:?}"
+                Region::Prose(p)
+                    if p.contains("fig. 1 is here.")
+                        && p.contains("After.")
+                        && p.contains("Continuation.")
+                        && p.contains("More footnote.")
+            )),
+            "footnote opener body and indent must be Prose, got: {regions:?}"
         );
         assert!(
             !regions.iter().any(|r| matches!(
                 r,
-                Region::Prose(p)
-                    if p.contains("Continuation") || p.contains("Footnote text")
+                Region::Structure(s)
+                    if s.contains("fig. 1 is here.") || s.contains("Continuation.")
             )),
-            "footnote continuation must not be Prose, got: {regions:?}"
+            "footnote body must not stay Structure, got: {regions:?}"
         );
     }
 
@@ -5867,19 +5941,18 @@ mod tests {
             "no-blank LRD must not be Structure, got: {regions:?}"
         );
         assert!(
-            regions.iter().any(|r| matches!(
-                r,
-                Region::Structure(s)
-                    if s.contains("[^1]: Footnote text. Second sentence.")
-            )),
-            "ticket footnote must be Structure, got: {regions:?}"
+            regions
+                .iter()
+                .any(|r| matches!(r, Region::Structure(s) if s == "[^1]: ")),
+            "ticket footnote opener must be Structure, got: {regions:?}"
         );
         assert!(
-            !regions.iter().any(|r| matches!(
+            regions.iter().any(|r| matches!(
                 r,
-                Region::Prose(p) if p.contains("Footnote text")
+                Region::Prose(p)
+                    if p.contains("Footnote text.") && p.contains("Second sentence.")
             )),
-            "ticket footnote must not be Prose, got: {regions:?}"
+            "ticket footnote body must be Prose, got: {regions:?}"
         );
         let out = format_text(input, &md_cfg()).unwrap();
         assert!(
@@ -5899,12 +5972,47 @@ mod tests {
             "footnote reference paragraph must still reflow, got:\n{out}"
         );
         assert!(
-            out.contains("[^1]: Footnote text. Second sentence."),
-            "footnote definition must not sentence-split, got:\n{out}"
+            out.contains("[^1]: Footnote text.\nSecond sentence."),
+            "footnote body must sentence-split, got:\n{out}"
         );
         assert!(
-            !out.contains("[^1]: Footnote text.\nSecond sentence."),
-            "footnote must not leak a shorter body, got:\n{out}"
+            !out.contains("[^1]: Footnote text. Second sentence."),
+            "footnote body must not stay fused, got:\n{out}"
+        );
+        assert_eq!(format_text(&out, &md_cfg()).unwrap(), out);
+
+        let cfg = FormatConfig {
+            format: Format::Markdown,
+            ..Default::default()
+        };
+        let guarded = format_text(input, &cfg).unwrap();
+        assert_eq!(guarded, out, "oracle-on path must match, got:\n{guarded}");
+        assert_eq!(format_text(&guarded, &cfg).unwrap(), guarded);
+    }
+
+    /// GitHub #410 / snapper-7kbk: GFM footnote definition body is a paragraph.
+    fn ticket_footnote_body_fixture() -> &'static str {
+        "See [^1]. Next.\n\n[^1]: fig. 1 is here. After.\n"
+    }
+
+    #[test]
+    fn ticket_footnote_body_splits_after_period() {
+        use crate::format::Format;
+        use crate::{FormatConfig, format_text};
+
+        let input = ticket_footnote_body_fixture();
+        let out = format_text(input, &md_cfg()).unwrap();
+        assert!(
+            out.contains("See [^1].\nNext."),
+            "See [^1]. / Next. must stay split, got:\n{out}"
+        );
+        assert!(
+            out.contains("[^1]: fig. 1 is here.\nAfter."),
+            "After. must leave the definition line, got:\n{out}"
+        );
+        assert!(
+            !out.contains("[^1]: fig. 1 is here. After."),
+            "fused After. must not survive, got:\n{out}"
         );
         assert_eq!(format_text(&out, &md_cfg()).unwrap(), out);
 
