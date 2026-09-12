@@ -301,6 +301,13 @@ pub(crate) fn latex_verb_span_end_with(
             after_bs + "tcbinputlisting".len(),
             VerbKind::Tcbinputlisting,
         )
+    } else if let Some(stripped) = tail.strip_prefix("PitonInputFile") {
+        // Before `piton` so the longer leftover name is not `\piton`
+        // + alphabetic leftover (GitHub #406).
+        if stripped.starts_with(|c: char| c.is_ascii_alphabetic()) {
+            return None;
+        }
+        (after_bs + "PitonInputFile".len(), VerbKind::PitonInputFile)
     } else if let Some(stripped) = tail.strip_prefix("lstinline") {
         if stripped.starts_with(|c: char| c.is_ascii_alphabetic()) {
             return None;
@@ -393,6 +400,30 @@ pub(crate) fn latex_verb_span_end_with(
         return Some(find_unescaped_brace_close(text, i).unwrap_or_else(|| line_end(text, i)));
     }
 
+    // piton.sty `\PitonInputFile<spec>[opts]{file}` (`d < > O { } m`;
+    // GitHub #406). Optional angle then optional brackets, then a
+    // required brace file arg. No brace is not a span.
+    if kind == VerbKind::PitonInputFile {
+        i = skip_ascii_ws(text, i);
+        if text.get(i..).is_some_and(|s| s.starts_with('<')) {
+            match skip_angle_group(text, i) {
+                Some(end) => i = skip_ascii_ws(text, end),
+                None => return Some(line_end(text, i)),
+            }
+        }
+        if text.get(i..).is_some_and(|s| s.starts_with('[')) {
+            match skip_bracket_group(text, i) {
+                Some(end) => i = skip_ascii_ws(text, end),
+                None => return Some(line_end(text, i)),
+            }
+        }
+        if !text.get(i..).is_some_and(|s| s.starts_with('{')) {
+            return None;
+        }
+        i += 1;
+        return Some(find_unescaped_brace_close(text, i).unwrap_or_else(|| line_end(text, i)));
+    }
+
     if kind == VerbKind::Mint {
         if !text.get(i..).is_some_and(|s| s.starts_with('{')) {
             return None;
@@ -454,6 +485,9 @@ enum VerbKind {
     Verbatiminput,
     /// `\tcbinputlisting`: one required `{keyvals}` group.
     Tcbinputlisting,
+    /// `\PitonInputFile`: optional `<...>`, optional `[...]`, required
+    /// `{filename}` (piton.sty leftover; GitHub #406).
+    PitonInputFile,
     /// `\mintinline` / `\mint` / `\inputminted`: optional `[...]`,
     /// `{lang}`, then body.
     Mint,
@@ -498,6 +532,7 @@ fn match_extra_verb_command<'a>(tail: &'a str, extras: &'a [String]) -> Option<&
             || name == "inputminted"
             || name == "verbatiminput"
             || name == "tcbinputlisting"
+            || name == "PitonInputFile"
             || name == "mint"
             || name == "Verb"
             || name == "SaveVerb"
@@ -526,6 +561,25 @@ fn skip_ascii_ws(text: &str, mut i: usize) -> usize {
         i += 1;
     }
     i
+}
+
+/// xparse `d < >` optional delimited argument (piton.sty
+/// `\PitonInputFile`; GitHub #406). Not a nested group: first `>` on
+/// the same line closes it.
+fn skip_angle_group(text: &str, open_at: usize) -> Option<usize> {
+    let bytes = text.as_bytes();
+    if bytes.get(open_at) != Some(&b'<') {
+        return None;
+    }
+    let mut i = open_at + 1;
+    while i < bytes.len() {
+        match bytes[i] {
+            b'\n' => return None,
+            b'>' => return Some(i + 1),
+            _ => i += 1,
+        }
+    }
+    None
 }
 
 fn skip_bracket_group(text: &str, open_at: usize) -> Option<usize> {
@@ -2507,6 +2561,54 @@ mod tests {
             latex_verb_span_end_with(r"\inputminted{python}{foo.py}", 0, &[]),
             Some(r"\inputminted{python}{foo.py}".len()),
             "tcbinputlisting must not steal inputminted"
+        );
+    }
+
+    /// Ticket fixture (GitHub #406): piton.sty `\PitonInputFile{file}`
+    /// is one leftover command; following `After.` still splits.
+    #[test]
+    fn latex_pitoninputfile_stays_atomic() {
+        let text = r"See \PitonInputFile{foo.py} here. After.";
+        let (_, placeholders) = protect_inline_tokens(text);
+        assert!(
+            placeholders.iter().any(|p| p == r"\PitonInputFile{foo.py}"),
+            "PitonInputFile span must be protected, got {placeholders:?}"
+        );
+        assert_eq!(
+            latex_verb_span_end_with(r"\PitonInputFile{foo.py}", 0, &[]),
+            Some(r"\PitonInputFile{foo.py}".len())
+        );
+        assert_eq!(
+            split(text),
+            vec![
+                r"See \PitonInputFile{foo.py} here.".to_string(),
+                "After.".to_string()
+            ]
+        );
+        assert_eq!(
+            latex_verb_span_end_with(r"\PitonInputFile[language=python]{foo.py}", 0, &[]),
+            Some(r"\PitonInputFile[language=python]{foo.py}".len())
+        );
+        assert_eq!(
+            latex_verb_span_end_with(r"\PitonInputFile<python>{foo.py}", 0, &[]),
+            Some(r"\PitonInputFile<python>{foo.py}".len()),
+            "PitonInputFile optional angle spec must stay in the span"
+        );
+        let range = r"\PitonInputFile<1-10>[language=python]{foo.py}";
+        assert_eq!(
+            latex_verb_span_end_with(range, 0, &[]),
+            Some(range.len()),
+            "PitonInputFile d<> plus optional args must stay one span"
+        );
+        assert_eq!(
+            latex_verb_span_end_with(r"\PitonInputFile foo.py", 0, &[]),
+            None,
+            "PitonInputFile without a brace file arg is not a verb span"
+        );
+        assert_eq!(
+            latex_verb_span_end_with(r"\tcbinputlisting{listing file=foo.py}", 0, &[]),
+            Some(r"\tcbinputlisting{listing file=foo.py}".len()),
+            "PitonInputFile must not steal tcbinputlisting"
         );
     }
 
