@@ -1,7 +1,7 @@
-//! snapper-hw7m / GitHub #281: an org verse line with two sentences
-//! stays one physical line. org-element verse-line lineation is the
-//! object. Inner stays Prose, not Structure. After the block still
-//! splits. Quote / center / special-block reflow is unchanged.
+//! snapper-wlvj / GitHub #395: org-element verse-block body is leftover
+//! opaque Structure (verse-lines, not paragraphs). SemBr must not split
+//! interior punct. After. / Next. stay unindented Prose and still split.
+//! Quote / src unchanged.
 
 use snapper_fmt::format::Format;
 use snapper_fmt::parser::org::OrgParser;
@@ -17,18 +17,18 @@ fn org_cfg() -> FormatConfig {
     .without_safety_backstops()
 }
 
-/// Ticket fixture (Format::Org).
+/// Ticket fixture (Format::Org / GitHub #395).
 fn ticket_fixture() -> &'static str {
     concat!(
         "#+BEGIN_VERSE\n",
         "First line. Second line.\n",
         "#+END_VERSE\n",
-        "After the block. Next.\n",
+        "After. Next.\n",
     )
 }
 
 #[test]
-fn verse_line_is_prose_not_structure() {
+fn verse_body_is_structure_not_reflowed_prose() {
     let regions = OrgParser.parse(ticket_fixture());
     assert!(
         regions
@@ -39,15 +39,22 @@ fn verse_line_is_prose_not_structure() {
     assert!(
         regions.iter().any(|r| matches!(
             r,
-            Region::Prose(p) if p.contains("First line.") && p.contains("Second line.")
+            Region::Structure(s) if s.contains("First line.") && s.contains("Second line.")
         )),
-        "verse line must be Prose, got {regions:?}"
+        "verse body must be Structure, got {regions:?}"
     );
     assert!(
         !regions
             .iter()
-            .any(|r| matches!(r, Region::Structure(s) if s.contains("First line."))),
-        "verse inner must not flip to Structure, got {regions:?}"
+            .any(|r| matches!(r, Region::Prose(p) if p.contains("First line."))),
+        "verse body must not be reflowed Prose, got {regions:?}"
+    );
+    assert!(
+        !regions.iter().any(|r| matches!(
+            r,
+            Region::Code { body, .. } if body.contains("First line.")
+        )),
+        "verse body is leftover Structure, not Code, got {regions:?}"
     );
 }
 
@@ -61,10 +68,10 @@ fn ticket_fixture_keeps_verse_line_and_splits_after() {
             "#+BEGIN_VERSE\n",
             "First line. Second line.\n",
             "#+END_VERSE\n",
-            "After the block.\n",
+            "After.\n",
             "Next.\n",
         ),
-        "verse line stays one physical line; After the block. / Next. still splits, got:\n{out}"
+        "verse body stays one source line; After. / Next. still splits, got:\n{out}"
     );
     assert!(
         !out.contains("First line.\nSecond line."),
@@ -121,4 +128,74 @@ fn quote_center_special_block_still_split() {
         n.contains("Quoted one.\nQuoted two."),
         "special-block inner must still split, got:\n{n}"
     );
+}
+
+#[test]
+fn src_body_unchanged() {
+    let input = concat!(
+        "#+BEGIN_SRC python\n",
+        "print(\"a. b\")\n",
+        "#+END_SRC\n",
+        "After. Next.\n",
+    );
+    let regions = OrgParser.parse(input);
+    assert!(
+        regions.iter().any(|r| matches!(
+            r,
+            Region::Code { body, .. } if body.contains("print(\"a. b\")")
+        )),
+        "SRC body must stay Code, got {regions:?}"
+    );
+    let out = format_text(input, &org_cfg()).unwrap();
+    assert!(
+        out.contains("print(\"a. b\")"),
+        "SRC body must not reflow, got:\n{out}"
+    );
+    assert!(
+        !out.contains("a.\nb"),
+        "SRC body must not split at the period, got:\n{out}"
+    );
+    assert!(
+        out.contains("#+END_SRC\nAfter.\nNext."),
+        "prose after SRC must still split, got:\n{out}"
+    );
+}
+
+/// GitHub #395 leftover walker: lowercase begin_verse is the same
+/// opaque class as BEGIN_VERSE.
+#[test]
+fn leftover_lowercase_verse_is_structure_and_does_not_reflow() {
+    let input = concat!(
+        "#+begin_verse\n",
+        "First line. Second line.\n",
+        "#+end_verse\n",
+        "After. Next.\n",
+    );
+    let regions = OrgParser.parse(input);
+    assert!(
+        regions.iter().any(|r| matches!(
+            r,
+            Region::Structure(s) if s.contains("First line.") && s.contains("Second line.")
+        )),
+        "lowercase verse body must be Structure, got {regions:?}"
+    );
+    assert!(
+        !regions
+            .iter()
+            .any(|r| matches!(r, Region::Prose(p) if p.contains("First line."))),
+        "lowercase verse body must not be Prose, got {regions:?}"
+    );
+    let out = format_text(input, &org_cfg()).unwrap();
+    assert_eq!(
+        out,
+        concat!(
+            "#+begin_verse\n",
+            "First line. Second line.\n",
+            "#+end_verse\n",
+            "After.\n",
+            "Next.\n",
+        ),
+        "lowercase verse body stays one source line; After. / Next. still splits, got:\n{out}"
+    );
+    assert_eq!(format_text(&out, &org_cfg()).unwrap(), out);
 }
