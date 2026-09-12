@@ -200,7 +200,7 @@ pub fn protect_inline_tokens_with(
 /// `\mintinline{lang}|...|` / `\mint{lang}{...}` /
 /// `\inputminted{lang}{file}` / `\Verb|...|` /
 /// `\SaveVerb{name}|...|` / `\piton|...|` /
-/// `\lstinputlisting[...]{file}` so inner `.!?%` cannot
+/// `\lstinputlisting[...]{file}` / `\verbatiminput{file}` so inner `.!?%` cannot
 /// split or comment. `\piton{...}` stays on the generic `\cmd{arg}`
 /// path (piton.sty brace syntax is not verbatim; GitHub #305).
 fn protect_latex_verbatim(
@@ -228,7 +228,7 @@ fn protect_latex_verbatim(
 
 /// Byte end of a `\verb` / `\lstinline` / `\spverb` / `\mintinline` /
 /// `\mint` / `\inputminted` / `\Verb` / `\SaveVerb` / `\piton` /
-/// `\lstinputlisting` /
+/// `\lstinputlisting` / `\verbatiminput` /
 /// extra-name span starting at `at`.
 ///
 /// `\verb` / `\verb*` / `\spverb` / `\spverb*` / `\Verb` / `\Verb*`: next
@@ -247,9 +247,11 @@ fn protect_latex_verbatim(
 /// delimiter so `\piton{...}` stays on the generic `\cmd{arg}` path.
 /// `\lstinputlisting` / `\lstinputlisting*` (listings.sty leftover;
 /// GitHub #391) take optional `[...]` then a required `{filename}`;
-/// no brace is not a span. Extra names are tokenized like `\verb`.
-/// With no closer, the span runs to end of line so an inner `%` is
-/// not a comment.
+/// no brace is not a span. `\verbatiminput` / `\verbatiminput*`
+/// (tools/verbatim.sty leftover; GitHub #398) take a required
+/// `{filename}`; no brace is not a span. Extra names are tokenized
+/// like `\verb`. With no closer, the span runs to end of line so an
+/// inner `%` is not a comment.
 pub(crate) fn latex_verb_span_end_with(
     text: &str,
     at: usize,
@@ -282,6 +284,12 @@ pub(crate) fn latex_verb_span_end_with(
             after_bs + "lstinputlisting".len(),
             VerbKind::Lstinputlisting,
         )
+    } else if let Some(stripped) = tail.strip_prefix("verbatiminput") {
+        // Before `verb` so `\verbatiminput` is not `\verb` + leftover.
+        if stripped.starts_with(|c: char| c.is_ascii_alphabetic()) {
+            return None;
+        }
+        (after_bs + "verbatiminput".len(), VerbKind::Verbatiminput)
     } else if let Some(stripped) = tail.strip_prefix("lstinline") {
         if stripped.starts_with(|c: char| c.is_ascii_alphabetic()) {
             return None;
@@ -350,7 +358,12 @@ pub(crate) fn latex_verb_span_end_with(
     }
 
     // listings.sty `\lstinputlisting[opts]{file}` is brace-only.
-    if kind == VerbKind::Lstinputlisting {
+    // tools/verbatim.sty `\verbatiminput{file}` is the same brace file
+    // arg (no optional `[...]`; GitHub #398).
+    if matches!(kind, VerbKind::Lstinputlisting | VerbKind::Verbatiminput) {
+        if kind == VerbKind::Verbatiminput {
+            i = skip_ascii_ws(text, i);
+        }
         if !text.get(i..).is_some_and(|s| s.starts_with('{')) {
             return None;
         }
@@ -414,6 +427,8 @@ enum VerbKind {
     Lstinline,
     /// `\lstinputlisting`: optional `[...]` then required `{filename}`.
     Lstinputlisting,
+    /// `\verbatiminput`: required `{filename}` (verbatim.sty leftover).
+    Verbatiminput,
     /// `\mintinline` / `\mint` / `\inputminted`: optional `[...]`,
     /// `{lang}`, then body.
     Mint,
@@ -442,6 +457,7 @@ fn match_extra_verb_command<'a>(tail: &'a str, extras: &'a [String]) -> Option<&
             || name == "spverb"
             || name == "mintinline"
             || name == "inputminted"
+            || name == "verbatiminput"
             || name == "mint"
             || name == "Verb"
             || name == "SaveVerb"
@@ -2333,6 +2349,61 @@ mod tests {
             latex_verb_span_end_with(r"\input{foo.py}", 0, &[]),
             None,
             "inputminted must not steal \\input"
+        );
+    }
+
+    /// Ticket fixture (GitHub #398): tools/verbatim.sty `\verbatiminput{file}`
+    /// is one token; following `After.` still splits.
+    #[test]
+    fn latex_verbatiminput_stays_atomic() {
+        let text = r"See \verbatiminput{foo.py} here. After.";
+        let (_, placeholders) = protect_inline_tokens(text);
+        assert!(
+            placeholders.iter().any(|p| p == r"\verbatiminput{foo.py}"),
+            "verbatiminput span must be protected, got {placeholders:?}"
+        );
+        assert_eq!(
+            latex_verb_span_end_with(r"\verbatiminput{foo.py}", 0, &[]),
+            Some(r"\verbatiminput{foo.py}".len())
+        );
+        assert_eq!(
+            split(text),
+            vec![
+                r"See \verbatiminput{foo.py} here.".to_string(),
+                "After.".to_string()
+            ]
+        );
+        assert_eq!(
+            latex_verb_span_end_with(r"\verbatiminput*{foo.py}", 0, &[]),
+            Some(r"\verbatiminput*{foo.py}".len())
+        );
+        let star = r"See \verbatiminput*{foo.py} here. After.";
+        assert_eq!(
+            split(star),
+            vec![
+                r"See \verbatiminput*{foo.py} here.".to_string(),
+                "After.".to_string()
+            ]
+        );
+        assert_eq!(
+            latex_verb_span_end_with(r"\verbatiminput foo.py", 0, &[]),
+            None,
+            "verbatiminput without a brace file arg is not a verb span"
+        );
+        assert_eq!(
+            latex_verb_span_end_with(r"\verb|a.b! c|", 0, &[]),
+            Some(r"\verb|a.b! c|".len()),
+            "verbatiminput must not steal verb"
+        );
+        assert_eq!(
+            latex_verb_span_end_with(r"\lstinputlisting{foo.py}", 0, &[]),
+            Some(r"\lstinputlisting{foo.py}".len()),
+            "verbatiminput must not steal lstinputlisting"
+        );
+        assert_eq!(
+            latex_verb_span_end_with(r"\inputminted{python}{foo.py}", 0, &[]),
+            Some(r"\inputminted{python}{foo.py}".len()),
+            "verbatiminput must not steal inputminted"
         );
     }
 
