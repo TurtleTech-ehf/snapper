@@ -135,13 +135,21 @@ These tokens within prose are not split across lines:
 - piton.sty =Piton= is a built-in code region (verbatim listing env)
 - Extra names from =[latex].verbatim_envs= are code regions too
 - Body follows the same comment-reflow and optional =--format-code= rules as other formats when language is known (=minted= / =minted*= language arg, =lstlisting= / =lstlisting*= =language== option)
-- Inline leftover commands include =\verbatiminput=, =\VerbatimInput= / =B= / =L=, and =\tcbinputlisting=; following flush prose stays on its own line.
+- Inline =\verb= / =\lstinline= / =\spverb= / =\mintinline= / =\mint= / fancyvrb =\Verb= / =\Verb*= / =\SaveVerb= / =\VerbatimInput= / =\BVerbatimInput= / =\LVerbatimInput= / piton.sty =\piton= / =\PitonInputFile= / =\PitonInputFileT= / =\PitonInputFileF= / =\PitonInputFileTF= / listings.sty =\lstinputlisting= / minted.sty =\inputminted= / tools/verbatim.sty =\verbatiminput= / tcolorbox =\tcbinputlisting= / pythontex.sty =\inputpy= / =\inputpycon= / =\inputpygments= / =\pygment= / catchfilebetweentags.sty =\CatchFileBetweenTags= / =\CatchFileBetweenDelims= / =\ExecuteMetaData= / moreverb =\listinginput= / sagetex =\sageinput= / scontents =\inputsc= (and extra =[latex].verbatim_commands=) stay atomic; inner =.!?%= do not split or comment.
   =\piton|...|= is verb-like; =\piton{...}= stays one token via the generic command argument
   =\lstinputlisting= / =\lstinputlisting*= take optional =[...]= then a ={filename}=; a flush following sentence stays on its own line
   =\inputminted= / =\inputminted*= take optional =[...]=, ={lang}=, then a ={filename}=; a flush following sentence stays on its own line
   =\VerbatimInput= / =\BVerbatimInput= / =\LVerbatimInput= take optional =[...]= then a ={filename}=; a flush following sentence stays on its own line
   =\verbatiminput= / =\verbatiminput*= take a ={filename}=; a flush following sentence stays on its own line
-  =\tcbinputlisting= takes a ={keyvals}= group; a flush following sentence stays on its own line
+  =\PitonInputFile= takes optional =<...>=, optional =[...]=, then a ={filename}=; a flush following sentence stays on its own line
+  =\PitonInputFileT= / =\PitonInputFileF= take the same optional args then ={file}= and one extra required brace; =\PitonInputFileTF= takes two extra braces; a flush following sentence stays on its own line
+  =\tcbinputlisting= takes one required ={keyval}= group; a flush following sentence stays on its own line
+  =\inputpy= / =\inputpycon= take optional =[...]= then a ={filename}=; a flush following sentence stays on its own line
+  =\inputpygments= takes optional =[...]=, ={lang}=, then a ={filename}=; =\pygment= takes ={lang}= then a delimiter or ={code}= body; a flush following sentence stays on its own line
+  =\CatchFileBetweenTags= takes ={macro}= ={file}= ={tag}=; =\CatchFileBetweenDelims= takes ={macro}= ={file}= ={start}= ={end}=; =\ExecuteMetaData= takes optional =[file]= then ={tag}=; a flush following sentence stays on its own line
+  =\listinginput= takes optional =[interval]= then ={start}= and ={filename}=; a flush following sentence stays on its own line
+  =\sageinput= takes optional =[...]= then a ={filename}=; a flush following sentence stays on its own line
+  =\inputsc= takes optional =[...]= then a ={name}=; a flush following sentence stays on its own line
 
 *** Prose regions (reflowed)
 :PROPERTIES:
