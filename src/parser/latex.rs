@@ -502,8 +502,8 @@ impl LatexParser {
     /// Byte offset of the first `%` that is not escaped as `\%` and is not
     /// inside `\verb` / `\lstinline` / `\spverb` / `\mintinline` / `\mint` /
     /// `\Verb` / `\SaveVerb` / `\piton` / `\lstinputlisting` /
-    /// `\inputminted` / fancyvrb `\VerbatimInput` / `\tcbinputlisting` /
-    /// `\PitonInputFile` / configured verbatim commands.
+    /// `\inputminted` / `\verbatiminput` / `\VerbatimInput` /
+    /// `\tcbinputlisting` / `\PitonInputFile` / configured verbatim commands.
     fn unescaped_percent(&self, line: &str) -> Option<usize> {
         unescaped_percent_with(line, &self.extra_verbatim_commands)
     }
@@ -876,7 +876,7 @@ fn find_tex_cs(line: &str, from: usize, cs: &str) -> Option<usize> {
 
 /// `\iffalse` in ordinary TeX, skipping `\verb` / `\lstinline` /
 /// `\spverb` / `\mintinline` / `\mint` / `\inputminted` / `\Verb` /
-/// `\SaveVerb` / `\piton` / `\lstinputlisting` / fancyvrb
+/// `\SaveVerb` / `\piton` / `\lstinputlisting` / `\verbatiminput` /
 /// `\VerbatimInput` / `\tcbinputlisting` / `\PitonInputFile` spans.
 fn find_iffalse_at(line: &str, from: usize, extra_cmds: &[String]) -> Option<usize> {
     let bytes = line.as_bytes();
@@ -919,13 +919,26 @@ fn find_inputminted_at(line: &str, from: usize, extra_cmds: &[String]) -> Option
     find_leftover_cmd_at(line, from, extra_cmds, inputminted_cs_at)
 }
 
-/// Leftover fancyvrb.sty `\VerbatimInput` / `\BVerbatimInput` /
-/// `\LVerbatimInput` (optional `[...]`, required `{file}`; `FV@Command`;
-/// GitHub #399). One walker for all three names. Other verb spans are
-/// skipped so `\verb|\VerbatimInput{x}|` is not stolen. Walk stops at
-/// an unescaped `%` so a comment is not a command tail.
+/// Leftover tools/verbatim.sty `\verbatiminput` / `\verbatiminput*`
+/// (required `{file}`; GitHub #398). Other verb spans are skipped so
+/// `\verb|\verbatiminput{x}|` is not stolen. Walk stops at an
+/// unescaped `%` so a comment is not a command tail.
 fn find_verbatiminput_at(line: &str, from: usize, extra_cmds: &[String]) -> Option<(usize, usize)> {
     find_leftover_cmd_at(line, from, extra_cmds, verbatiminput_cs_at)
+}
+
+/// Leftover fancyvrb.sty `\VerbatimInput` / `\BVerbatimInput` /
+/// `\LVerbatimInput` (optional `[...]`, required `{file}`; GitHub
+/// #399). One leftover walker for all three `\FV@Command` names.
+/// Other verb spans are skipped so `\verb|\VerbatimInput{x}|` is not
+/// stolen. Walk stops at an unescaped `%` so a comment is not a
+/// command tail.
+fn find_fancyvrb_input_at(
+    line: &str,
+    from: usize,
+    extra_cmds: &[String],
+) -> Option<(usize, usize)> {
+    find_leftover_cmd_at(line, from, extra_cmds, fancyvrb_input_cs_at)
 }
 
 /// Leftover tcolorbox `\tcbinputlisting` (one keyval group; GitHub #400).
@@ -1003,6 +1016,16 @@ fn inputminted_cs_at(line: &str, at: usize) -> bool {
 }
 
 fn verbatiminput_cs_at(line: &str, at: usize) -> bool {
+    let Some(tail) = line.get(at..).and_then(|s| s.strip_prefix('\\')) else {
+        return false;
+    };
+    let Some(after) = tail.strip_prefix("verbatiminput") else {
+        return false;
+    };
+    !after.starts_with(|c: char| c.is_ascii_alphabetic())
+}
+
+fn fancyvrb_input_cs_at(line: &str, at: usize) -> bool {
     let Some(tail) = line.get(at..).and_then(|s| s.strip_prefix('\\')) else {
         return false;
     };
@@ -1721,6 +1744,9 @@ impl<'a> ParseState<'a> {
                     .or_else(|| find_inputminted_at(code, i, &self.parser.extra_verbatim_commands))
                     .or_else(|| {
                         find_verbatiminput_at(code, i, &self.parser.extra_verbatim_commands)
+                    })
+                    .or_else(|| {
+                        find_fancyvrb_input_at(code, i, &self.parser.extra_verbatim_commands)
                     })
                     .or_else(|| {
                         find_tcbinputlisting_at(code, i, &self.parser.extra_verbatim_commands)
@@ -2768,6 +2794,80 @@ Some text.
         );
     }
 
+    /// Ticket fixture (GitHub #398): tools/verbatim.sty `\verbatiminput{file}`
+    /// is one leftover command. Following flush prose does not join the
+    /// command line. `After.` / `Next.` still split. `lstinputlisting` /
+    /// `inputminted` unchanged.
+    #[test]
+    fn tools_verbatiminput_does_not_join_following_prose() {
+        use crate::format_text;
+
+        let input = concat!(
+            "Before. Next.\n",
+            "\\verbatiminput{foo.py}\n",
+            "After. Next.\n",
+        );
+        let regions = LatexParser::default().parse(input);
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Structure(s) if s.contains(r"\verbatiminput{foo.py}")
+            )),
+            "verbatiminput must stay one Structure command, got: {regions:?}"
+        );
+        assert!(
+            !regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(p) if p.contains(r"\verbatiminput{foo.py}")
+            )),
+            "verbatiminput must not leak into Prose, got: {regions:?}"
+        );
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(p) if p.contains("After.") && p.contains("Next.")
+            )),
+            "After. / Next. must stay Prose, got: {regions:?}"
+        );
+        let out = format_text(input, &latex_cfg()).unwrap();
+        assert!(
+            out.contains("\\verbatiminput{foo.py}\n"),
+            "verbatiminput must stay one atomic command, got:\n{out}"
+        );
+        assert!(
+            !out.contains("\\verbatiminput{foo.py} After."),
+            "following flush prose must not join the command line, got:\n{out}"
+        );
+        assert!(
+            out.contains("Before.\nNext."),
+            "prose before verbatiminput must still split, got:\n{out}"
+        );
+        assert!(
+            out.contains("After.\nNext."),
+            "prose after verbatiminput must still split, got:\n{out}"
+        );
+        assert_eq!(format_text(&out, &latex_cfg()).unwrap(), out);
+
+        let star = concat!(
+            "Before. Next.\n",
+            "\\verbatiminput*{foo.py}\n",
+            "After. Next.\n",
+        );
+        let star_out = format_text(star, &latex_cfg()).unwrap();
+        assert!(
+            star_out.contains("\\verbatiminput*{foo.py}\n"),
+            "verbatiminput* must stay one atomic command, got:\n{star_out}"
+        );
+        assert!(
+            !star_out.contains("\\verbatiminput*{foo.py} After."),
+            "starred verbatiminput must not join following prose, got:\n{star_out}"
+        );
+        assert!(
+            star_out.contains("After.\nNext."),
+            "prose after starred verbatiminput must still split, got:\n{star_out}"
+        );
+    }
+
     /// Ticket fixture (GitHub #400): tcolorbox `\tcbinputlisting{keys}`
     /// is one leftover command (one keyval group). Following flush
     /// prose does not join the command line. `After.` / `Next.` still
@@ -2974,6 +3074,25 @@ Some text.
             "prose after d<> PitonInputFile must still split, got:\n{range_out}"
         );
 
+        let angle = concat!(
+            "Before. Next.\n",
+            "\\PitonInputFile<python>{foo.py}\n",
+            "After. Next.\n",
+        );
+        let angle_out = format_text(angle, &latex_cfg()).unwrap();
+        assert!(
+            angle_out.contains("\\PitonInputFile<python>{foo.py}\n"),
+            "PitonInputFile standalone angle must stay atomic, got:\n{angle_out}"
+        );
+        assert!(
+            !angle_out.contains("\\PitonInputFile<python>{foo.py} After."),
+            "standalone-angle PitonInputFile must not join following prose, got:\n{angle_out}"
+        );
+        assert!(
+            angle_out.contains("After.\nNext."),
+            "prose after standalone-angle PitonInputFile must still split, got:\n{angle_out}"
+        );
+
         let piton_env = concat!(
             "\\begin{Piton}\n",
             "First line. Second line.\n",
@@ -3004,12 +3123,16 @@ Some text.
         );
         let verb_out = format_text(verb_in, &latex_cfg()).unwrap();
         assert!(
-            verb_out.contains("\\verbatiminput{foo.py}"),
-            "verbatiminput text must stay, got:\n{verb_out}"
+            verb_out.contains("\\verbatiminput{foo.py}\n"),
+            "verbatiminput must stay unchanged, got:\n{verb_out}"
         );
         assert!(
-            !verb_out.contains("\\PitonInputFile"),
-            "PitonInputFile walker must not rewrite verbatiminput, got:\n{verb_out}"
+            !verb_out.contains("\\verbatiminput{foo.py} After."),
+            "verbatiminput must not join following prose, got:\n{verb_out}"
+        );
+        assert!(
+            verb_out.contains("After.\nNext."),
+            "prose after verbatiminput must still split, got:\n{verb_out}"
         );
 
         let fancy = concat!(
