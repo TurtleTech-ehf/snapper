@@ -25,21 +25,27 @@ fn ticket_fixture() -> &'static str {
 }
 
 #[test]
-fn footnote_definition_is_structure_not_prose() {
+fn footnote_definition_marker_is_structure_body_is_prose() {
     let regions = MarkdownParser.parse(ticket_fixture());
+    assert!(
+        regions
+            .iter()
+            .any(|r| matches!(r, Region::Structure(s) if s == "[^1]: ")),
+        "footnote opener must be Structure, got {regions:?}"
+    );
     assert!(
         regions.iter().any(|r| matches!(
             r,
-            Region::Structure(s) if s.contains("[^1]: Footnote text. Second sentence.")
+            Region::Prose(s) if s.contains("Footnote text.") && s.contains("Second sentence.")
         )),
-        "footnote definition must be Structure, got {regions:?}"
+        "footnote body must be Prose, got {regions:?}"
     );
     assert!(
         !regions.iter().any(|r| matches!(
             r,
-            Region::Prose(s) if s.contains("[^1]:") || s.contains("Footnote text")
+            Region::Prose(s) if s.contains("[^1]:")
         )),
-        "footnote body must not be Prose, got {regions:?}"
+        "footnote marker must not stay Prose, got {regions:?}"
     );
 }
 
@@ -106,12 +112,12 @@ fn ticket_fixture_does_not_reflow_definitions() {
         "footnote reference paragraph must still reflow, got:\n{out}"
     );
     assert!(
-        out.contains("[^1]: Footnote text. Second sentence."),
-        "footnote definition must not sentence-split, got:\n{out}"
+        out.contains("[^1]: Footnote text.\nSecond sentence."),
+        "footnote body must sentence-split, got:\n{out}"
     );
     assert!(
-        !out.contains("[^1]: Footnote text.\nSecond sentence."),
-        "footnote must not leak a shorter body, got:\n{out}"
+        !out.contains("[^1]: Footnote text. Second sentence."),
+        "footnote body must not stay fused, got:\n{out}"
     );
     assert_eq!(format_text(&out, &md_cfg()).unwrap(), out);
 
