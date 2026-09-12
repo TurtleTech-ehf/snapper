@@ -84,7 +84,7 @@ pub struct CodeSpans {
 pub struct SpannedRegion {
     pub region: Region,
     pub origin: Option<RegionOrigin>,
-    /// When true, splice keeps the source physical line (Org verse-line).
+    /// When true, splice keeps the source physical line.
     /// The region stays [`Region::Prose`]; sentence breaks do not invent lines.
     pub line_preserving: bool,
 }

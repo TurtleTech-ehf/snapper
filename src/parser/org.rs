@@ -151,8 +151,8 @@ enum DisplayMathDelim {
     Dollars,
 }
 
-/// Greater-block kind. Quote/verse/center contain paragraphs;
-/// example/export/comment and other names stay literal Structure.
+/// Greater-block kind. Quote/center contain paragraphs;
+/// example/export/comment/verse and other names stay literal Structure.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum GreaterKind {
     Container,
@@ -524,11 +524,13 @@ impl OrgParser {
         org_export_snippet_line(line)
     }
 
-    /// org-element quote-block / verse-block / center-block contain paragraphs.
+    /// org-element quote-block / center-block contain paragraphs.
     /// org-element special-block (NOTE, ABSTRACT, WARNING, ...) contains
-    /// paragraphs. Only lesser/literal names stay opaque (GitHub #179).
+    /// paragraphs. Lesser/literal names stay opaque (GitHub #179).
+    /// verse-block is the leftover walker: org-element keeps verse-lines,
+    /// not paragraphs (GitHub #395).
     fn is_container_block_name(name: &str) -> bool {
-        !matches!(name, "SRC" | "EXAMPLE" | "EXPORT" | "COMMENT")
+        !matches!(name, "SRC" | "EXAMPLE" | "EXPORT" | "COMMENT" | "VERSE")
     }
 
     fn greater_kind(name: &str) -> GreaterKind {
@@ -620,14 +622,6 @@ impl OrgParser {
         stack.iter().any(|b| b.kind == GreaterKind::Opaque)
     }
 
-    fn innermost_container(stack: &[OpenGreater]) -> Option<&str> {
-        stack
-            .iter()
-            .rev()
-            .find(|b| b.kind == GreaterKind::Container)
-            .map(|b| b.name.as_str())
-    }
-
     fn push_greater(stack: &mut Vec<OpenGreater>, name: String) {
         let kind = Self::greater_kind(&name);
         stack.push(OpenGreater { name, kind });
@@ -640,26 +634,6 @@ impl OrgParser {
     }
 }
 
-/// True when `regions[idx]` sits inside an org-element verse-block.
-///
-/// Verse-line lineation is the object (Org manual: line breaks are
-/// preserved). The parser already flushes each verse line as its own
-/// Prose region; reflow must not insert new physical lines there.
-pub(crate) fn org_verse_inner_prose(idx: usize, regions: &[Region]) -> bool {
-    let mut stack: Vec<OpenGreater> = Vec::new();
-    for region in regions.iter().take(idx) {
-        let Region::Structure(s) = region else {
-            continue;
-        };
-        if let Some(name) = OrgParser::block_begin_name(s) {
-            OrgParser::push_greater(&mut stack, name);
-        } else if let Some(name) = OrgParser::block_end_name(s) {
-            OrgParser::pop_matching_greater(&mut stack, &name);
-        }
-    }
-    OrgParser::innermost_container(&stack) == Some("VERSE")
-}
-
 impl FormatParser for OrgParser {
     fn parse_full(&self, input: &str) -> Vec<SpannedRegion> {
         let mut regions: Vec<SpannedRegion> = Vec::new();
@@ -667,7 +641,7 @@ impl FormatParser for OrgParser {
         let mut prose_span: Option<ByteSpan> = None;
         // Open greater-element names. `#+END_NAME` pops only a matching top
         // (org-element / orgize); a mismatched closer stays structure.
-        // Quote/verse/center are containers (inner Prose); other names are opaque.
+        // Quote/center are containers (inner Prose); verse and other names are opaque.
         let mut block_stack: Vec<OpenGreater> = Vec::new();
         let mut in_src_block = false;
         let mut in_dynamic_block = false;
@@ -720,8 +694,9 @@ impl FormatParser for OrgParser {
             }
 
             // Inside an opaque greater block -- everything is structure.
-            // Quote/verse/center are containers: fall through and parse inner
-            // regions (Prose, SRC, nested opaque blocks).
+            // Quote/center are containers: fall through and parse inner
+            // regions (Prose, SRC, nested opaque blocks). Verse-block
+            // body is leftover opaque (GitHub #395).
             if Self::inside_opaque(&block_stack) {
                 flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
                 if let Some(end_name) = Self::block_end_name(line_text) {
@@ -801,7 +776,7 @@ impl FormatParser for OrgParser {
                 }
             }
 
-            // #+BEGIN_NAME: container open (quote/verse/center) or opaque.
+            // #+BEGIN_NAME: container open (quote/center) or opaque.
             // Unmatched #+BEGIN_EXPORT is a paragraph (org-element
             // export-block-parser / GitHub #355). Unmatched #+BEGIN_SRC
             // falls through the src-begin look-ahead above.
@@ -1107,10 +1082,8 @@ impl FormatParser for OrgParser {
                 continue;
             }
 
-            // Regular prose line -- accumulate. Verse keeps physical lines.
+            // Regular prose line -- accumulate.
             // Org `\\` at EOL is a line-break object, not a join (GitHub #232).
-            let verse_line = Self::innermost_container(&block_stack) == Some("VERSE");
-            let before = regions.len();
             Self::push_prose_or_line_break(
                 input,
                 &line,
@@ -1120,16 +1093,6 @@ impl FormatParser for OrgParser {
                 &mut regions,
                 true,
             );
-            if verse_line {
-                flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
-                // org-element verse-line: lineation is the object (GitHub #281).
-                // Keep Region::Prose; splice must not invent physical lines.
-                for sr in &mut regions[before..] {
-                    if matches!(sr.region, Region::Prose(_)) {
-                        sr.line_preserving = true;
-                    }
-                }
-            }
         }
 
         // Flush remaining. Unmatched #+BEGIN_SRC never enters in_src_block
@@ -2063,23 +2026,24 @@ mod tests {
     }
 
     #[test]
-    fn verse_block_inner_is_line_preserving_prose() {
+    fn verse_block_inner_is_structure_not_reflowed_prose() {
         use crate::format_text;
 
         let input = "#+BEGIN_VERSE\nGreat clouds overhead\nTiny black birds rise and fall\n#+END_VERSE\nAfter. Next.\n";
         let regions = OrgParser.parse(input);
         assert!(
-            regions
-                .iter()
-                .any(|r| matches!(r, Region::Prose(p) if p.contains("Great clouds overhead"))),
-            "verse inner must be Prose, got: {regions:?}"
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Structure(s) if s.contains("Great clouds overhead")
+            )),
+            "verse inner must be Structure, got: {regions:?}"
         );
         assert!(
             !regions.iter().any(|r| matches!(
                 r,
-                Region::Structure(s) if s.contains("Great clouds overhead")
+                Region::Prose(p) if p.contains("Great clouds overhead")
             )),
-            "verse inner must not be Structure, got: {regions:?}"
+            "verse inner must not be reflowed Prose, got: {regions:?}"
         );
         let out = format_text(input, &org_cfg()).unwrap();
         assert!(
@@ -2104,23 +2068,21 @@ mod tests {
         let input =
             "#+BEGIN_VERSE\nFirst line. Second line.\n#+END_VERSE\nAfter the block. Next.\n";
         let spanned = OrgParser.parse_full(input);
-        let verse_prose = spanned.iter().any(|s| match &s.region {
-            Region::Prose(p)
-                if p.contains("First line.") && p.contains("Second line.") && s.line_preserving =>
-            {
-                true
-            }
-            _ => false,
+        let verse_structure = spanned.iter().any(|s| {
+            matches!(
+                &s.region,
+                Region::Structure(t) if t.contains("First line.") && t.contains("Second line.")
+            )
         });
         assert!(
-            verse_prose,
-            "verse line must be line-preserving Prose, got: {spanned:?}"
+            verse_structure,
+            "verse line must be Structure, got: {spanned:?}"
         );
         assert!(
-            !spanned.iter().any(|s| {
-                matches!(&s.region, Region::Structure(t) if t.contains("First line."))
-            }),
-            "verse inner must not flip to Structure, got: {spanned:?}"
+            !spanned
+                .iter()
+                .any(|s| { matches!(&s.region, Region::Prose(p) if p.contains("First line.")) }),
+            "verse inner must not be reflowed Prose, got: {spanned:?}"
         );
         let out = format_text(input, &org_cfg()).unwrap();
         assert!(
@@ -2179,6 +2141,7 @@ mod tests {
             ("EXAMPLE", "foo. bar."),
             ("EXPORT", "<p>Hello. World.</p>"),
             ("COMMENT", "Secret one. Secret two."),
+            ("VERSE", "First line. Second line."),
         ] {
             let input = format!("#+BEGIN_{name}\n{body}\n#+END_{name}\nAfter. Next.\n");
             let out = format_text(&input, &cfg).unwrap();
