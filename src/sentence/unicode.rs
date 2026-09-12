@@ -703,29 +703,19 @@ fn org_scan_lists_same_line(text: &str, open_at: usize, open: u8, close: u8) -> 
 /// `\<` in org-element-inline-src-block-parser / inline-babel-call-parser
 /// (`looking-at` `\<src_` / `\<call_`). Word-start, not symbol-start.
 ///
-/// `org-element--object-lex` matches `[_^][-{(*+.,[:alnum:]]` first, so
-/// after a word the subscript parser consumes `_src` / `_call` and the
-/// leftover braces stay prose. `_src_` / `_call_` at BOL or after
-/// whitespace is still an object (`\<` matches at `s`). Hyphen is not a
-/// subscript opener here, so `foo-src_python` is an object. Word
-/// characters (`asrc_`, `1src_`) are not.
+/// Org `_` is symbol syntax, not a word char, so `foo_src_python{...}`
+/// and `_src_python{...}` after space are objects (`\<` matches at `s`).
+/// Hyphen is not a word char either (`foo-src_python`). Word prefixes
+/// (`asrc_`, `1src_`) are not. Brace subscript `H_{2. 0}` is a different
+/// object (org-match-substring-regexp).
 fn org_inline_object_start(text: &str, at: usize) -> bool {
     if at == 0 {
         return true;
     }
-    let mut prevs = text[..at].chars().rev();
-    let prev = prevs.next().expect("at > 0");
-    if prev.is_ascii_alphanumeric() {
-        return false;
-    }
-    if prev == '_' {
-        if let Some(before) = prevs.next() {
-            if before.is_ascii_alphanumeric() {
-                return false;
-            }
-        }
-    }
-    true
+    !text[..at]
+        .chars()
+        .next_back()
+        .is_some_and(|c| c.is_ascii_alphanumeric())
 }
 
 /// org-element `scan-lists` on a one-pair syntax table. Newlines are
@@ -3153,30 +3143,35 @@ mod tests {
     }
 
     #[test]
-    fn inline_org_src_after_word_underscore_is_subscript() {
-        // org-element--object-regexp matches the subscript first, so
-        // `foo_src_` / `x_src_` are not inline-src-block. Leftover braces
-        // stay prose.
+    fn inline_org_src_after_word_underscore_is_inline_src() {
+        // org-element `\<src_` is word-start. `_` is not a word char, so
+        // `foo_src_python{...}` is an inline-src-block. Interior punct
+        // stays one token. `Next sentence.` still splits.
         let src = "src_python{print(1. 2)}";
-        for text in [
-            "See foo_src_python{print(1. 2)} today. Next sentence.",
-            "See x_src_python{print(1. 2)} today. Next sentence.",
+        for (text, first) in [
+            (
+                "See foo_src_python{print(1. 2)} today. Next sentence.",
+                "See foo_src_python{print(1. 2)} today.",
+            ),
+            (
+                "See x_src_python{print(1. 2)} today. Next sentence.",
+                "See x_src_python{print(1. 2)} today.",
+            ),
         ] {
             let (_, placeholders) = protect_inline_tokens(text);
             assert!(
-                !placeholders.iter().any(|p| p.contains(src) || p == src),
-                "src_ after word-underscore is a subscript, got {placeholders:?} for {text:?}"
+                placeholders.iter().any(|p| p == src),
+                "src_ after word-underscore must be one token, got {placeholders:?} for {text:?}"
             );
             let spans = atomic_inline_spans(text);
             assert!(
-                !spans.iter().any(|&(s, e)| text[s..e].contains(src)),
-                "src_ after word-underscore must not be an atomic wrap span, got {:?} for {text:?}",
+                spans.iter().any(|&(s, e)| &text[s..e] == src),
+                "src_ after word-underscore must be an atomic wrap span, got {:?} for {text:?}",
                 spans.iter().map(|&(s, e)| &text[s..e]).collect::<Vec<_>>()
             );
-            let parts = split(text);
-            assert!(
-                parts.iter().any(|p| p.contains("Next sentence.")),
-                "Next sentence. still splits, got {parts:?} for {text:?}"
+            assert_eq!(
+                split(text),
+                vec![first.to_string(), "Next sentence.".to_string()]
             );
         }
     }
@@ -3365,27 +3360,33 @@ mod tests {
     }
 
     #[test]
-    fn inline_org_call_after_word_underscore_is_subscript() {
+    fn inline_org_call_after_word_underscore_is_inline_call() {
+        // Same leftover as src_: org-element `\<call_` is word-start.
         let call = "call_name(1. 2)";
-        for text in [
-            "See foo_call_name(1. 2) today. Next sentence.",
-            "See x_call_name(1. 2) today. Next sentence.",
+        for (text, first) in [
+            (
+                "See foo_call_name(1. 2) today. Next sentence.",
+                "See foo_call_name(1. 2) today.",
+            ),
+            (
+                "See x_call_name(1. 2) today. Next sentence.",
+                "See x_call_name(1. 2) today.",
+            ),
         ] {
             let (_, placeholders) = protect_inline_tokens(text);
             assert!(
-                !placeholders.iter().any(|p| p.contains(call) || p == call),
-                "call_ after word-underscore is a subscript, got {placeholders:?} for {text:?}"
+                placeholders.iter().any(|p| p == call),
+                "call_ after word-underscore must be one token, got {placeholders:?} for {text:?}"
             );
             let spans = atomic_inline_spans(text);
             assert!(
-                !spans.iter().any(|&(s, e)| text[s..e].contains(call)),
-                "call_ after word-underscore must not be an atomic wrap span, got {:?} for {text:?}",
+                spans.iter().any(|&(s, e)| &text[s..e] == call),
+                "call_ after word-underscore must be an atomic wrap span, got {:?} for {text:?}",
                 spans.iter().map(|&(s, e)| &text[s..e]).collect::<Vec<_>>()
             );
-            let parts = split(text);
-            assert!(
-                parts.iter().any(|p| p.contains("Next sentence.")),
-                "Next sentence. still splits, got {parts:?} for {text:?}"
+            assert_eq!(
+                split(text),
+                vec![first.to_string(), "Next sentence.".to_string()]
             );
         }
     }

@@ -73,8 +73,8 @@ These tokens within prose are not split across lines:
 - Radio targets: =<<<contents>>>= (org-element-radio-target-parser)
 - Angle targets: =<<contents>>= (org-element-target-parser)
 - Macros: ={{{name}}}= / ={{{name(args)}}}= (org-element-macro-parser)
-- Inline source: =src_lang{...}= / =src_lang[headers]{...}= (org-element-inline-src-block-parser; =\<src_= is word-start. After a word, =_src_= is a subscript, so =foo_src_python{...}= is not an object; =_src_python{...}= after space is)
-- Inline babel call: =call_name(...)= / =call_name[inside](...)[end]= (org-element-inline-babel-call-parser; same =\<call_= / subscript rule)
+- Inline source: =src_lang{...}= / =src_lang[headers]{...}= (org-element-inline-src-block-parser; =\<src_= is word-start. =foo_src_python{...}= and =_src_python{...}= after space are objects; =asrc_python= is not)
+- Inline babel call: =call_name(...)= / =call_name[inside](...)[end]= (org-element-inline-babel-call-parser; same =\<call_= word-start)
 - Inline footnotes: =[fn:: def]= / =[fn:name: def]= (org-element-footnote-reference-parser)
 - LaTeX fragments: =\(...\)=, =$...$=, =\cmd{arg}=, =\cmd[opt]{arg}= (org-element-latex-fragment-parser; interior backslash and optional =[arg]= stay one token). Same-line =\[...\]= is Structure
 - Brace sub/superscripts: =H_{2. 0}= / =x^{n. 1}= (org-match-substring-regexp brace arm; interior punct stays one wrap token). Bare =H_2= / =x^n= and no-space =H_{2.0}= are unchanged. Distinct from latex-fragment.

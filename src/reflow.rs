@@ -2472,20 +2472,16 @@ They are endowed with reason and conscience and should act towards one another i
     }
 
     #[test]
-    fn max_width_may_wrap_org_src_after_word_underscore() {
-        // Subscript `_src` leaves `{print(1. 2)}` as prose, so wrap may
-        // cut on the interior period. Inverse of the leading-`_` object.
+    fn max_width_keeps_org_src_after_word_underscore_atomic() {
+        // GitHub #408: org-element `\<src_` matches after a word.
         let token = "src_python{print(1. 2)}";
         let sentence = "See foo_src_python{print(1. 2)} today. Next sentence.";
         for clause in [false, true] {
             let wrapped = wrap_sentence(sentence, 20, clause);
+            assert_atomic_token(&wrapped, token);
             assert!(
-                !wrapped.lines().any(|l| l.contains(token)),
-                "foo_src_ leftover braces must not stay atomic, got:\n{wrapped}"
-            );
-            assert!(
-                wrapped.contains("1.\n2"),
-                "interior period may wrap after word-underscore subscript, got:\n{wrapped}"
+                !wrapped.contains("1.\n2"),
+                "must not wrap on the interior period after word-underscore, got:\n{wrapped}"
             );
         }
     }
@@ -2510,18 +2506,15 @@ They are endowed with reason and conscience and should act towards one another i
     }
 
     #[test]
-    fn max_width_may_wrap_org_call_after_word_underscore() {
+    fn max_width_keeps_org_call_after_word_underscore_atomic() {
         let token = "call_name(1. 2)";
         let sentence = "See foo_call_name(1. 2) today. Next sentence.";
         for clause in [false, true] {
             let wrapped = wrap_sentence(sentence, 16, clause);
+            assert_atomic_token(&wrapped, token);
             assert!(
-                !wrapped.lines().any(|l| l.contains(token)),
-                "foo_call leftover parens must not stay atomic, got:\n{wrapped}"
-            );
-            assert!(
-                wrapped.contains("1.\n2"),
-                "interior period may wrap after word-underscore subscript, got:\n{wrapped}"
+                !wrapped.contains("1.\n2"),
+                "must not wrap on the interior period after word-underscore, got:\n{wrapped}"
             );
         }
     }
