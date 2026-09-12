@@ -3231,6 +3231,53 @@ mod tests {
         assert_eq!(format_text(&out, &org_cfg()).unwrap(), out);
     }
 
+    #[test]
+    fn org_angle_link_interior_punct_is_not_a_sentence_boundary() {
+        use crate::format_text;
+
+        let link = "<file:fig. 1.png>";
+        let input = "See <file:fig. 1.png> today. Next.\n";
+        let regions = OrgParser.parse(input);
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(p) if p.contains(link) && p.contains("Next.")
+            )),
+            "angle link stays inline Prose, got: {regions:?}"
+        );
+        let out = format_text(input, &org_cfg()).unwrap();
+        assert!(
+            out.contains("See <file:fig. 1.png> today.\nNext."),
+            "sentence after the angle link must reflow, got:\n{out}"
+        );
+        assert!(
+            !out.contains("fig.\n") && !out.contains("<file:fig.\n"),
+            "must not split inside the angle link, got:\n{out}"
+        );
+        assert_eq!(format_text(&out, &org_cfg()).unwrap(), out);
+
+        let wrap_cfg = crate::FormatConfig {
+            format: crate::format::Format::Org,
+            max_width: 16,
+            ..Default::default()
+        }
+        .without_safety_backstops();
+        let wrapped = format_text(input, &wrap_cfg).unwrap();
+        assert!(
+            wrapped.lines().any(|l| l.contains(link)),
+            "wrap must not cut inside the angle link, got:\n{wrapped}"
+        );
+        assert!(
+            !wrapped.contains("fig.\n1.png") && !wrapped.contains("fig. \n"),
+            "must not wrap on the interior period, got:\n{wrapped}"
+        );
+        assert!(
+            wrapped.contains("Next."),
+            "sentence after the angle link must still reflow, got:\n{wrapped}"
+        );
+        assert_eq!(format_text(&wrapped, &wrap_cfg).unwrap(), wrapped);
+    }
+
     /// Ticket fixture (Format::Org / GitHub #212): org-element macros
     /// stay one token so an interior period is not a sentence boundary.
     /// `Next sentence.` still splits.
