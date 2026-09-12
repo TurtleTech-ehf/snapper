@@ -501,7 +501,8 @@ impl LatexParser {
 
     /// Byte offset of the first `%` that is not escaped as `\%` and is not
     /// inside `\verb` / `\lstinline` / `\spverb` / `\mintinline` / `\mint` /
-    /// `\Verb` / `\SaveVerb` / `\piton` / configured verbatim commands.
+    /// `\Verb` / `\SaveVerb` / `\piton` / `\lstinputlisting` /
+    /// configured verbatim commands.
     fn unescaped_percent(&self, line: &str) -> Option<usize> {
         unescaped_percent_with(line, &self.extra_verbatim_commands)
     }
@@ -874,7 +875,7 @@ fn find_tex_cs(line: &str, from: usize, cs: &str) -> Option<usize> {
 
 /// `\iffalse` in ordinary TeX, skipping `\verb` / `\lstinline` /
 /// `\spverb` / `\mintinline` / `\mint` / `\Verb` / `\SaveVerb` /
-/// `\piton` spans.
+/// `\piton` / `\lstinputlisting` spans.
 fn find_iffalse_at(line: &str, from: usize, extra_cmds: &[String]) -> Option<usize> {
     let bytes = line.as_bytes();
     let mut i = from;
@@ -889,6 +890,30 @@ fn find_iffalse_at(line: &str, from: usize, extra_cmds: &[String]) -> Option<usi
                     return Some(i);
                 }
                 i += name.len();
+                continue;
+            }
+        }
+        i += 1;
+    }
+    None
+}
+
+/// listings.sty `\lstinputlisting[...]{file}` span, skipping other verb
+/// commands so `\verb|\lstinputlisting{x}|` is not stolen (GitHub #391).
+fn find_lstinputlisting_span(
+    text: &str,
+    from: usize,
+    extra_cmds: &[String],
+) -> Option<(usize, usize)> {
+    let bytes = text.as_bytes();
+    let mut i = from;
+    while i < bytes.len() {
+        if bytes[i] == b'\\' {
+            if let Some(end) = latex_verb_span_end_with(text, i, extra_cmds) {
+                if text[i + 1..].starts_with("lstinputlisting") {
+                    return Some((i, end));
+                }
+                i = end;
                 continue;
             }
         }
@@ -1578,6 +1603,19 @@ impl<'a> ParseState<'a> {
                     ByteSpan::new(line.start + open, line.end),
                 ));
                 return true;
+            }
+            if let Some((start, end)) =
+                find_lstinputlisting_span(code, i, &self.parser.extra_verbatim_commands)
+            {
+                self.append_item_or_prose(line.start + i, &code[i..start]);
+                let cmd_end = if code[end..].trim().is_empty() {
+                    thru_eol_if_blank_rest(line, end)
+                } else {
+                    line.start + end
+                };
+                self.push_structure(ByteSpan::new(line.start + start, cmd_end));
+                i = end;
+                continue;
             }
             if SECTION_CMD_RE.is_match(rest) {
                 self.push_structure(ByteSpan::new(line.start + i, line.end));
@@ -2296,6 +2334,108 @@ Some text.
             "prose after lstinline must remain, got:\n{out}"
         );
         assert_eq!(format_text(&out, &latex_cfg()).unwrap(), out);
+    }
+
+    /// Ticket fixture (GitHub #391): listings.sty `\lstinputlisting{file}`
+    /// is one atomic command. Following flush prose does not join onto
+    /// the command line. `After.` / `Next.` still split. `lstinline` /
+    /// `lstlisting` unchanged.
+    #[test]
+    fn lstinputlisting_does_not_join_following_prose() {
+        use crate::format_text;
+
+        let input = concat!(
+            "Before. Next.\n",
+            "\\lstinputlisting{foo.py}\n",
+            "After. Next.\n",
+        );
+        let regions = LatexParser::default().parse(input);
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Structure(s) if s.contains(r"\lstinputlisting{foo.py}")
+            )),
+            "lstinputlisting must stay one Structure command, got: {regions:?}"
+        );
+        assert!(
+            !regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(p) if p.contains(r"\lstinputlisting{foo.py}")
+            )),
+            "lstinputlisting must not leak into Prose, got: {regions:?}"
+        );
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(p) if p.contains("After.") && p.contains("Next.")
+            )),
+            "After. / Next. must stay Prose, got: {regions:?}"
+        );
+        let out = format_text(input, &latex_cfg()).unwrap();
+        assert!(
+            out.contains("\\lstinputlisting{foo.py}\n"),
+            "lstinputlisting must stay one atomic command, got:\n{out}"
+        );
+        assert!(
+            !out.contains("\\lstinputlisting{foo.py} After."),
+            "following flush prose must not join the command line, got:\n{out}"
+        );
+        assert!(
+            out.contains("Before.\nNext."),
+            "prose before lstinputlisting must still split, got:\n{out}"
+        );
+        assert!(
+            out.contains("After.\nNext."),
+            "prose after lstinputlisting must still split, got:\n{out}"
+        );
+        assert_eq!(format_text(&out, &latex_cfg()).unwrap(), out);
+
+        let opts = concat!(
+            "Before. Next.\n",
+            "\\lstinputlisting[language=Python]{foo.py}\n",
+            "After. Next.\n",
+        );
+        let opts_out = format_text(opts, &latex_cfg()).unwrap();
+        assert!(
+            opts_out.contains("\\lstinputlisting[language=Python]{foo.py}\n"),
+            "lstinputlisting optional args must stay atomic, got:\n{opts_out}"
+        );
+        assert!(
+            !opts_out.contains("\\lstinputlisting[language=Python]{foo.py} After."),
+            "optional-arg lstinputlisting must not join following prose, got:\n{opts_out}"
+        );
+        assert!(
+            opts_out.contains("After.\nNext."),
+            "prose after optional-arg lstinputlisting must still split, got:\n{opts_out}"
+        );
+
+        let lstinline = "Use \\lstinline!a.b! here. Next sentence.\n";
+        let lstinline_out = format_text(lstinline, &latex_cfg()).unwrap();
+        assert!(
+            lstinline_out.contains("Use \\lstinline!a.b! here.\nNext sentence."),
+            "lstinline must stay intact and still split, got:\n{lstinline_out}"
+        );
+
+        let lstlisting = concat!(
+            "\\begin{lstlisting}\n",
+            "First line. Second line.\n",
+            "\\end{lstlisting}\n",
+            "After the block. Next.\n",
+        );
+        let lstlisting_out = format_text(lstlisting, &latex_cfg()).unwrap();
+        assert!(
+            lstlisting_out
+                .contains("\\begin{lstlisting}\nFirst line. Second line.\n\\end{lstlisting}"),
+            "lstlisting must stay a code env, got:\n{lstlisting_out}"
+        );
+        assert!(
+            lstlisting_out.contains("After the block.\nNext."),
+            "prose after lstlisting must still split, got:\n{lstlisting_out}"
+        );
+        assert_eq!(
+            format_text(&lstlisting_out, &latex_cfg()).unwrap(),
+            lstlisting_out
+        );
     }
 
     /// Ticket fixture (GitHub #245): minted `\mintinline{lang}|body|` is
