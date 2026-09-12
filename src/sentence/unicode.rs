@@ -206,7 +206,7 @@ pub fn protect_inline_tokens_with(
 /// `\inputpy[...]{file}` / `\inputpycon[...]{file}` /
 /// `\inputpylab[...]{file}` / `\inputpylabcon[...]{file}` /
 /// `\inputsympy[...]{file}` / `\inputsympycon[...]{file}` /
-/// `\sageinput{file}` so inner `.!?%` cannot
+/// `\sageinput{file}` / `\inputsc[...]{name}` so inner `.!?%` cannot
 /// split or comment. `\piton{...}` stays on the generic `\cmd{arg}`
 /// path (piton.sty brace syntax is not verbatim; GitHub #305).
 fn protect_latex_verbatim(
@@ -237,7 +237,7 @@ fn protect_latex_verbatim(
 /// `\lstinputlisting` / `\VerbatimInput` / `\BVerbatimInput` /
 /// `\LVerbatimInput` / `\listinginput` / `\inputpy` / `\inputpycon` /
 /// `\inputpylab` / `\inputpylabcon` / `\inputsympy` / `\inputsympycon` /
-/// `\sageinput` / extra-name span starting at `at`.
+/// `\sageinput` / `\inputsc` / extra-name span starting at `at`.
 ///
 /// `\verb` / `\verb*` / `\spverb` / `\spverb*` / `\Verb` / `\Verb*`: next
 /// character is the
@@ -270,6 +270,10 @@ fn protect_latex_verbatim(
 /// `\sageinput` (sagetex leftover; GitHub #428) takes a required
 /// `{filename}`; no brace is not a span. `\sage` / `\sageplot` /
 /// `\sagestr` are not this name. There is no `*` form.
+/// `\inputsc` (scontents leftover sequence replay; GitHub #437)
+/// takes optional `[...]` then a required `{name}`; no brace is not
+/// a span. There is no `*` form. `\input` / `\inputpy` are not this
+/// name.
 /// Extra names are tokenized like `\verb`. With
 /// no closer, the span runs to end of line so an inner `%` is not a
 /// comment.
@@ -316,6 +320,14 @@ pub(crate) fn latex_verb_span_end_with(
             return None;
         }
         (after_bs + "sageinput".len(), VerbKind::Tcbinputlisting)
+    } else if let Some(stripped) = tail.strip_prefix("inputsc") {
+        // scontents leftover sequence replay (GitHub #437). No `*`
+        // form; alphabetic tail rejects a longer name. `\input` /
+        // `\inputpy` do not match this name.
+        if stripped.starts_with(|c: char| c.is_ascii_alphabetic() || c == '*') {
+            return None;
+        }
+        (after_bs + "inputsc".len(), VerbKind::Lstinputlisting)
     } else if let Some(stripped) = tail.strip_prefix("lstinputlisting") {
         if stripped.starts_with(|c: char| c.is_ascii_alphabetic()) {
             return None;
@@ -545,8 +557,8 @@ enum VerbKind {
     Lstinline,
     /// `\lstinputlisting` / `\VerbatimInput` / `\BVerbatimInput` /
     /// `\LVerbatimInput` / `\inputpy` / `\inputpycon` / `\inputpylab` /
-    /// `\inputpylabcon` / `\inputsympy` / `\inputsympycon`: optional `[...]`
-    /// then required `{filename}`.
+    /// `\inputpylabcon` / `\inputsympy` / `\inputsympycon` / `\inputsc`:
+    /// optional `[...]` then required `{filename}` / `{name}`.
     Lstinputlisting,
     /// `\\verbatiminput`: required `{filename}` (verbatim.sty leftover).
     Verbatiminput,
@@ -631,6 +643,7 @@ fn match_extra_verb_command<'a>(tail: &'a str, extras: &'a [String]) -> Option<&
             || name == "inputpylabcon"
             || name == "inputsympy"
             || name == "inputsympycon"
+            || name == "inputsc"
             || name == "verbatiminput"
             || name == "tcbinputlisting"
             || name == "listinginput"
@@ -2858,6 +2871,74 @@ mod tests {
             latex_verb_span_end_with(r"\inputpygments{python}{foo.py}", 0, &[]),
             None,
             "inputpylab must not steal inputpygments"
+        );
+    }
+
+    /// Ticket fixture (GitHub #437): scontents.sty `\inputsc{name}` is
+    /// one leftover sequence-replay command; following `After.` still
+    /// splits. Optional `[keys]` stay in the span. No `*` form.
+    /// inputpy / listinginput / sageinput unchanged. A configured extra
+    /// of the same name must not re-tokenize the no-brace form as Delim.
+    #[test]
+    fn latex_inputsc_stays_atomic() {
+        let cmd = r"\inputsc{foo}";
+        let text = r"See \inputsc{foo} here. After.";
+        let (_, placeholders) = protect_inline_tokens(text);
+        assert!(
+            placeholders.iter().any(|p| p == cmd),
+            "inputsc span must be protected, got {placeholders:?}"
+        );
+        assert_eq!(latex_verb_span_end_with(cmd, 0, &[]), Some(cmd.len()));
+        assert_eq!(
+            split(text),
+            vec![r"See \inputsc{foo} here.".to_string(), "After.".to_string()]
+        );
+        let opts = r"\inputsc[print-env=verbatim]{foo}";
+        assert_eq!(
+            latex_verb_span_end_with(opts, 0, &[]),
+            Some(opts.len()),
+            "inputsc optional keys must stay in the span"
+        );
+        assert_eq!(
+            latex_verb_span_end_with(r"\inputsc foo", 0, &[]),
+            None,
+            "inputsc without a brace name is not a verb span"
+        );
+        let extras = ["inputsc".to_string()];
+        assert_eq!(
+            latex_verb_span_end_with(r"\inputsc foo", 0, &extras),
+            None,
+            "configured extra inputsc must not re-tokenize the no-brace form as Delim"
+        );
+        assert_eq!(
+            latex_verb_span_end_with(cmd, 0, &extras),
+            Some(cmd.len()),
+            "configured extra inputsc must keep the brace form as leftover"
+        );
+        assert_eq!(
+            latex_verb_span_end_with(r"\inputsc*{foo}", 0, &[]),
+            None,
+            "inputsc has no star form"
+        );
+        assert_eq!(
+            latex_verb_span_end_with(r"\inputpy{foo.py}", 0, &[]),
+            Some(r"\inputpy{foo.py}".len()),
+            "inputpy must stay a span"
+        );
+        assert_eq!(
+            latex_verb_span_end_with(r"\listinginput{1}{foo.py}", 0, &[]),
+            Some(r"\listinginput{1}{foo.py}".len()),
+            "listinginput must stay a span"
+        );
+        assert_eq!(
+            latex_verb_span_end_with(r"\sageinput{foo.sage}", 0, &[]),
+            Some(r"\sageinput{foo.sage}".len()),
+            "sageinput must stay a span"
+        );
+        assert_eq!(
+            latex_verb_span_end_with(r"\input{foo}", 0, &[]),
+            None,
+            "inputsc must not steal \\input"
         );
     }
 
