@@ -3567,3 +3567,64 @@ fn tcbinputlisting_fixture_does_not_join_following_prose() {
         "prose after inputminted must still split, got:\n{minted_in_out}"
     );
 }
+
+/// Ticket fixture (GitHub #406): piton.sty `\PitonInputFile{file}`
+/// stays one atomic command. Following flush `After.` does not join
+/// the command line. Optional `[...]` / `<...>` stay atomic.
+/// tcbinputlisting / verbatiminput / VerbatimInput unchanged.
+#[test]
+fn pitoninputfile_fixture_does_not_join_following_prose() {
+    let input = concat!(
+        "Before. Next.\n",
+        "\\PitonInputFile{foo.py}\n",
+        "After. Next.\n",
+    );
+    let regions = LatexParser::default().parse(input);
+    assert!(
+        regions.iter().any(|r| matches!(
+            r,
+            Region::Structure(s) if s.contains(r"\PitonInputFile{foo.py}")
+        )),
+        "PitonInputFile must stay one Structure command, got: {regions:?}"
+    );
+    assert!(
+        !regions.iter().any(|r| matches!(
+            r,
+            Region::Prose(p) if p.contains(r"\PitonInputFile{foo.py}")
+        )),
+        "PitonInputFile must not leak into Prose, got: {regions:?}"
+    );
+    let out = format_text(input, &latex_cfg()).unwrap();
+    assert!(
+        out.contains("\\PitonInputFile{foo.py}\n"),
+        "PitonInputFile must stay one atomic command, got:\n{out}"
+    );
+    assert!(
+        !out.contains("\\PitonInputFile{foo.py} After."),
+        "following flush prose must not join the command line, got:\n{out}"
+    );
+    assert!(
+        out.contains("Before.\nNext."),
+        "prose before PitonInputFile must still split, got:\n{out}"
+    );
+    assert!(
+        out.contains("After.\nNext."),
+        "prose after PitonInputFile must still split, got:\n{out}"
+    );
+    assert_eq!(format_text(&out, &latex_cfg()).unwrap(), out);
+
+    let tcb = concat!(
+        "Before. Next.\n",
+        "\\tcbinputlisting{listing file=foo.py}\n",
+        "After. Next.\n",
+    );
+    let tcb_out = format_text(tcb, &latex_cfg()).unwrap();
+    assert!(
+        tcb_out.contains("\\tcbinputlisting{listing file=foo.py}\n"),
+        "tcbinputlisting must stay unchanged, got:\n{tcb_out}"
+    );
+    assert!(
+        !tcb_out.contains("\\tcbinputlisting{listing file=foo.py} After."),
+        "tcbinputlisting must not join following prose, got:\n{tcb_out}"
+    );
+}
