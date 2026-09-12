@@ -373,12 +373,32 @@ fn parse_line_based(input: &str) -> Vec<SpannedRegion> {
             continue;
         }
 
-        // Field list (`:field: value` or empty `:name:` at EOL).
-        // Docutils field_marker is `:(?![: ])...:( +|$)`.
+        // Field list. Docutils field_marker is
+        // `:(?![: ])([^:\\]|\\.|:(?!([ `]|$)))*(?<! ):( +|$)`.
+        // Interior colons in the name are allowed (GitHub #341).
         // `:role:`text`` is interpreted text, not a field.
-        if is_rst_field_list_line(trimmed) {
+        // Empty `:name:` and simple `:Author:` stay whole-line
+        // Structure (GitHub #330). Interior-colon names hang the body
+        // as Prose so SemBr still splits.
+        if let Some(marker_len) = rst_field_marker_len(line_text) {
             flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
-            regions.push(SpannedRegion::structure(input, line.span()));
+            let body = &line_text[marker_len..];
+            let name = line_text[line_text.len() - trimmed.len()..marker_len].trim();
+            let interior_colon = name
+                .strip_prefix(':')
+                .and_then(|s| s.strip_suffix(':'))
+                .is_some_and(|inner| inner.contains(':'));
+            if interior_colon && !body.trim().is_empty() {
+                list_hang = Some(marker_len);
+                regions.push(SpannedRegion::structure(
+                    input,
+                    ByteSpan::new(line.start, line.start + marker_len),
+                ));
+                current_prose.push_str(body.trim());
+                prose_span = Some(ByteSpan::new(line.start + marker_len, line.end));
+            } else {
+                regions.push(SpannedRegion::structure(input, line.span()));
+            }
             i += 1;
             continue;
         }
@@ -764,24 +784,74 @@ pub(crate) fn source_has_dropped_rst_comments(input: &str) -> bool {
         .any(|line| is_rst_dropped_comment_opener(line.trim_start()))
 }
 
-/// True when `trimmed` is an RST field-list item (`:name: value` or
-/// empty `:name:` at EOL). Docutils `field_marker` is
-/// `:(?![: ])...:( +|$)`. `:role:`text`` is interpreted text, not a
-/// field (GitHub #126 / #330).
+/// True when `trimmed` is an RST field-list item (`:name: value`,
+/// interior-colon `:py:mod: value`, or empty `:name:` at EOL).
+/// Docutils `field_marker` is
+/// `:(?![: ])([^:\\]|\\.|:(?!([ `]|$)))*(?<! ):( +|$)`.
+/// `:role:`text`` is interpreted text, not a field
+/// (GitHub #126 / #330 / #341).
 pub(crate) fn is_rst_field_list_line(trimmed: &str) -> bool {
-    if !trimmed.starts_with(':') || trimmed.len() < 3 {
-        return false;
+    rst_field_marker_end(trimmed).is_some()
+}
+
+/// Byte length of a Docutils field marker on `line`, including leading
+/// indent and the spaces after the closing colon.
+pub(crate) fn rst_field_marker_len(line: &str) -> Option<usize> {
+    let indent = line.len() - line.trim_start().len();
+    rst_field_marker_end(&line[indent..]).map(|n| indent + n)
+}
+
+/// Byte length of the field marker at the start of `trimmed` (no
+/// leading indent). Walks the Docutils `field_marker` so an interior
+/// colon in the name (`:py:mod:`) is not taken as the closer.
+fn rst_field_marker_end(trimmed: &str) -> Option<usize> {
+    let bytes = trimmed.as_bytes();
+    if bytes.len() < 3 || bytes[0] != b':' {
+        return None;
     }
     // `(?![: ])`: first name byte is not `:` or space.
-    let second = trimmed.as_bytes()[1];
-    if second == b':' || second == b' ' {
-        return false;
+    if bytes[1] == b':' || bytes[1] == b' ' {
+        return None;
     }
-    let Some(name_end) = trimmed[1..].find(':') else {
-        return false;
-    };
-    let after = name_end + 2;
-    after == trimmed.len() || trimmed.as_bytes()[after].is_ascii_whitespace()
+    // Name body: `([^:\\]|\\.|:(?!([ `]|$)))*`
+    let mut i = 1;
+    while i < bytes.len() {
+        match bytes[i] {
+            b'\\' => {
+                if i + 1 >= bytes.len() {
+                    return None;
+                }
+                i += 2;
+            }
+            b':' => {
+                let next = bytes.get(i + 1).copied();
+                // Interior colon is `:(?!([ `]|$)`.
+                if !matches!(next, None | Some(b' ') | Some(b'`')) {
+                    i += 1;
+                    continue;
+                }
+                // Closing colon. `(?<! )`: previous byte is not space.
+                if bytes[i - 1] == b' ' {
+                    return None;
+                }
+                let after = i + 1;
+                if after == bytes.len() {
+                    return Some(after);
+                }
+                // `( +|$)`, plus the pre-#341 tab-as-separator form.
+                if !bytes[after].is_ascii_whitespace() {
+                    return None;
+                }
+                let mut end = after;
+                while end < bytes.len() && bytes[end] == b' ' {
+                    end += 1;
+                }
+                return Some(end);
+            }
+            _ => i += 1,
+        }
+    }
+    None
 }
 
 /// Byte length of a Docutils line-block opener on `line`, including
@@ -1452,13 +1522,22 @@ mod tests {
         assert!(is_rst_field_list_line(":class: test"));
         assert!(is_rst_field_list_line(":name:"));
         assert!(is_rst_field_list_line(":name: "));
+        assert!(is_rst_field_list_line(
+            ":py:mod: some.module.Name is here. Second sentence."
+        ));
+        assert!(is_rst_field_list_line(r":foo\:bar: value"));
         assert!(!is_rst_field_list_line(
             ":class:`CloudDatabase` exceeds a rate"
         ));
         assert!(!is_rst_field_list_line(":py:class:`CloudDatabase`"));
+        assert!(!is_rst_field_list_line(":role:`text`"));
         assert!(!is_rst_field_list_line("::"));
         assert!(!is_rst_field_list_line(": name:"));
         assert!(!is_rst_field_list_line("Hello"));
+        assert_eq!(
+            rst_field_marker_len(":py:mod: some.module.Name is here."),
+            Some(9)
+        );
     }
 
     #[test]
