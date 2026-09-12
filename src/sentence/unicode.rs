@@ -204,7 +204,8 @@ pub fn protect_inline_tokens_with(
 /// `\verbatiminput{file}` / `\VerbatimInput[...]{file}` /
 /// `\PitonInputFile<...>[...]{file}` /
 /// `\tcbinputlisting{keyvals}` /
-/// `\inputpy[...]{file}` / `\inputpycon[...]{file}` so inner `.!?%` cannot
+/// `\inputpy[...]{file}` / `\inputpycon[...]{file}` /
+/// `\listinginput[interval]{start}{file}` so inner `.!?%` cannot
 /// split or comment. `\piton{...}` stays on the generic `\cmd{arg}`
 /// path (piton.sty brace syntax is not verbatim; GitHub #305).
 fn protect_latex_verbatim(
@@ -235,7 +236,7 @@ fn protect_latex_verbatim(
 /// `\lstinputlisting` / `\verbatiminput` / `\VerbatimInput` /
 /// `\BVerbatimInput` / `\LVerbatimInput` / `\PitonInputFile` /
 /// `\tcbinputlisting` / `\inputpy` / `\inputpycon` /
-/// extra-name span starting at `at`.
+/// `\listinginput` / extra-name span starting at `at`.
 ///
 /// `\verb` / `\verb*` / `\spverb` / `\spverb*` / `\Verb` / `\Verb*`: next
 /// character is the
@@ -268,8 +269,10 @@ fn protect_latex_verbatim(
 /// #419) take optional `[...]` then a required `{filename}`; no brace
 /// is not a span. `inputpycon` is matched before `inputpy` so the
 /// longer name is not `\inputpy` + leftover. `\inputpygments` is not
-/// a span (`inputpy` + alphabetic leftover). Extra names are
-/// tokenized like `\verb`.
+/// a span (`inputpy` + alphabetic leftover). `\listinginput` (moreverb
+/// leftover; GitHub #424) takes optional `[interval]` then required
+/// `{start-line}` and `{filename}`; no second brace is not a span.
+/// There is no `*` form. Extra names are tokenized like `\verb`.
 /// With no closer, the span runs to end of line so an inner `%` is
 /// not a comment.
 pub(crate) fn latex_verb_span_end_with(
@@ -304,6 +307,13 @@ pub(crate) fn latex_verb_span_end_with(
         // `\inputpygments`. Same optional `[...]` then `{file}` walk
         // as `\lstinputlisting`.
         (after_bs + name.len(), VerbKind::Lstinputlisting)
+    } else if let Some(stripped) = tail.strip_prefix("listinginput") {
+        // moreverb leftover file-input (GitHub #424). No `*` form;
+        // alphabetic tail rejects a longer name.
+        if stripped.starts_with(|c: char| c.is_ascii_alphabetic() || c == '*') {
+            return None;
+        }
+        (after_bs + "listinginput".len(), VerbKind::Listinginput)
     } else if let Some(name_len) = verbatiminput_cmd_len(tail) {
         (after_bs + name_len, VerbKind::Lstinputlisting)
     } else if let Some(stripped) = tail.strip_prefix("lstinputlisting") {
@@ -451,6 +461,32 @@ pub(crate) fn latex_verb_span_end_with(
         return Some(find_unescaped_brace_close(text, i).unwrap_or_else(|| line_end(text, i)));
     }
 
+    // moreverb `\listinginput[interval]{start-line}{filename}` (GitHub
+    // #424). Optional interval, then two required brace groups. No
+    // second brace is not a span. There is no `*` form.
+    if kind == VerbKind::Listinginput {
+        i = skip_ascii_ws(text, i);
+        if text.get(i..).is_some_and(|s| s.starts_with('[')) {
+            match skip_bracket_group(text, i) {
+                Some(end) => i = skip_ascii_ws(text, end),
+                None => return Some(line_end(text, i)),
+            }
+        }
+        if !text.get(i..).is_some_and(|s| s.starts_with('{')) {
+            return None;
+        }
+        i += 1;
+        match find_unescaped_brace_close(text, i) {
+            Some(end) => i = skip_ascii_ws(text, end),
+            None => return Some(line_end(text, i)),
+        }
+        if !text.get(i..).is_some_and(|s| s.starts_with('{')) {
+            return None;
+        }
+        i += 1;
+        return Some(find_unescaped_brace_close(text, i).unwrap_or_else(|| line_end(text, i)));
+    }
+
     if kind == VerbKind::Mint {
         if !text.get(i..).is_some_and(|s| s.starts_with('{')) {
             return None;
@@ -513,6 +549,9 @@ enum VerbKind {
     Verbatiminput,
     /// `\tcbinputlisting`: one required `{keyval}` group (GitHub #400).
     Tcbinputlisting,
+    /// `\listinginput`: optional `[interval]`, required `{start-line}`,
+    /// required `{filename}` (moreverb leftover; GitHub #424).
+    Listinginput,
     /// `\PitonInputFile`: optional `<...>`, optional `[...]`, required
     /// `{filename}` (piton.sty leftover; GitHub #406).
     PitonInputFile,
@@ -579,6 +618,7 @@ fn match_extra_verb_command<'a>(tail: &'a str, extras: &'a [String]) -> Option<&
             || name == "inputminted"
             || name == "inputpy"
             || name == "inputpycon"
+            || name == "listinginput"
             || name == "mint"
             || name == "Verb"
             || name == "VerbatimInput"
@@ -2817,6 +2857,83 @@ mod tests {
             latex_verb_span_end_with(r"\PitonInputFile{foo.py}", 0, &[]),
             Some(r"\PitonInputFile{foo.py}".len()),
             "inputpy must not steal PitonInputFile"
+        );
+    }
+
+    /// Ticket fixture (GitHub #424): moreverb `\listinginput{start}{file}`
+    /// is one leftover file-input command; following `After.` still
+    /// splits. Optional `[interval]` stays in the span. No `*` form.
+    /// listing / listingcont / verbatiminput / inputpy unchanged.
+    #[test]
+    fn latex_listinginput_stays_atomic() {
+        let text = r"See \listinginput{1}{foo.py} here. After.";
+        let (_, placeholders) = protect_inline_tokens(text);
+        assert!(
+            placeholders
+                .iter()
+                .any(|p| p == r"\listinginput{1}{foo.py}"),
+            "listinginput span must be protected, got {placeholders:?}"
+        );
+        assert_eq!(
+            latex_verb_span_end_with(r"\listinginput{1}{foo.py}", 0, &[]),
+            Some(r"\listinginput{1}{foo.py}".len())
+        );
+        assert_eq!(
+            split(text),
+            vec![
+                r"See \listinginput{1}{foo.py} here.".to_string(),
+                "After.".to_string()
+            ]
+        );
+        assert_eq!(
+            latex_verb_span_end_with(r"\listinginput[2]{1}{foo.py}", 0, &[]),
+            Some(r"\listinginput[2]{1}{foo.py}".len()),
+            "listinginput optional interval must stay in the span"
+        );
+        assert_eq!(
+            latex_verb_span_end_with(r"\listinginput {1} {foo.py}", 0, &[]),
+            Some(r"\listinginput {1} {foo.py}".len()),
+            "listinginput may skip space between brace groups"
+        );
+        assert_eq!(
+            latex_verb_span_end_with(r"\listinginput{1}", 0, &[]),
+            None,
+            "listinginput without a filename brace is not a verb span"
+        );
+        assert_eq!(
+            latex_verb_span_end_with(r"\listinginput foo.py", 0, &[]),
+            None,
+            "listinginput without brace args is not a verb span"
+        );
+        assert_eq!(
+            latex_verb_span_end_with(r"\listinginput*{1}{foo.py}", 0, &[]),
+            None,
+            "listinginput has no star form"
+        );
+        assert_eq!(
+            latex_verb_span_end_with(r"\verbatiminput{foo.py}", 0, &[]),
+            Some(r"\verbatiminput{foo.py}".len()),
+            "listinginput must not steal verbatiminput"
+        );
+        assert_eq!(
+            latex_verb_span_end_with(r"\inputpy{foo.py}", 0, &[]),
+            Some(r"\inputpy{foo.py}".len()),
+            "listinginput must not steal inputpy"
+        );
+        assert_eq!(
+            latex_verb_span_end_with(r"\tcbinputlisting{listing file=foo.py}", 0, &[]),
+            Some(r"\tcbinputlisting{listing file=foo.py}".len()),
+            "listinginput must not steal tcbinputlisting"
+        );
+        assert_eq!(
+            latex_verb_span_end_with(r"\PitonInputFile{foo.py}", 0, &[]),
+            Some(r"\PitonInputFile{foo.py}".len()),
+            "listinginput must not steal PitonInputFile"
+        );
+        assert_eq!(
+            latex_verb_span_end_with(r"\lstinputlisting{foo.py}", 0, &[]),
+            Some(r"\lstinputlisting{foo.py}".len()),
+            "listinginput must not steal lstinputlisting"
         );
     }
 
