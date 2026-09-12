@@ -503,7 +503,8 @@ impl LatexParser {
     /// inside `\verb` / `\lstinline` / `\spverb` / `\mintinline` / `\mint` /
     /// `\Verb` / `\SaveVerb` / `\piton` / `\lstinputlisting` /
     /// `\inputminted` / `\verbatiminput` / `\VerbatimInput` / `\tcbinputlisting` /
-    /// `\listinginput` / `\inputpy` / `\inputpycon` / `\sageinput` /
+    /// `\listinginput` / `\inputpy` / `\inputpycon` / `\inputpylab` /
+    /// `\inputpylabcon` / `\inputsympy` / `\inputsympycon` / `\sageinput` /
     /// configured verbatim commands.
     fn unescaped_percent(&self, line: &str) -> Option<usize> {
         unescaped_percent_with(line, &self.extra_verbatim_commands)
@@ -879,6 +880,7 @@ fn find_tex_cs(line: &str, from: usize, cs: &str) -> Option<usize> {
 /// `\spverb` / `\mintinline` / `\mint` / `\inputminted` / `\Verb` /
 /// `\SaveVerb` / `\piton` / `\lstinputlisting` / `\verbatiminput` /
 /// `\VerbatimInput` / `\listinginput` / `\inputpy` / `\inputpycon` /
+/// `\inputpylab` / `\inputpylabcon` / `\inputsympy` / `\inputsympycon` /
 /// `\sageinput` spans.
 fn find_iffalse_at(line: &str, from: usize, extra_cmds: &[String]) -> Option<usize> {
     let bytes = line.as_bytes();
@@ -988,11 +990,14 @@ fn pitoninputfile_cs_at(line: &str, at: usize) -> bool {
     !after.starts_with(|c: char| c.is_ascii_alphabetic())
 }
 
-/// Leftover pythontex.sty `\inputpy` / `\inputpycon` (optional `[...]`,
-/// required `{file}`; GitHub #419). One leftover walker for both names.
-/// Other verb spans are skipped so `\verb|\inputpy{x}|` is not stolen.
-/// Walk stops at an unescaped `%` so a comment is not a command tail.
-/// `\inputpygments` is not a span (`inputpy` + alphabetic leftover).
+/// Leftover pythontex.sty default-family file-input (optional `[...]`,
+/// required `{file}`; GitHub #419 / #433). One leftover walker for
+/// `\inputpy` / `\inputpycon` / `\inputpylab` / `\inputpylabcon` /
+/// `\inputsympy` / `\inputsympycon`. Longer names first so
+/// `\inputpylab` is not `\inputpy` + leftover. Other verb spans are
+/// skipped so `\verb|\inputpy{x}|` is not stolen. Walk stops at an
+/// unescaped `%` so a comment is not a command tail. `\inputpygments`
+/// is not a span (`inputpy` + alphabetic leftover).
 fn find_inputpy_at(line: &str, from: usize, extra_cmds: &[String]) -> Option<(usize, usize)> {
     find_leftover_cmd_at(line, from, extra_cmds, inputpy_cs_at)
 }
@@ -1001,7 +1006,14 @@ fn inputpy_cs_at(line: &str, at: usize) -> bool {
     let Some(tail) = line.get(at..).and_then(|s| s.strip_prefix('\\')) else {
         return false;
     };
-    for name in ["inputpycon", "inputpy"] {
+    for name in [
+        "inputpylabcon",
+        "inputsympycon",
+        "inputpylab",
+        "inputpycon",
+        "inputsympy",
+        "inputpy",
+    ] {
         if let Some(after) = tail.strip_prefix(name) {
             return !after.starts_with(|c: char| c.is_ascii_alphabetic());
         }
@@ -8355,6 +8367,112 @@ Some text.
         assert!(
             !piton_out.contains("\\PitonInputFile{foo.py} After."),
             "PitonInputFile must not join following prose, got:\n{piton_out}"
+        );
+    }
+
+    /// Ticket fixture (GitHub #433): pythontex.sty `\inputpylab{file}` /
+    /// `\inputsympy{file}` and con twins stay one leftover command.
+    /// Following flush `After.` does not join. inputpy / listinginput /
+    /// sageinput unchanged.
+    #[test]
+    fn inputpylab_inputsympy_does_not_join_following_prose() {
+        use crate::format_text;
+
+        for name in ["inputpylab", "inputpylabcon", "inputsympy", "inputsympycon"] {
+            let cmd = format!("\\{name}{{foo.py}}");
+            let input = format!("Before. Next.\n{cmd}\nAfter. Next.\n");
+            let regions = LatexParser::default().parse(&input);
+            assert!(
+                regions.iter().any(|r| matches!(
+                    r,
+                    Region::Structure(s) if s.contains(cmd.as_str())
+                )),
+                "{name} must stay one Structure command, got: {regions:?}"
+            );
+            assert!(
+                !regions.iter().any(|r| matches!(
+                    r,
+                    Region::Prose(p) if p.contains(cmd.as_str())
+                )),
+                "{name} must not leak into Prose, got: {regions:?}"
+            );
+            assert!(
+                regions.iter().any(|r| matches!(
+                    r,
+                    Region::Prose(p) if p.contains("After.") && p.contains("Next.")
+                )),
+                "After. / Next. must stay Prose after {name}, got: {regions:?}"
+            );
+            let out = format_text(&input, &latex_cfg()).unwrap();
+            assert!(
+                out.contains(&format!("{cmd}\n")),
+                "{name} must stay one atomic command, got:\n{out}"
+            );
+            assert!(
+                !out.contains(&format!("{cmd} After.")),
+                "following flush prose must not join the {name} line, got:\n{out}"
+            );
+            assert!(
+                out.contains("Before.\nNext."),
+                "prose before {name} must still split, got:\n{out}"
+            );
+            assert!(
+                out.contains("After.\nNext."),
+                "prose after {name} must still split, got:\n{out}"
+            );
+            assert_eq!(format_text(&out, &latex_cfg()).unwrap(), out);
+
+            let opts = format!("Before. Next.\n\\{name}[sess]{{foo.py}}\nAfter. Next.\n");
+            let opts_out = format_text(&opts, &latex_cfg()).unwrap();
+            assert!(
+                opts_out.contains(&format!("\\{name}[sess]{{foo.py}}\n")),
+                "{name} optional args must stay atomic, got:\n{opts_out}"
+            );
+            assert!(
+                !opts_out.contains(&format!("\\{name}[sess]{{foo.py}} After.")),
+                "optional-arg {name} must not join following prose, got:\n{opts_out}"
+            );
+        }
+
+        let py = concat!("Before. Next.\n", "\\inputpy{foo.py}\n", "After. Next.\n",);
+        let py_out = format_text(py, &latex_cfg()).unwrap();
+        assert!(
+            py_out.contains("\\inputpy{foo.py}\n"),
+            "inputpy must stay unchanged, got:\n{py_out}"
+        );
+        assert!(
+            !py_out.contains("\\inputpy{foo.py} After."),
+            "inputpy must not join following prose, got:\n{py_out}"
+        );
+
+        let listing = concat!(
+            "Before. Next.\n",
+            "\\listinginput{1}{foo.py}\n",
+            "After. Next.\n",
+        );
+        let listing_out = format_text(listing, &latex_cfg()).unwrap();
+        assert!(
+            listing_out.contains("\\listinginput{1}{foo.py}\n"),
+            "listinginput must stay unchanged, got:\n{listing_out}"
+        );
+        assert!(
+            !listing_out.contains("\\listinginput{1}{foo.py} After."),
+            "listinginput must not join following prose, got:\n{listing_out}"
+        );
+
+        let sage = concat!(
+            "Before. Next.\n",
+            "\\sageinput{foo.sage}\n",
+            "After. Next.\n",
+        );
+        let sage_out = format_text(sage, &latex_cfg()).unwrap();
+        assert!(
+            sage_out.contains("\\sageinput{foo.sage}\n"),
+            "sageinput must stay unchanged, got:\n{sage_out}"
+        );
+        assert!(
+            !sage_out.contains("\\sageinput{foo.sage} After."),
+            "sageinput must not join following prose, got:\n{sage_out}"
         );
     }
 
