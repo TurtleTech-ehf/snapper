@@ -2,8 +2,8 @@ use regex::Regex;
 use std::sync::LazyLock;
 
 use crate::parser::{
-    flush_prose_spanned, iter_lines, join_prose_gap, push_prose_line, ByteSpan, FormatParser, Line,
-    SpannedRegion,
+    ByteSpan, FormatParser, Line, SpannedRegion, flush_prose_spanned, iter_lines, join_prose_gap,
+    push_prose_line,
 };
 
 /// CommonMark 0.31.2 §4.2 ATX heading: 0–3 spaces, then 1–6 `#`, then
@@ -3589,9 +3589,11 @@ mod tests {
             })
             .collect();
         assert!(prose.iter().any(|p| p.contains("Body sentence one")));
-        assert!(regions
-            .iter()
-            .any(|r| matches!(r, Region::Structure(s) if s == "Heading Here\n")));
+        assert!(
+            regions
+                .iter()
+                .any(|r| matches!(r, Region::Structure(s) if s == "Heading Here\n"))
+        );
     }
 
     /// GitHub #208 / snapper-4wxk: CommonMark 4.3 ex. 50–51. The whole
