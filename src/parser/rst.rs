@@ -1454,7 +1454,7 @@ mod tests {
     #[test]
     fn reporter_section_adornments_are_identity_under_format() {
         use crate::format::Format;
-        use crate::{format_text, FormatConfig};
+        use crate::{FormatConfig, format_text};
 
         let cfg = FormatConfig {
             format: Format::Rst,
@@ -1522,7 +1522,7 @@ mod tests {
     #[test]
     fn colon_section_fixture_is_identity_and_prose_still_splits() {
         use crate::format::Format;
-        use crate::{format_text, FormatConfig};
+        use crate::{FormatConfig, format_text};
 
         let cfg = FormatConfig {
             format: Format::Rst,
@@ -1625,7 +1625,7 @@ mod tests {
     #[test]
     fn reporter_quoted_literal_is_identity_under_format() {
         use crate::format::Format;
-        use crate::{format_text, FormatConfig};
+        use crate::{FormatConfig, format_text};
 
         let cfg = FormatConfig {
             format: Format::Rst,
@@ -1725,7 +1725,7 @@ mod tests {
     fn reporter_role_continuation_second_sentence_hangs() {
         use crate::format::Format;
         use crate::oracle;
-        use crate::{format_text, FormatConfig};
+        use crate::{FormatConfig, format_text};
 
         let cfg = FormatConfig {
             format: Format::Rst,
@@ -1813,7 +1813,7 @@ mod tests {
     #[test]
     fn reporter_simple_table_is_identity_under_format() {
         use crate::format::Format;
-        use crate::{format_text, FormatConfig};
+        use crate::{FormatConfig, format_text};
 
         let cfg = FormatConfig {
             format: Format::Rst,
@@ -1871,7 +1871,7 @@ mod tests {
     #[test]
     fn simple_table_interior_blank_is_identity_under_format() {
         use crate::format::Format;
-        use crate::{format_text, FormatConfig};
+        use crate::{FormatConfig, format_text};
 
         let cfg = FormatConfig {
             format: Format::Rst,
@@ -1964,7 +1964,7 @@ mod tests {
     #[test]
     fn line_block_does_not_swallow_following_flush_prose() {
         use crate::format::Format;
-        use crate::{format_text, FormatConfig};
+        use crate::{FormatConfig, format_text};
 
         let input = line_block_flush_prose_fixture();
         let regions = RstParser.parse(input);
@@ -2257,7 +2257,7 @@ mod tests {
     #[test]
     fn leftover_header_footer_fixture_hangs_and_splits() {
         use crate::format::Format;
-        use crate::{format_text, FormatConfig};
+        use crate::{FormatConfig, format_text};
 
         let cfg = FormatConfig {
             format: Format::Rst,
@@ -2329,7 +2329,7 @@ mod tests {
     #[test]
     fn reporter_definition_list_is_identity_under_format() {
         use crate::format::Format;
-        use crate::{format_text, FormatConfig};
+        use crate::{FormatConfig, format_text};
 
         let cfg = FormatConfig {
             format: Format::Rst,
@@ -2430,7 +2430,7 @@ mod tests {
     fn compact_listlike_prose_does_not_invent_a_list() {
         use crate::format::Format;
         use crate::oracle;
-        use crate::{format_text, FormatConfig};
+        use crate::{FormatConfig, format_text};
 
         let cfg = FormatConfig {
             format: Format::Rst,
@@ -2519,7 +2519,7 @@ mod tests {
     #[test]
     fn adjacent_rst_lists_are_identity_under_format() {
         use crate::format::Format;
-        use crate::{format_text, FormatConfig};
+        use crate::{FormatConfig, format_text};
 
         let cfg = FormatConfig {
             format: Format::Rst,
@@ -2709,7 +2709,7 @@ mod tests {
     fn reporter_open_quote_list_continuation_keeps_two_space_hang() {
         use crate::format::Format;
         use crate::oracle;
-        use crate::{format_text, FormatConfig};
+        use crate::{FormatConfig, format_text};
 
         let cfg = FormatConfig {
             format: Format::Rst,
@@ -2746,7 +2746,7 @@ mod tests {
     fn reporter_open_literal_list_continuation_keeps_two_space_hang() {
         use crate::format::Format;
         use crate::oracle;
-        use crate::{format_text, FormatConfig};
+        use crate::{FormatConfig, format_text};
 
         let cfg = FormatConfig {
             format: Format::Rst,
@@ -2795,7 +2795,7 @@ mod tests {
     fn reporter_open_paren_list_continuation_keeps_two_space_hang() {
         use crate::format::Format;
         use crate::oracle;
-        use crate::{format_text, FormatConfig};
+        use crate::{FormatConfig, format_text};
 
         let cfg = FormatConfig {
             format: Format::Rst,
@@ -2836,7 +2836,7 @@ mod tests {
     fn reporter_abbrev_list_continuation_keeps_two_space_hang() {
         use crate::format::Format;
         use crate::oracle;
-        use crate::{format_text, FormatConfig};
+        use crate::{FormatConfig, format_text};
 
         let cfg = FormatConfig {
             format: Format::Rst,
@@ -2877,7 +2877,7 @@ mod tests {
     fn starred_quote_list_item_is_idempotent_and_oracle() {
         use crate::format::Format;
         use crate::oracle;
-        use crate::{format_text, FormatConfig};
+        use crate::{FormatConfig, format_text};
 
         let cfg = FormatConfig {
             format: Format::Rst,
@@ -2905,7 +2905,7 @@ mod tests {
     #[test]
     fn reporter_list_continuation_paragraph_is_identity_under_format() {
         use crate::format::Format;
-        use crate::{format_text, FormatConfig};
+        use crate::{FormatConfig, format_text};
 
         let cfg = FormatConfig {
             format: Format::Rst,
@@ -2928,7 +2928,7 @@ mod tests {
     fn reporter_enumerated_item_second_sentence_hangs_at_marker_width() {
         use crate::format::Format;
         use crate::oracle;
-        use crate::{format_text, FormatConfig};
+        use crate::{FormatConfig, format_text};
 
         let cfg = FormatConfig {
             format: Format::Rst,
@@ -3069,7 +3069,7 @@ mod tests {
     #[test]
     fn reporter_comment_body_is_identity_under_format() {
         use crate::format::Format;
-        use crate::{format_text, FormatConfig};
+        use crate::{FormatConfig, format_text};
 
         let cfg = FormatConfig {
             format: Format::Rst,
@@ -3149,7 +3149,7 @@ mod tests {
     #[test]
     fn recognized_comment_line_keeps_indented_body() {
         use crate::format::Format;
-        use crate::{format_text, FormatConfig};
+        use crate::{FormatConfig, format_text};
 
         let cfg = FormatConfig {
             format: Format::Rst,
@@ -3221,7 +3221,7 @@ mod tests {
     #[test]
     fn comment_blank_then_quote_splits_and_hangs() {
         use crate::format::Format;
-        use crate::{format_text, FormatConfig};
+        use crate::{FormatConfig, format_text};
 
         let cfg = FormatConfig {
             format: Format::Rst,
@@ -3323,7 +3323,7 @@ mod tests {
     #[test]
     fn reporter_two_space_container_option_is_identity_under_format() {
         use crate::format::Format;
-        use crate::{format_text, FormatConfig};
+        use crate::{FormatConfig, format_text};
 
         let cfg = FormatConfig {
             format: Format::Rst,
@@ -3349,7 +3349,7 @@ mod tests {
     #[test]
     fn note_container_fixture_body_hangs_and_splits() {
         use crate::format::Format;
-        use crate::{format_text, FormatConfig};
+        use crate::{FormatConfig, format_text};
 
         let input = note_container_fixture();
         let regions = RstParser.parse(input);
@@ -3420,7 +3420,7 @@ mod tests {
     #[test]
     fn compact_note_flush_paragraph_stays_unindented() {
         use crate::format::Format;
-        use crate::{format_text, FormatConfig};
+        use crate::{FormatConfig, format_text};
 
         let input = compact_note_flush_fixture();
         let regions = RstParser.parse(input);
@@ -3521,7 +3521,7 @@ mod tests {
     #[test]
     fn leftover_container_names_reflow_like_note() {
         use crate::format::Format;
-        use crate::{format_text, FormatConfig};
+        use crate::{FormatConfig, format_text};
 
         let cfg = FormatConfig {
             format: Format::Rst,
@@ -3606,7 +3606,7 @@ mod tests {
     #[test]
     fn leftover_parsed_literal_fixture_hangs_and_splits() {
         use crate::format::Format;
-        use crate::{format_text, FormatConfig};
+        use crate::{FormatConfig, format_text};
 
         let input = leftover_parsed_literal_fixture();
         let regions = RstParser.parse(input);
@@ -3752,7 +3752,7 @@ mod tests {
     #[test]
     fn leftover_parsed_literal_same_line_fixture_hangs_and_splits() {
         use crate::format::Format;
-        use crate::{format_text, FormatConfig};
+        use crate::{FormatConfig, format_text};
 
         let cfg = FormatConfig {
             format: Format::Rst,
@@ -3839,7 +3839,7 @@ mod tests {
     #[test]
     fn leftover_line_block_same_line_fixture_hangs_and_splits() {
         use crate::format::Format;
-        use crate::{format_text, FormatConfig};
+        use crate::{FormatConfig, format_text};
 
         let cfg = FormatConfig {
             format: Format::Rst,
@@ -3866,7 +3866,7 @@ mod tests {
     #[test]
     fn leftover_header_footer_replace_epigraph_stay_unchanged() {
         use crate::format::Format;
-        use crate::{format_text, FormatConfig};
+        use crate::{FormatConfig, format_text};
 
         let cfg = FormatConfig {
             format: Format::Rst,
@@ -3949,7 +3949,7 @@ mod tests {
     #[test]
     fn reporter_two_space_code_block_body_is_identity_under_format() {
         use crate::format::Format;
-        use crate::{format_text, FormatConfig};
+        use crate::{FormatConfig, format_text};
 
         let cfg = FormatConfig {
             format: Format::Rst,
@@ -4004,7 +4004,7 @@ mod tests {
     #[test]
     fn reporter_block_quote_is_identity_under_format() {
         use crate::format::Format;
-        use crate::{format_text, FormatConfig};
+        use crate::{FormatConfig, format_text};
 
         let cfg = FormatConfig {
             format: Format::Rst,
@@ -4030,7 +4030,7 @@ mod tests {
     #[test]
     fn surrounding_unquoted_paragraphs_still_reflow() {
         use crate::format::Format;
-        use crate::{format_text, FormatConfig};
+        use crate::{FormatConfig, format_text};
 
         let cfg = FormatConfig {
             format: Format::Rst,
@@ -4060,7 +4060,7 @@ mod tests {
     #[test]
     fn compact_block_quote_reflows_with_hang() {
         use crate::format::Format;
-        use crate::{format_text, FormatConfig};
+        use crate::{FormatConfig, format_text};
 
         let cfg = FormatConfig {
             format: Format::Rst,
@@ -4153,7 +4153,7 @@ mod tests {
     #[test]
     fn reporter_doctest_block_is_identity_under_format() {
         use crate::format::Format;
-        use crate::{format_text, FormatConfig};
+        use crate::{FormatConfig, format_text};
 
         let cfg = FormatConfig {
             format: Format::Rst,
@@ -4191,7 +4191,7 @@ mod tests {
     #[test]
     fn surrounding_prose_still_reflows_around_doctest() {
         use crate::format::Format;
-        use crate::{format_text, FormatConfig};
+        use crate::{FormatConfig, format_text};
 
         let cfg = FormatConfig {
             format: Format::Rst,
@@ -4256,7 +4256,7 @@ mod tests {
     #[test]
     fn prompt_only_doctest_is_identity_under_format() {
         use crate::format::Format;
-        use crate::{format_text, FormatConfig};
+        use crate::{FormatConfig, format_text};
 
         let cfg = FormatConfig {
             format: Format::Rst,
@@ -4288,7 +4288,7 @@ mod tests {
     #[test]
     fn prompt_only_doctest_does_not_steal_preceding_prose_as_title() {
         use crate::format::Format;
-        use crate::{format_text, FormatConfig};
+        use crate::{FormatConfig, format_text};
 
         let cfg = FormatConfig {
             format: Format::Rst,
@@ -4314,7 +4314,7 @@ mod tests {
     #[test]
     fn empty_doctest_opener_does_not_swallow_following_prose() {
         use crate::format::Format;
-        use crate::{format_text, FormatConfig};
+        use crate::{FormatConfig, format_text};
 
         let cfg = FormatConfig {
             format: Format::Rst,
@@ -4366,7 +4366,7 @@ mod tests {
     #[test]
     fn same_line_doctest_command_still_takes_the_block() {
         use crate::format::Format;
-        use crate::{format_text, FormatConfig};
+        use crate::{FormatConfig, format_text};
 
         let cfg = FormatConfig {
             format: Format::Rst,
@@ -4400,7 +4400,7 @@ mod tests {
     #[test]
     fn five_gt_adornment_stays_a_section_underline() {
         use crate::format::Format;
-        use crate::{format_text, FormatConfig};
+        use crate::{FormatConfig, format_text};
 
         let cfg = FormatConfig {
             format: Format::Rst,
@@ -4432,7 +4432,7 @@ mod tests {
     #[test]
     fn rst_role_closer_keeps_two_sentence_lines() {
         use crate::format::Format;
-        use crate::{format_text, FormatConfig};
+        use crate::{FormatConfig, format_text};
 
         let cfg = FormatConfig {
             format: Format::Rst,
@@ -4577,7 +4577,7 @@ mod tests {
     fn reporter_alpha_roman_paren_enumerators_hang_at_marker_width() {
         use crate::format::Format;
         use crate::oracle;
-        use crate::{format_text, FormatConfig};
+        use crate::{FormatConfig, format_text};
 
         let cfg = FormatConfig {
             format: Format::Rst,
@@ -4676,7 +4676,7 @@ mod tests {
     fn reporter_option_list_keeps_alignment_and_hangs_description() {
         use crate::format::Format;
         use crate::oracle;
-        use crate::{format_text, FormatConfig};
+        use crate::{FormatConfig, format_text};
 
         let cfg = FormatConfig {
             format: Format::Rst,
@@ -4874,7 +4874,7 @@ mod tests {
     #[test]
     fn reporter_anonymous_target_is_identity_and_prose_still_splits() {
         use crate::format::Format;
-        use crate::{format_text, FormatConfig};
+        use crate::{FormatConfig, format_text};
 
         let cfg = FormatConfig {
             format: Format::Rst,
