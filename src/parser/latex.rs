@@ -138,7 +138,8 @@ static LSTLISTING_LANG_RE: LazyLock<Regex> = LazyLock::new(|| {
 /// verbatim display env; GitHub #304), and tree-sitter-latex
 /// raw trivia envs
 /// (`asy`, `asydef`, `pycode`, `luacode`, `luacode*`, `sagesilent`,
-/// `sageblock`), luamplib.dtx `mplibcode` (same raw grab class as
+/// `sageblock`), luacode.sty leftover `luaexec` (same raw grab class as
+/// `luacode`; GitHub #385), luamplib.dtx `mplibcode` (same raw grab class as
 /// `luacode`; GitHub #348), sagetex.sty `sageverbatim` / `sageexample` /
 /// `sagecommandline` (same `verbatim@start` class as tree-sitter
 /// `sagesilent` / `sageblock`; GitHub #298), pythontex.sty
@@ -160,6 +161,8 @@ static LSTLISTING_LANG_RE: LazyLock<Regex> = LazyLock::new(|| {
 /// listings raw scan as `lstlisting`; GitHub #345),
 /// luamplib.dtx `mplibcode` (same raw grab class as `luacode`;
 /// GitHub #348),
+/// luacode.sty leftover `luaexec` (same raw grab class as `luacode`;
+/// GitHub #385),
 /// codehigh.sty `codehigh` / `demohigh` and starred twins
 /// (`NewCodeHighEnv`; GitHub #350),
 /// plus latex2e `verbatim*` / fancyvrb `Verbatim` /
@@ -225,6 +228,8 @@ static LSTLISTING_LANG_RE: LazyLock<Regex> = LazyLock::new(|| {
 /// same listings raw scan as `lstlisting` (GitHub #345).
 /// luamplib.dtx `mplibcode` is the same raw grab class as `luacode`
 /// (GitHub #348).
+/// luacode.sty leftover `luaexec` is the same raw grab class as `luacode`
+/// (GitHub #385).
 /// codehigh.sty `codehigh` / `demohigh` / `codehigh*` / `demohigh*`
 /// (`NewCodeHighEnv`) are the same raw grab class (GitHub #350).
 /// verbments.sty `pyglist` wraps fancyvrb `VerbatimOut` (raw listing
@@ -339,6 +344,7 @@ fn is_builtin_code_env(name: &str) -> bool {
             | "pylabconsub"
             | "luacode"
             | "luacode*"
+            | "luaexec"
             | "mplibcode"
             | "sagesilent"
             | "sageblock"
@@ -4235,6 +4241,72 @@ Some text.
         }
     }
 
+    /// Ticket fixture (GitHub #385): luacode.sty leftover `luaexec` is
+    /// the same raw grab class as `luacode`. Body stays Code and one
+    /// source line; following prose still splits. `luacode` / `luacode*`
+    /// unchanged. Distinct from luamplib `mplibcode`.
+    #[test]
+    fn luacode_luaexec_is_code_not_prose() {
+        use crate::format_text;
+
+        let input = concat!(
+            "\\begin{luaexec}\n",
+            "First line. Second line.\n",
+            "\\end{luaexec}\n",
+            "After the block. Next.\n",
+        );
+        let regions = LatexParser::default().parse(input);
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Code { body, .. } if body.contains("First line. Second line.")
+            )),
+            "luaexec body must be Code, got: {regions:?}"
+        );
+        assert!(
+            !regions
+                .iter()
+                .any(|r| matches!(r, Region::Prose(p) if p.contains("First line"))),
+            "luaexec body must not leak into Prose, got: {regions:?}"
+        );
+        let out = format_text(input, &latex_cfg()).unwrap();
+        assert!(
+            out.contains("\\begin{luaexec}") && out.contains("\\end{luaexec}"),
+            "luaexec begin/end must stay, got:\n{out}"
+        );
+        assert!(
+            out.contains("First line. Second line."),
+            "luaexec body must stay one source line, got:\n{out}"
+        );
+        assert!(
+            !out.contains("First line.\nSecond line."),
+            "luaexec must not reflow as prose, got:\n{out}"
+        );
+        assert!(
+            out.contains("After the block.\nNext."),
+            "prose after luaexec must still split, got:\n{out}"
+        );
+        assert_eq!(format_text(&out, &latex_cfg()).unwrap(), out);
+
+        for name in ["luacode", "luacode*"] {
+            let landed = format!(
+                "\\begin{{{name}}}\nFirst line. Second line.\n\\end{{{name}}}\nAfter the block. Next.\n"
+            );
+            let landed_out = format_text(&landed, &latex_cfg()).unwrap();
+            assert!(
+                landed_out.contains(&format!(
+                    "\\begin{{{name}}}\nFirst line. Second line.\n\\end{{{name}}}"
+                )),
+                "{name} must stay a code env, got:\n{landed_out}"
+            );
+            assert!(
+                landed_out.contains("After the block.\nNext."),
+                "prose after {name} must still split, got:\n{landed_out}"
+            );
+            assert_eq!(format_text(&landed_out, &latex_cfg()).unwrap(), landed_out);
+        }
+    }
+
     /// Ticket fixture (GitHub #350): codehigh.sty `codehigh` / `demohigh`
     /// and starred twins (`NewCodeHighEnv`) are leftover listing envs.
     /// Body stays Code and one source line; following prose still
@@ -5685,6 +5757,7 @@ Some text.
             "asydef",
             "luacode",
             "luacode*",
+            "luaexec",
             "mplibcode",
             "sagesilent",
             "sageblock",
