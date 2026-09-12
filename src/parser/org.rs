@@ -24,9 +24,25 @@ static LATEX_BEGIN_RE: LazyLock<Regex> =
 static LATEX_END_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"^\s*\\end\{([^}]+)\}").unwrap());
 
-/// Matches org inline export snippets: @@backend:value@@
+/// org-element-export-snippet-parser prefix: `@@BACKEND:VALUE@@`.
+/// Backend is `[-A-Za-z0-9]+`. Value may contain spaces (GitHub #354).
 static EXPORT_SNIPPET_RE: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"@@[a-zA-Z]+:[^@]*@@").unwrap());
+    LazyLock::new(|| Regex::new(r"^@@[-A-Za-z0-9]+:[^@]*@@").unwrap());
+
+/// True when the trimmed line is exactly one export snippet.
+pub(crate) fn org_export_snippet_line(line: &str) -> bool {
+    let trimmed = line.trim();
+    EXPORT_SNIPPET_RE
+        .find(trimmed)
+        .is_some_and(|m| m.start() == 0 && m.end() == trimmed.len())
+}
+
+/// True when the line starts with a complete export snippet.
+/// Wrap skip-cut uses this so a snippet with interior spaces is not
+/// parked at BOL (that line would then be Structure).
+pub(crate) fn org_export_snippet_starts(line: &str) -> bool {
+    EXPORT_SNIPPET_RE.is_match(line.trim_start())
+}
 
 /// org-footnote.el `org-footnote-definition-re`: `^\[fn:([-_[:word:]]+)\]`.
 /// Trailing spaces after `]` stay in the marker so reflow hangs the body.
@@ -483,10 +499,9 @@ impl OrgParser {
         }
     }
 
-    /// Check if a line is entirely an inline export snippet (@@backend:...@@)
+    /// Whole-line export snippet. `@@latex:\newpage@@ After.` stays Prose.
     fn is_export_snippet_line(line: &str) -> bool {
-        let trimmed = line.trim();
-        EXPORT_SNIPPET_RE.is_match(trimmed) && trimmed.starts_with("@@")
+        org_export_snippet_line(line)
     }
 
     /// org-element quote-block / verse-block / center-block contain paragraphs.
@@ -1587,6 +1602,29 @@ mod tests {
         assert!(matches!(&regions[0], Region::Prose(_)));
         assert!(matches!(&regions[1], Region::Structure(s) if s.contains("@@latex:")));
         assert!(matches!(&regions[2], Region::Prose(_)));
+    }
+
+    #[test]
+    fn export_snippet_trailing_prose_stays_prose() {
+        let input = "@@latex:\\newpage@@ After the snippet. Next.\n";
+        let regions = OrgParser.parse(input);
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(s)
+                    if s.contains("@@latex:\\newpage@@")
+                        && s.contains("After the snippet.")
+                        && s.contains("Next.")
+            )),
+            "trailing prose after a snippet must stay Prose, got {regions:?}"
+        );
+        assert!(
+            !regions.iter().any(|r| matches!(
+                r,
+                Region::Structure(s) if s.contains("After the snippet.")
+            )),
+            "trailing prose must not freeze as Structure, got {regions:?}"
+        );
     }
 
     #[test]
