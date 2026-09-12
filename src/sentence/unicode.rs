@@ -200,7 +200,7 @@ pub fn protect_inline_tokens_with(
 /// `\mintinline{lang}|...|` / `\mint{lang}{...}` /
 /// `\inputminted{lang}{file}` / `\Verb|...|` /
 /// `\SaveVerb{name}|...|` / `\piton|...|` /
-/// `\lstinputlisting[...]{file}` so inner `.!?%` cannot
+/// `\lstinputlisting[...]{file}` / `\tcbinputlisting{keys}` so inner `.!?%` cannot
 /// split or comment. `\piton{...}` stays on the generic `\cmd{arg}`
 /// path (piton.sty brace syntax is not verbatim; GitHub #305).
 fn protect_latex_verbatim(
@@ -228,7 +228,7 @@ fn protect_latex_verbatim(
 
 /// Byte end of a `\verb` / `\lstinline` / `\spverb` / `\mintinline` /
 /// `\mint` / `\inputminted` / `\Verb` / `\SaveVerb` / `\piton` /
-/// `\lstinputlisting` /
+/// `\lstinputlisting` / `\tcbinputlisting` /
 /// extra-name span starting at `at`.
 ///
 /// `\verb` / `\verb*` / `\spverb` / `\spverb*` / `\Verb` / `\Verb*`: next
@@ -247,7 +247,10 @@ fn protect_latex_verbatim(
 /// delimiter so `\piton{...}` stays on the generic `\cmd{arg}` path.
 /// `\lstinputlisting` / `\lstinputlisting*` (listings.sty leftover;
 /// GitHub #391) take optional `[...]` then a required `{filename}`;
-/// no brace is not a span. Extra names are tokenized like `\verb`.
+/// no brace is not a span. `\tcbinputlisting` (tcolorbox leftover;
+/// GitHub #400) takes one required `{keyval}` group; no optional
+/// `[...]` and no brace is not a span. Extra names are tokenized
+/// like `\verb`.
 /// With no closer, the span runs to end of line so an inner `%` is
 /// not a comment.
 pub(crate) fn latex_verb_span_end_with(
@@ -281,6 +284,14 @@ pub(crate) fn latex_verb_span_end_with(
         (
             after_bs + "lstinputlisting".len(),
             VerbKind::Lstinputlisting,
+        )
+    } else if let Some(stripped) = tail.strip_prefix("tcbinputlisting") {
+        if stripped.starts_with(|c: char| c.is_ascii_alphabetic()) {
+            return None;
+        }
+        (
+            after_bs + "tcbinputlisting".len(),
+            VerbKind::Tcbinputlisting,
         )
     } else if let Some(stripped) = tail.strip_prefix("lstinline") {
         if stripped.starts_with(|c: char| c.is_ascii_alphabetic()) {
@@ -358,6 +369,17 @@ pub(crate) fn latex_verb_span_end_with(
         return Some(find_unescaped_brace_close(text, i).unwrap_or_else(|| line_end(text, i)));
     }
 
+    // tcolorbox `\tcbinputlisting{keyvals}` is one keyval group.
+    // No optional `[...]`; a following `[` is not this command.
+    if kind == VerbKind::Tcbinputlisting {
+        i = skip_ascii_ws(text, i);
+        if !text.get(i..).is_some_and(|s| s.starts_with('{')) {
+            return None;
+        }
+        i += 1;
+        return Some(find_unescaped_brace_close(text, i).unwrap_or_else(|| line_end(text, i)));
+    }
+
     if kind == VerbKind::Mint {
         if !text.get(i..).is_some_and(|s| s.starts_with('{')) {
             return None;
@@ -414,6 +436,8 @@ enum VerbKind {
     Lstinline,
     /// `\lstinputlisting`: optional `[...]` then required `{filename}`.
     Lstinputlisting,
+    /// `\tcbinputlisting`: one required `{keyval}` group (GitHub #400).
+    Tcbinputlisting,
     /// `\mintinline` / `\mint` / `\inputminted`: optional `[...]`,
     /// `{lang}`, then body.
     Mint,
@@ -439,6 +463,7 @@ fn match_extra_verb_command<'a>(tail: &'a str, extras: &'a [String]) -> Option<&
             || name == "verb"
             || name == "lstinline"
             || name == "lstinputlisting"
+            || name == "tcbinputlisting"
             || name == "spverb"
             || name == "mintinline"
             || name == "inputminted"
@@ -2333,6 +2358,51 @@ mod tests {
             latex_verb_span_end_with(r"\input{foo.py}", 0, &[]),
             None,
             "inputminted must not steal \\input"
+        );
+    }
+
+    /// Ticket fixture (GitHub #400): tcolorbox `\tcbinputlisting{keys}`
+    /// is one token (one keyval group); following `After.` still splits.
+    #[test]
+    fn latex_tcbinputlisting_stays_atomic() {
+        let text = r"See \tcbinputlisting{listing file=foo.py} here. After.";
+        let (_, placeholders) = protect_inline_tokens(text);
+        assert!(
+            placeholders
+                .iter()
+                .any(|p| p == r"\tcbinputlisting{listing file=foo.py}"),
+            "tcbinputlisting span must be protected, got {placeholders:?}"
+        );
+        assert_eq!(
+            latex_verb_span_end_with(r"\tcbinputlisting{listing file=foo.py}", 0, &[]),
+            Some(r"\tcbinputlisting{listing file=foo.py}".len())
+        );
+        assert_eq!(
+            split(text),
+            vec![
+                r"See \tcbinputlisting{listing file=foo.py} here.".to_string(),
+                "After.".to_string()
+            ]
+        );
+        assert_eq!(
+            latex_verb_span_end_with(r"\tcbinputlisting foo.py", 0, &[]),
+            None,
+            "tcbinputlisting without a brace keyval is not a verb span"
+        );
+        assert_eq!(
+            latex_verb_span_end_with(r"\tcbinputlisting[listing file=foo.py]", 0, &[]),
+            None,
+            "tcbinputlisting optional brackets are not a keyval group"
+        );
+        assert_eq!(
+            latex_verb_span_end_with(r"\lstinputlisting{foo.py}", 0, &[]),
+            Some(r"\lstinputlisting{foo.py}".len()),
+            "tcbinputlisting must not steal lstinputlisting"
+        );
+        assert_eq!(
+            latex_verb_span_end_with(r"\inputminted{python}{foo.py}", 0, &[]),
+            Some(r"\inputminted{python}{foo.py}".len()),
+            "tcbinputlisting must not steal inputminted"
         );
     }
 
