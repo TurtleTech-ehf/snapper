@@ -153,6 +153,8 @@ static LSTLISTING_LANG_RE: LazyLock<Regex> = LazyLock::new(|| {
 /// GitHub #249 / #274 / #276 / #277 / #278 / #333),
 /// pythonhighlight.sty `python` (`\lstnewenvironment{python}`; same
 /// listings raw scan as `lstlisting`; GitHub #307),
+/// showexpl.sty `LTXexample` (`\lstnewenvironment{LTXexample}`; same
+/// listings raw scan as `lstlisting`; GitHub #345),
 /// plus latex2e `verbatim*` / fancyvrb `Verbatim` /
 /// `Verbatim*` / `BVerbatim` / `BVerbatim*` / `LVerbatim` /
 /// `LVerbatim*` / `SaveVerbatim` / `VerbatimOut` / `VerbatimWrite` /
@@ -205,6 +207,8 @@ static LSTLISTING_LANG_RE: LazyLock<Regex> = LazyLock::new(|| {
 /// `\piton|...|` is the matching verb-like command.
 /// pythonhighlight.sty `python` (`\lstnewenvironment{python}`) is the
 /// same listings raw scan as `lstlisting` (GitHub #307).
+/// showexpl.sty `LTXexample` (`\lstnewenvironment{LTXexample}`) is the
+/// same listings raw scan as `lstlisting` (GitHub #345).
 /// verbments.sty `pyglist` wraps fancyvrb `VerbatimOut` (raw listing
 /// body; GitHub #308). texments.sty / pygmentex.sty `pygmented` is
 /// `VerbatimEnvironment` plus `VerbatimOut` (raw listing body;
@@ -217,6 +221,7 @@ fn is_builtin_code_env(name: &str) -> bool {
             | "lstlisting"
             | "lstlisting*"
             | "python"
+            | "LTXexample"
             | "verbatim"
             | "verbatim*"
             | "Verbatim"
@@ -4000,6 +4005,75 @@ Some text.
             "prose after pycode must still split, got:\n{pycode_out}"
         );
         assert_eq!(format_text(&pycode_out, &latex_cfg()).unwrap(), pycode_out);
+    }
+
+    /// Ticket fixture (GitHub #345): showexpl.sty `LTXexample`
+    /// (`lstnewenvironment{LTXexample}`) is the same listings raw scan as
+    /// `lstlisting`. Body stays Code and one source line; following
+    /// prose still splits. `lstlisting` unchanged.
+    #[test]
+    fn showexpl_ltxexample_is_code_not_prose() {
+        use crate::format_text;
+
+        let input = concat!(
+            "\\begin{LTXexample}\n",
+            "First line. Second line.\n",
+            "\\end{LTXexample}\n",
+            "After the block. Next.\n",
+        );
+        let regions = LatexParser::default().parse(input);
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Code { body, .. } if body.contains("First line. Second line.")
+            )),
+            "LTXexample body must be Code, got: {regions:?}"
+        );
+        assert!(
+            !regions
+                .iter()
+                .any(|r| matches!(r, Region::Prose(p) if p.contains("First line"))),
+            "LTXexample body must not leak into Prose, got: {regions:?}"
+        );
+        let out = format_text(input, &latex_cfg()).unwrap();
+        assert!(
+            out.contains("\\begin{LTXexample}") && out.contains("\\end{LTXexample}"),
+            "LTXexample begin/end must stay, got:\n{out}"
+        );
+        assert!(
+            out.contains("First line. Second line."),
+            "LTXexample body must stay one source line, got:\n{out}"
+        );
+        assert!(
+            !out.contains("First line.\nSecond line."),
+            "LTXexample must not reflow as prose, got:\n{out}"
+        );
+        assert!(
+            out.contains("After the block.\nNext."),
+            "prose after LTXexample must still split, got:\n{out}"
+        );
+        assert_eq!(format_text(&out, &latex_cfg()).unwrap(), out);
+
+        let lstlisting = concat!(
+            "\\begin{lstlisting}\n",
+            "First line. Second line.\n",
+            "\\end{lstlisting}\n",
+            "After the block. Next.\n",
+        );
+        let lstlisting_out = format_text(lstlisting, &latex_cfg()).unwrap();
+        assert!(
+            lstlisting_out
+                .contains("\\begin{lstlisting}\nFirst line. Second line.\n\\end{lstlisting}"),
+            "lstlisting must stay a code env, got:\n{lstlisting_out}"
+        );
+        assert!(
+            lstlisting_out.contains("After the block.\nNext."),
+            "prose after lstlisting must still split, got:\n{lstlisting_out}"
+        );
+        assert_eq!(
+            format_text(&lstlisting_out, &latex_cfg()).unwrap(),
+            lstlisting_out
+        );
     }
 
     /// Ticket fixture (GitHub #273): minted.sty `minted*` is the starred
