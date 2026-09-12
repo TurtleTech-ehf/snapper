@@ -83,7 +83,9 @@ static INLINE_TOKEN_RE: LazyLock<Regex> = LazyLock::new(|| {
             r"<[^\s<>@]+@[^\s<>]+>",                // Autolink: <user@host>
             r#"https?://\S+[^.\s!?,;:)\]'""]"#,     // URLs (don't swallow trailing punctuation)
             r#"file:\S+[^.\s!?,;:)\]'""]"#, // Org file: links (don't swallow trailing punctuation)
-            r"@@[a-zA-Z]+:[^@]*@@",         // Org inline export snippets: @@backend:value@@
+            // org-element-export-snippet-parser. Backend is [-A-Za-z0-9]+
+            // so html5 and hyphen names stay one token (GitHub #354).
+            r"@@[-A-Za-z0-9]+:[^@]*@@",
         ]
         .join("|"),
     )
@@ -3008,6 +3010,24 @@ mod tests {
             split(text),
             vec!["See H_(2. 0) today.".to_string(), "Next.".to_string()]
         );
+    }
+
+    #[test]
+    fn org_export_snippet_html5_and_hyphen_backends_stay_atomic() {
+        // GitHub #354 / snapper-sxte: org-element backend is [-A-Za-z0-9]+.
+        for token in ["@@html5:1. 2@@", "@@html-5:1. 2@@", "@@latex:1. 2@@"] {
+            let text = format!("See {token} today. Next.");
+            let spans = atomic_inline_spans(&text);
+            assert!(
+                spans.iter().any(|&(s, e)| &text[s..e] == token),
+                "{token} must be an atomic wrap span, got {:?}",
+                spans.iter().map(|&(s, e)| &text[s..e]).collect::<Vec<_>>()
+            );
+            assert_eq!(
+                split(&text),
+                vec![format!("See {token} today."), "Next.".to_string()]
+            );
+        }
     }
 
     #[test]

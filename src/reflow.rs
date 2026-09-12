@@ -697,6 +697,9 @@ fn org_opens_block(line: &str) -> bool {
     if t.starts_with("$$") {
         return true;
     }
+    if crate::parser::org::org_export_snippet_starts(t) {
+        return true;
+    }
     if crate::parser::org::is_org_drawer_begin(t) || org_fixed_width(t) || org_horizontal_rule(t) {
         return true;
     }
@@ -2797,6 +2800,31 @@ They are endowed with reason and conscience and should act towards one another i
         assert!(
             ten.lines().any(|l| l.starts_with("1234567890. ")),
             "10-digit number may start a wrap line:\n{ten}"
+        );
+    }
+
+    #[test]
+    fn wrap_created_export_snippet_skips_cut_in_org() {
+        // A wrap that parked `@@html5:1. 2@@` at BOL would be Structure
+        // (GitHub #354). Skip-cut keeps the snippet on the previous line.
+        let input = "See @@html5:1. 2@@ today. Next.";
+        let config = crate::FormatConfig {
+            format: crate::format::Format::Org,
+            max_width: 16,
+            ..Default::default()
+        };
+        let result = crate::format_text(input, &config).unwrap();
+        assert!(
+            !result.lines().any(|l| l.starts_with("@@")),
+            "wrap must not invent a whole-line export snippet:\n{result}"
+        );
+        assert!(
+            result.contains("See @@html5:1. 2@@"),
+            "snippet stays on the previous line:\n{result}"
+        );
+        assert!(
+            result.contains("today.\nNext."),
+            "following sentence must still split:\n{result}"
         );
     }
 
