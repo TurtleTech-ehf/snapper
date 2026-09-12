@@ -57,7 +57,8 @@ impl FormatParser for RstParser {
 /// footnotes, citations, comments, anonymous hyperlink targets, Jinja
 /// statements (`{% ... %}`), line blocks, tables, definition lists, and
 /// block-quote hang spaces as structure regions. Docutils container
-/// directives (admonitions, figure, topic, sidebar, container)
+/// directives (admonitions, figure, topic, sidebar, container, leftover
+/// body.py parsed-literal)
 /// nested-parse their body: the opener and option fields stay Structure;
 /// the body hangs as Prose.
 fn parse_line_based(input: &str) -> Vec<SpannedRegion> {
@@ -254,10 +255,11 @@ fn parse_line_based(input: &str) -> Vec<SpannedRegion> {
         }
 
         // RST directive (`.. name::`). Container directives (admonitions,
-        // figure, topic, sidebar, container) nested-parse their body:
-        // the opener and `:option:` fields stay Structure; the body
-        // hangs and reflows like a block quote. Opaque names keep the
-        // old freeze (GitHub #54). A flush paragraph after a compact
+        // figure, topic, sidebar, container, leftover body.py
+        // parsed-literal) nested-parse their body: the opener and
+        // `:option:` fields stay Structure; the body hangs and reflows
+        // like a block quote. Opaque names keep the old freeze
+        // (GitHub #54 / #386). A flush paragraph after a compact
         // container body is a new paragraph, not more note (GitHub #344).
         // Specific admonitions nested-parse same-line text after `::`
         // as the first body paragraph: marker Structure, body hung
@@ -777,14 +779,15 @@ fn is_rst_specific_admonition(name: &str) -> bool {
     )
 }
 
-/// Docutils admonitions plus figure/topic/sidebar/container: bodies
-/// nested-parse, so hang + reflow. Option fields stay Structure via
-/// the field-list arm. Other directive names stay opaque.
+/// Docutils admonitions plus figure/topic/sidebar/container and leftover
+/// body.py `parsed-literal`: bodies nested-parse, so hang + reflow.
+/// Option fields stay Structure via the field-list arm. Other directive
+/// names stay opaque. GitHub #386.
 fn is_rst_container_directive(name: &str) -> bool {
     is_rst_specific_admonition(name)
         || matches!(
             name,
-            "admonition" | "figure" | "topic" | "sidebar" | "container"
+            "admonition" | "figure" | "topic" | "sidebar" | "container" | "parsed-literal"
         )
 }
 
@@ -3224,6 +3227,7 @@ mod tests {
             "topic",
             "sidebar",
             "container",
+            "parsed-literal",
         ] {
             let arg = if matches!(name, "figure" | "admonition" | "sidebar" | "topic") {
                 " Title"
@@ -3263,6 +3267,100 @@ mod tests {
             );
             assert_eq!(format_text(&out, &cfg).unwrap(), out);
         }
+    }
+
+    /// Ticket fixture (Format::Rst / GitHub #386): leftover body.py
+    /// parsed-literal hangs and splits; flush After. / Next. stay unindented.
+    fn leftover_parsed_literal_fixture() -> &'static str {
+        concat!(
+            ".. parsed-literal::\n",
+            "\n",
+            "   This is a long note sentence that must reflow. Second sentence.\n",
+            "After. Next.\n",
+        )
+    }
+
+    #[test]
+    fn leftover_parsed_literal_fixture_hangs_and_splits() {
+        use crate::format::Format;
+        use crate::{FormatConfig, format_text};
+
+        let input = leftover_parsed_literal_fixture();
+        let regions = RstParser.parse(input);
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Structure(s) if s.contains(".. parsed-literal::")
+            )),
+            "parsed-literal opener must stay Structure, got {regions:?}"
+        );
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(s)
+                    if s.contains("This is a long note sentence that must reflow.")
+                        && s.contains("Second sentence.")
+            )),
+            "parsed-literal body must be hung Prose, got {regions:?}"
+        );
+        assert!(
+            !regions.iter().any(|r| matches!(
+                r,
+                Region::Structure(s) if s.contains("This is a long note sentence")
+            )),
+            "parsed-literal body must not freeze as Structure, got {regions:?}"
+        );
+        assert!(
+            regions
+                .iter()
+                .any(|r| matches!(r, Region::Structure(s) if s == "   ")),
+            "parsed-literal hang spaces must be Structure, got {regions:?}"
+        );
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(s) if s.contains("After.") && s.contains("Next.")
+            )),
+            "After. / Next. must stay unindented Prose, got {regions:?}"
+        );
+        assert!(
+            !regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(s)
+                    if s.contains("Second sentence.") && s.contains("After.")
+            )),
+            "After. must not join the parsed-literal body, got {regions:?}"
+        );
+        assert_eq!(
+            rst_admonition_marker_len(".. parsed-literal:: Title"),
+            None,
+            "parsed-literal argument is not a same-line admonition body"
+        );
+
+        let cfg = FormatConfig {
+            format: Format::Rst,
+            max_width: 0,
+            ..Default::default()
+        }
+        .without_safety_backstops();
+        let out = format_text(input, &cfg).unwrap();
+        assert_eq!(
+            out,
+            concat!(
+                ".. parsed-literal::\n",
+                "\n",
+                "   This is a long note sentence that must reflow.\n",
+                "   Second sentence.\n",
+                "After.\n",
+                "Next.\n",
+            ),
+            "parsed-literal body must hang and split; After. / Next. stay flush, got:\n{out}"
+        );
+        assert!(
+            !out.contains("\n   After."),
+            "After. must not inherit the parsed-literal hang, got:\n{out}"
+        );
+        assert_eq!(format_text(&out, &cfg).unwrap(), out);
     }
 
     #[test]
