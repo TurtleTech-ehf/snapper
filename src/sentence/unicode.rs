@@ -206,7 +206,7 @@ pub fn protect_inline_tokens_with(
 /// `\inputpy[...]{file}` / `\inputpycon[...]{file}` /
 /// `\inputpylab[...]{file}` / `\inputpylabcon[...]{file}` /
 /// `\inputsympy[...]{file}` / `\inputsympycon[...]{file}` /
-/// `\sageinput{file}` so inner `.!?%` cannot
+/// `\sageinput{file}` / `\inputsc[...]{name}` so inner `.!?%` cannot
 /// split or comment. `\piton{...}` stays on the generic `\cmd{arg}`
 /// path (piton.sty brace syntax is not verbatim; GitHub #305).
 fn protect_latex_verbatim(
@@ -237,7 +237,7 @@ fn protect_latex_verbatim(
 /// `\lstinputlisting` / `\VerbatimInput` / `\BVerbatimInput` /
 /// `\LVerbatimInput` / `\listinginput` / `\inputpy` / `\inputpycon` /
 /// `\inputpylab` / `\inputpylabcon` / `\inputsympy` / `\inputsympycon` /
-/// `\sageinput` / extra-name span starting at `at`.
+/// `\sageinput` / `\inputsc` / extra-name span starting at `at`.
 ///
 /// `\verb` / `\verb*` / `\spverb` / `\spverb*` / `\Verb` / `\Verb*`: next
 /// character is the
@@ -270,6 +270,9 @@ fn protect_latex_verbatim(
 /// `\sageinput` (sagetex leftover; GitHub #428) takes a required
 /// `{filename}`; no brace is not a span. `\sage` / `\sageplot` /
 /// `\sagestr` are not this name. There is no `*` form.
+/// `\inputsc` (scontents.sty leftover sequence replay; GitHub #437)
+/// takes optional `[...]` then a required `{name}`; no brace is not
+/// a span. There is no `*` form.
 /// Extra names are tokenized like `\verb`. With
 /// no closer, the span runs to end of line so an inner `%` is not a
 /// comment.
@@ -316,6 +319,13 @@ pub(crate) fn latex_verb_span_end_with(
             return None;
         }
         (after_bs + "sageinput".len(), VerbKind::Tcbinputlisting)
+    } else if let Some(stripped) = tail.strip_prefix("inputsc") {
+        // scontents.sty leftover sequence replay (GitHub #437). No `*`
+        // form; alphabetic tail rejects a longer name.
+        if stripped.starts_with(|c: char| c.is_ascii_alphabetic() || c == '*') {
+            return None;
+        }
+        (after_bs + "inputsc".len(), VerbKind::Lstinputlisting)
     } else if let Some(stripped) = tail.strip_prefix("lstinputlisting") {
         if stripped.starts_with(|c: char| c.is_ascii_alphabetic()) {
             return None;
@@ -545,8 +555,8 @@ enum VerbKind {
     Lstinline,
     /// `\lstinputlisting` / `\VerbatimInput` / `\BVerbatimInput` /
     /// `\LVerbatimInput` / `\inputpy` / `\inputpycon` / `\inputpylab` /
-    /// `\inputpylabcon` / `\inputsympy` / `\inputsympycon`: optional `[...]`
-    /// then required `{filename}`.
+    /// `\inputpylabcon` / `\inputsympy` / `\inputsympycon` / `\inputsc`:
+    /// optional `[...]` then required `{filename}` / `{name}`.
     Lstinputlisting,
     /// `\\verbatiminput`: required `{filename}` (verbatim.sty leftover).
     Verbatiminput,
@@ -634,6 +644,7 @@ fn match_extra_verb_command<'a>(tail: &'a str, extras: &'a [String]) -> Option<&
             || name == "verbatiminput"
             || name == "tcbinputlisting"
             || name == "listinginput"
+            || name == "inputsc"
             || name == "PitonInputFile"
             || name == "mint"
             || name == "Verb"
@@ -2861,6 +2872,80 @@ mod tests {
         );
     }
 
+    /// Ticket fixture (GitHub #437): scontents.sty `\inputsc{name}` is
+    /// one leftover sequence-replay command; following `After.` still
+    /// splits. Optional `[...]` stays in the span. No `*` form.
+    /// scontents env / inputpy / sageinput / listinginput unchanged.
+    /// A configured extra must not re-tokenize the no-brace form as Delim.
+    #[test]
+    fn latex_inputsc_stays_atomic() {
+        let text = r"See \inputsc{foo} here. After.";
+        let (_, placeholders) = protect_inline_tokens(text);
+        assert!(
+            placeholders.iter().any(|p| p == r"\inputsc{foo}"),
+            "inputsc span must be protected, got {placeholders:?}"
+        );
+        assert_eq!(
+            latex_verb_span_end_with(r"\inputsc{foo}", 0, &[]),
+            Some(r"\inputsc{foo}".len())
+        );
+        assert_eq!(
+            split(text),
+            vec![r"See \inputsc{foo} here.".to_string(), "After.".to_string()]
+        );
+        assert_eq!(
+            latex_verb_span_end_with(r"\inputsc[1]{foo}", 0, &[]),
+            Some(r"\inputsc[1]{foo}".len()),
+            "inputsc optional index must stay in the span"
+        );
+        assert_eq!(
+            latex_verb_span_end_with(r"\inputsc {foo}", 0, &[]),
+            Some(r"\inputsc {foo}".len()),
+            "inputsc may skip space before the name brace"
+        );
+        assert_eq!(
+            latex_verb_span_end_with(r"\inputsc foo", 0, &[]),
+            None,
+            "inputsc without a brace name arg is not a verb span"
+        );
+        assert_eq!(
+            latex_verb_span_end_with(r"\inputsc*{foo}", 0, &[]),
+            None,
+            "inputsc has no star form"
+        );
+        let extras = ["inputsc".to_string()];
+        assert_eq!(
+            latex_verb_span_end_with(r"\inputsc foo", 0, &extras),
+            None,
+            "configured extra inputsc must not re-tokenize the no-brace form as Delim"
+        );
+        assert_eq!(
+            latex_verb_span_end_with(r"\inputsc{foo}", 0, &extras),
+            Some(r"\inputsc{foo}".len()),
+            "configured extra inputsc must keep the brace form as leftover"
+        );
+        assert_eq!(
+            latex_verb_span_end_with(r"\inputpy{foo.py}", 0, &[]),
+            Some(r"\inputpy{foo.py}".len()),
+            "inputsc must not steal inputpy"
+        );
+        assert_eq!(
+            latex_verb_span_end_with(r"\sageinput{foo.sage}", 0, &[]),
+            Some(r"\sageinput{foo.sage}".len()),
+            "inputsc must not steal sageinput"
+        );
+        assert_eq!(
+            latex_verb_span_end_with(r"\listinginput{1}{foo.py}", 0, &[]),
+            Some(r"\listinginput{1}{foo.py}".len()),
+            "inputsc must not steal listinginput"
+        );
+        assert_eq!(
+            latex_verb_span_end_with(r"\inputpylab{foo.py}", 0, &[]),
+            Some(r"\inputpylab{foo.py}".len()),
+            "inputsc must not steal inputpylab"
+        );
+    }
+
     /// Ticket fixture (GitHub #424): moreverb `\listinginput{start}{file}`
     /// is one leftover file-input command; following `After.` still
     /// splits. Optional `[interval]` stays in the span. No `*` form.
@@ -4404,7 +4489,7 @@ mod tests {
     #[test]
     fn plaintext_format_keeps_dialogue_quote_together() {
         use crate::format::Format;
-        use crate::{FormatConfig, format_text};
+        use crate::{format_text, FormatConfig};
 
         let input = "He said \"Hello world. How are you?\" Then he left.\n";
         let cfg = FormatConfig {
@@ -4521,7 +4606,7 @@ mod tests {
     #[test]
     fn newlines_invariant_holds_on_dialogue_output() {
         use crate::format::Format;
-        use crate::{FormatConfig, format_text};
+        use crate::{format_text, FormatConfig};
 
         let samples = [
             "He said \"Hello world. How are you?\" Then he left.\n",
@@ -4769,7 +4854,7 @@ mod tests {
     #[test]
     fn markdown_period_inside_closers_survives_format_roundtrip() {
         use crate::format::Format;
-        use crate::{FormatConfig, format_text};
+        use crate::{format_text, FormatConfig};
 
         let cfg = FormatConfig {
             format: Format::Markdown,
@@ -4783,7 +4868,7 @@ mod tests {
     #[test]
     fn org_markdown_style_bold_period_splits_without_headline() {
         use crate::format::Format;
-        use crate::{FormatConfig, format_text};
+        use crate::{format_text, FormatConfig};
 
         let cfg = FormatConfig {
             format: Format::Org,
@@ -4844,7 +4929,7 @@ mod tests {
     #[test]
     fn markdown_emphasis_format_text_does_not_break_inside_span() {
         use crate::format::Format;
-        use crate::{FormatConfig, format_text};
+        use crate::{format_text, FormatConfig};
 
         let cfg = FormatConfig {
             format: Format::Markdown,
@@ -4892,7 +4977,7 @@ mod tests {
     #[test]
     fn plaintext_bang_inside_code_span_stays_atomic_after_keep_break() {
         use crate::format::Format;
-        use crate::{FormatConfig, format_text};
+        use crate::{format_text, FormatConfig};
 
         let input = "?=\"`=!a`\n";
         let cfg = FormatConfig {
@@ -4912,7 +4997,7 @@ mod tests {
     #[test]
     fn keeps_break_before_lowercase_proper_noun() {
         use crate::format::Format;
-        use crate::{FormatConfig, format_text};
+        use crate::{format_text, FormatConfig};
 
         let input = "First sentence.\niCloud starts the second sentence.\n";
         for format in [
@@ -4939,7 +5024,7 @@ mod tests {
     #[test]
     fn splits_same_line_lowercase_proper_noun() {
         use crate::format::Format;
-        use crate::{FormatConfig, format_text};
+        use crate::{format_text, FormatConfig};
 
         assert_eq!(
             split("First sentence. iCloud starts the second sentence."),
