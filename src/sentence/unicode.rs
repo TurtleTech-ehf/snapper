@@ -201,7 +201,8 @@ pub fn protect_inline_tokens_with(
 /// `\inputminted{lang}{file}` / `\Verb|...|` /
 /// `\SaveVerb{name}|...|` / `\piton|...|` /
 /// `\lstinputlisting[...]{file}` /
-/// `\verbatiminput{file}` / `\VerbatimInput[...]{file}` so inner `.!?%` cannot
+/// `\verbatiminput{file}` / `\VerbatimInput[...]{file}` /
+/// `\inputpy[...]{file}` / `\inputpycon[...]{file}` so inner `.!?%` cannot
 /// split or comment. `\piton{...}` stays on the generic `\cmd{arg}`
 /// path (piton.sty brace syntax is not verbatim; GitHub #305).
 fn protect_latex_verbatim(
@@ -230,7 +231,7 @@ fn protect_latex_verbatim(
 /// Byte end of a `\verb` / `\lstinline` / `\spverb` / `\mintinline` /
 /// `\mint` / `\inputminted` / `\Verb` / `\SaveVerb` / `\piton` /
 /// `\lstinputlisting` / `\VerbatimInput` / `\BVerbatimInput` /
-/// `\LVerbatimInput` /
+/// `\LVerbatimInput` / `\inputpy` / `\inputpycon` /
 /// extra-name span starting at `at`.
 ///
 /// `\verb` / `\verb*` / `\spverb` / `\spverb*` / `\Verb` / `\Verb*`: next
@@ -252,9 +253,14 @@ fn protect_latex_verbatim(
 /// no brace is not a span. `\VerbatimInput` / `\BVerbatimInput` /
 /// `\LVerbatimInput` (fancyvrb.sty leftover; GitHub #399) use the same
 /// optional `[...]` then `{filename}` walk. Matched before `\Verb` so
-/// `\VerbatimInput` is not `\Verb` plus leftover letters. Extra names
-/// are tokenized like `\verb`. With no closer, the span runs to end of
-/// line so an inner `%` is not a comment.
+/// `\VerbatimInput` is not `\Verb` plus leftover letters. `\inputpy` /
+/// `\inputpycon` (pythontex.sty leftover; GitHub #419) take optional
+/// `[...]` then a required `{filename}`; no brace is not a span.
+/// `inputpycon` is matched before `inputpy` so the longer name is not
+/// `\inputpy` + leftover. `\inputpygments` is not a span (`inputpy` +
+/// alphabetic leftover). Extra names are tokenized like `\verb`. With
+/// no closer, the span runs to end of line so an inner `%` is not a
+/// comment.
 pub(crate) fn latex_verb_span_end_with(
     text: &str,
     at: usize,
@@ -279,6 +285,10 @@ pub(crate) fn latex_verb_span_end_with(
             return None;
         }
         (after_bs + "inputminted".len(), VerbKind::Mint)
+    } else if let Some(name_len) = inputpy_cmd_len(tail) {
+        // pythontex.sty leftover file-input (GitHub #419). `inputpycon`
+        // before `inputpy`; `\inputpygments` is not a span.
+        (after_bs + name_len, VerbKind::Lstinputlisting)
     } else if let Some(stripped) = tail.strip_prefix("lstinputlisting") {
         if stripped.starts_with(|c: char| c.is_ascii_alphabetic()) {
             return None;
@@ -479,7 +489,8 @@ enum VerbKind {
     /// `\lstinline`: optional `[...]` then delimiter or `{...}`.
     Lstinline,
     /// `\lstinputlisting` / `\VerbatimInput` / `\BVerbatimInput` /
-    /// `\LVerbatimInput`: optional `[...]` then required `{filename}`.
+    /// `\LVerbatimInput` / `\inputpy` / `\inputpycon`: optional `[...]`
+    /// then required `{filename}`.
     Lstinputlisting,
     /// `\\verbatiminput`: required `{filename}` (verbatim.sty leftover).
     Verbatiminput,
@@ -518,6 +529,22 @@ fn verbatiminput_cs_name(tail: &str) -> Option<&'static str> {
     None
 }
 
+/// pythontex.sty leftover `\inputpycon` / `\inputpy` (optional `[...]`,
+/// required `{file}`; GitHub #419). Longer name first so `\inputpycon`
+/// is not `\inputpy` + leftover. `\inputpygments` is rejected as
+/// `inputpy` + alphabetic leftover.
+fn inputpy_cmd_len(tail: &str) -> Option<usize> {
+    for name in ["inputpycon", "inputpy"] {
+        if let Some(stripped) = tail.strip_prefix(name) {
+            if stripped.starts_with(|c: char| c.is_ascii_alphabetic()) {
+                return None;
+            }
+            return Some(name.len());
+        }
+    }
+    None
+}
+
 /// Longest extra command name that is a prefix of `tail` and is not
 /// followed by an ASCII letter (`\Verb` must not steal `\Verbatim`).
 fn match_extra_verb_command<'a>(tail: &'a str, extras: &'a [String]) -> Option<&'a str> {
@@ -530,6 +557,8 @@ fn match_extra_verb_command<'a>(tail: &'a str, extras: &'a [String]) -> Option<&
             || name == "spverb"
             || name == "mintinline"
             || name == "inputminted"
+            || name == "inputpy"
+            || name == "inputpycon"
             || name == "verbatiminput"
             || name == "tcbinputlisting"
             || name == "PitonInputFile"
@@ -2609,6 +2638,82 @@ mod tests {
             latex_verb_span_end_with(r"\tcbinputlisting{listing file=foo.py}", 0, &[]),
             Some(r"\tcbinputlisting{listing file=foo.py}".len()),
             "PitonInputFile must not steal tcbinputlisting"
+        );
+    }
+
+    /// Ticket fixture (GitHub #419): pythontex.sty `\inputpy{file}` /
+    /// `\inputpycon{file}` are leftover file-input commands; following
+    /// `After.` still splits. `\inputpygments` is not stolen.
+    #[test]
+    fn latex_inputpy_stays_atomic() {
+        let text = r"See \inputpy{foo.py} here. After.";
+        let (_, placeholders) = protect_inline_tokens(text);
+        assert!(
+            placeholders.iter().any(|p| p == r"\inputpy{foo.py}"),
+            "inputpy span must be protected, got {placeholders:?}"
+        );
+        assert_eq!(
+            latex_verb_span_end_with(r"\inputpy{foo.py}", 0, &[]),
+            Some(r"\inputpy{foo.py}".len())
+        );
+        assert_eq!(
+            split(text),
+            vec![
+                r"See \inputpy{foo.py} here.".to_string(),
+                "After.".to_string()
+            ]
+        );
+        let con = r"See \inputpycon{foo.py} here. After.";
+        let (_, con_ph) = protect_inline_tokens(con);
+        assert!(
+            con_ph.iter().any(|p| p == r"\inputpycon{foo.py}"),
+            "inputpycon span must be protected, got {con_ph:?}"
+        );
+        assert_eq!(
+            latex_verb_span_end_with(r"\inputpycon{foo.py}", 0, &[]),
+            Some(r"\inputpycon{foo.py}".len())
+        );
+        assert_eq!(
+            split(con),
+            vec![
+                r"See \inputpycon{foo.py} here.".to_string(),
+                "After.".to_string()
+            ]
+        );
+        assert_eq!(
+            latex_verb_span_end_with(r"\inputpy[firstline=1]{foo.py}", 0, &[]),
+            Some(r"\inputpy[firstline=1]{foo.py}".len()),
+            "inputpy optional args must stay in the span"
+        );
+        assert_eq!(
+            latex_verb_span_end_with(r"\inputpy foo.py", 0, &[]),
+            None,
+            "inputpy without a brace file arg is not a verb span"
+        );
+        assert_eq!(
+            latex_verb_span_end_with(r"\inputpygments{python}{foo.py}", 0, &[]),
+            None,
+            "inputpy must not steal inputpygments"
+        );
+        assert_eq!(
+            latex_verb_span_end_with(r"\inputminted{python}{foo.py}", 0, &[]),
+            Some(r"\inputminted{python}{foo.py}".len()),
+            "inputpy must not steal inputminted"
+        );
+        assert_eq!(
+            latex_verb_span_end_with(r"\lstinputlisting{foo.py}", 0, &[]),
+            Some(r"\lstinputlisting{foo.py}".len()),
+            "inputpy must not steal lstinputlisting"
+        );
+        assert_eq!(
+            latex_verb_span_end_with(r"\tcbinputlisting{listing file=foo.py}", 0, &[]),
+            Some(r"\tcbinputlisting{listing file=foo.py}".len()),
+            "inputpy must not steal tcbinputlisting"
+        );
+        assert_eq!(
+            latex_verb_span_end_with(r"\PitonInputFile{foo.py}", 0, &[]),
+            Some(r"\PitonInputFile{foo.py}".len()),
+            "inputpy must not steal PitonInputFile"
         );
     }
 

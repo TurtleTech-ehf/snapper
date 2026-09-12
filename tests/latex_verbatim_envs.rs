@@ -74,6 +74,8 @@
 //! VerbatimEnvironment plus VerbatimOut.
 //! GitHub #391: listings.sty \\lstinputlisting is one atomic command;
 //! following flush prose does not join the command line.
+//! GitHub #419: pythontex.sty \\inputpy / \\inputpycon is one leftover
+//! command; following flush prose does not join the command line.
 
 use snapper_fmt::format::Format;
 use snapper_fmt::parser::latex::LatexParser;
@@ -3626,5 +3628,166 @@ fn pitoninputfile_fixture_does_not_join_following_prose() {
     assert!(
         !tcb_out.contains("\\tcbinputlisting{listing file=foo.py} After."),
         "tcbinputlisting must not join following prose, got:\n{tcb_out}"
+    );
+}
+
+/// Ticket fixture (GitHub #419): pythontex.sty `\inputpy{file}` /
+/// `\inputpycon{file}` stay one atomic command. Following flush
+/// `After.` does not join the command line. `After.` / `Next.` still
+/// split. pycode / pyconsole / inputminted / lstinputlisting /
+/// tcbinputlisting / PitonInputFile unchanged.
+#[test]
+fn inputpy_fixture_does_not_join_following_prose() {
+    let input = concat!("Before. Next.\n", "\\inputpy{foo.py}\n", "After. Next.\n",);
+    let regions = LatexParser::default().parse(input);
+    assert!(
+        regions.iter().any(|r| matches!(
+            r,
+            Region::Structure(s) if s.contains(r"\inputpy{foo.py}")
+        )),
+        "inputpy must stay one Structure command, got: {regions:?}"
+    );
+    assert!(
+        !regions.iter().any(|r| matches!(
+            r,
+            Region::Prose(p) if p.contains(r"\inputpy{foo.py}")
+        )),
+        "inputpy must not leak into Prose, got: {regions:?}"
+    );
+    assert!(
+        regions.iter().any(|r| matches!(
+            r,
+            Region::Prose(p) if p.contains("After.") && p.contains("Next.")
+        )),
+        "After. / Next. must stay Prose, got: {regions:?}"
+    );
+    let out = format_text(input, &latex_cfg()).unwrap();
+    assert!(
+        out.contains("\\inputpy{foo.py}\n"),
+        "inputpy must stay one atomic command, got:\n{out}"
+    );
+    assert!(
+        !out.contains("\\inputpy{foo.py} After."),
+        "following flush prose must not join the command line, got:\n{out}"
+    );
+    assert!(
+        out.contains("Before.\nNext."),
+        "prose before inputpy must still split, got:\n{out}"
+    );
+    assert!(
+        out.contains("After.\nNext."),
+        "prose after inputpy must still split, got:\n{out}"
+    );
+    assert_eq!(format_text(&out, &latex_cfg()).unwrap(), out);
+
+    let con = concat!(
+        "Before. Next.\n",
+        "\\inputpycon{foo.py}\n",
+        "After. Next.\n",
+    );
+    let con_out = format_text(con, &latex_cfg()).unwrap();
+    assert!(
+        con_out.contains("\\inputpycon{foo.py}\n"),
+        "inputpycon must stay one atomic command, got:\n{con_out}"
+    );
+    assert!(
+        !con_out.contains("\\inputpycon{foo.py} After."),
+        "inputpycon must not join following prose, got:\n{con_out}"
+    );
+    assert!(
+        con_out.contains("After.\nNext."),
+        "prose after inputpycon must still split, got:\n{con_out}"
+    );
+
+    let pycode = concat!(
+        "\\begin{pycode}\n",
+        "First line. Second line.\n",
+        "\\end{pycode}\n",
+        "After the block. Next.\n",
+    );
+    let pycode_out = format_text(pycode, &latex_cfg()).unwrap();
+    assert!(
+        pycode_out.contains("\\begin{pycode}\nFirst line. Second line.\n\\end{pycode}"),
+        "pycode must stay a code env, got:\n{pycode_out}"
+    );
+    assert!(
+        pycode_out.contains("After the block.\nNext."),
+        "prose after pycode must still split, got:\n{pycode_out}"
+    );
+
+    let pyconsole = concat!(
+        "\\begin{pyconsole}\n",
+        "First line. Second line.\n",
+        "\\end{pyconsole}\n",
+        "After the block. Next.\n",
+    );
+    let pyconsole_out = format_text(pyconsole, &latex_cfg()).unwrap();
+    assert!(
+        pyconsole_out.contains("\\begin{pyconsole}\nFirst line. Second line.\n\\end{pyconsole}"),
+        "pyconsole must stay a code env, got:\n{pyconsole_out}"
+    );
+    assert!(
+        pyconsole_out.contains("After the block.\nNext."),
+        "prose after pyconsole must still split, got:\n{pyconsole_out}"
+    );
+
+    let minted = concat!(
+        "Before. Next.\n",
+        "\\inputminted{python}{foo.py}\n",
+        "After. Next.\n",
+    );
+    let minted_out = format_text(minted, &latex_cfg()).unwrap();
+    assert!(
+        minted_out.contains("\\inputminted{python}{foo.py}\n"),
+        "inputminted must stay unchanged, got:\n{minted_out}"
+    );
+    assert!(
+        !minted_out.contains("\\inputminted{python}{foo.py} After."),
+        "inputminted must not join following prose, got:\n{minted_out}"
+    );
+
+    let lst = concat!(
+        "Before. Next.\n",
+        "\\lstinputlisting{foo.py}\n",
+        "After. Next.\n",
+    );
+    let lst_out = format_text(lst, &latex_cfg()).unwrap();
+    assert!(
+        lst_out.contains("\\lstinputlisting{foo.py}\n"),
+        "lstinputlisting must stay unchanged, got:\n{lst_out}"
+    );
+    assert!(
+        !lst_out.contains("\\lstinputlisting{foo.py} After."),
+        "lstinputlisting must not join following prose, got:\n{lst_out}"
+    );
+
+    let tcb = concat!(
+        "Before. Next.\n",
+        "\\tcbinputlisting{listing file=foo.py}\n",
+        "After. Next.\n",
+    );
+    let tcb_out = format_text(tcb, &latex_cfg()).unwrap();
+    assert!(
+        tcb_out.contains("\\tcbinputlisting{listing file=foo.py}\n"),
+        "tcbinputlisting must stay unchanged, got:\n{tcb_out}"
+    );
+    assert!(
+        !tcb_out.contains("\\tcbinputlisting{listing file=foo.py} After."),
+        "tcbinputlisting must not join following prose, got:\n{tcb_out}"
+    );
+
+    let piton = concat!(
+        "Before. Next.\n",
+        "\\PitonInputFile{foo.py}\n",
+        "After. Next.\n",
+    );
+    let piton_out = format_text(piton, &latex_cfg()).unwrap();
+    assert!(
+        piton_out.contains("\\PitonInputFile{foo.py}\n"),
+        "PitonInputFile must stay unchanged, got:\n{piton_out}"
+    );
+    assert!(
+        !piton_out.contains("\\PitonInputFile{foo.py} After."),
+        "PitonInputFile must not join following prose, got:\n{piton_out}"
     );
 }
