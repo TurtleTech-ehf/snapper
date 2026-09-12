@@ -1132,6 +1132,11 @@ fn hanging_indent_width(s: &str) -> usize {
     if crate::parser::rst::rst_footnote_citation_marker_len(s) == Some(s.len()) {
         return s.chars().count();
     }
+    // RST specific admonition (`.. note:: `): hang at marker width so
+    // same-line body stays a hung paragraph (GitHub #349).
+    if crate::parser::rst::rst_admonition_marker_len(s) == Some(s.len()) {
+        return s.chars().count();
+    }
     // RST field marker (`:Author: `, `:py:mod: `): hang at marker
     // width so the body stays a hung paragraph (GitHub #341).
     if crate::parser::rst::rst_field_marker_len(s) == Some(s.len()) {
@@ -1871,6 +1876,10 @@ They are endowed with reason and conscience and should act towards one another i
         assert_eq!(hanging_indent_width(".. [CIT2002] "), 13);
         assert_eq!(hanging_prefix(".. [1] "), "       ");
         assert_eq!(hanging_prefix(".. [CIT2002] "), "             ");
+        assert_eq!(hanging_indent_width(".. note:: "), 10);
+        assert_eq!(hanging_prefix(".. note:: "), "          ");
+        assert_eq!(hanging_indent_width(".. warning:: "), 13);
+        assert_eq!(hanging_indent_width(".. figure:: "), 0);
         assert_eq!(hanging_indent_width("[fn:1] "), 7);
         assert_eq!(hanging_indent_width("[fn:note] "), 10);
         assert_eq!(hanging_prefix("[fn:1] "), "       ");
@@ -1921,6 +1930,28 @@ They are endowed with reason and conscience and should act towards one another i
         assert!(
             !result.contains("\nSecond sentence."),
             "second sentence must not land at column 0, got:\n{result}"
+        );
+    }
+
+    #[test]
+    fn rst_same_line_note_hangs_second_sentence() {
+        let result = reflow_regions(vec![
+            Region::Structure(".. note:: ".to_string()),
+            Region::Prose(
+                "This is a long note sentence that must reflow. Second sentence.".to_string(),
+            ),
+            Region::Structure("\n".to_string()),
+        ]);
+        assert_eq!(
+            result,
+            concat!(
+                ".. note:: This is a long note sentence that must reflow.\n",
+                "          Second sentence.\n",
+            )
+        );
+        assert!(
+            !result.contains("\nSecond sentence."),
+            "second sentence must hang, got:\n{result}"
         );
     }
 
