@@ -78,6 +78,10 @@ fn parse_line_based(input: &str) -> Vec<SpannedRegion> {
     // Continuation paragraphs after a blank stay in the item when
     // indented this far.
     let mut list_hang: Option<usize> = None;
+    // Compact `.. note::` + indented body + flush paragraph (GitHub #344):
+    // the body hangs as a block quote, so a column-0 line must close that
+    // hang instead of joining After markup into the note Prose.
+    let mut in_container_body = false;
     let mut pragma_off = false;
 
     // Code-block directive bookkeeping. Mutually exclusive with `in_directive`.
@@ -253,15 +257,18 @@ fn parse_line_based(input: &str) -> Vec<SpannedRegion> {
         // figure, topic, sidebar, container) nested-parse their body:
         // the opener and `:option:` fields stay Structure; the body
         // hangs and reflows like a block quote. Opaque names keep the
-        // old freeze (GitHub #54).
+        // old freeze (GitHub #54). A flush paragraph after a compact
+        // container body is a new paragraph, not more note (GitHub #344).
         let trimmed = line_text.trim_start();
         if trimmed.starts_with(".. ") && trimmed.contains("::") {
             flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
             regions.push(SpannedRegion::structure(input, line.span()));
             if rst_directive_name(trimmed).is_some_and(|n| is_rst_container_directive(&n)) {
+                in_container_body = true;
                 i += 1;
                 continue;
             }
+            in_container_body = false;
             let leading = line_text.len() - trimmed.len();
             // Docutils accepts a two-space body; +3 is convention only.
             directive_indent = leading + 2;
@@ -617,6 +624,13 @@ fn parse_line_based(input: &str) -> Vec<SpannedRegion> {
                 continue;
             }
             list_hang = None;
+            // Docutils ends a container at the first less-indented line.
+            // Without a blank, the hung body is still in current_prose;
+            // flush so After markup stays column-0 Prose (GitHub #344).
+            if in_container_body && leading == 0 {
+                flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
+                in_container_body = false;
+            }
         }
 
         // Block quote: indented prose that is not a list, directive,
@@ -640,6 +654,7 @@ fn parse_line_based(input: &str) -> Vec<SpannedRegion> {
         }
 
         // Regular prose
+        in_container_body = false;
         push_prose_line(&mut current_prose, &mut prose_span, line, true, true);
         i += 1;
     }
@@ -3012,6 +3027,81 @@ mod tests {
                 "Next.\n",
             ),
             "note body must hang and split; following prose must reflow, got:\n{out}"
+        );
+        assert_eq!(format_text(&out, &cfg).unwrap(), out);
+    }
+
+    /// Ticket fixture (Format::Rst / GitHub #344): compact note + flush
+    /// paragraph. After markup must not join the hung body.
+    fn compact_note_flush_fixture() -> &'static str {
+        concat!(
+            "Intro sentence here. Another intro sentence.\n",
+            ".. note::\n",
+            "   Body here. Second body.\n",
+            "After markup. Next sentence.\n",
+        )
+    }
+
+    #[test]
+    fn compact_note_flush_paragraph_stays_unindented() {
+        use crate::format::Format;
+        use crate::{FormatConfig, format_text};
+
+        let input = compact_note_flush_fixture();
+        let regions = RstParser.parse(input);
+        assert!(
+            regions
+                .iter()
+                .any(|r| matches!(r, Region::Structure(s) if s.contains(".. note::"))),
+            "note opener must stay Structure, got {regions:?}"
+        );
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(s) if s.contains("Body here.") && s.contains("Second body.")
+            )),
+            "note body must hang as Prose, got {regions:?}"
+        );
+        assert!(
+            !regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(s)
+                    if s.contains("Body here.") && s.contains("After markup.")
+            )),
+            "After markup must not join the note body, got {regions:?}"
+        );
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(s)
+                    if s.contains("After markup.") && s.contains("Next sentence.")
+            )),
+            "After markup must stay unindented Prose, got {regions:?}"
+        );
+
+        let cfg = FormatConfig {
+            format: Format::Rst,
+            max_width: 0,
+            ..Default::default()
+        }
+        .without_safety_backstops();
+        let out = format_text(input, &cfg).unwrap();
+        assert_eq!(
+            out,
+            concat!(
+                "Intro sentence here.\n",
+                "Another intro sentence.\n",
+                ".. note::\n",
+                "   Body here.\n",
+                "   Second body.\n",
+                "After markup.\n",
+                "Next sentence.\n",
+            ),
+            "note body hangs; After markup stays flush and splits, got:\n{out}"
+        );
+        assert!(
+            !out.contains("\n   After markup."),
+            "After markup must not inherit the note hang, got:\n{out}"
         );
         assert_eq!(format_text(&out, &cfg).unwrap(), out);
     }
