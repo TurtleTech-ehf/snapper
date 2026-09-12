@@ -35,7 +35,7 @@ The classification depends on the format.
 - LaTeX environments (=\begin{equation}= ... =\end{equation}=, =\begin{align}=, etc.)
 - Display math (=\[= ... =\]=)
 - Line breaks (org-element-line-break-parser: =\\= plus optional spaces or tabs at end of line)
-- Inline export snippets (=@@latex:\newpage@@=, =@@html:<br>@@=)
+- A line that is only an export snippet (=@@latex:\newpage@@=). Trailing prose after the closer stays Prose.
 
 *** Code regions (=#+BEGIN_SRC= ... =#+END_SRC=)
 :PROPERTIES:
@@ -67,7 +67,7 @@ These tokens within prose are not split across lines:
 - Inline code: =~code~=, ===verbatim===
 - A =~code~= or ===verbatim=== span may contain the marker character; pairing matches pandoc's org reader, so =x = 1= stays one span
 - Markdown inline code: a run of =n= backticks closes on the next run of the same length (CommonMark / pandoc), so a double span can hold a single backtick
-- Inline export snippets: =@@backend:value@@=
+- Inline export snippets: =@@backend:value@@= (org-element-export-snippet-parser; backend =[-A-Za-z0-9]+= so =html5= and hyphen names stay one token)
 - Radio targets: =<<<contents>>>= (org-element-radio-target-parser)
 - Angle targets: =<<contents>>= (org-element-target-parser)
 - Macros: ={{{name}}}= / ={{{name(args)}}}= (org-element-macro-parser)
