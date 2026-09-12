@@ -58,7 +58,7 @@ impl FormatParser for RstParser {
 /// statements (`{% ... %}`), line blocks, tables, definition lists, and
 /// block-quote hang spaces as structure regions. Docutils container
 /// directives (admonitions, figure, topic, sidebar, container, leftover
-/// body.py parsed-literal)
+/// body.py parsed-literal / epigraph / highlights / pull-quote / compound)
 /// nested-parse their body: the opener and option fields stay Structure;
 /// the body hangs as Prose.
 fn parse_line_based(input: &str) -> Vec<SpannedRegion> {
@@ -256,10 +256,11 @@ fn parse_line_based(input: &str) -> Vec<SpannedRegion> {
 
         // RST directive (`.. name::`). Container directives (admonitions,
         // figure, topic, sidebar, container, leftover body.py
-        // parsed-literal) nested-parse their body: the opener and
-        // `:option:` fields stay Structure; the body hangs and reflows
-        // like a block quote. Opaque names keep the old freeze
-        // (GitHub #54 / #386). A flush paragraph after a compact
+        // parsed-literal / epigraph / highlights / pull-quote / compound)
+        // nested-parse their body: the opener and `:option:` fields stay
+        // Structure; the body hangs and reflows like a block quote.
+        // Opaque names keep the old freeze (GitHub #54 / #351 / #386).
+        // A flush paragraph after a compact
         // container body is a new paragraph, not more note (GitHub #344).
         // Specific admonitions nested-parse same-line text after `::`
         // as the first body paragraph: marker Structure, body hung
@@ -762,8 +763,10 @@ fn rst_directive_name(trimmed: &str) -> Option<String> {
     Some(name.to_ascii_lowercase())
 }
 
-/// Docutils specific admonitions: no arguments; same-line text after
-/// `::` is the first nested-parsed body paragraph (GitHub #349).
+/// Docutils specific admonitions plus leftover body.py names with no
+/// arguments (epigraph / highlights / pull-quote / compound): same-line
+/// text after `::` is the first nested-parsed body paragraph
+/// (GitHub #349 / #351).
 fn is_rst_specific_admonition(name: &str) -> bool {
     matches!(
         name,
@@ -776,6 +779,10 @@ fn is_rst_specific_admonition(name: &str) -> bool {
             | "hint"
             | "error"
             | "attention"
+            | "epigraph"
+            | "highlights"
+            | "pull-quote"
+            | "compound"
     )
 }
 
@@ -2195,8 +2202,15 @@ mod tests {
             "definition sentences after the directive must be one Prose, got {regions:?}"
         );
         assert!(
-            !prose.iter().any(|s| s.contains("What happens?")),
-            "pull-quote body must not be Prose, got {regions:?}"
+            prose.iter().any(|s| s.contains("What happens?")),
+            "pull-quote body must hang as Prose, got {regions:?}"
+        );
+        assert!(
+            !regions.iter().any(|r| matches!(
+                r,
+                Region::Structure(s) if s.contains("What happens?")
+            )),
+            "pull-quote body must not freeze as Structure, got {regions:?}"
         );
     }
 
@@ -3228,6 +3242,10 @@ mod tests {
             "sidebar",
             "container",
             "parsed-literal",
+            "epigraph",
+            "highlights",
+            "pull-quote",
+            "compound",
         ] {
             let arg = if matches!(name, "figure" | "admonition" | "sidebar" | "topic") {
                 " Title"

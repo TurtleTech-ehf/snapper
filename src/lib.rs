@@ -14,7 +14,7 @@
 //!   `Region::Code` (comment reflow via `[code.<lang>]`, optional formatters)
 //! - **LaTeX**: preamble and math preserved; `minted` / `minted*` / `lstlisting` / `lstlisting*` / `Piton` are code regions
 //! - **Markdown**: front matter and headings preserved; fenced blocks are code regions
-//! - **RST**: directives and literals preserved; admonition/figure/topic/sidebar/container/parsed-literal bodies reflow; `.. code-block::` is a code region
+//! - **RST**: directives and literals preserved; admonition/figure/topic/sidebar/container/parsed-literal/epigraph/highlights/pull-quote/compound bodies reflow; `.. code-block::` is a code region
 //! - **Plaintext**: everything treated as prose
 //!
 //! ## Library usage

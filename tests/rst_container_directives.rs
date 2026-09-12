@@ -1,7 +1,8 @@
 //! RST container directive bodies hang and reflow.
 //! Docutils admonitions/figure/topic/sidebar nested-parse their body.
-//! Leftover body.py parsed-literal hangs and splits like note (GitHub #386).
-//! Option fields stay Structure; code-block/raw/include/csv-table stay opaque.
+//! Leftover body.py parsed-literal (GitHub #386) and epigraph / highlights /
+//! pull-quote / compound (GitHub #351) hang and split like note. Option fields
+//! stay Structure; code-block/raw/include/csv-table stay opaque.
 
 use snapper_fmt::format::Format;
 use snapper_fmt::parser::rst::RstParser;
@@ -93,7 +94,6 @@ fn leftover_container_names_reflow_like_note() {
         "topic",
         "sidebar",
         "container",
-        "parsed-literal",
     ] {
         let input = format!(
             ".. {name}::\n\n   This is a long note sentence that must reflow. Second sentence.\n\nAfter the note. Next.\n"
@@ -109,6 +109,7 @@ fn leftover_container_names_reflow_like_note() {
         assert_eq!(format_text(&out, &rst_cfg()).unwrap(), out);
     }
 }
+
 
 /// Ticket fixture (Format::Rst / GitHub #386): leftover body.py
 /// parsed-literal hangs and splits; flush After. / Next. stay unindented.
@@ -186,6 +187,133 @@ fn leftover_parsed_literal_fixture_hangs_and_splits() {
         "After. must not inherit the parsed-literal hang, got:\n{out}"
     );
     assert_eq!(format_text(&out, &rst_cfg()).unwrap(), out);
+
+/// Ticket fixture (Format::Rst / GitHub #351): leftover body.py
+/// containers hang and split; flush After. / Next. stay unindented.
+fn leftover_epigraph_fixture() -> &'static str {
+    concat!(
+        ".. epigraph::\n",
+        "\n",
+        "   This is a long note sentence that must reflow. Second sentence.\n",
+        "After. Next.\n",
+    )
+}
+
+#[test]
+fn leftover_epigraph_fixture_hangs_and_splits() {
+    let input = leftover_epigraph_fixture();
+    let regions = RstParser.parse(input);
+    assert!(
+        regions
+            .iter()
+            .any(|r| matches!(r, Region::Structure(s) if s.contains(".. epigraph::"))),
+        "epigraph opener must stay Structure, got {regions:?}"
+    );
+    assert!(
+        regions.iter().any(|r| matches!(
+            r,
+            Region::Prose(s)
+                if s.contains("This is a long note sentence that must reflow.")
+                    && s.contains("Second sentence.")
+        )),
+        "epigraph body must be hung Prose, got {regions:?}"
+    );
+    assert!(
+        !regions.iter().any(|r| matches!(
+            r,
+            Region::Structure(s) if s.contains("This is a long note sentence")
+        )),
+        "epigraph body must not freeze as Structure, got {regions:?}"
+    );
+    assert!(
+        regions
+            .iter()
+            .any(|r| matches!(r, Region::Structure(s) if s == "   ")),
+        "epigraph body hang spaces must be Structure, got {regions:?}"
+    );
+    assert!(
+        regions
+            .iter()
+            .any(|r| matches!(r, Region::Prose(s) if s.contains("After.") && s.contains("Next."))),
+        "After. / Next. must stay unindented Prose, got {regions:?}"
+    );
+    assert!(
+        !regions.iter().any(|r| matches!(
+            r,
+            Region::Prose(s)
+                if s.contains("Second sentence.") && s.contains("After.")
+        )),
+        "After. must not join the epigraph body, got {regions:?}"
+    );
+
+    let out = format_text(input, &rst_cfg()).unwrap();
+    assert_eq!(
+        out,
+        concat!(
+            ".. epigraph::\n",
+            "\n",
+            "   This is a long note sentence that must reflow.\n",
+            "   Second sentence.\n",
+            "After.\n",
+            "Next.\n",
+        ),
+        "epigraph body must hang and split; After. / Next. stay flush, got:\n{out}"
+    );
+    assert!(
+        !out.contains("\n   After."),
+        "After. must not inherit the epigraph hang, got:\n{out}"
+    );
+    assert_eq!(format_text(&out, &rst_cfg()).unwrap(), out);
+}
+
+/// GitHub #351 leftover walker: body.py names hang and split like
+/// note. After. / Next. stay unindented. One walker for the leftover
+/// class; code-block / raw stay opaque in `opaque_directives_stay_frozen`.
+#[test]
+fn leftover_body_py_container_names_reflow_like_note() {
+    for name in ["epigraph", "highlights", "pull-quote", "compound", "parsed-literal"] {
+        let input = format!(
+            ".. {name}::\n\n   This is a long note sentence that must reflow. Second sentence.\nAfter. Next.\n"
+        );
+        let regions = RstParser.parse(&input);
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(s)
+                    if s.contains("This is a long note sentence that must reflow.")
+                        && s.contains("Second sentence.")
+            )),
+            "{name} body must be Prose, got {regions:?}"
+        );
+        assert!(
+            !regions.iter().any(|r| matches!(
+                r,
+                Region::Structure(s) if s.contains("This is a long note sentence")
+            )),
+            "{name} body must not freeze as Structure, got {regions:?}"
+        );
+        assert!(
+            !regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(s)
+                    if s.contains("Second sentence.") && s.contains("After.")
+            )),
+            "After. must not join the {name} body, got {regions:?}"
+        );
+        let out = format_text(&input, &rst_cfg()).unwrap();
+        assert_eq!(
+            out,
+            format!(
+                ".. {name}::\n\n   This is a long note sentence that must reflow.\n   Second sentence.\nAfter.\nNext.\n"
+            ),
+            "{name} hangs and splits like note; After. / Next. stay flush, got:\n{out}"
+        );
+        assert!(
+            !out.contains("\n   After."),
+            "After. after {name} must stay flush, got:\n{out}"
+        );
+        assert_eq!(format_text(&out, &rst_cfg()).unwrap(), out);
+    }
 }
 
 #[test]
