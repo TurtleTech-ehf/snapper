@@ -200,7 +200,7 @@ These tokens within prose are not split across lines:
 :CUSTOM_ID: rst-structure
 :END:
 - Non-code opaque directives (=.. math::=, =.. image::=, =.. raw::=, =.. include::=, =.. csv-table::=) and their indented bodies
-- Container directive openers (=.. note::=, =.. warning::=, =.. figure::=, =.. topic::=, =.. sidebar::=, =.. container::=, leftover =.. epigraph::= / =.. highlights::= / =.. pull-quote::= / =.. compound::=) and their =:option:= fields; the indented body is prose
+- Container directive openers (=.. note::=, =.. warning::=, =.. figure::=, =.. topic::=, =.. sidebar::=, =.. container::=, =.. epigraph::=, =.. highlights::=, =.. pull-quote::=, =.. compound::=) and their =:option:= fields; the indented body is prose
 - Literal blocks (text after =::= with indented or line-prefix-quoted content)
 - Section titles and underlines (=====, =-----=, etc.)
 - Field lists (=:Author:=, =:Date:=, etc.)
@@ -219,7 +219,7 @@ These tokens within prose are not split across lines:
 :CUSTOM_ID: rst-prose
 :END:
 - Paragraph text between structural elements
-- Indented bodies of container directives (admonitions, figure captions, topic, sidebar, container, leftover epigraph / highlights / pull-quote / compound); hang spaces stay structure
+- Indented bodies of container directives (admonitions, figure captions, topic, sidebar, container, epigraph, highlights, pull-quote, compound); hang spaces stay structure
 
 *** Inline tokens (kept atomic)
 :PROPERTIES:

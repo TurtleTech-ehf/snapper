@@ -3239,6 +3239,10 @@ mod tests {
             "topic",
             "sidebar",
             "container",
+            "epigraph",
+            "highlights",
+            "pull-quote",
+            "compound",
         ] {
             let arg = if matches!(name, "figure" | "admonition" | "sidebar" | "topic") {
                 " Title"
