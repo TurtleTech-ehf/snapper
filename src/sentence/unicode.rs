@@ -204,6 +204,8 @@ pub fn protect_inline_tokens_with(
 /// `\verbatiminput{file}` / `\VerbatimInput[...]{file}` /
 /// `\listinginput[interval]{start}{file}` /
 /// `\inputpy[...]{file}` / `\inputpycon[...]{file}` /
+/// `\inputpylab[...]{file}` / `\inputpylabcon[...]{file}` /
+/// `\inputsympy[...]{file}` / `\inputsympycon[...]{file}` /
 /// `\sageinput{file}` so inner `.!?%` cannot
 /// split or comment. `\piton{...}` stays on the generic `\cmd{arg}`
 /// path (piton.sty brace syntax is not verbatim; GitHub #305).
@@ -234,6 +236,7 @@ fn protect_latex_verbatim(
 /// `\mint` / `\inputminted` / `\Verb` / `\SaveVerb` / `\piton` /
 /// `\lstinputlisting` / `\VerbatimInput` / `\BVerbatimInput` /
 /// `\LVerbatimInput` / `\listinginput` / `\inputpy` / `\inputpycon` /
+/// `\inputpylab` / `\inputpylabcon` / `\inputsympy` / `\inputsympycon` /
 /// `\sageinput` / extra-name span starting at `at`.
 ///
 /// `\verb` / `\verb*` / `\spverb` / `\spverb*` / `\Verb` / `\Verb*`: next
@@ -256,10 +259,11 @@ fn protect_latex_verbatim(
 /// `\LVerbatimInput` (fancyvrb.sty leftover; GitHub #399) use the same
 /// optional `[...]` then `{filename}` walk. Matched before `\Verb` so
 /// `\VerbatimInput` is not `\Verb` plus leftover letters. `\inputpy` /
-/// `\inputpycon` (pythontex.sty leftover; GitHub #419) take optional
-/// `[...]` then a required `{filename}`; no brace is not a span.
-/// `inputpycon` is matched before `inputpy` so the longer name is not
-/// `\inputpy` + leftover. `\inputpygments` is not a span (`inputpy` +
+/// `\inputpycon` / `\inputpylab` / `\inputpylabcon` / `\inputsympy` /
+/// `\inputsympycon` (pythontex.sty leftover; GitHub #419 / #433) take
+/// optional `[...]` then a required `{filename}`; no brace is not a
+/// span. Longer names first so `\inputpylab` is not `\inputpy` +
+/// leftover. `\inputpygments` is not a span (`inputpy` +
 /// alphabetic leftover). `\listinginput` (moreverb leftover; GitHub
 /// #424) takes optional `[interval]` then required `{start-line}` and
 /// `{filename}`; no second brace is not a span. There is no `*` form.
@@ -294,8 +298,8 @@ pub(crate) fn latex_verb_span_end_with(
         }
         (after_bs + "inputminted".len(), VerbKind::Mint)
     } else if let Some(name_len) = inputpy_cmd_len(tail) {
-        // pythontex.sty leftover file-input (GitHub #419). `inputpycon`
-        // before `inputpy`; `\inputpygments` is not a span.
+        // pythontex.sty leftover file-input (GitHub #419 / #433).
+        // Longer names first; `\inputpygments` is not a span.
         (after_bs + name_len, VerbKind::Lstinputlisting)
     } else if let Some(stripped) = tail.strip_prefix("listinginput") {
         // moreverb leftover file-input (GitHub #424). No `*` form;
@@ -540,8 +544,9 @@ enum VerbKind {
     /// `\lstinline`: optional `[...]` then delimiter or `{...}`.
     Lstinline,
     /// `\lstinputlisting` / `\VerbatimInput` / `\BVerbatimInput` /
-    /// `\LVerbatimInput` / `\inputpy` / `\inputpycon`: optional `[...]`
-    /// then required `{filename}`.
+    /// `\LVerbatimInput` / `\inputpy` / `\inputpycon` / `\inputpylab` /
+    /// `\inputpylabcon` / `\inputsympy` / `\inputsympycon`: optional
+    /// `[...]` then required `{filename}`.
     Lstinputlisting,
     /// `\\verbatiminput`: required `{filename}` (verbatim.sty leftover).
     Verbatiminput,
@@ -585,12 +590,19 @@ fn verbatiminput_cs_name(tail: &str) -> Option<&'static str> {
     None
 }
 
-/// pythontex.sty leftover `\inputpycon` / `\inputpy` (optional `[...]`,
-/// required `{file}`; GitHub #419). Longer name first so `\inputpycon`
-/// is not `\inputpy` + leftover. `\inputpygments` is rejected as
-/// `inputpy` + alphabetic leftover.
+/// pythontex.sty leftover default-family file-input (optional `[...]`,
+/// required `{file}`; GitHub #419 / #433). Longer names first so
+/// `\inputpylab` / `\inputpycon` are not `\inputpy` + leftover.
+/// `\inputpygments` is rejected as `inputpy` + alphabetic leftover.
 fn inputpy_cmd_len(tail: &str) -> Option<usize> {
-    for name in ["inputpycon", "inputpy"] {
+    for name in [
+        "inputpylabcon",
+        "inputsympycon",
+        "inputpylab",
+        "inputpycon",
+        "inputsympy",
+        "inputpy",
+    ] {
         if let Some(stripped) = tail.strip_prefix(name) {
             if stripped.starts_with(|c: char| c.is_ascii_alphabetic()) {
                 return None;
@@ -615,6 +627,10 @@ fn match_extra_verb_command<'a>(tail: &'a str, extras: &'a [String]) -> Option<&
             || name == "inputminted"
             || name == "inputpy"
             || name == "inputpycon"
+            || name == "inputpylab"
+            || name == "inputpylabcon"
+            || name == "inputsympy"
+            || name == "inputsympycon"
             || name == "verbatiminput"
             || name == "tcbinputlisting"
             || name == "listinginput"
@@ -2774,6 +2790,64 @@ mod tests {
         );
     }
 
+    /// Ticket fixture (GitHub #433): pythontex.sty `\inputpylab{file}` /
+    /// `\inputsympy{file}` and con twins are the same leftover family
+    /// as `\inputpy`. Following `After.` still splits. inputpy /
+    /// listinginput / sageinput unchanged.
+    #[test]
+    fn latex_inputpylab_inputsympy_stays_atomic() {
+        for name in ["inputpylab", "inputpylabcon", "inputsympy", "inputsympycon"] {
+            let cmd = format!("\\{name}{{foo.py}}");
+            let text = format!("See {cmd} here. After.");
+            let (_, placeholders) = protect_inline_tokens(&text);
+            assert!(
+                placeholders.iter().any(|p| p == &cmd),
+                "{name} span must be protected, got {placeholders:?}"
+            );
+            assert_eq!(latex_verb_span_end_with(&cmd, 0, &[]), Some(cmd.len()));
+            assert_eq!(
+                split(&text),
+                vec![format!("See {cmd} here."), "After.".to_string()]
+            );
+            let opts = format!("\\{name}[sess]{{foo.py}}");
+            assert_eq!(
+                latex_verb_span_end_with(&opts, 0, &[]),
+                Some(opts.len()),
+                "{name} optional session must stay in the span"
+            );
+            assert_eq!(
+                latex_verb_span_end_with(&format!("\\{name} foo.py"), 0, &[]),
+                None,
+                "{name} without a brace file arg is not a verb span"
+            );
+        }
+        assert_eq!(
+            latex_verb_span_end_with(r"\inputpy{foo.py}", 0, &[]),
+            Some(r"\inputpy{foo.py}".len()),
+            "inputpy must stay a span"
+        );
+        assert_eq!(
+            latex_verb_span_end_with(r"\inputpycon{foo.py}", 0, &[]),
+            Some(r"\inputpycon{foo.py}".len()),
+            "inputpycon must stay a span"
+        );
+        assert_eq!(
+            latex_verb_span_end_with(r"\listinginput{1}{foo.py}", 0, &[]),
+            Some(r"\listinginput{1}{foo.py}".len()),
+            "listinginput must stay a span"
+        );
+        assert_eq!(
+            latex_verb_span_end_with(r"\sageinput{foo.sage}", 0, &[]),
+            Some(r"\sageinput{foo.sage}".len()),
+            "sageinput must stay a span"
+        );
+        assert_eq!(
+            latex_verb_span_end_with(r"\inputpygments{python}{foo.py}", 0, &[]),
+            None,
+            "inputpylab must not steal inputpygments"
+        );
+    }
+
     /// Ticket fixture (GitHub #424): moreverb `\listinginput{start}{file}`
     /// is one leftover file-input command; following `After.` still
     /// splits. Optional `[interval]` stays in the span. No `*` form.
@@ -4317,7 +4391,7 @@ mod tests {
     #[test]
     fn plaintext_format_keeps_dialogue_quote_together() {
         use crate::format::Format;
-        use crate::{FormatConfig, format_text};
+        use crate::{format_text, FormatConfig};
 
         let input = "He said \"Hello world. How are you?\" Then he left.\n";
         let cfg = FormatConfig {
@@ -4434,7 +4508,7 @@ mod tests {
     #[test]
     fn newlines_invariant_holds_on_dialogue_output() {
         use crate::format::Format;
-        use crate::{FormatConfig, format_text};
+        use crate::{format_text, FormatConfig};
 
         let samples = [
             "He said \"Hello world. How are you?\" Then he left.\n",
@@ -4682,7 +4756,7 @@ mod tests {
     #[test]
     fn markdown_period_inside_closers_survives_format_roundtrip() {
         use crate::format::Format;
-        use crate::{FormatConfig, format_text};
+        use crate::{format_text, FormatConfig};
 
         let cfg = FormatConfig {
             format: Format::Markdown,
@@ -4696,7 +4770,7 @@ mod tests {
     #[test]
     fn org_markdown_style_bold_period_splits_without_headline() {
         use crate::format::Format;
-        use crate::{FormatConfig, format_text};
+        use crate::{format_text, FormatConfig};
 
         let cfg = FormatConfig {
             format: Format::Org,
@@ -4757,7 +4831,7 @@ mod tests {
     #[test]
     fn markdown_emphasis_format_text_does_not_break_inside_span() {
         use crate::format::Format;
-        use crate::{FormatConfig, format_text};
+        use crate::{format_text, FormatConfig};
 
         let cfg = FormatConfig {
             format: Format::Markdown,
@@ -4805,7 +4879,7 @@ mod tests {
     #[test]
     fn plaintext_bang_inside_code_span_stays_atomic_after_keep_break() {
         use crate::format::Format;
-        use crate::{FormatConfig, format_text};
+        use crate::{format_text, FormatConfig};
 
         let input = "?=\"`=!a`\n";
         let cfg = FormatConfig {
@@ -4825,7 +4899,7 @@ mod tests {
     #[test]
     fn keeps_break_before_lowercase_proper_noun() {
         use crate::format::Format;
-        use crate::{FormatConfig, format_text};
+        use crate::{format_text, FormatConfig};
 
         let input = "First sentence.\niCloud starts the second sentence.\n";
         for format in [
@@ -4852,7 +4926,7 @@ mod tests {
     #[test]
     fn splits_same_line_lowercase_proper_noun() {
         use crate::format::Format;
-        use crate::{FormatConfig, format_text};
+        use crate::{format_text, FormatConfig};
 
         assert_eq!(
             split("First sentence. iCloud starts the second sentence."),
