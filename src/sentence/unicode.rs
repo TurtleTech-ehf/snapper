@@ -198,7 +198,8 @@ pub fn protect_inline_tokens_with(
 
 /// `\verb|...|` / `\lstinline[...]!...!` / `\spverb|...|` /
 /// `\mintinline{lang}|...|` / `\mint{lang}{...}` / `\Verb|...|` /
-/// `\SaveVerb{name}|...|` / `\piton|...|` so inner `.!?%` cannot
+/// `\SaveVerb{name}|...|` / `\piton|...|` /
+/// `\lstinputlisting[...]{file}` so inner `.!?%` cannot
 /// split or comment. `\piton{...}` stays on the generic `\cmd{arg}`
 /// path (piton.sty brace syntax is not verbatim; GitHub #305).
 fn protect_latex_verbatim(
@@ -225,8 +226,8 @@ fn protect_latex_verbatim(
 }
 
 /// Byte end of a `\verb` / `\lstinline` / `\spverb` / `\mintinline` /
-/// `\mint` / `\Verb` / `\SaveVerb` / `\piton` / extra-name span
-/// starting at `at`.
+/// `\mint` / `\Verb` / `\SaveVerb` / `\piton` / `\lstinputlisting` /
+/// extra-name span starting at `at`.
 ///
 /// `\verb` / `\verb*` / `\spverb` / `\spverb*` / `\Verb` / `\Verb*`: next
 /// character is the
@@ -239,7 +240,10 @@ fn protect_latex_verbatim(
 /// body as `\Verb` (fancyvrb FVExtraReadVArg; GitHub #275). `\piton`
 /// (piton.sty; GitHub #305) is verb-like for a non-brace delimiter
 /// (`\piton|...|`); a following `{` is not a delimiter so `\piton{...}`
-/// stays on the generic `\cmd{arg}` path. Extra names are tokenized
+/// stays on the generic `\cmd{arg}` path. `\lstinputlisting` /
+/// `\lstinputlisting*` (listings.sty leftover; GitHub #391) take optional
+/// `[...]` then a required `{filename}`; no brace is not a span.
+/// Extra names are tokenized
 /// like `\verb`. With no closer, the span runs to end of line so an
 /// inner `%` is not a comment.
 pub(crate) fn latex_verb_span_end_with(
@@ -259,6 +263,14 @@ pub(crate) fn latex_verb_span_end_with(
             return None;
         }
         (after_bs + "mintinline".len(), VerbKind::Mint)
+    } else if let Some(stripped) = tail.strip_prefix("lstinputlisting") {
+        if stripped.starts_with(|c: char| c.is_ascii_alphabetic()) {
+            return None;
+        }
+        (
+            after_bs + "lstinputlisting".len(),
+            VerbKind::Lstinputlisting,
+        )
     } else if let Some(stripped) = tail.strip_prefix("lstinline") {
         if stripped.starts_with(|c: char| c.is_ascii_alphabetic()) {
             return None;
@@ -315,7 +327,7 @@ pub(crate) fn latex_verb_span_end_with(
 
     if matches!(
         kind,
-        VerbKind::Lstinline | VerbKind::Mint | VerbKind::SaveVerb
+        VerbKind::Lstinline | VerbKind::Lstinputlisting | VerbKind::Mint | VerbKind::SaveVerb
     ) {
         i = skip_ascii_ws(text, i);
         if text.get(i..).is_some_and(|s| s.starts_with('[')) {
@@ -324,6 +336,15 @@ pub(crate) fn latex_verb_span_end_with(
                 None => return Some(line_end(text, i)),
             }
         }
+    }
+
+    // listings.sty `\lstinputlisting[opts]{file}` is brace-only.
+    if kind == VerbKind::Lstinputlisting {
+        if !text.get(i..).is_some_and(|s| s.starts_with('{')) {
+            return None;
+        }
+        i += 1;
+        return Some(find_unescaped_brace_close(text, i).unwrap_or_else(|| line_end(text, i)));
     }
 
     if kind == VerbKind::Mint {
@@ -380,6 +401,8 @@ enum VerbKind {
     Delim,
     /// `\lstinline`: optional `[...]` then delimiter or `{...}`.
     Lstinline,
+    /// `\lstinputlisting`: optional `[...]` then required `{filename}`.
+    Lstinputlisting,
     /// `\mintinline` / `\mint`: optional `[...]`, `{lang}`, then body.
     Mint,
     /// `\SaveVerb`: optional `[...]`, `{name}`, then delimiter body like `\Verb`.
@@ -403,6 +426,7 @@ fn match_extra_verb_command<'a>(tail: &'a str, extras: &'a [String]) -> Option<&
         if name.is_empty()
             || name == "verb"
             || name == "lstinline"
+            || name == "lstinputlisting"
             || name == "spverb"
             || name == "mintinline"
             || name == "mint"
@@ -2051,6 +2075,60 @@ mod tests {
                 r"See \lstinline[language=TeX]!a.b%! please.".to_string(),
                 "Next.".to_string()
             ]
+        );
+    }
+
+    /// Ticket fixture (GitHub #391): listings.sty `\lstinputlisting{file}`
+    /// is one token like `\lstinline`; following `After.` still splits.
+    #[test]
+    fn latex_lstinputlisting_stays_atomic() {
+        let text = r"See \lstinputlisting{foo.py} here. After.";
+        let (_, placeholders) = protect_inline_tokens(text);
+        assert!(
+            placeholders
+                .iter()
+                .any(|p| p == r"\lstinputlisting{foo.py}"),
+            "lstinputlisting span must be protected, got {placeholders:?}"
+        );
+        assert_eq!(
+            latex_verb_span_end_with(r"\lstinputlisting{foo.py}", 0, &[]),
+            Some(r"\lstinputlisting{foo.py}".len())
+        );
+        assert_eq!(
+            split(text),
+            vec![
+                r"See \lstinputlisting{foo.py} here.".to_string(),
+                "After.".to_string()
+            ]
+        );
+        let opts = r"See \lstinputlisting[language=Python]{foo.py} here. After.";
+        let (_, opt_ph) = protect_inline_tokens(opts);
+        assert!(
+            opt_ph
+                .iter()
+                .any(|p| p == r"\lstinputlisting[language=Python]{foo.py}"),
+            "lstinputlisting optional args must be protected, got {opt_ph:?}"
+        );
+        assert_eq!(
+            latex_verb_span_end_with(r"\lstinputlisting[language=Python]{foo.py}", 0, &[]),
+            Some(r"\lstinputlisting[language=Python]{foo.py}".len())
+        );
+        assert_eq!(
+            split(opts),
+            vec![
+                r"See \lstinputlisting[language=Python]{foo.py} here.".to_string(),
+                "After.".to_string()
+            ]
+        );
+        assert_eq!(
+            latex_verb_span_end_with(r"\lstinputlisting foo.py", 0, &[]),
+            None,
+            "lstinputlisting without a brace file arg is not a verb span"
+        );
+        assert_eq!(
+            latex_verb_span_end_with(r"\lstinline{foo.py}", 0, &[]),
+            Some(r"\lstinline{foo.py}".len()),
+            "lstinputlisting must not steal lstinline"
         );
     }
 
