@@ -963,7 +963,6 @@ fn tcbinputlisting_cs_at(line: &str, at: usize) -> bool {
     !after.starts_with(|c: char| c.is_ascii_alphabetic())
 }
 
-
 fn find_leftover_cmd_at(
     line: &str,
     from: usize,
