@@ -898,28 +898,46 @@ fn find_iffalse_at(line: &str, from: usize, extra_cmds: &[String]) -> Option<usi
     None
 }
 
-/// listings.sty `\lstinputlisting[...]{file}` span, skipping other verb
-/// commands so `\verb|\lstinputlisting{x}|` is not stolen (GitHub #391).
-fn find_lstinputlisting_span(
-    text: &str,
+/// Leftover listings.sty `\lstinputlisting` / `\lstinputlisting*`
+/// (optional `[...]`, required `{file}`; GitHub #391). Other verb
+/// spans are skipped so `\verb|\lstinputlisting{x}|` is not stolen.
+fn find_lstinputlisting_at(
+    line: &str,
     from: usize,
     extra_cmds: &[String],
 ) -> Option<(usize, usize)> {
-    let bytes = text.as_bytes();
+    let bytes = line.as_bytes();
     let mut i = from;
-    while i < bytes.len() {
+    let stop = unescaped_percent_with(line, extra_cmds).unwrap_or(line.len());
+    while i < stop {
         if bytes[i] == b'\\' {
-            if let Some(end) = latex_verb_span_end_with(text, i, extra_cmds) {
-                if text[i + 1..].starts_with("lstinputlisting") {
+            if lstinputlisting_cs_at(line, i) {
+                if let Some(end) = latex_verb_span_end_with(line, i, extra_cmds) {
                     return Some((i, end));
                 }
+            }
+            if let Some(end) = latex_verb_span_end_with(line, i, extra_cmds) {
                 i = end;
+                continue;
+            }
+            if let Some(name) = tex_cs_at(line, i) {
+                i += name.len();
                 continue;
             }
         }
         i += 1;
     }
     None
+}
+
+fn lstinputlisting_cs_at(line: &str, at: usize) -> bool {
+    let Some(tail) = line.get(at..).and_then(|s| s.strip_prefix('\\')) else {
+        return false;
+    };
+    let Some(after) = tail.strip_prefix("lstinputlisting") else {
+        return false;
+    };
+    !after.starts_with(|c: char| c.is_ascii_alphabetic())
 }
 
 struct ParseState<'a> {
@@ -1605,15 +1623,13 @@ impl<'a> ParseState<'a> {
                 return true;
             }
             if let Some((start, end)) =
-                find_lstinputlisting_span(code, i, &self.parser.extra_verbatim_commands)
+                find_lstinputlisting_at(code, i, &self.parser.extra_verbatim_commands)
             {
                 self.append_item_or_prose(line.start + i, &code[i..start]);
-                let cmd_end = if code[end..].trim().is_empty() {
-                    thru_eol_if_blank_rest(line, end)
-                } else {
-                    line.start + end
-                };
-                self.push_structure(ByteSpan::new(line.start + start, cmd_end));
+                self.push_structure(ByteSpan::new(
+                    line.start + start,
+                    thru_eol_if_blank_rest(line, end),
+                ));
                 i = end;
                 continue;
             }
@@ -2337,8 +2353,8 @@ Some text.
     }
 
     /// Ticket fixture (GitHub #391): listings.sty `\lstinputlisting{file}`
-    /// is one atomic command. Following flush prose does not join onto
-    /// the command line. `After.` / `Next.` still split. `lstinline` /
+    /// is one leftover command. Following flush prose does not join the
+    /// command line. `After.` / `Next.` still split. `lstinline` /
     /// `lstlisting` unchanged.
     #[test]
     fn lstinputlisting_does_not_join_following_prose() {

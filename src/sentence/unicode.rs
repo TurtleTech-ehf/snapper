@@ -241,9 +241,9 @@ fn protect_latex_verbatim(
 /// (piton.sty; GitHub #305) is verb-like for a non-brace delimiter
 /// (`\piton|...|`); a following `{` is not a delimiter so `\piton{...}`
 /// stays on the generic `\cmd{arg}` path. `\lstinputlisting` /
-/// `\lstinputlisting*` (listings.sty; GitHub #391) take optional
-/// `[...]` then a required `{filename}` brace; no brace is not a span
-/// so a following delimiter is not stolen. Extra names are tokenized
+/// `\lstinputlisting*` (listings.sty leftover; GitHub #391) take optional
+/// `[...]` then a required `{filename}`; no brace is not a span.
+/// Extra names are tokenized
 /// like `\verb`. With no closer, the span runs to end of line so an
 /// inner `%` is not a comment.
 pub(crate) fn latex_verb_span_end_with(
@@ -2124,6 +2124,11 @@ mod tests {
             latex_verb_span_end_with(r"\lstinputlisting foo.py", 0, &[]),
             None,
             "lstinputlisting without a brace file arg is not a verb span"
+        );
+        assert_eq!(
+            latex_verb_span_end_with(r"\lstinline{foo.py}", 0, &[]),
+            Some(r"\lstinline{foo.py}".len()),
+            "lstinputlisting must not steal lstinline"
         );
     }
 
