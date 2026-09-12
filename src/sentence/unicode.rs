@@ -1404,7 +1404,23 @@ fn take_markup_terminal_sentence(seg: &str) -> Option<(String, String)> {
     if head.is_empty() || rest.is_empty() {
         return None;
     }
+    // GitHub #374: `.` plus a capital looks like a markup sentence end,
+    // but the backticks may sit inside a still-open quote/paren span.
+    // Same protect + DelimState feed as newlines_respect_delimiter_spans.
+    if markup_head_leaves_delim_span_open(head) {
+        return None;
+    }
     Some((head.to_string(), rest.to_string()))
+}
+
+/// True when `head` still has an open DelimState span after inline tokens
+/// are protected. Used so markup closer-split cannot invent a newline
+/// inside a balanced quote (GitHub #374).
+fn markup_head_leaves_delim_span_open(head: &str) -> bool {
+    let (protected, _) = protect_inline_tokens(head);
+    let mut state = DelimState::default();
+    state.feed(&protected);
+    state.is_inside()
 }
 
 fn merge_quoted_punct_splits(segments: Vec<String>) -> Vec<String> {
@@ -3943,6 +3959,14 @@ mod tests {
         // PR #52 CI seed: period before backticks, then quote-backtick.
         // Next token is not a capital letter, so this is not a new sentence.
         assert_eq!(split("`.`` \"`"), vec!["`.`` \"`".to_string()]);
+        // GitHub #374: quote, then `.` , space, capital. The markup
+        // closer-split must not break inside the still-open ASCII quote.
+        let seed_374: String = [
+            '"', '.', '`', ' ', 'A', '`', '\'', '`', '`', 'a', 'a', 'a', '0', '`', '"', '0',
+        ]
+        .into_iter()
+        .collect();
+        assert_eq!(split(&seed_374), vec![seed_374.clone()]);
     }
 
     #[test]

@@ -33,6 +33,36 @@ fn plaintext_period_before_backticks_quote_is_span_safe() {
     );
 }
 
+/// GitHub #374. `".` A`'``aaa0`"0` is delimiters_balanced; format_text
+/// used to insert a newline after `.` so newlines_respect_delimiter_spans
+/// failed. Markup closer-split must not break the still-open quote.
+#[test]
+fn plaintext_quote_backtick_capital_seed_is_span_safe() {
+    let input: String = [
+        '"', '.', '`', ' ', 'A', '`', '\'', '`', '`', 'a', 'a', 'a', '0', '`', '"', '0',
+    ]
+    .into_iter()
+    .collect();
+    assert!(
+        delimiters_balanced(&input),
+        "seed must be balanced so the property would fire\n in={input:?}"
+    );
+    let out = format_plain(&input);
+    let again = format_plain(&out);
+    assert!(
+        !out.contains(".`\n"),
+        "must not split after .` inside the quote\n in={input:?}\n out={out:?}"
+    );
+    assert_eq!(
+        again, out,
+        "idempotence\n in={input:?}\n out={out:?}\n again={again:?}"
+    );
+    assert!(
+        newlines_respect_delimiter_spans(&out),
+        "span newline\n in={input:?}\n out={out:?}"
+    );
+}
+
 /// GitHub #266. `(. aA. )A` is not idempotent on origin/main: first
 /// pass collapses the space (`(. aA.)A\n`), second pass splits
 /// (`(. aA.)\nA\n`). format_text twice must be identity.
