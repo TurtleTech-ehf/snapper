@@ -135,8 +135,9 @@ pub struct FormatConfig {
     /// starred twins, leftover default-family pyconcode/pyconverbatim/
     /// pysub/pyconsub/sympycon*/pylabcon*/pythontexcustomcode, and
     /// pythonhighlight python, pyluatex pythonq/pythonrepl,
-    /// showexpl LTXexample, luamplib mplibcode, and codehigh.sty
-    /// codehigh/demohigh plus starred twins. Empty keeps the built-in list.
+    /// showexpl LTXexample, luamplib mplibcode, luacode.sty leftover
+    /// luaexec, and codehigh.sty codehigh/demohigh plus starred twins.
+    /// Empty keeps the built-in list.
     pub latex_verbatim_envs: Vec<String>,
     /// Extra LaTeX environments treated as structure (no reflow), added
     /// to `NON_PROSE_ENVS`. Empty keeps the built-in list.
