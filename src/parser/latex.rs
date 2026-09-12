@@ -502,8 +502,8 @@ impl LatexParser {
     /// Byte offset of the first `%` that is not escaped as `\%` and is not
     /// inside `\verb` / `\lstinline` / `\spverb` / `\mintinline` / `\mint` /
     /// `\Verb` / `\SaveVerb` / `\piton` / `\lstinputlisting` /
-    /// `\inputminted` / fancyvrb `\VerbatimInput` / configured verbatim
-    /// commands.
+    /// `\inputminted` / fancyvrb `\VerbatimInput` / `\tcbinputlisting` /
+    /// configured verbatim commands.
     fn unescaped_percent(&self, line: &str) -> Option<usize> {
         unescaped_percent_with(line, &self.extra_verbatim_commands)
     }
@@ -877,7 +877,7 @@ fn find_tex_cs(line: &str, from: usize, cs: &str) -> Option<usize> {
 /// `\iffalse` in ordinary TeX, skipping `\verb` / `\lstinline` /
 /// `\spverb` / `\mintinline` / `\mint` / `\inputminted` / `\Verb` /
 /// `\SaveVerb` / `\piton` / `\lstinputlisting` / fancyvrb
-/// `\VerbatimInput` spans.
+/// `\VerbatimInput` / `\tcbinputlisting` spans.
 fn find_iffalse_at(line: &str, from: usize, extra_cmds: &[String]) -> Option<usize> {
     let bytes = line.as_bytes();
     let mut i = from;
@@ -926,6 +926,17 @@ fn find_inputminted_at(line: &str, from: usize, extra_cmds: &[String]) -> Option
 /// an unescaped `%` so a comment is not a command tail.
 fn find_verbatiminput_at(line: &str, from: usize, extra_cmds: &[String]) -> Option<(usize, usize)> {
     find_leftover_cmd_at(line, from, extra_cmds, verbatiminput_cs_at)
+}
+
+/// Leftover tcolorbox `\tcbinputlisting` (one keyval group; GitHub #400).
+/// Other verb spans are skipped so `\verb|\tcbinputlisting{x}|` is not
+/// stolen. Walk stops at an unescaped `%` so a comment is not a tail.
+fn find_tcbinputlisting_at(
+    line: &str,
+    from: usize,
+    extra_cmds: &[String],
+) -> Option<(usize, usize)> {
+    find_leftover_cmd_at(line, from, extra_cmds, tcbinputlisting_cs_at)
 }
 
 fn find_leftover_cmd_at(
@@ -988,6 +999,16 @@ fn verbatiminput_cs_at(line: &str, at: usize) -> bool {
         }
     }
     false
+}
+
+fn tcbinputlisting_cs_at(line: &str, at: usize) -> bool {
+    let Some(tail) = line.get(at..).and_then(|s| s.strip_prefix('\\')) else {
+        return false;
+    };
+    let Some(after) = tail.strip_prefix("tcbinputlisting") else {
+        return false;
+    };
+    !after.starts_with(|c: char| c.is_ascii_alphabetic())
 }
 
 struct ParseState<'a> {
@@ -1677,6 +1698,9 @@ impl<'a> ParseState<'a> {
                     .or_else(|| find_inputminted_at(code, i, &self.parser.extra_verbatim_commands))
                     .or_else(|| {
                         find_verbatiminput_at(code, i, &self.parser.extra_verbatim_commands)
+                    })
+                    .or_else(|| {
+                        find_tcbinputlisting_at(code, i, &self.parser.extra_verbatim_commands)
                     })
             {
                 self.append_item_or_prose(line.start + i, &code[i..start]);
@@ -2715,6 +2739,118 @@ Some text.
         assert!(
             lst_out.contains("After.\nNext."),
             "prose after lstinputlisting must still split, got:\n{lst_out}"
+        );
+    }
+
+    /// Ticket fixture (GitHub #400): tcolorbox `\tcbinputlisting{keys}`
+    /// is one leftover command (one keyval group). Following flush
+    /// prose does not join the command line. `After.` / `Next.` still
+    /// split. `tcboutputlisting` / `lstinputlisting` / `inputminted`
+    /// unchanged.
+    #[test]
+    fn tcbinputlisting_does_not_join_following_prose() {
+        use crate::format_text;
+
+        let input = concat!(
+            "Before. Next.\n",
+            "\\tcbinputlisting{listing file=foo.py}\n",
+            "After. Next.\n",
+        );
+        let regions = LatexParser::default().parse(input);
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Structure(s) if s.contains(r"\tcbinputlisting{listing file=foo.py}")
+            )),
+            "tcbinputlisting must stay one Structure command, got: {regions:?}"
+        );
+        assert!(
+            !regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(p) if p.contains(r"\tcbinputlisting{listing file=foo.py}")
+            )),
+            "tcbinputlisting must not leak into Prose, got: {regions:?}"
+        );
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(p) if p.contains("After.") && p.contains("Next.")
+            )),
+            "After. / Next. must stay Prose, got: {regions:?}"
+        );
+        let out = format_text(input, &latex_cfg()).unwrap();
+        assert!(
+            out.contains("\\tcbinputlisting{listing file=foo.py}\n"),
+            "tcbinputlisting must stay one atomic command, got:\n{out}"
+        );
+        assert!(
+            !out.contains("\\tcbinputlisting{listing file=foo.py} After."),
+            "following flush prose must not join the command line, got:\n{out}"
+        );
+        assert!(
+            out.contains("Before.\nNext."),
+            "prose before tcbinputlisting must still split, got:\n{out}"
+        );
+        assert!(
+            out.contains("After.\nNext."),
+            "prose after tcbinputlisting must still split, got:\n{out}"
+        );
+        assert_eq!(format_text(&out, &latex_cfg()).unwrap(), out);
+
+        let tcbout = concat!(
+            "\\begin{tcboutputlisting}\n",
+            "First line. Second line.\n",
+            "\\end{tcboutputlisting}\n",
+            "After the block. Next.\n",
+        );
+        let tcbout_out = format_text(tcbout, &latex_cfg()).unwrap();
+        assert!(
+            tcbout_out.contains(
+                "\\begin{tcboutputlisting}\nFirst line. Second line.\n\\end{tcboutputlisting}"
+            ),
+            "tcboutputlisting must stay a code env, got:\n{tcbout_out}"
+        );
+        assert!(
+            tcbout_out.contains("After the block.\nNext."),
+            "prose after tcboutputlisting must still split, got:\n{tcbout_out}"
+        );
+
+        let lst = concat!(
+            "Before. Next.\n",
+            "\\lstinputlisting{foo.py}\n",
+            "After. Next.\n",
+        );
+        let lst_out = format_text(lst, &latex_cfg()).unwrap();
+        assert!(
+            lst_out.contains("\\lstinputlisting{foo.py}\n"),
+            "lstinputlisting must stay one atomic command, got:\n{lst_out}"
+        );
+        assert!(
+            !lst_out.contains("\\lstinputlisting{foo.py} After."),
+            "lstinputlisting must not join following prose, got:\n{lst_out}"
+        );
+        assert!(
+            lst_out.contains("After.\nNext."),
+            "prose after lstinputlisting must still split, got:\n{lst_out}"
+        );
+
+        let minted = concat!(
+            "Before. Next.\n",
+            "\\inputminted{python}{foo.py}\n",
+            "After. Next.\n",
+        );
+        let minted_out = format_text(minted, &latex_cfg()).unwrap();
+        assert!(
+            minted_out.contains("\\inputminted{python}{foo.py}\n"),
+            "inputminted must stay one atomic command, got:\n{minted_out}"
+        );
+        assert!(
+            !minted_out.contains("\\inputminted{python}{foo.py} After."),
+            "inputminted must not join following prose, got:\n{minted_out}"
+        );
+        assert!(
+            minted_out.contains("After.\nNext."),
+            "prose after inputminted must still split, got:\n{minted_out}"
         );
     }
 
