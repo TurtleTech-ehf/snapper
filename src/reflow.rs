@@ -1111,6 +1111,12 @@ fn hanging_indent_width(s: &str) -> usize {
     if crate::parser::rst::rst_admonition_marker_len(s) == Some(s.len()) {
         return s.chars().count();
     }
+    // RST SubstitutionDef (`.. |name| replace:: `): hang at marker
+    // width so the same-line replace body stays a hung paragraph
+    // (GitHub #417).
+    if crate::parser::rst::rst_substitution_replace_marker_len(s) == Some(s.len()) {
+        return s.chars().count();
+    }
     // RST field marker (`:Author: `, `:py:mod: `): hang at marker
     // width so the body stays a hung paragraph (GitHub #341).
     if crate::parser::rst::rst_field_marker_len(s) == Some(s.len()) {
@@ -1854,6 +1860,9 @@ They are endowed with reason and conscience and should act towards one another i
         assert_eq!(hanging_prefix(".. note:: "), "          ");
         assert_eq!(hanging_indent_width(".. warning:: "), 13);
         assert_eq!(hanging_indent_width(".. figure:: "), 0);
+        assert_eq!(hanging_indent_width(".. |v| replace:: "), 17);
+        assert_eq!(hanging_prefix(".. |v| replace:: "), "                 ");
+        assert_eq!(hanging_indent_width(".. |v| image:: "), 0);
         assert_eq!(hanging_indent_width("[fn:1] "), 7);
         assert_eq!(hanging_indent_width("[fn:note] "), 10);
         assert_eq!(hanging_prefix("[fn:1] "), "       ");
@@ -1926,6 +1935,26 @@ They are endowed with reason and conscience and should act towards one another i
         assert!(
             !result.contains("\nSecond sentence."),
             "second sentence must hang, got:\n{result}"
+        );
+    }
+
+    #[test]
+    fn rst_substitution_replace_hangs_second_sentence() {
+        let result = reflow_regions(vec![
+            Region::Structure(".. |v| replace:: ".to_string()),
+            Region::Prose("fig. 1 is here. After.".to_string()),
+            Region::Structure("\n".to_string()),
+        ]);
+        assert_eq!(
+            result,
+            concat!(
+                ".. |v| replace:: fig. 1 is here.\n",
+                "                 After.\n",
+            )
+        );
+        assert!(
+            !result.contains("\nAfter."),
+            "After. must hang inside the replace body, got:\n{result}"
         );
     }
 
