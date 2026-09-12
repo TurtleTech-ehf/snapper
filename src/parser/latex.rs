@@ -502,7 +502,7 @@ impl LatexParser {
     /// Byte offset of the first `%` that is not escaped as `\%` and is not
     /// inside `\verb` / `\lstinline` / `\spverb` / `\mintinline` / `\mint` /
     /// `\Verb` / `\SaveVerb` / `\piton` / `\lstinputlisting` /
-    /// `\inputminted` / configured verbatim commands.
+    /// `\inputminted` / `\verbatiminput` / configured verbatim commands.
     fn unescaped_percent(&self, line: &str) -> Option<usize> {
         unescaped_percent_with(line, &self.extra_verbatim_commands)
     }
@@ -875,7 +875,7 @@ fn find_tex_cs(line: &str, from: usize, cs: &str) -> Option<usize> {
 
 /// `\iffalse` in ordinary TeX, skipping `\verb` / `\lstinline` /
 /// `\spverb` / `\mintinline` / `\mint` / `\inputminted` / `\Verb` /
-/// `\SaveVerb` / `\piton` / `\lstinputlisting` spans.
+/// `\SaveVerb` / `\piton` / `\lstinputlisting` / `\verbatiminput` spans.
 fn find_iffalse_at(line: &str, from: usize, extra_cmds: &[String]) -> Option<usize> {
     let bytes = line.as_bytes();
     let mut i = from;
@@ -915,6 +915,14 @@ fn find_lstinputlisting_at(
 /// stops at an unescaped `%` so a comment is not a command tail.
 fn find_inputminted_at(line: &str, from: usize, extra_cmds: &[String]) -> Option<(usize, usize)> {
     find_leftover_cmd_at(line, from, extra_cmds, inputminted_cs_at)
+}
+
+/// Leftover verbatim.sty `\verbatiminput` / `\verbatiminput*`
+/// (required `{file}`; GitHub #398). Other verb spans are skipped
+/// so `\verb|\verbatiminput{x}|` is not stolen. Walk stops at an
+/// unescaped `%` so a comment is not a command tail.
+fn find_verbatiminput_at(line: &str, from: usize, extra_cmds: &[String]) -> Option<(usize, usize)> {
+    find_leftover_cmd_at(line, from, extra_cmds, verbatiminput_cs_at)
 }
 
 fn find_leftover_cmd_at(
@@ -962,6 +970,16 @@ fn inputminted_cs_at(line: &str, at: usize) -> bool {
         return false;
     };
     let Some(after) = tail.strip_prefix("inputminted") else {
+        return false;
+    };
+    !after.starts_with(|c: char| c.is_ascii_alphabetic())
+}
+
+fn verbatiminput_cs_at(line: &str, at: usize) -> bool {
+    let Some(tail) = line.get(at..).and_then(|s| s.strip_prefix('\\')) else {
+        return false;
+    };
+    let Some(after) = tail.strip_prefix("verbatiminput") else {
         return false;
     };
     !after.starts_with(|c: char| c.is_ascii_alphabetic())
@@ -1652,6 +1670,9 @@ impl<'a> ParseState<'a> {
             if let Some((start, end)) =
                 find_lstinputlisting_at(code, i, &self.parser.extra_verbatim_commands)
                     .or_else(|| find_inputminted_at(code, i, &self.parser.extra_verbatim_commands))
+                    .or_else(|| {
+                        find_verbatiminput_at(code, i, &self.parser.extra_verbatim_commands)
+                    })
             {
                 self.append_item_or_prose(line.start + i, &code[i..start]);
                 self.push_structure(ByteSpan::new(
@@ -2576,6 +2597,119 @@ Some text.
         assert!(
             minted_out.contains("After the block.\nNext."),
             "prose after minted must still split, got:\n{minted_out}"
+        );
+        assert_eq!(format_text(&minted_out, &latex_cfg()).unwrap(), minted_out);
+    }
+
+    /// Ticket fixture (GitHub #398): verbatim.sty `\verbatiminput{file}`
+    /// is one leftover command. Following flush prose does not join the
+    /// command line. `After.` / `Next.` still split. `lstinputlisting` /
+    /// `inputminted` unchanged.
+    #[test]
+    fn verbatiminput_does_not_join_following_prose() {
+        use crate::format_text;
+
+        let input = concat!(
+            "Before. Next.\n",
+            "\\verbatiminput{foo.py}\n",
+            "After. Next.\n",
+        );
+        let regions = LatexParser::default().parse(input);
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Structure(s) if s.contains(r"\verbatiminput{foo.py}")
+            )),
+            "verbatiminput must stay one Structure command, got: {regions:?}"
+        );
+        assert!(
+            !regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(p) if p.contains(r"\verbatiminput{foo.py}")
+            )),
+            "verbatiminput must not leak into Prose, got: {regions:?}"
+        );
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(p) if p.contains("After.") && p.contains("Next.")
+            )),
+            "After. / Next. must stay Prose, got: {regions:?}"
+        );
+        let out = format_text(input, &latex_cfg()).unwrap();
+        assert!(
+            out.contains("\\verbatiminput{foo.py}\n"),
+            "verbatiminput must stay one atomic command, got:\n{out}"
+        );
+        assert!(
+            !out.contains("\\verbatiminput{foo.py} After."),
+            "following flush prose must not join the command line, got:\n{out}"
+        );
+        assert!(
+            out.contains("Before.\nNext."),
+            "prose before verbatiminput must still split, got:\n{out}"
+        );
+        assert!(
+            out.contains("After.\nNext."),
+            "prose after verbatiminput must still split, got:\n{out}"
+        );
+        assert_eq!(format_text(&out, &latex_cfg()).unwrap(), out);
+
+        let star = concat!(
+            "Before. Next.\n",
+            "\\verbatiminput*{foo.py}\n",
+            "After. Next.\n",
+        );
+        let star_out = format_text(star, &latex_cfg()).unwrap();
+        assert!(
+            star_out.contains("\\verbatiminput*{foo.py}\n"),
+            "verbatiminput* must stay one atomic command, got:\n{star_out}"
+        );
+        assert!(
+            !star_out.contains("\\verbatiminput*{foo.py} After."),
+            "starred verbatiminput must not join following prose, got:\n{star_out}"
+        );
+        assert!(
+            star_out.contains("After.\nNext."),
+            "prose after starred verbatiminput must still split, got:\n{star_out}"
+        );
+
+        let lst = concat!(
+            "Before. Next.\n",
+            "\\lstinputlisting{foo.py}\n",
+            "After. Next.\n",
+        );
+        let lst_out = format_text(lst, &latex_cfg()).unwrap();
+        assert!(
+            lst_out.contains("\\lstinputlisting{foo.py}\n"),
+            "lstinputlisting must stay unchanged, got:\n{lst_out}"
+        );
+        assert!(
+            !lst_out.contains("\\lstinputlisting{foo.py} After."),
+            "lstinputlisting must not join following prose, got:\n{lst_out}"
+        );
+        assert!(
+            lst_out.contains("After.\nNext."),
+            "prose after lstinputlisting must still split, got:\n{lst_out}"
+        );
+
+        let minted = concat!(
+            "Before. Next.\n",
+            "\\inputminted{python}{foo.py}\n",
+            "After. Next.\n",
+        );
+        let minted_out = format_text(minted, &latex_cfg()).unwrap();
+        assert!(
+            minted_out.contains("\\inputminted{python}{foo.py}\n"),
+            "inputminted must stay unchanged, got:\n{minted_out}"
+        );
+        assert!(
+            !minted_out.contains("\\inputminted{python}{foo.py} After."),
+            "inputminted must not join following prose, got:\n{minted_out}"
+        );
+        assert!(
+            minted_out.contains("After.\nNext."),
+            "prose after inputminted must still split, got:\n{minted_out}"
         );
         assert_eq!(format_text(&minted_out, &latex_cfg()).unwrap(), minted_out);
     }
