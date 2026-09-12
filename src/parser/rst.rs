@@ -2,8 +2,8 @@ use regex::Regex;
 use std::sync::LazyLock;
 
 use crate::parser::{
-    flush_prose_spanned, iter_lines, join_prose_gap, push_prose_line, ByteSpan, FormatParser, Line,
-    Region, SpannedRegion,
+    ByteSpan, FormatParser, Line, Region, SpannedRegion, flush_prose_spanned, iter_lines,
+    join_prose_gap, push_prose_line,
 };
 
 /// Match `.. code-block:: LANG` or `.. sourcecode:: LANG` (or `.. code:: LANG`).
