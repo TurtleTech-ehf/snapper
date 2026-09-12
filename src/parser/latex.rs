@@ -156,7 +156,8 @@ static LSTLISTING_LANG_RE: LazyLock<Regex> = LazyLock::new(|| {
 /// plus latex2e `verbatim*` / fancyvrb `Verbatim` /
 /// `Verbatim*` / `BVerbatim` / `BVerbatim*` / `LVerbatim` /
 /// `LVerbatim*` / `SaveVerbatim` / `VerbatimOut` / `VerbatimWrite` /
-/// `VerbatimBuffer` / fvextra `VerbEnv` / verbments `pyglist`,
+/// `VerbatimBuffer` / fvextra `VerbEnv` / verbments `pyglist` /
+/// texments / pygmentex `pygmented`,
 /// moreverb `boxedverbatim` / `verbatimtab` / `verbatimwrite` / `listing` /
 /// `listingcont` / `listing*` / `listingcont*`, tcolorbox `tcblisting` /
 /// `tcblisting*` / `codeexample` / `tcbverbatimwrite` / `tcbwritetemp` /
@@ -205,7 +206,9 @@ static LSTLISTING_LANG_RE: LazyLock<Regex> = LazyLock::new(|| {
 /// pythonhighlight.sty `python` (`\lstnewenvironment{python}`) is the
 /// same listings raw scan as `lstlisting` (GitHub #307).
 /// verbments.sty `pyglist` wraps fancyvrb `VerbatimOut` (raw listing
-/// body; GitHub #308).
+/// body; GitHub #308). texments.sty / pygmentex.sty `pygmented` is
+/// `VerbatimEnvironment` plus `VerbatimOut` (raw listing body;
+/// GitHub #342).
 fn is_builtin_code_env(name: &str) -> bool {
     matches!(
         name,
@@ -225,6 +228,7 @@ fn is_builtin_code_env(name: &str) -> bool {
             | "SaveVerbatim"
             | "VerbatimOut"
             | "pyglist"
+            | "pygmented"
             | "VerbatimWrite"
             | "VerbatimBuffer"
             | "VerbEnv"
@@ -2986,6 +2990,115 @@ Some text.
             "prose after landed minted must still split, got:\n{minted_out}"
         );
         assert_eq!(format_text(&minted_out, &latex_cfg()).unwrap(), minted_out);
+    }
+
+    /// Ticket fixture (GitHub #342): texments.sty / pygmentex.sty
+    /// `pygmented` is `VerbatimEnvironment` plus `VerbatimOut`. Required
+    /// `{lang}` stays on the begin header; body stays Code; following
+    /// prose still splits. Landed pygments / pyglist stay Code.
+    #[test]
+    fn texments_pygmented_is_code_not_prose() {
+        use crate::format_text;
+
+        let input = concat!(
+            "\\begin{pygmented}{python}\n",
+            "First line. Second line.\n",
+            "\\end{pygmented}\n",
+            "After the block. Next.\n",
+        );
+        let regions = LatexParser::default().parse(input);
+        let code = regions.iter().find_map(|r| match r {
+            Region::Code {
+                header,
+                body,
+                footer,
+                ..
+            } => Some((header.as_str(), body.as_str(), footer.as_str())),
+            _ => None,
+        });
+        let Some((header, body, footer)) = code else {
+            panic!("pygmented must be Code, got: {regions:?}");
+        };
+        assert!(
+            header.contains(r"\begin{pygmented}{python}"),
+            "required lexer arg must stay on the begin header, got header={header:?}"
+        );
+        assert!(
+            body.contains("First line. Second line."),
+            "pygmented body must keep both sentences, got body={body:?}"
+        );
+        assert!(
+            footer.contains(r"\end{pygmented}"),
+            "pygmented footer must stay, got footer={footer:?}"
+        );
+        assert!(
+            !regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(p) if p.contains("First line") || p.contains("{python}")
+            )),
+            "pygmented lexer/body must not leak into Prose, got: {regions:?}"
+        );
+        let out = format_text(input, &latex_cfg()).unwrap();
+        assert!(
+            out.contains(r"\begin{pygmented}{python}") && out.contains(r"\end{pygmented}"),
+            "pygmented begin/end must stay, got:\n{out}"
+        );
+        assert!(
+            out.contains("First line. Second line."),
+            "pygmented body must stay one source line, got:\n{out}"
+        );
+        assert!(
+            !out.contains("First line.\nSecond line."),
+            "pygmented must not reflow as prose, got:\n{out}"
+        );
+        assert!(
+            out.contains("After the block.\nNext."),
+            "prose after pygmented must still split, got:\n{out}"
+        );
+        assert_eq!(format_text(&out, &latex_cfg()).unwrap(), out);
+
+        let pygments = concat!(
+            "\\begin{pygments}{python}\n",
+            "First line. Second line.\n",
+            "\\end{pygments}\n",
+            "After the block. Next.\n",
+        );
+        let pygments_out = format_text(pygments, &latex_cfg()).unwrap();
+        assert!(
+            pygments_out
+                .contains("\\begin{pygments}{python}\nFirst line. Second line.\n\\end{pygments}"),
+            "landed pygments must stay a code env, got:\n{pygments_out}"
+        );
+        assert!(
+            pygments_out.contains("After the block.\nNext."),
+            "prose after landed pygments must still split, got:\n{pygments_out}"
+        );
+        assert_eq!(
+            format_text(&pygments_out, &latex_cfg()).unwrap(),
+            pygments_out
+        );
+
+        let pyglist = concat!(
+            "\\begin{pyglist}[language=python]\n",
+            "First line. Second line.\n",
+            "\\end{pyglist}\n",
+            "After the block. Next.\n",
+        );
+        let pyglist_out = format_text(pyglist, &latex_cfg()).unwrap();
+        assert!(
+            pyglist_out.contains(
+                "\\begin{pyglist}[language=python]\nFirst line. Second line.\n\\end{pyglist}"
+            ),
+            "landed pyglist must stay a code env, got:\n{pyglist_out}"
+        );
+        assert!(
+            pyglist_out.contains("After the block.\nNext."),
+            "prose after landed pyglist must still split, got:\n{pyglist_out}"
+        );
+        assert_eq!(
+            format_text(&pyglist_out, &latex_cfg()).unwrap(),
+            pyglist_out
+        );
     }
 
     /// Ticket fixture (GitHub #247): fvextra VerbatimWrite is the same
