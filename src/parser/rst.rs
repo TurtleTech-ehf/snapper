@@ -324,10 +324,16 @@ fn parse_line_based(input: &str) -> Vec<SpannedRegion> {
 
         // Doctest block: Docutils Body.doctest (`>>>( +|$)`) is checked
         // before Body.line, so a prompt-only `>>>` / `>>> ` is not a
-        // `>` section underline. One doctest_block through the next
-        // blank or dedent; no inline parse.
+        // `>` section underline. Lone `>>>` at EOL is one-line Structure
+        // (GitHub #331). `>>> ` plus a command still takes the block
+        // through the next blank or dedent; no inline parse.
         if is_rst_doctest_opener(trimmed) {
             flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
+            if is_rst_empty_doctest_opener(trimmed) {
+                regions.push(SpannedRegion::structure(input, line.span()));
+                i += 1;
+                continue;
+            }
             let block_indent = line_text.len() - trimmed.len();
             let block_start = line.start;
             let mut block_end = line.end;
@@ -643,6 +649,12 @@ fn parse_line_based(input: &str) -> Vec<SpannedRegion> {
 /// Prompt-only `>>>` and `>>> ` plus command both open a block; `>>>print` does not.
 pub(crate) fn is_rst_doctest_opener(trimmed: &str) -> bool {
     trimmed == ">>>" || trimmed.starts_with(">>> ")
+}
+
+/// Lone `>>>` / `>>> ` (spaces only). No command, so following lines
+/// stay outside the doctest block (GitHub #331).
+fn is_rst_empty_doctest_opener(trimmed: &str) -> bool {
+    trimmed.trim_end() == ">>>"
 }
 
 /// Docutils `Body.patterns['anonymous']`: `__( +|$)`.
@@ -3139,6 +3151,12 @@ mod tests {
         assert!(!is_rst_doctest_opener(".. >>>"));
         assert!(!is_rst_doctest_opener(">>>>"));
         assert!(!is_rst_doctest_opener(">>>>>"));
+        assert!(is_rst_empty_doctest_opener(">>>"));
+        assert!(is_rst_empty_doctest_opener(">>> "));
+        assert!(is_rst_empty_doctest_opener(">>>  "));
+        assert!(!is_rst_empty_doctest_opener(">>> print(1)"));
+        assert!(!is_rst_empty_doctest_opener(">>> print(1.2)"));
+        assert!(!is_rst_empty_doctest_opener(">>>>"));
     }
 
     #[test]
@@ -3265,22 +3283,97 @@ mod tests {
         );
         let regions = RstParser.parse(input);
         assert!(
+            regions
+                .iter()
+                .any(|r| matches!(r, Region::Structure(s) if s.trim() == ">>>")),
+            "prompt-only >>> at EOL must be Structure, got {regions:?}"
+        );
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(s) if s.contains("Python-specific usage examples; begun with")
+            )),
+            "text after empty >>> must stay Prose, got {regions:?}"
+        );
+        assert!(
             regions.iter().any(|r| matches!(
                 r,
                 Region::Structure(s)
-                    if s.contains(">>>")
-                        && s.contains("Python-specific usage examples; begun with")
-                        && s.contains(">>> print('(cut and pasted")
+                    if s.contains(">>> print('(cut and pasted")
                         && s.contains("(cut and pasted from interactive Python sessions)")
             )),
-            "prompt-only >>> must open one Structure doctest, got {regions:?}"
+            "same-line >>> print must still open a Structure block, got {regions:?}"
+        );
+        assert!(!is_underline(">>>"), ">>> must not be a > adornment");
+    }
+
+    #[test]
+    fn empty_doctest_opener_does_not_swallow_following_prose() {
+        use crate::format::Format;
+        use crate::{FormatConfig, format_text};
+
+        let cfg = FormatConfig {
+            format: Format::Rst,
+            max_width: 0,
+            ..Default::default()
+        }
+        .without_safety_backstops();
+        let input = concat!(
+            "Intro sentence here. Another intro sentence.\n",
+            ">>>\n",
+            "After empty. Next sentence.\n",
+        );
+        let regions = RstParser.parse(input);
+        assert!(
+            regions
+                .iter()
+                .any(|r| matches!(r, Region::Structure(s) if s.trim() == ">>>")),
+            ">>> at EOL must be Structure, got {regions:?}"
         );
         assert!(
             !regions.iter().any(|r| matches!(
                 r,
-                Region::Prose(s) if s.contains(">>>") || s.contains("Python-specific")
+                Region::Structure(s) if s.contains(">>>") && s.contains("After empty.")
             )),
-            "prompt-only >>> must not leave output as Prose, got {regions:?}"
+            "empty >>> must not swallow following prose, got {regions:?}"
+        );
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(p) if p.contains("After empty.") && p.contains("Next sentence.")
+            )),
+            "After empty. / Next sentence. must stay Prose, got {regions:?}"
+        );
+        let out = format_text(input, &cfg).unwrap();
+        assert_eq!(
+            out,
+            concat!(
+                "Intro sentence here.\n",
+                "Another intro sentence.\n",
+                ">>>\n",
+                "After empty.\n",
+                "Next sentence.\n",
+            ),
+            "got:\n{out}"
+        );
+    }
+
+    #[test]
+    fn same_line_doctest_command_still_takes_the_block() {
+        let input = ">>> print(1.2)\n1.2\n";
+        let regions = RstParser.parse(input);
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Structure(s) if s.contains(">>> print(1.2)") && s.contains("1.2")
+            )),
+            ">>> print(1.2) must stay one Structure block, got {regions:?}"
+        );
+        assert!(
+            !regions
+                .iter()
+                .any(|r| matches!(r, Region::Prose(p) if p.contains("1.2"))),
+            "same-line doctest must not be Prose, got {regions:?}"
         );
     }
 
