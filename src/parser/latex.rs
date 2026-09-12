@@ -2,7 +2,7 @@ use regex::Regex;
 use std::sync::LazyLock;
 
 use crate::parser::{
-    ByteSpan, FormatParser, Line, SpannedRegion, flush_prose_spanned, iter_lines, join_prose_gap,
+    flush_prose_spanned, iter_lines, join_prose_gap, ByteSpan, FormatParser, Line, SpannedRegion,
 };
 use crate::sentence::unicode::latex_verb_span_end_with;
 
@@ -503,7 +503,7 @@ impl LatexParser {
     /// inside `\verb` / `\lstinline` / `\spverb` / `\mintinline` / `\mint` /
     /// `\Verb` / `\SaveVerb` / `\piton` / `\lstinputlisting` /
     /// `\inputminted` / `\verbatiminput` / `\VerbatimInput` / `\tcbinputlisting` /
-    /// `\inputpy` / `\inputpycon` / configured verbatim commands.
+    /// `\listinginput` / `\inputpy` / `\inputpycon` / configured verbatim commands.
     fn unescaped_percent(&self, line: &str) -> Option<usize> {
         unescaped_percent_with(line, &self.extra_verbatim_commands)
     }
@@ -877,7 +877,7 @@ fn find_tex_cs(line: &str, from: usize, cs: &str) -> Option<usize> {
 /// `\iffalse` in ordinary TeX, skipping `\verb` / `\lstinline` /
 /// `\spverb` / `\mintinline` / `\mint` / `\inputminted` / `\Verb` /
 /// `\SaveVerb` / `\piton` / `\lstinputlisting` / `\verbatiminput` /
-/// `\VerbatimInput` / `\inputpy` / `\inputpycon` spans.
+/// `\VerbatimInput` / `\listinginput` / `\inputpy` / `\inputpycon` spans.
 fn find_iffalse_at(line: &str, from: usize, extra_cmds: &[String]) -> Option<usize> {
     let bytes = line.as_bytes();
     let mut i = from;
@@ -1005,6 +1005,25 @@ fn inputpy_cs_at(line: &str, at: usize) -> bool {
         }
     }
     false
+}
+
+/// Leftover moreverb `\listinginput` (optional `[interval]`, required
+/// `{start-line}`, required `{filename}`; GitHub #424). Other verb
+/// spans are skipped so `\verb|\listinginput{1}{x}|` is not stolen.
+/// Walk stops at an unescaped `%` so a comment is not a command tail.
+/// There is no `*` form.
+fn find_listinginput_at(line: &str, from: usize, extra_cmds: &[String]) -> Option<(usize, usize)> {
+    find_leftover_cmd_at(line, from, extra_cmds, listinginput_cs_at)
+}
+
+fn listinginput_cs_at(line: &str, at: usize) -> bool {
+    let Some(tail) = line.get(at..).and_then(|s| s.strip_prefix('\\')) else {
+        return false;
+    };
+    let Some(after) = tail.strip_prefix("listinginput") else {
+        return false;
+    };
+    !after.starts_with(|c: char| c.is_ascii_alphabetic() || c == '*')
 }
 
 fn find_leftover_cmd_at(
@@ -1777,6 +1796,7 @@ impl<'a> ParseState<'a> {
                         find_pitoninputfile_at(code, i, &self.parser.extra_verbatim_commands)
                     })
                     .or_else(|| find_inputpy_at(code, i, &self.parser.extra_verbatim_commands))
+                    .or_else(|| find_listinginput_at(code, i, &self.parser.extra_verbatim_commands))
             {
                 self.append_item_or_prose(line.start + i, &code[i..start]);
                 self.push_structure(ByteSpan::new(
@@ -2004,7 +2024,7 @@ mod tests {
     #[test]
     fn multi_sentence_section_title_stays_one_line() {
         use crate::format::Format;
-        use crate::{FormatConfig, format_text};
+        use crate::{format_text, FormatConfig};
 
         let input = "\\begin{document}\n\\section{A long title. With two sentences.}\nBody text here. More body.\n\\end{document}\n";
         let cfg = FormatConfig {
@@ -2061,7 +2081,7 @@ mod tests {
     fn section_optional_short_title_stays_one_line() {
         use crate::format::Format;
         use crate::oracle;
-        use crate::{FormatConfig, format_text};
+        use crate::{format_text, FormatConfig};
 
         let input =
             "\\section[Short. Title.]{A long title. With two sentences.}\nBody. More body.\n";
@@ -2093,7 +2113,7 @@ mod tests {
     #[test]
     fn koma_addsec_addchap_addpart_optional_short_title_is_structure() {
         use crate::format::Format;
-        use crate::{FormatConfig, format_text};
+        use crate::{format_text, FormatConfig};
 
         let cfg = FormatConfig {
             format: Format::Latex,
@@ -2137,7 +2157,7 @@ mod tests {
     #[test]
     fn fragment_without_begin_document_is_prose() {
         use crate::format::Format;
-        use crate::{FormatConfig, format_text};
+        use crate::{format_text, FormatConfig};
 
         let input = "This sentence is a test. This sentence is also a test.\n";
         let cfg = FormatConfig {
@@ -2155,7 +2175,7 @@ mod tests {
     #[test]
     fn no_preamble_pragma_formats_body() {
         use crate::format::Format;
-        use crate::{FormatConfig, format_text};
+        use crate::{format_text, FormatConfig};
 
         let input =
             "% snapper:no-preamble\nThis sentence is a test. This sentence is also a test.\n";
@@ -2178,7 +2198,7 @@ mod tests {
     #[test]
     fn documentclass_without_begin_stays_preamble() {
         use crate::format::Format;
-        use crate::{FormatConfig, format_text};
+        use crate::{format_text, FormatConfig};
 
         let input =
             "\\documentclass{article}\nThis sentence is a test. This sentence is also a test.\n";
@@ -2246,7 +2266,7 @@ Some text.
     #[test]
     fn trailing_percent_is_nospace_join() {
         use crate::format::Format;
-        use crate::{FormatConfig, format_text};
+        use crate::{format_text, FormatConfig};
 
         let input = "\\begin{document}\nfoo%\nbar. Next sentence.\n\\end{document}\n";
         let cfg = FormatConfig {
@@ -2270,7 +2290,7 @@ Some text.
     #[test]
     fn escaped_percent_is_not_a_comment() {
         use crate::format::Format;
-        use crate::{FormatConfig, format_text};
+        use crate::{format_text, FormatConfig};
 
         let input = "\\begin{document}\n50\\% of cases. More text.\n\\end{document}\n";
         let cfg = FormatConfig {
@@ -2289,7 +2309,7 @@ Some text.
     #[test]
     fn mid_line_percent_comment_is_structure() {
         use crate::format::Format;
-        use crate::{FormatConfig, format_text};
+        use crate::{format_text, FormatConfig};
 
         let input = "\\begin{document}\nSee Fig. 1. % TODO cite\nNext sentence.\n\\end{document}\n";
         let cfg = FormatConfig {
@@ -6432,7 +6452,7 @@ Some text.
     fn enumerate_item_hangs_next_sentence() {
         use crate::format::Format;
         use crate::oracle;
-        use crate::{FormatConfig, format_text};
+        use crate::{format_text, FormatConfig};
 
         let cfg = FormatConfig {
             format: Format::Latex,
@@ -8283,6 +8303,166 @@ Some text.
         assert!(
             !lst_out.contains("\\lstinputlisting{foo.py} After."),
             "lstinputlisting must not join following prose, got:\n{lst_out}"
+        );
+
+        let tcb = concat!(
+            "Before. Next.\n",
+            "\\tcbinputlisting{listing file=foo.py}\n",
+            "After. Next.\n",
+        );
+        let tcb_out = format_text(tcb, &latex_cfg()).unwrap();
+        assert!(
+            tcb_out.contains("\\tcbinputlisting{listing file=foo.py}\n"),
+            "tcbinputlisting must stay unchanged, got:\n{tcb_out}"
+        );
+        assert!(
+            !tcb_out.contains("\\tcbinputlisting{listing file=foo.py} After."),
+            "tcbinputlisting must not join following prose, got:\n{tcb_out}"
+        );
+
+        let piton = concat!(
+            "Before. Next.\n",
+            "\\PitonInputFile{foo.py}\n",
+            "After. Next.\n",
+        );
+        let piton_out = format_text(piton, &latex_cfg()).unwrap();
+        assert!(
+            piton_out.contains("\\PitonInputFile{foo.py}\n"),
+            "PitonInputFile must stay unchanged, got:\n{piton_out}"
+        );
+        assert!(
+            !piton_out.contains("\\PitonInputFile{foo.py} After."),
+            "PitonInputFile must not join following prose, got:\n{piton_out}"
+        );
+    }
+
+    /// Ticket fixture (GitHub #424): moreverb `\listinginput{start}{file}`
+    /// stays one leftover command. Optional `[interval]` stays atomic.
+    /// Following flush `After.` does not join. listing / listingcont /
+    /// verbatiminput / inputpy / tcbinputlisting / PitonInputFile
+    /// unchanged.
+    #[test]
+    fn listinginput_does_not_join_following_prose() {
+        use crate::format_text;
+
+        let input = concat!(
+            "Before. Next.\n",
+            "\\listinginput{1}{foo.py}\n",
+            "After. Next.\n",
+        );
+        let regions = LatexParser::default().parse(input);
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Structure(s) if s.contains(r"\listinginput{1}{foo.py}")
+            )),
+            "listinginput must stay one Structure command, got: {regions:?}"
+        );
+        assert!(
+            !regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(p) if p.contains(r"\listinginput{1}{foo.py}")
+            )),
+            "listinginput must not leak into Prose, got: {regions:?}"
+        );
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(p) if p.contains("After.") && p.contains("Next.")
+            )),
+            "After. / Next. must stay Prose, got: {regions:?}"
+        );
+        let out = format_text(input, &latex_cfg()).unwrap();
+        assert!(
+            out.contains("\\listinginput{1}{foo.py}\n"),
+            "listinginput must stay one atomic command, got:\n{out}"
+        );
+        assert!(
+            !out.contains("\\listinginput{1}{foo.py} After."),
+            "following flush prose must not join the command line, got:\n{out}"
+        );
+        assert!(
+            out.contains("Before.\nNext."),
+            "prose before listinginput must still split, got:\n{out}"
+        );
+        assert!(
+            out.contains("After.\nNext."),
+            "prose after listinginput must still split, got:\n{out}"
+        );
+        assert_eq!(format_text(&out, &latex_cfg()).unwrap(), out);
+
+        let opts = concat!(
+            "Before. Next.\n",
+            "\\listinginput[2]{1}{foo.py}\n",
+            "After. Next.\n",
+        );
+        let opts_out = format_text(opts, &latex_cfg()).unwrap();
+        assert!(
+            opts_out.contains("\\listinginput[2]{1}{foo.py}\n"),
+            "listinginput optional interval must stay atomic, got:\n{opts_out}"
+        );
+        assert!(
+            !opts_out.contains("\\listinginput[2]{1}{foo.py} After."),
+            "optional-interval listinginput must not join following prose, got:\n{opts_out}"
+        );
+
+        let listing = concat!(
+            "\\begin{listing}{1}\n",
+            "First line. Second line.\n",
+            "\\end{listing}\n",
+            "After the block. Next.\n",
+        );
+        let listing_out = format_text(listing, &latex_cfg()).unwrap();
+        assert!(
+            listing_out.contains("\\begin{listing}{1}\nFirst line. Second line.\n\\end{listing}"),
+            "listing must stay a code env, got:\n{listing_out}"
+        );
+        assert!(
+            listing_out.contains("After the block.\nNext."),
+            "prose after listing must still split, got:\n{listing_out}"
+        );
+
+        let listingcont = concat!(
+            "\\begin{listingcont}\n",
+            "First line. Second line.\n",
+            "\\end{listingcont}\n",
+            "After the block. Next.\n",
+        );
+        let listingcont_out = format_text(listingcont, &latex_cfg()).unwrap();
+        assert!(
+            listingcont_out
+                .contains("\\begin{listingcont}\nFirst line. Second line.\n\\end{listingcont}"),
+            "listingcont must stay a code env, got:\n{listingcont_out}"
+        );
+        assert!(
+            listingcont_out.contains("After the block.\nNext."),
+            "prose after listingcont must still split, got:\n{listingcont_out}"
+        );
+
+        let verb = concat!(
+            "Before. Next.\n",
+            "\\verbatiminput{foo.py}\n",
+            "After. Next.\n",
+        );
+        let verb_out = format_text(verb, &latex_cfg()).unwrap();
+        assert!(
+            verb_out.contains("\\verbatiminput{foo.py}\n"),
+            "verbatiminput must stay unchanged, got:\n{verb_out}"
+        );
+        assert!(
+            !verb_out.contains("\\verbatiminput{foo.py} After."),
+            "verbatiminput must not join following prose, got:\n{verb_out}"
+        );
+
+        let py = concat!("Before. Next.\n", "\\inputpy{foo.py}\n", "After. Next.\n",);
+        let py_out = format_text(py, &latex_cfg()).unwrap();
+        assert!(
+            py_out.contains("\\inputpy{foo.py}\n"),
+            "inputpy must stay unchanged, got:\n{py_out}"
+        );
+        assert!(
+            !py_out.contains("\\inputpy{foo.py} After."),
+            "inputpy must not join following prose, got:\n{py_out}"
         );
 
         let tcb = concat!(
