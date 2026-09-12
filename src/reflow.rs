@@ -2538,6 +2538,34 @@ They are endowed with reason and conscience and should act towards one another i
     }
 
     #[test]
+    fn max_width_keeps_org_latex_fragment_interior_backslash_atomic() {
+        let token = r"\(\alpha. \beta\)";
+        let sentence = r"The root is \(\alpha. \beta\) today. Next.";
+        for clause in [false, true] {
+            let wrapped = wrap_sentence(sentence, 12, clause);
+            assert_atomic_token(&wrapped, token);
+            assert!(
+                !wrapped.contains("\\(\\alpha.\n") && !wrapped.contains("alpha.\n\\beta"),
+                "must not wrap on the interior period, got:\n{wrapped}"
+            );
+        }
+    }
+
+    #[test]
+    fn max_width_keeps_org_latex_fragment_optional_arg_atomic() {
+        let token = r"\sqrt[2]{a. b}";
+        let sentence = r"See \sqrt[2]{a. b} today. Next.";
+        for clause in [false, true] {
+            let wrapped = wrap_sentence(sentence, 12, clause);
+            assert_atomic_token(&wrapped, token);
+            assert!(
+                !wrapped.contains("\\sqrt[2]{a.\n") && !wrapped.contains("a.\nb}"),
+                "must not wrap on the interior period, got:\n{wrapped}"
+            );
+        }
+    }
+
+    #[test]
     fn max_width_keeps_autolink_atomic() {
         let token = "<https://example.com/a/long-path>";
         let sentence = "Visit <https://example.com/a/long-path> today.";

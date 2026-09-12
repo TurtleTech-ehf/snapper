@@ -49,11 +49,15 @@ static INLINE_TOKEN_RE: LazyLock<Regex> = LazyLock::new(|| {
             // is not matched: that would swallow every bracket group.
             r"!\[[^\]]*\]\[[^\]]*\]", // Markdown reference images: ![alt][ref]
             r"\[[^\]]+\]\[[^\]]*\]",  // Markdown reference links: [text][ref]
-            r"\$\$[^$\n]+\$\$",       // Display math: $$...$$
-            r"\$[^$\n]+\$",           // Inline math: $...$
-            r"\\\([^\\\n]+\\\)",      // LaTeX inline math: \(...\)
-            r"\\\[[^\n]+?\\\]",       // Org / LaTeX display math fragment: \[...\]
-            r"\\([a-zA-Z]+)\{[^}]*\}", // LaTeX commands: \cmd{arg}
+            r"\$\$[^$\n]+\$\$", // Display math: $$...$$
+            r"\$[^$\n]+\$",     // Inline math: $...$
+            // org-element-latex-fragment-parser: \(...\) / \[...\] search
+            // to the closer. `[^\\\n]` dropped interior `\alpha` / `\beta`.
+            r"\\\([^\n]+?\\\)", // LaTeX inline math: \(...\)
+            r"\\\[[^\n]+?\\\]", // Org / LaTeX display math fragment: \[...\]
+            // org-element-latex-fragment-parser macro:
+            // \\[a-zA-Z]+\*? then optional [arg] and one or more {arg}.
+            r"\\[a-zA-Z]+\*?(?:\[[^\]\[\n{}]*\])?(?:\{[^{}\n]*\})+",
             // Org emphasis must be protected before sentence splits so a line
             // cannot begin with `*rest` (false headline) or leave markers open.
             // Org requires a non-space immediately after the opener and before
@@ -1002,6 +1006,7 @@ fn find_md_code_span(text: &str, open_at: usize) -> Option<usize> {
 /// `<<...>>`, Org angular `<type:path with spaces>` (org-link-angle-re),
 /// Org `{{{name}}}` / `{{{name(args)}}}`, Org timestamps
 /// (`<YYYY-MM-DD…>`, `[YYYY-MM-DD…]`, ranges `--`, diary `<%%(...)>`),
+/// Org latex-fragments (`\(...\)`, `$...$`, `\cmd{arg}`, `\cmd[opt]{arg}`),
 /// Org `src_lang{...}` / `call_name(...)`, RST `|fig. 1|` / `|name|_` /
 /// `|name|__`, paired spans).
 ///
@@ -1738,6 +1743,68 @@ mod tests {
             vec![
                 r"According to X, \(E=mc^2\).".to_string(),
                 "Next.".to_string(),
+            ]
+        );
+    }
+
+    #[test]
+    fn latex_inline_math_interior_backslash_stays_atomic() {
+        // GitHub #336 / snapper-e6tw: org-element \(...\) allows `\alpha`.
+        let frag = r"\(\alpha. \beta\)";
+        let text = r"The root is \(\alpha. \beta\) today. Next.";
+        let (_, placeholders) = protect_inline_tokens(text);
+        assert!(
+            placeholders.iter().any(|p| p == frag),
+            "\\( with interior \\\\ must be one token, got {placeholders:?}"
+        );
+        let spans = atomic_inline_spans(text);
+        assert!(
+            spans.iter().any(|&(s, e)| &text[s..e] == frag),
+            "fragment must be an atomic wrap span, got {:?}",
+            spans.iter().map(|&(s, e)| &text[s..e]).collect::<Vec<_>>()
+        );
+        assert_eq!(
+            split(text),
+            vec![
+                r"The root is \(\alpha. \beta\) today.".to_string(),
+                "Next.".to_string()
+            ]
+        );
+    }
+
+    #[test]
+    fn latex_inline_math_and_dollar_without_backslash_stay_atomic() {
+        assert_eq!(
+            split(r"See \( x = 1. \) here. Next."),
+            vec![r"See \( x = 1. \) here.".to_string(), "Next.".to_string()]
+        );
+        assert_eq!(
+            split("See $a. b$ here. Next."),
+            vec!["See $a. b$ here.".to_string(), "Next.".to_string()]
+        );
+    }
+
+    #[test]
+    fn latex_command_optional_arg_stays_atomic() {
+        // GitHub #336 / snapper-e6tw: org-element `\name[opt]{arg}`.
+        let frag = r"\sqrt[2]{a. b}";
+        let text = r"See \sqrt[2]{a. b} today. Next.";
+        let (_, placeholders) = protect_inline_tokens(text);
+        assert!(
+            placeholders.iter().any(|p| p == frag),
+            "\\sqrt[2]{{a. b}} must be one token, got {placeholders:?}"
+        );
+        let spans = atomic_inline_spans(text);
+        assert!(
+            spans.iter().any(|&(s, e)| &text[s..e] == frag),
+            "\\sqrt[2]{{a. b}} must be an atomic wrap span, got {:?}",
+            spans.iter().map(|&(s, e)| &text[s..e]).collect::<Vec<_>>()
+        );
+        assert_eq!(
+            split(text),
+            vec![
+                r"See \sqrt[2]{a. b} today.".to_string(),
+                "Next.".to_string()
             ]
         );
     }

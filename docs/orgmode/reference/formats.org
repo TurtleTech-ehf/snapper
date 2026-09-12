@@ -74,6 +74,7 @@ These tokens within prose are not split across lines:
 - Inline source: =src_lang{...}= / =src_lang[headers]{...}= (org-element-inline-src-block-parser; =\<src_= is word-start. After a word, =_src_= is a subscript, so =foo_src_python{...}= is not an object; =_src_python{...}= after space is)
 - Inline babel call: =call_name(...)= / =call_name[inside](...)[end]= (org-element-inline-babel-call-parser; same =\<call_= / subscript rule)
 - Inline footnotes: =[fn:: def]= / =[fn:name: def]= (org-element-footnote-reference-parser)
+- LaTeX fragments: =\(...\)=, =$...$=, =\cmd{arg}=, =\cmd[opt]{arg}= (org-element-latex-fragment-parser; interior backslash and optional =[arg]= stay one token). Same-line =\[...\]= is Structure
 - URLs: =https://...= (trailing sentence punctuation not swallowed)
 
 ** LaTeX (=--format latex=)
