@@ -786,7 +786,7 @@ fn rst_opens_block(line: &str) -> bool {
     if crate::parser::rst::rst_list_marker_len(line).is_some() {
         return true;
     }
-    if t.starts_with(':') && t[1..].contains(':') {
+    if crate::parser::rst::is_rst_field_list_line(t) {
         return true;
     }
     if crate::parser::rst::rst_option_column_len(t).is_some() {
@@ -1127,6 +1127,11 @@ fn hanging_indent_width(s: &str) -> usize {
     // RST footnote/citation (`.. [1] `, `.. [CIT2002] `): hang at
     // marker width so the body stays a hung paragraph (GitHub #175).
     if crate::parser::rst::rst_footnote_citation_marker_len(s) == Some(s.len()) {
+        return s.chars().count();
+    }
+    // RST field marker (`:Author: `, `:py:mod: `): hang at marker
+    // width so the body stays a hung paragraph (GitHub #341).
+    if crate::parser::rst::rst_field_marker_len(s) == Some(s.len()) {
         return s.chars().count();
     }
     // Org footnote definition (`[fn:1] `, `[fn:note] `): hang at
