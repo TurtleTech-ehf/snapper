@@ -67,6 +67,14 @@ static INLINE_TOKEN_RE: LazyLock<Regex> = LazyLock::new(|| {
             // paired below: a regex that forbids the delimiter inside the
             // span closes on the first inner copy and leaves the real closer
             // (and any period before it) unprotected.
+            // Org angular links (ol.el org-link-angle-re / GitHub #335):
+            // `<%s:\([^>\n]*\(?:\n[ \t]*[^> \t\n][^>\n]*\)*\)>` where %s
+            // is org-link-types. Path may contain spaces; folded
+            // continuation is the Emacs `\n[ \t]*[^> \t\n][^>\n]*` arm.
+            // Type is lowercase so `Vec<T: Bound>` is not stolen.
+            // Must precede the bare `file:` token. CommonMark autolinks
+            // stay the no-space alternative below.
+            r"<[a-z][a-z0-9+.\-]*:[^<>\n]*(?:\n[ \t]*[^<> \t\n][^<>\n]*)*>",
             r"<[A-Za-z][A-Za-z0-9+.\-]*:[^\s<>]*>", // Autolink: <http://...>
             r"<[^\s<>@]+@[^\s<>]+>",                // Autolink: <user@host>
             r#"https?://\S+[^.\s!?,;:)\]'""]"#,     // URLs (don't swallow trailing punctuation)
@@ -991,7 +999,8 @@ fn find_md_code_span(text: &str, open_at: usize) -> Option<usize> {
 /// Byte ranges of inline tokens that wrapping must not split (links, images,
 /// reference links `[text][ref]`, inline code, autolinks, math, Org `[[...]]`,
 /// Org `[cite...]`, Org `[fn::…]` / `[fn:LABEL:…]`, Org `<<<...>>>` /
-/// `<<...>>`, Org `{{{name}}}` / `{{{name(args)}}}`, Org timestamps
+/// `<<...>>`, Org angular `<type:path with spaces>` (org-link-angle-re),
+/// Org `{{{name}}}` / `{{{name(args)}}}`, Org timestamps
 /// (`<YYYY-MM-DD…>`, `[YYYY-MM-DD…]`, ranges `--`, diary `<%%(...)>`),
 /// Org `src_lang{...}` / `call_name(...)`, RST `|fig. 1|` / `|name|_` /
 /// `|name|__`, paired spans).
@@ -2245,6 +2254,84 @@ mod tests {
             vec![
                 "See [[https://example.com][Ex. Site]] for details.",
                 "Then continue."
+            ]
+        );
+    }
+
+    #[test]
+    fn inline_org_angle_link_interior_punct_is_not_a_sentence_boundary() {
+        // GitHub #335 / snapper-rhqk: ol.el org-link-angle-re allows
+        // spaces, so `<file:fig. 1.png>` stays one token. `Next.` still
+        // splits. Bracket `[[file:fig. 1.png]]` stays its own token.
+        let angle = "<file:fig. 1.png>";
+        let bracket = "[[file:fig. 1.png]]";
+        let text = "See <file:fig. 1.png> today. Next.";
+        let (_, placeholders) = protect_inline_tokens(text);
+        assert!(
+            placeholders.iter().any(|p| p == angle),
+            "angle link must be one token, got {placeholders:?}"
+        );
+        assert!(
+            !placeholders.iter().any(|p| p == "file:fig"),
+            "bare file: must not steal the angle link, got {placeholders:?}"
+        );
+        let spans = atomic_inline_spans(text);
+        assert!(
+            spans.iter().any(|&(s, e)| &text[s..e] == angle),
+            "angle link must be an atomic wrap span, got {:?}",
+            spans.iter().map(|&(s, e)| &text[s..e]).collect::<Vec<_>>()
+        );
+        assert_eq!(
+            split(text),
+            vec![
+                "See <file:fig. 1.png> today.".to_string(),
+                "Next.".to_string()
+            ]
+        );
+        let bracket_text = "See [[file:fig. 1.png]] today. Next.";
+        let (_, bracket_ph) = protect_inline_tokens(bracket_text);
+        assert!(
+            bracket_ph.iter().any(|p| p == bracket),
+            "bracket link must stay one token, got {bracket_ph:?}"
+        );
+        assert_eq!(
+            split(bracket_text),
+            vec![
+                "See [[file:fig. 1.png]] today.".to_string(),
+                "Next.".to_string()
+            ]
+        );
+    }
+
+    #[test]
+    fn rust_generic_bound_is_not_an_org_angle_link() {
+        let text = "Use Vec<T: Bound> today. Next.";
+        let (_, placeholders) = protect_inline_tokens(text);
+        assert!(
+            !placeholders.iter().any(|p| p == "<T: Bound>"),
+            "Pascal-case generic must not match org-link-angle-re, got {placeholders:?}"
+        );
+        assert_eq!(
+            split(text),
+            vec!["Use Vec<T: Bound> today.".to_string(), "Next.".to_string()]
+        );
+    }
+
+    #[test]
+    fn org_angle_link_folded_continuation_is_one_token() {
+        // Emacs org-link-angle-re folded arm: `\n[ \t]*[^> \t\n][^>\n]*`.
+        let link = "<file:fig.\n  1.png>";
+        let text = "See <file:fig.\n  1.png> today. Next.";
+        let (_, placeholders) = protect_inline_tokens(text);
+        assert!(
+            placeholders.iter().any(|p| p == link),
+            "folded angle link must be one token, got {placeholders:?}"
+        );
+        assert_eq!(
+            split(text),
+            vec![
+                "See <file:fig.\n  1.png> today.".to_string(),
+                "Next.".to_string()
             ]
         );
     }
