@@ -203,7 +203,8 @@ pub fn protect_inline_tokens_with(
 /// `\lstinputlisting[...]{file}` /
 /// `\verbatiminput{file}` / `\VerbatimInput[...]{file}` /
 /// `\listinginput[interval]{start}{file}` /
-/// `\inputpy[...]{file}` / `\inputpycon[...]{file}` so inner `.!?%` cannot
+/// `\inputpy[...]{file}` / `\inputpycon[...]{file}` /
+/// `\sageinput{file}` so inner `.!?%` cannot
 /// split or comment. `\piton{...}` stays on the generic `\cmd{arg}`
 /// path (piton.sty brace syntax is not verbatim; GitHub #305).
 fn protect_latex_verbatim(
@@ -233,7 +234,7 @@ fn protect_latex_verbatim(
 /// `\mint` / `\inputminted` / `\Verb` / `\SaveVerb` / `\piton` /
 /// `\lstinputlisting` / `\VerbatimInput` / `\BVerbatimInput` /
 /// `\LVerbatimInput` / `\listinginput` / `\inputpy` / `\inputpycon` /
-/// extra-name span starting at `at`.
+/// `\sageinput` / extra-name span starting at `at`.
 ///
 /// `\verb` / `\verb*` / `\spverb` / `\spverb*` / `\Verb` / `\Verb*`: next
 /// character is the
@@ -262,6 +263,9 @@ fn protect_latex_verbatim(
 /// alphabetic leftover). `\listinginput` (moreverb leftover; GitHub
 /// #424) takes optional `[interval]` then required `{start-line}` and
 /// `{filename}`; no second brace is not a span. There is no `*` form.
+/// `\sageinput` (sagetex leftover; GitHub #428) takes a required
+/// `{filename}`; no brace is not a span. `\sage` / `\sageplot` /
+/// `\sagestr` are not this name. There is no `*` form.
 /// Extra names are tokenized like `\verb`. With
 /// no closer, the span runs to end of line so an inner `%` is not a
 /// comment.
@@ -300,6 +304,14 @@ pub(crate) fn latex_verb_span_end_with(
             return None;
         }
         (after_bs + "listinginput".len(), VerbKind::Listinginput)
+    } else if let Some(stripped) = tail.strip_prefix("sageinput") {
+        // sagetex leftover file-input (GitHub #428). No `*` form;
+        // alphabetic tail rejects `\sageinputfoo`. `\sage` /
+        // `\sageplot` / `\sagestr` do not match this name.
+        if stripped.starts_with(|c: char| c.is_ascii_alphabetic() || c == '*') {
+            return None;
+        }
+        (after_bs + "sageinput".len(), VerbKind::Tcbinputlisting)
     } else if let Some(stripped) = tail.strip_prefix("lstinputlisting") {
         if stripped.starts_with(|c: char| c.is_ascii_alphabetic()) {
             return None;
@@ -412,6 +424,8 @@ pub(crate) fn latex_verb_span_end_with(
         return Some(find_unescaped_brace_close(text, i).unwrap_or_else(|| line_end(text, i)));
     }
 
+    // tcolorbox `\tcbinputlisting{keyvals}` and sagetex
+    // `\sageinput{file}` (GitHub #428) are one required brace group.
     if kind == VerbKind::Tcbinputlisting {
         i = skip_ascii_ws(text, i);
         if !text.get(i..).is_some_and(|s| s.starts_with('{')) {
@@ -532,6 +546,8 @@ enum VerbKind {
     /// `\\verbatiminput`: required `{filename}` (verbatim.sty leftover).
     Verbatiminput,
     /// `\tcbinputlisting`: one required `{keyvals}` group.
+    /// `\sageinput`: one required `{filename}` (sagetex leftover;
+    /// GitHub #428). Same brace-file walk.
     Tcbinputlisting,
     /// `\listinginput`: optional `[interval]`, required `{start-line}`,
     /// required `{filename}` (moreverb leftover; GitHub #424).
