@@ -110,7 +110,6 @@ fn leftover_container_names_reflow_like_note() {
     }
 }
 
-
 /// Ticket fixture (Format::Rst / GitHub #386): leftover body.py
 /// parsed-literal hangs and splits; flush After. / Next. stay unindented.
 fn leftover_parsed_literal_fixture() -> &'static str {
@@ -272,7 +271,13 @@ fn leftover_epigraph_fixture_hangs_and_splits() {
 /// class; code-block / raw stay opaque in `opaque_directives_stay_frozen`.
 #[test]
 fn leftover_body_py_container_names_reflow_like_note() {
-    for name in ["epigraph", "highlights", "pull-quote", "compound", "parsed-literal"] {
+    for name in [
+        "epigraph",
+        "highlights",
+        "pull-quote",
+        "compound",
+        "parsed-literal",
+    ] {
         let input = format!(
             ".. {name}::\n\n   This is a long note sentence that must reflow. Second sentence.\nAfter. Next.\n"
         );
