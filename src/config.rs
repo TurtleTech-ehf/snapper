@@ -33,7 +33,10 @@ pub struct FormatOverrides {
     /// pythontex pycode/pycode*/pyblock/pyblock*/pyverbatim/pyverbatim*/
     /// pyconsole/pyconsole*/pygments plus sympy and pylab families and
     /// starred twins, leftover default-family pyconcode/pyconverbatim/
-    /// pysub/pyconsub/sympycon*/pylabcon*/pythontexcustomcode, and
+    /// pysub/pyconsub/sympycon*/pylabcon*/pythontexcustomcode, option-family
+    /// usefamily leftovers (rubycode representative; ruby/rb/julia/
+    /// juliacon/jl/matlab/octave/bash/sage/rust/rs/R/Rcon/perl/pl/
+    /// perlsix/psix/javascript/js), and
     /// pythonhighlight python, pyluatex pythonq/pythonrepl,
     /// showexpl LTXexample, and luamplib mplibcode; entries are added to it.
     pub verbatim_envs: Vec<String>,
