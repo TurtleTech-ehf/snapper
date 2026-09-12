@@ -367,8 +367,9 @@ fn parse_line_based(input: &str) -> Vec<SpannedRegion> {
             continue;
         }
 
-        // Field list (`:field: value`). Docutils field_marker needs
-        // space after the closing colon; `:role:`text`` is prose.
+        // Field list (`:field: value` or empty `:name:` at EOL).
+        // Docutils field_marker is `:(?![: ])...:( +|$)`.
+        // `:role:`text`` is interpreted text, not a field.
         if is_rst_field_list_line(trimmed) {
             flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
             regions.push(SpannedRegion::structure(input, line.span()));
@@ -749,21 +750,24 @@ pub(crate) fn source_has_dropped_rst_comments(input: &str) -> bool {
         .any(|line| is_rst_dropped_comment_opener(line.trim_start()))
 }
 
-/// True when `trimmed` is an RST field-list item (`:name: value`).
-/// Docutils `field_marker` requires whitespace after the closing colon.
-/// `:role:`text`` is interpreted text, not a field (GitHub #126).
+/// True when `trimmed` is an RST field-list item (`:name: value` or
+/// empty `:name:` at EOL). Docutils `field_marker` is
+/// `:(?![: ])...:( +|$)`. `:role:`text`` is interpreted text, not a
+/// field (GitHub #126 / #330).
 pub(crate) fn is_rst_field_list_line(trimmed: &str) -> bool {
     if !trimmed.starts_with(':') || trimmed.len() < 3 {
+        return false;
+    }
+    // `(?![: ])`: first name byte is not `:` or space.
+    let second = trimmed.as_bytes()[1];
+    if second == b':' || second == b' ' {
         return false;
     }
     let Some(name_end) = trimmed[1..].find(':') else {
         return false;
     };
-    if name_end == 0 {
-        return false;
-    }
     let after = name_end + 2;
-    after < trimmed.len() && trimmed.as_bytes()[after].is_ascii_whitespace()
+    after == trimmed.len() || trimmed.as_bytes()[after].is_ascii_whitespace()
 }
 
 /// Byte length of a Docutils line-block opener on `line`, including
@@ -1432,11 +1436,14 @@ mod tests {
     fn field_list_line_rejects_interpreted_text_role() {
         assert!(is_rst_field_list_line(":Author: Someone"));
         assert!(is_rst_field_list_line(":class: test"));
+        assert!(is_rst_field_list_line(":name:"));
+        assert!(is_rst_field_list_line(":name: "));
         assert!(!is_rst_field_list_line(
             ":class:`CloudDatabase` exceeds a rate"
         ));
         assert!(!is_rst_field_list_line(":py:class:`CloudDatabase`"));
         assert!(!is_rst_field_list_line("::"));
+        assert!(!is_rst_field_list_line(": name:"));
         assert!(!is_rst_field_list_line("Hello"));
     }
 
