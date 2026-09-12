@@ -2589,7 +2589,6 @@ mod tests {
                 "After.".to_string()
             ]
         );
-        let opts = r"See \PitonInputFile[language=python]{foo.py} here. After.";
         assert_eq!(
             latex_verb_span_end_with(r"\PitonInputFile[language=python]{foo.py}", 0, &[]),
             Some(r"\PitonInputFile[language=python]{foo.py}".len())

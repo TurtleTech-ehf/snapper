@@ -8061,6 +8061,8 @@ Some text.
     /// atomic. Following flush `After.` does not join.
     #[test]
     fn pitoninputfile_does_not_join_following_prose() {
+        use crate::format_text;
+
         let input = concat!(
             "Before. Next.\n",
             "\\PitonInputFile{foo.py}\n",
