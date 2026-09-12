@@ -33,7 +33,9 @@ pub struct FormatOverrides {
     /// pythontex pycode/pycode*/pyblock/pyblock*/pyverbatim/pyverbatim*/
     /// pyconsole/pyconsole*/pygments plus sympy and pylab families and
     /// starred twins, leftover default-family pyconcode/pyconverbatim/
-    /// pysub/pyconsub/sympycon*/pylabcon*/pythontexcustomcode, and
+    /// pysub/pyconsub/sympycon*/pylabcon*/pythontexcustomcode, option-family
+    /// rubycode/{name}code/{name}block/{name}verbatim/{name}sub plus
+    /// juliaconcode/juliaconsole/Rconcode/Rconsole, and
     /// pythonhighlight python, pyluatex pythonq/pythonrepl,
     /// showexpl LTXexample, luamplib mplibcode, and codehigh.sty
     /// codehigh/demohigh plus starred twins; entries are added to it.

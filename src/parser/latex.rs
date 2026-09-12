@@ -151,7 +151,13 @@ static LSTLISTING_LANG_RE: LazyLock<Regex> = LazyLock::new(|| {
 /// `sympyconverbatim` / `sympysub` / `sympyconsub` / `pylabconcode` /
 /// `pylabconverbatim` / `pylabsub` / `pylabconsub` /
 /// `pythontexcustomcode` (same `VerbatimEnvironment` class as `pycode`;
-/// GitHub #249 / #274 / #276 / #277 / #278 / #333),
+/// GitHub #249 / #274 / #276 / #277 / #278 / #333), plus option-family
+/// `{name}code` / `{name}block` / `{name}verbatim` / `{name}sub` from
+/// `usefamily` / `\makepythontexfamily` (`ruby` / `rb` / `julia` /
+/// `jl` / `matlab` / `octave` / `bash` / `sage` / `rust` / `rs` / `R` /
+/// `perl` / `pl` / `perlsix` / `psix` / `javascript` / `js`) and
+/// `\makepythontexfamily@con` `juliaconcode` / `juliaconsole` /
+/// `Rconcode` / `Rconsole` (GitHub #352),
 /// pythonhighlight.sty `python` (`\lstnewenvironment{python}`; same
 /// listings raw scan as `lstlisting`; GitHub #307),
 /// pyluatex.sty `pythonq` / `pythonrepl` (verbatim python / REPL
@@ -226,6 +232,52 @@ static LSTLISTING_LANG_RE: LazyLock<Regex> = LazyLock::new(|| {
 /// body; GitHub #308). texments.sty / pygmentex.sty `pygmented` is
 /// `VerbatimEnvironment` plus `VerbatimOut` (raw listing body;
 /// GitHub #342).
+/// pythontex.sty `usefamily` / `\makepythontexfamily` option-only
+/// families create `{name}code` / `{name}block` / `{name}verbatim` /
+/// `{name}sub` via `\pytx@MakeCodeFV` / `\pytx@MakeSubFV` /
+/// `\pytx@MakeFamilyFV`. `\makepythontexfamily@con` adds
+/// `juliaconcode` / `juliaconsole` / `Rconcode` / `Rconsole`. Same
+/// `VerbatimEnvironment` class as landed `pycode` (GitHub #352).
+fn is_pythontex_option_family_env(name: &str) -> bool {
+    const FAMILIES: &[&str] = &[
+        "ruby",
+        "rb",
+        "julia",
+        "jl",
+        "matlab",
+        "octave",
+        "bash",
+        "sage",
+        "rust",
+        "rs",
+        "R",
+        "perl",
+        "pl",
+        "perlsix",
+        "psix",
+        "javascript",
+        "js",
+    ];
+    const SUFFIXES: &[&str] = &["code", "block", "verbatim", "sub"];
+    if matches!(
+        name,
+        "juliaconcode" | "juliaconsole" | "Rconcode" | "Rconsole"
+    ) {
+        return true;
+    }
+    for family in FAMILIES {
+        for suffix in SUFFIXES {
+            if name.len() == family.len() + suffix.len()
+                && name.starts_with(family)
+                && name.ends_with(suffix)
+            {
+                return true;
+            }
+        }
+    }
+    false
+}
+
 fn is_builtin_code_env(name: &str) -> bool {
     matches!(
         name,
@@ -338,7 +390,7 @@ fn is_builtin_code_env(name: &str) -> bool {
             | "sagecommandline"
             | "comment"
             | "Piton"
-    )
+    ) || is_pythontex_option_family_env(name)
 }
 
 /// tree-sitter `displayed_equation` (`$$` or `\[`) / latexindent `displayMath` + `displayMathTeX`.
@@ -3750,6 +3802,138 @@ Some text.
             "prose after landed pycode/pyconsole must still split, got:\n{landed_out}"
         );
         assert_eq!(format_text(&landed_out, &latex_cfg()).unwrap(), landed_out);
+    }
+
+    /// Ticket fixture (GitHub #352): pythontex.sty `usefamily` /
+    /// `\makepythontexfamily` option-family envs (`rubycode` and the
+    /// rest of `{name}code` / `{name}block` / `{name}verbatim` /
+    /// `{name}sub`, plus `\makepythontexfamily@con` `juliaconcode` /
+    /// `juliaconsole` / `Rconcode` / `Rconsole`) are the same
+    /// `VerbatimEnvironment` class as landed `pycode` / `pyconsole`.
+    /// Body stays Code; following prose still splits. Default-family
+    /// leftovers stay snapper-2ml9.
+    #[test]
+    fn pythontex_option_family_envs_are_code_not_prose() {
+        use crate::format_text;
+
+        const FAMILIES: &[&str] = &[
+            "ruby",
+            "rb",
+            "julia",
+            "jl",
+            "matlab",
+            "octave",
+            "bash",
+            "sage",
+            "rust",
+            "rs",
+            "R",
+            "perl",
+            "pl",
+            "perlsix",
+            "psix",
+            "javascript",
+            "js",
+        ];
+        const SUFFIXES: &[&str] = &["code", "block", "verbatim", "sub"];
+        let mut names: Vec<String> = FAMILIES
+            .iter()
+            .flat_map(|fam| SUFFIXES.iter().map(move |suf| format!("{fam}{suf}")))
+            .collect();
+        names.extend(
+            ["juliaconcode", "juliaconsole", "Rconcode", "Rconsole"]
+                .into_iter()
+                .map(str::to_string),
+        );
+
+        for name in &names {
+            let input = format!(
+                concat!(
+                    "\\begin{{{name}}}\n",
+                    "First line. Second line.\n",
+                    "\\end{{{name}}}\n",
+                    "After the block. Next.\n",
+                ),
+                name = name
+            );
+            let regions = LatexParser::default().parse(&input);
+            assert!(
+                regions.iter().any(|r| matches!(
+                    r,
+                    Region::Code { body, .. } if body.contains("First line. Second line.")
+                )),
+                "{name} body must be Code, got: {regions:?}"
+            );
+            assert!(
+                !regions
+                    .iter()
+                    .any(|r| matches!(r, Region::Prose(p) if p.contains("First line"))),
+                "{name} body must not leak into Prose, got: {regions:?}"
+            );
+            let out = format_text(&input, &latex_cfg()).unwrap();
+            assert!(
+                out.contains(&format!("\\begin{{{name}}}"))
+                    && out.contains(&format!("\\end{{{name}}}")),
+                "{name} begin/end must stay, got:\n{out}"
+            );
+            assert!(
+                out.contains("First line. Second line."),
+                "{name} body must stay one source line, got:\n{out}"
+            );
+            assert!(
+                !out.contains("First line.\nSecond line."),
+                "{name} must not reflow as prose, got:\n{out}"
+            );
+            assert!(
+                out.contains("After the block.\nNext."),
+                "prose after {name} must still split, got:\n{out}"
+            );
+            assert_eq!(format_text(&out, &latex_cfg()).unwrap(), out);
+        }
+
+        let landed = concat!(
+            "\\begin{pycode}\n",
+            "First line. Second line.\n",
+            "\\end{pycode}\n",
+            "\\begin{pyconsole}\n",
+            "First line. Second line.\n",
+            "\\end{pyconsole}\n",
+            "After the block. Next.\n",
+        );
+        let landed_out = format_text(landed, &latex_cfg()).unwrap();
+        assert!(
+            landed_out.contains("\\begin{pycode}\nFirst line. Second line.\n\\end{pycode}"),
+            "landed pycode must stay a code env, got:\n{landed_out}"
+        );
+        assert!(
+            landed_out.contains("\\begin{pyconsole}\nFirst line. Second line.\n\\end{pyconsole}"),
+            "landed pyconsole must stay a code env, got:\n{landed_out}"
+        );
+        assert!(
+            landed_out.contains("After the block.\nNext."),
+            "prose after landed pycode/pyconsole must still split, got:\n{landed_out}"
+        );
+        assert_eq!(format_text(&landed_out, &latex_cfg()).unwrap(), landed_out);
+
+        let leftover = concat!(
+            "\\begin{pyconcode}\n",
+            "First line. Second line.\n",
+            "\\end{pyconcode}\n",
+            "After the block. Next.\n",
+        );
+        let leftover_out = format_text(leftover, &latex_cfg()).unwrap();
+        assert!(
+            leftover_out.contains("\\begin{pyconcode}\nFirst line. Second line.\n\\end{pyconcode}"),
+            "default-family leftover pyconcode must stay Code, got:\n{leftover_out}"
+        );
+        assert!(
+            leftover_out.contains("After the block.\nNext."),
+            "prose after pyconcode must still split, got:\n{leftover_out}"
+        );
+        assert_eq!(
+            format_text(&leftover_out, &latex_cfg()).unwrap(),
+            leftover_out
+        );
     }
 
     /// Ticket fixture (GitHub #230): alltt.sty is a standard

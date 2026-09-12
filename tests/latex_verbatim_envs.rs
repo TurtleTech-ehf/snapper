@@ -34,6 +34,10 @@
 //! GitHub #333: leftover default-family pyconcode / pyconverbatim /
 //! pysub / pyconsub / sympycon* / pylabcon* / pythontexcustomcode are
 //! the same VerbatimEnvironment class as landed pycode / pyconsole.
+//! GitHub #352: pythontex.sty usefamily / makepythontexfamily
+//! option-family rubycode / {name}code / {name}block / {name}verbatim /
+//! {name}sub plus juliaconcode / juliaconsole / Rconcode / Rconsole are
+//! the same VerbatimEnvironment class as landed pycode / pyconsole.
 //! GitHub #294: filecontentsdef.sty filecontentsdef writes the env body
 //! verbatim into a macro (same raw grab as filecontents).
 //! GitHub #299: leftover filecontentsdef.dtx siblings filecontentsgdef /
@@ -2599,6 +2603,131 @@ fn pythontex_leftover_default_family_envs_fixture_is_code_and_does_not_reflow() 
         "prose after landed pycode/pyconsole must still split, got:\n{landed_out}"
     );
     assert_eq!(format_text(&landed_out, &latex_cfg()).unwrap(), landed_out);
+}
+
+/// Ticket fixture (GitHub #352): pythontex.sty option-family envs stay
+/// Code; following prose still splits. Landed `pycode` / `pyconsole`
+/// stay Code. Default-family leftover `pyconcode` stays snapper-2ml9.
+#[test]
+fn pythontex_option_family_envs_fixture_is_code_and_does_not_reflow() {
+    const FAMILIES: &[&str] = &[
+        "ruby",
+        "rb",
+        "julia",
+        "jl",
+        "matlab",
+        "octave",
+        "bash",
+        "sage",
+        "rust",
+        "rs",
+        "R",
+        "perl",
+        "pl",
+        "perlsix",
+        "psix",
+        "javascript",
+        "js",
+    ];
+    const SUFFIXES: &[&str] = &["code", "block", "verbatim", "sub"];
+    let mut names: Vec<String> = FAMILIES
+        .iter()
+        .flat_map(|fam| SUFFIXES.iter().map(move |suf| format!("{fam}{suf}")))
+        .collect();
+    names.extend(
+        ["juliaconcode", "juliaconsole", "Rconcode", "Rconsole"]
+            .into_iter()
+            .map(str::to_string),
+    );
+
+    for name in &names {
+        let input = format!(
+            concat!(
+                "\\begin{{{name}}}\n",
+                "First line. Second line.\n",
+                "\\end{{{name}}}\n",
+                "After the block. Next.\n",
+            ),
+            name = name
+        );
+        let regions = LatexParser::default().parse(&input);
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Code { body, .. } if body.contains("First line. Second line.")
+            )),
+            "{name} body must be Code, got: {regions:?}"
+        );
+        assert!(
+            !regions
+                .iter()
+                .any(|r| matches!(r, Region::Prose(p) if p.contains("First line"))),
+            "{name} body must not be Prose, got: {regions:?}"
+        );
+        let out = format_text(&input, &latex_cfg()).unwrap();
+        assert!(
+            out.contains(&format!("\\begin{{{name}}}"))
+                && out.contains(&format!("\\end{{{name}}}")),
+            "{name} begin/end must stay, got:\n{out}"
+        );
+        assert!(
+            out.contains("First line. Second line."),
+            "{name} body must stay one source line, got:\n{out}"
+        );
+        assert!(
+            !out.contains("First line.\nSecond line."),
+            "{name} must not reflow as prose, got:\n{out}"
+        );
+        assert!(
+            out.contains("After the block.\nNext."),
+            "prose after {name} must still split, got:\n{out}"
+        );
+        assert_eq!(format_text(&out, &latex_cfg()).unwrap(), out);
+    }
+
+    let landed = concat!(
+        "\\begin{pycode}\n",
+        "First line. Second line.\n",
+        "\\end{pycode}\n",
+        "\\begin{pyconsole}\n",
+        "First line. Second line.\n",
+        "\\end{pyconsole}\n",
+        "After the block. Next.\n",
+    );
+    let landed_out = format_text(landed, &latex_cfg()).unwrap();
+    assert!(
+        landed_out.contains("\\begin{pycode}\nFirst line. Second line.\n\\end{pycode}"),
+        "landed pycode must stay a code env, got:\n{landed_out}"
+    );
+    assert!(
+        landed_out.contains("\\begin{pyconsole}\nFirst line. Second line.\n\\end{pyconsole}"),
+        "landed pyconsole must stay a code env, got:\n{landed_out}"
+    );
+    assert!(
+        landed_out.contains("After the block.\nNext."),
+        "prose after landed pycode/pyconsole must still split, got:\n{landed_out}"
+    );
+    assert_eq!(format_text(&landed_out, &latex_cfg()).unwrap(), landed_out);
+
+    let leftover = concat!(
+        "\\begin{pyconcode}\n",
+        "First line. Second line.\n",
+        "\\end{pyconcode}\n",
+        "After the block. Next.\n",
+    );
+    let leftover_out = format_text(leftover, &latex_cfg()).unwrap();
+    assert!(
+        leftover_out.contains("\\begin{pyconcode}\nFirst line. Second line.\n\\end{pyconcode}"),
+        "default-family leftover pyconcode must stay Code, got:\n{leftover_out}"
+    );
+    assert!(
+        leftover_out.contains("After the block.\nNext."),
+        "prose after pyconcode must still split, got:\n{leftover_out}"
+    );
+    assert_eq!(
+        format_text(&leftover_out, &latex_cfg()).unwrap(),
+        leftover_out
+    );
 }
 
 /// Ticket fixture (GitHub #245): `\mintinline{python}|a.b! c|` is one
