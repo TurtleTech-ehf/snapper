@@ -152,6 +152,7 @@ fn leftover_container_names_do_not_swallow_flush_prose() {
         "topic",
         "sidebar",
         "container",
+        "parsed-literal",
     ] {
         let arg = if matches!(name, "figure" | "admonition" | "sidebar" | "topic") {
             " Title"

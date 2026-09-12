@@ -1,5 +1,6 @@
 //! RST container directive bodies hang and reflow.
 //! Docutils admonitions/figure/topic/sidebar nested-parse their body.
+//! Leftover body.py parsed-literal hangs and splits like note (GitHub #386).
 //! Option fields stay Structure; code-block/raw/include/csv-table stay opaque.
 
 use snapper_fmt::format::Format;
@@ -92,6 +93,7 @@ fn leftover_container_names_reflow_like_note() {
         "topic",
         "sidebar",
         "container",
+        "parsed-literal",
     ] {
         let input = format!(
             ".. {name}::\n\n   This is a long note sentence that must reflow. Second sentence.\n\nAfter the note. Next.\n"
@@ -106,6 +108,84 @@ fn leftover_container_names_reflow_like_note() {
         );
         assert_eq!(format_text(&out, &rst_cfg()).unwrap(), out);
     }
+}
+
+/// Ticket fixture (Format::Rst / GitHub #386): leftover body.py
+/// parsed-literal hangs and splits; flush After. / Next. stay unindented.
+fn leftover_parsed_literal_fixture() -> &'static str {
+    concat!(
+        ".. parsed-literal::\n",
+        "\n",
+        "   This is a long note sentence that must reflow. Second sentence.\n",
+        "After. Next.\n",
+    )
+}
+
+#[test]
+fn leftover_parsed_literal_fixture_hangs_and_splits() {
+    let input = leftover_parsed_literal_fixture();
+    let regions = RstParser.parse(input);
+    assert!(
+        regions
+            .iter()
+            .any(|r| matches!(r, Region::Structure(s) if s.contains(".. parsed-literal::"))),
+        "parsed-literal opener must stay Structure, got {regions:?}"
+    );
+    assert!(
+        regions.iter().any(|r| matches!(
+            r,
+            Region::Prose(s)
+                if s.contains("This is a long note sentence that must reflow.")
+                    && s.contains("Second sentence.")
+        )),
+        "parsed-literal body must be hung Prose, got {regions:?}"
+    );
+    assert!(
+        !regions.iter().any(|r| matches!(
+            r,
+            Region::Structure(s) if s.contains("This is a long note sentence")
+        )),
+        "parsed-literal body must not freeze as Structure, got {regions:?}"
+    );
+    assert!(
+        regions
+            .iter()
+            .any(|r| matches!(r, Region::Structure(s) if s == "   ")),
+        "parsed-literal body hang spaces must be Structure, got {regions:?}"
+    );
+    assert!(
+        regions
+            .iter()
+            .any(|r| matches!(r, Region::Prose(s) if s.contains("After.") && s.contains("Next."))),
+        "After. / Next. must stay unindented Prose, got {regions:?}"
+    );
+    assert!(
+        !regions.iter().any(|r| matches!(
+            r,
+            Region::Prose(s)
+                if s.contains("Second sentence.") && s.contains("After.")
+        )),
+        "After. must not join the parsed-literal body, got {regions:?}"
+    );
+
+    let out = format_text(input, &rst_cfg()).unwrap();
+    assert_eq!(
+        out,
+        concat!(
+            ".. parsed-literal::\n",
+            "\n",
+            "   This is a long note sentence that must reflow.\n",
+            "   Second sentence.\n",
+            "After.\n",
+            "Next.\n",
+        ),
+        "parsed-literal body must hang and split; After. / Next. stay flush, got:\n{out}"
+    );
+    assert!(
+        !out.contains("\n   After."),
+        "After. must not inherit the parsed-literal hang, got:\n{out}"
+    );
+    assert_eq!(format_text(&out, &rst_cfg()).unwrap(), out);
 }
 
 #[test]
