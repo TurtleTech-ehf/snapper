@@ -153,6 +153,8 @@ static LSTLISTING_LANG_RE: LazyLock<Regex> = LazyLock::new(|| {
 /// GitHub #249 / #274 / #276 / #277 / #278 / #333),
 /// pythonhighlight.sty `python` (`\lstnewenvironment{python}`; same
 /// listings raw scan as `lstlisting`; GitHub #307),
+/// pyluatex.sty `pythonq` / `pythonrepl` (verbatim python / REPL
+/// bodies; GitHub #346),
 /// showexpl.sty `LTXexample` (`\lstnewenvironment{LTXexample}`; same
 /// listings raw scan as `lstlisting`; GitHub #345),
 /// plus latex2e `verbatim*` / fancyvrb `Verbatim` /
@@ -207,6 +209,8 @@ static LSTLISTING_LANG_RE: LazyLock<Regex> = LazyLock::new(|| {
 /// `\piton|...|` is the matching verb-like command.
 /// pythonhighlight.sty `python` (`\lstnewenvironment{python}`) is the
 /// same listings raw scan as `lstlisting` (GitHub #307).
+/// pyluatex.sty `pythonq` / `pythonrepl` are verbatim python / REPL
+/// bodies (GitHub #346). Landed `python` stays Code.
 /// showexpl.sty `LTXexample` (`\lstnewenvironment{LTXexample}`) is the
 /// same listings raw scan as `lstlisting` (GitHub #345).
 /// verbments.sty `pyglist` wraps fancyvrb `VerbatimOut` (raw listing
@@ -221,6 +225,8 @@ fn is_builtin_code_env(name: &str) -> bool {
             | "lstlisting"
             | "lstlisting*"
             | "python"
+            | "pythonq"
+            | "pythonrepl"
             | "LTXexample"
             | "verbatim"
             | "verbatim*"
@@ -4074,6 +4080,70 @@ Some text.
             format_text(&lstlisting_out, &latex_cfg()).unwrap(),
             lstlisting_out
         );
+    }
+
+    /// Ticket fixture (GitHub #346): pyluatex.sty `pythonq` / `pythonrepl`
+    /// are verbatim python / REPL bodies. Body stays Code and one source
+    /// line; following prose still splits. Landed `python` stays Code.
+    #[test]
+    fn pyluatex_pythonq_and_pythonrepl_are_code_not_prose() {
+        use crate::format_text;
+
+        for name in ["pythonq", "pythonrepl"] {
+            let input = format!(
+                "\\begin{{{name}}}\nFirst line. Second line.\n\\end{{{name}}}\nAfter the block. Next.\n"
+            );
+            let regions = LatexParser::default().parse(&input);
+            assert!(
+                regions.iter().any(|r| matches!(
+                    r,
+                    Region::Code { body, .. } if body.contains("First line. Second line.")
+                )),
+                "{name} body must be Code, got: {regions:?}"
+            );
+            assert!(
+                !regions
+                    .iter()
+                    .any(|r| matches!(r, Region::Prose(p) if p.contains("First line"))),
+                "{name} body must not leak into Prose, got: {regions:?}"
+            );
+            let out = format_text(&input, &latex_cfg()).unwrap();
+            assert!(
+                out.contains(&format!("\\begin{{{name}}}"))
+                    && out.contains(&format!("\\end{{{name}}}")),
+                "{name} begin/end must stay, got:\n{out}"
+            );
+            assert!(
+                out.contains("First line. Second line."),
+                "{name} body must stay one source line, got:\n{out}"
+            );
+            assert!(
+                !out.contains("First line.\nSecond line."),
+                "{name} must not reflow as prose, got:\n{out}"
+            );
+            assert!(
+                out.contains("After the block.\nNext."),
+                "prose after {name} must still split, got:\n{out}"
+            );
+            assert_eq!(format_text(&out, &latex_cfg()).unwrap(), out);
+        }
+
+        let python = concat!(
+            "\\begin{python}\n",
+            "First line. Second line.\n",
+            "\\end{python}\n",
+            "After the block. Next.\n",
+        );
+        let python_out = format_text(python, &latex_cfg()).unwrap();
+        assert!(
+            python_out.contains("\\begin{python}\nFirst line. Second line.\n\\end{python}"),
+            "landed python must stay a code env, got:\n{python_out}"
+        );
+        assert!(
+            python_out.contains("After the block.\nNext."),
+            "prose after python must still split, got:\n{python_out}"
+        );
+        assert_eq!(format_text(&python_out, &latex_cfg()).unwrap(), python_out);
     }
 
     /// Ticket fixture (GitHub #273): minted.sty `minted*` is the starred
