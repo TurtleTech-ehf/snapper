@@ -192,7 +192,8 @@ enum HtmlBlock {
     Type4,
     /// `<![CDATA[` until `]]>`.
     Type5,
-    /// Block tag (`<div`, `</p`, …) until a following blank line. May interrupt.
+    /// Block tag (`<div`, `</p`, …) until a matching close or a following
+    /// blank line (GitHub #332). May interrupt.
     Type6,
     /// Complete open/close tag until a following blank line. Must not interrupt.
     Type7,
@@ -218,26 +219,87 @@ fn is_html_block_tag(name: &str) -> bool {
     HTML_BLOCK_TAGS.iter().any(|t| name.eq_ignore_ascii_case(t))
 }
 
-fn type6_start(rest: &str) -> bool {
+/// Type-6 start tag name on `rest` (already indent-stripped), if any.
+fn type6_tag_name(rest: &str) -> Option<&str> {
     let after = if let Some(a) = rest.strip_prefix("</") {
         a
-    } else if let Some(a) = rest.strip_prefix('<') {
-        a
     } else {
-        return false;
+        rest.strip_prefix('<')?
     };
     let tag_len = after
         .find(|c: char| !c.is_ascii_alphanumeric())
         .unwrap_or(after.len());
     if tag_len == 0 || !is_html_block_tag(&after[..tag_len]) {
-        return false;
+        return None;
     }
     let after_tag = &after[tag_len..];
-    after_tag.is_empty()
+    if after_tag.is_empty()
         || after_tag.starts_with(' ')
         || after_tag.starts_with('\t')
         || after_tag.starts_with('>')
         || after_tag.starts_with("/>")
+    {
+        Some(&after[..tag_len])
+    } else {
+        None
+    }
+}
+
+fn type6_start(rest: &str) -> bool {
+    type6_tag_name(rest).is_some()
+}
+
+/// Whether `after_name` (text after the tag name) is a self-closing tag.
+fn html_tag_self_closes(after_name: &str) -> bool {
+    match after_name.find('>') {
+        Some(gt) => after_name[..gt].trim_end().ends_with('/'),
+        None => false,
+    }
+}
+
+/// Apply type-6 open/close tags named `tag` on `line` to `nest`.
+/// Returns true when `nest` reaches 0 (the matching close is on this line).
+fn apply_type6_named_tags(line: &str, tag: &str, nest: &mut i32) -> bool {
+    let mut i = 0;
+    while i < line.len() {
+        let Some(rel) = line[i..].find('<') else {
+            break;
+        };
+        let pos = i + rel;
+        let after_lt = &line[pos + 1..];
+        let (is_close, name_src) = if let Some(rest) = after_lt.strip_prefix('/') {
+            (true, rest)
+        } else {
+            (false, after_lt)
+        };
+        let name_len = name_src
+            .find(|c: char| !c.is_ascii_alphanumeric())
+            .unwrap_or(name_src.len());
+        if name_len == 0 || !name_src[..name_len].eq_ignore_ascii_case(tag) {
+            i = pos + 1;
+            continue;
+        }
+        let after_name = &name_src[name_len..];
+        let delimited = after_name.is_empty()
+            || after_name.starts_with(' ')
+            || after_name.starts_with('\t')
+            || after_name.starts_with('>')
+            || after_name.starts_with('/');
+        if !delimited {
+            i = pos + 1;
+            continue;
+        }
+        if is_close {
+            *nest -= 1;
+        } else if !html_tag_self_closes(after_name) {
+            *nest += 1;
+        }
+        if *nest <= 0 {
+            return true;
+        }
+        i = pos + 1;
+    }
+    false
 }
 
 fn type7_start(rest: &str) -> bool {
@@ -291,7 +353,30 @@ fn html_block_line_ends(line: &str, kind: HtmlBlock) -> bool {
 
 fn html_block_end_idx(kind: HtmlBlock, lines: &[Line<'_>], start_idx: usize) -> usize {
     match kind {
-        HtmlBlock::Type6 | HtmlBlock::Type7 => {
+        HtmlBlock::Type6 => {
+            // Closed type-6 (`<div>…</div>`) ends at the matching close so
+            // the next paragraph stays Prose (GitHub #332 / snapper-v85k).
+            // Unclosed type-6 still runs to a following blank, as in 4.6.
+            if let Some(tag) = type6_tag_name(html_block_rest(lines[start_idx].text)) {
+                let mut nest = 0i32;
+                let mut j = start_idx;
+                loop {
+                    if apply_type6_named_tags(lines[j].text, tag, &mut nest) {
+                        return j;
+                    }
+                    if j + 1 >= lines.len() || lines[j + 1].text.trim().is_empty() {
+                        return j;
+                    }
+                    j += 1;
+                }
+            }
+            let mut j = start_idx;
+            while j + 1 < lines.len() && !lines[j + 1].text.trim().is_empty() {
+                j += 1;
+            }
+            j
+        }
+        HtmlBlock::Type7 => {
             let mut j = start_idx;
             while j + 1 < lines.len() && !lines[j + 1].text.trim().is_empty() {
                 j += 1;
@@ -4126,6 +4211,49 @@ mod tests {
         );
     }
 
+    /// GitHub #332 / snapper-v85k: closed type-6 must not swallow
+    /// the following paragraph.
+    fn ticket_html_type6_close_fixture() -> &'static str {
+        concat!(
+            "Intro sentence here. Another intro sentence.\n",
+            "<div>\n",
+            "First. Second.\n",
+            "</div>\n",
+            "After html. Next.\n",
+        )
+    }
+
+    #[test]
+    fn html_type6_closed_div_does_not_swallow_next_paragraph() {
+        let regions = MarkdownParser.parse(ticket_html_type6_close_fixture());
+        let div = regions.iter().find_map(|r| match r {
+            Region::Structure(s) if s.contains("<div>") => Some(s.as_str()),
+            _ => None,
+        });
+        let div = div.expect(&format!("div block must be Structure, got {regions:?}"));
+        assert!(div.contains("<div>"), "{div}");
+        assert!(div.contains("First. Second."), "{div}");
+        assert!(div.contains("</div>"), "{div}");
+        assert!(
+            !div.contains("After html"),
+            "closed type-6 must end at </div>, got {div}"
+        );
+        assert!(
+            !regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(p) if p.contains("First.") || p.contains("<div")
+            )),
+            "div body must not be Prose: {regions:?}"
+        );
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(p) if p.contains("After html.") && p.contains("Next.")
+            )),
+            "following paragraph must stay Prose: {regions:?}"
+        );
+    }
+
     #[test]
     fn html_script_block_is_code() {
         let regions = MarkdownParser.parse(ticket_html_blocks_fixture());
@@ -4176,6 +4304,32 @@ mod tests {
                 .iter()
                 .any(|r| matches!(r, Region::Prose(p) if p.contains("foo"))),
             "pre body must not be Prose: {regions:?}"
+        );
+    }
+
+    #[test]
+    fn html_pre_type1_still_ends_at_close() {
+        let input = "<pre>\nfoo. bar\n</pre>\nAfter pre. Next.\n";
+        let regions = MarkdownParser.parse(input);
+        match regions.iter().find(|r| matches!(r, Region::Code { .. })) {
+            Some(Region::Code {
+                header,
+                body,
+                footer,
+                ..
+            }) => {
+                assert!(header.contains("<pre>"), "{header:?}");
+                assert!(body.contains("foo. bar"), "{body:?}");
+                assert!(footer.contains("</pre>"), "{footer:?}");
+            }
+            other => panic!("pre block must stay Code, got {other:?} / {regions:?}"),
+        }
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(p) if p.contains("After pre.") && p.contains("Next.")
+            )),
+            "type-1 close must not swallow following prose: {regions:?}"
         );
     }
 
@@ -4271,6 +4425,48 @@ mod tests {
         assert!(
             !out.contains("<p>Hello.\nWorld.</p>") && !out.contains("x = 1.\nNext = 2."),
             "HTML block interiors must not sentence-split, got:\n{out}"
+        );
+        assert_eq!(format_text(&out, &cfg).unwrap(), out);
+
+        let raw = FormatConfig {
+            format: Format::Markdown,
+            ..Default::default()
+        }
+        .without_safety_backstops();
+        let raw_out = format_text(input, &raw).unwrap();
+        assert_eq!(
+            raw_out, out,
+            "oracle-silent path must match, got:\n{raw_out}"
+        );
+        assert_eq!(format_text(&raw_out, &raw).unwrap(), raw_out);
+    }
+
+    #[test]
+    fn html_type6_closed_div_following_prose_still_splits() {
+        use crate::format::Format;
+        use crate::{FormatConfig, format_text};
+
+        let input = ticket_html_type6_close_fixture();
+        let cfg = FormatConfig {
+            format: Format::Markdown,
+            ..Default::default()
+        };
+        let out = format_text(input, &cfg).unwrap();
+        assert!(
+            out.contains("Intro sentence here.\nAnother intro sentence.\n"),
+            "surrounding prose must still reflow, got:\n{out}"
+        );
+        assert!(
+            out.contains("<div>\nFirst. Second.\n</div>\n"),
+            "div HTML block must stay raw through </div>, got:\n{out}"
+        );
+        assert!(
+            out.contains("After html.\nNext.\n"),
+            "following paragraph must stay Prose and split, got:\n{out}"
+        );
+        assert!(
+            !out.contains("First.\nSecond."),
+            "div interior must not sentence-split, got:\n{out}"
         );
         assert_eq!(format_text(&out, &cfg).unwrap(), out);
 
