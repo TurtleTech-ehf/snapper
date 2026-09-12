@@ -145,8 +145,12 @@ static LSTLISTING_LANG_RE: LazyLock<Regex> = LazyLock::new(|| {
 /// / `pycode*` / `pyblock*` / `pyverbatim*` / `pyconsole*` / `pygments`
 /// / `sympycode` / `sympyblock` / `sympyverbatim` / `sympyconsole` /
 /// `pylabcode` / `pylabblock` / `pylabverbatim` / `pylabconsole` and
-/// starred twins (same `VerbatimEnvironment` class as `pycode`;
-/// GitHub #249 / #274 / #276 / #277 / #278),
+/// starred twins, plus leftover default-family `pyconcode` /
+/// `pyconverbatim` / `pysub` / `pyconsub` / `sympyconcode` /
+/// `sympyconverbatim` / `sympysub` / `sympyconsub` / `pylabconcode` /
+/// `pylabconverbatim` / `pylabsub` / `pylabconsub` /
+/// `pythontexcustomcode` (same `VerbatimEnvironment` class as `pycode`;
+/// GitHub #249 / #274 / #276 / #277 / #278 / #333),
 /// pythonhighlight.sty `python` (`\lstnewenvironment{python}`; same
 /// listings raw scan as `lstlisting`; GitHub #307),
 /// plus latex2e `verbatim*` / fancyvrb `Verbatim` /
@@ -254,7 +258,12 @@ fn is_builtin_code_env(name: &str) -> bool {
             | "pyverbatim*"
             | "pyconsole"
             | "pyconsole*"
+            | "pyconcode"
+            | "pyconverbatim"
+            | "pysub"
+            | "pyconsub"
             | "pygments"
+            | "pythontexcustomcode"
             | "sympycode"
             | "sympycode*"
             | "sympyblock"
@@ -263,6 +272,10 @@ fn is_builtin_code_env(name: &str) -> bool {
             | "sympyverbatim*"
             | "sympyconsole"
             | "sympyconsole*"
+            | "sympyconcode"
+            | "sympyconverbatim"
+            | "sympysub"
+            | "sympyconsub"
             | "pylabcode"
             | "pylabcode*"
             | "pylabblock"
@@ -271,6 +284,10 @@ fn is_builtin_code_env(name: &str) -> bool {
             | "pylabverbatim*"
             | "pylabconsole"
             | "pylabconsole*"
+            | "pylabconcode"
+            | "pylabconverbatim"
+            | "pylabsub"
+            | "pylabconsub"
             | "luacode"
             | "luacode*"
             | "sagesilent"
@@ -3448,6 +3465,141 @@ Some text.
             "prose after unstarred pycode must still split, got:\n{pycode_out}"
         );
         assert_eq!(format_text(&pycode_out, &latex_cfg()).unwrap(), pycode_out);
+    }
+
+    /// Ticket fixture (GitHub #333): leftover pythontex.sty
+    /// default-family envs (`pyconcode` / `pyconverbatim` / `pysub` /
+    /// `pyconsub` / `sympycon*` / `pylabcon*` / `pythontexcustomcode`)
+    /// are the same `VerbatimEnvironment` class as landed `pycode` /
+    /// `pyconsole`. Body stays Code; following prose still splits.
+    #[test]
+    fn pythontex_leftover_default_family_envs_are_code_not_prose() {
+        use crate::format_text;
+
+        for name in [
+            "pyconcode",
+            "pyconverbatim",
+            "pysub",
+            "pyconsub",
+            "sympyconcode",
+            "sympyconverbatim",
+            "sympysub",
+            "sympyconsub",
+            "pylabconcode",
+            "pylabconverbatim",
+            "pylabsub",
+            "pylabconsub",
+            "pythontexcustomcode",
+        ] {
+            let input = format!(
+                concat!(
+                    "\\begin{{{name}}}\n",
+                    "First line. Second line.\n",
+                    "\\end{{{name}}}\n",
+                    "After the block. Next.\n",
+                ),
+                name = name
+            );
+            let regions = LatexParser::default().parse(&input);
+            assert!(
+                regions.iter().any(|r| matches!(
+                    r,
+                    Region::Code { body, .. } if body.contains("First line. Second line.")
+                )),
+                "{name} body must be Code, got: {regions:?}"
+            );
+            assert!(
+                !regions
+                    .iter()
+                    .any(|r| matches!(r, Region::Prose(p) if p.contains("First line"))),
+                "{name} body must not leak into Prose, got: {regions:?}"
+            );
+            let out = format_text(&input, &latex_cfg()).unwrap();
+            assert!(
+                out.contains(&format!("\\begin{{{name}}}"))
+                    && out.contains(&format!("\\end{{{name}}}")),
+                "{name} begin/end must stay, got:\n{out}"
+            );
+            assert!(
+                out.contains("First line. Second line."),
+                "{name} body must stay one source line, got:\n{out}"
+            );
+            assert!(
+                !out.contains("First line.\nSecond line."),
+                "{name} must not reflow as prose, got:\n{out}"
+            );
+            assert!(
+                out.contains("After the block.\nNext."),
+                "prose after {name} must still split, got:\n{out}"
+            );
+            assert_eq!(format_text(&out, &latex_cfg()).unwrap(), out);
+        }
+
+        let custom = concat!(
+            "\\begin{pythontexcustomcode}{py}\n",
+            "First line. Second line.\n",
+            "\\end{pythontexcustomcode}\n",
+            "After the block. Next.\n",
+        );
+        let regions = LatexParser::default().parse(custom);
+        let code = regions.iter().find_map(|r| match r {
+            Region::Code {
+                header,
+                body,
+                footer,
+                ..
+            } => Some((header.as_str(), body.as_str(), footer.as_str())),
+            _ => None,
+        });
+        let Some((header, body, footer)) = code else {
+            panic!("pythontexcustomcode must be Code, got: {regions:?}");
+        };
+        assert!(
+            header.contains(r"\begin{pythontexcustomcode}{py}"),
+            "required family arg must stay on the begin header, got header={header:?}"
+        );
+        assert!(
+            body.contains("First line. Second line."),
+            "pythontexcustomcode body must keep both sentences, got body={body:?}"
+        );
+        assert!(
+            footer.contains(r"\end{pythontexcustomcode}"),
+            "pythontexcustomcode footer must stay, got footer={footer:?}"
+        );
+        let custom_out = format_text(custom, &latex_cfg()).unwrap();
+        assert!(
+            custom_out.contains("\\begin{pythontexcustomcode}{py}\nFirst line. Second line.\n\\end{pythontexcustomcode}"),
+            "pythontexcustomcode required arg must stay on begin, got:\n{custom_out}"
+        );
+        assert!(
+            custom_out.contains("After the block.\nNext."),
+            "prose after pythontexcustomcode must still split, got:\n{custom_out}"
+        );
+        assert_eq!(format_text(&custom_out, &latex_cfg()).unwrap(), custom_out);
+
+        let landed = concat!(
+            "\\begin{pycode}\n",
+            "First line. Second line.\n",
+            "\\end{pycode}\n",
+            "\\begin{pyconsole}\n",
+            "First line. Second line.\n",
+            "\\end{pyconsole}\n",
+            "After the block. Next.\n",
+        );
+        let landed_out = format_text(landed, &latex_cfg()).unwrap();
+        assert!(
+            landed_out.contains("\\begin{pycode}\nFirst line. Second line.\n\\end{pycode}"),
+            "landed pycode must stay a code env, got:\n{landed_out}"
+        );
+        assert!(
+            landed_out.contains("\\begin{pyconsole}\nFirst line. Second line.\n\\end{pyconsole}"),
+            "landed pyconsole must stay a code env, got:\n{landed_out}"
+        );
+        assert!(
+            landed_out.contains("After the block.\nNext."),
+            "prose after landed pycode/pyconsole must still split, got:\n{landed_out}"
+        );
+        assert_eq!(format_text(&landed_out, &latex_cfg()).unwrap(), landed_out);
     }
 
     /// Ticket fixture (GitHub #230): alltt.sty is a standard
