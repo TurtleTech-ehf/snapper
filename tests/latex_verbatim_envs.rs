@@ -3566,3 +3566,4 @@ fn piton_env_and_pipe_cmd_fixture_is_code_and_does_not_reflow() {
             "prose after inputminted must still split, got:\n{minted_in_out}"
         );
     }
+}
