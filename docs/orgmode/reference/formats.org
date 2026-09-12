@@ -19,7 +19,7 @@ The classification depends on the format.
 :CUSTOM_ID: org-structure
 :END:
 - Non-source =#+BEGIN_*= ...
-=#+END_*= fences, and the bodies of literal blocks (example, export, comment)
+=#+END_*= fences, and the bodies of literal blocks (example, export, comment). An unmatched =#+BEGIN_EXPORT= is a paragraph (org-element export-block-parser)
 - Dynamic blocks (=#+BEGIN: NAME= ... =#+END:=), including the generated body
 - Quote, verse, center, and special-block (NOTE and other unknown NAME) open/close lines; verse inner lines stay unjoined, and a two-sentence verse line stays one physical line
 - Special-block interiors (NOTE, ABSTRACT, WARNING, ...) reflow as prose
@@ -32,7 +32,7 @@ The classification depends on the format.
 - Column-0 diary-sexp lines (=%%(...)=; org-element-diary-sexp-parser)
 - Full headline lines (stars, optional TODO keyword, and title text)
 - List item markers (=-=, =+=, =1.=); continuation sentences hang at the marker width
-- LaTeX environments (=\begin{equation}= ... =\end{equation}=, =\begin{align}=, etc.)
+- LaTeX environments (=\begin{equation}= ... =\end{equation}=, =\begin{align}=, etc.). An unmatched =\begin{env}= is a paragraph (org-element latex-environment-parser)
 - Display math (=\[= ... =\]=)
 - Line breaks (org-element-line-break-parser: =\\= plus optional spaces or tabs at end of line)
 - A line that is only an export snippet (=@@latex:\newpage@@=). Trailing prose after the closer stays Prose.
@@ -41,6 +41,7 @@ The classification depends on the format.
 :PROPERTIES:
 :CUSTOM_ID: org-code
 :END:
+- An unmatched =#+BEGIN_SRC= is a paragraph (org-element src-block-parser)
 - Header and footer lines are structure
 - Body non-comment lines pass through verbatim
 - Body comment lines reflow at sentence boundaries when the language has =line_comment= and/or =block_comment= under =[code.<lang>]=

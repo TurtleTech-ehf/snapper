@@ -369,6 +369,26 @@ impl OrgParser {
             .is_some_and(|caps| caps.get(1).unwrap().as_str() == env)
     }
 
+    /// org-element latex-environment / src-block / export-block: no closer
+    /// means the opener is a paragraph, not a container to EOF (GitHub #355).
+    fn remaining_has_latex_end(rest: &str, env: &str) -> bool {
+        iter_lines(rest)
+            .iter()
+            .any(|line| Self::is_latex_end(line.text, env))
+    }
+
+    fn remaining_has_src_end(rest: &str) -> bool {
+        iter_lines(rest)
+            .iter()
+            .any(|line| Self::is_src_end(line.text))
+    }
+
+    fn remaining_has_export_end(rest: &str) -> bool {
+        iter_lines(rest)
+            .iter()
+            .any(|line| Self::block_end_name(line.text).as_deref() == Some("EXPORT"))
+    }
+
     /// First `\end{env}` at or after `from` (same-line close; not leftover-start).
     fn latex_end_at(s: &str, env: &str, from: usize) -> Option<usize> {
         let needle = format!("\\end{{{env}}}");
@@ -768,22 +788,34 @@ impl FormatParser for OrgParser {
                 continue;
             }
 
-            // Source block begin (#+BEGIN_SRC LANG ...)
+            // Source block begin (#+BEGIN_SRC LANG ...). Unmatched opener
+            // is a paragraph (org-element src-block-parser / GitHub #355).
             if let Some(lang) = Self::is_src_begin(line_text) {
-                flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
-                in_src_block = true;
-                src_lang = lang;
-                src_header = line.span();
-                src_body_start = line.end;
-                continue;
+                if Self::remaining_has_src_end(&input[line.end..]) {
+                    flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
+                    in_src_block = true;
+                    src_lang = lang;
+                    src_header = line.span();
+                    src_body_start = line.end;
+                    continue;
+                }
             }
 
             // #+BEGIN_NAME: container open (quote/verse/center) or opaque.
+            // Unmatched #+BEGIN_EXPORT is a paragraph (org-element
+            // export-block-parser / GitHub #355). Unmatched #+BEGIN_SRC
+            // falls through the src-begin look-ahead above.
             if let Some(name) = Self::block_begin_name(line_text) {
-                flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
-                Self::push_greater(&mut block_stack, name);
-                regions.push(SpannedRegion::structure(input, line.span()));
-                continue;
+                let unmatched_export =
+                    name == "EXPORT" && !Self::remaining_has_export_end(&input[line.end..]);
+                let unmatched_src =
+                    name == "SRC" && !Self::remaining_has_src_end(&input[line.end..]);
+                if !unmatched_export && !unmatched_src {
+                    flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
+                    Self::push_greater(&mut block_stack, name);
+                    regions.push(SpannedRegion::structure(input, line.span()));
+                    continue;
+                }
             }
 
             // #+END_NAME: matching container closer, or mismatched Structure.
@@ -816,11 +848,13 @@ impl FormatParser for OrgParser {
                 continue;
             }
 
-            // LaTeX environment begin (\begin{equation} etc.)
+            // LaTeX environment begin (\begin{equation} etc.).
+            // Unmatched \begin{env} is a paragraph (org-element
+            // latex-environment-parser / GitHub #355).
             if let Some(env) = Self::is_latex_begin(line_text) {
-                flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
                 let begin_at = LATEX_BEGIN_RE.find(line_text).map(|m| m.end()).unwrap_or(0);
                 if let Some(end_at) = Self::latex_end_at(line_text, &env, begin_at) {
+                    flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
                     let cmd_end = end_at + Self::latex_end_len(&env);
                     if line_text[cmd_end..].trim().is_empty() {
                         regions.push(SpannedRegion::structure(input, line.span()));
@@ -837,11 +871,13 @@ impl FormatParser for OrgParser {
                             &mut regions,
                         );
                     }
-                } else {
+                    continue;
+                } else if Self::remaining_has_latex_end(&input[line.end..], &env) {
+                    flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
                     in_latex_env = Some(env);
                     regions.push(SpannedRegion::structure(input, line.span()));
+                    continue;
                 }
-                continue;
             }
 
             // Display math: leftover-start $$ (2le9). `\[CONTENTS\]` may be mid-line.
@@ -1096,19 +1132,9 @@ impl FormatParser for OrgParser {
             }
         }
 
-        // Flush remaining
+        // Flush remaining. Unmatched #+BEGIN_SRC never enters in_src_block
+        // (org-element: the opener is a paragraph / GitHub #355).
         flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
-        // Unclosed source block at EOF: still emit as Code with empty footer.
-        if in_src_block {
-            let eof = ByteSpan::new(input.len(), input.len());
-            regions.push(SpannedRegion::code(
-                input,
-                src_lang.take(),
-                src_header,
-                ByteSpan::new(src_body_start, input.len()),
-                eof,
-            ));
-        }
 
         regions
     }
