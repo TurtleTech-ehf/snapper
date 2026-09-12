@@ -553,19 +553,20 @@ fn parse_line_based(input: &str) -> Vec<SpannedRegion> {
         // `is_underline` rejects those borders (interior spaces), so without
         // this the header/body rows fall through to prose and get joined.
         // Interior blanks stay BlankLines; the walk still reaches the closer.
+        // A top with no matching closer still isolates the top line so
+        // SemBr cannot join it onto following flush prose (GitHub #347).
         if is_simple_table_border(line_text) {
-            if let Some(end) = simple_table_end(&lines, i) {
-                flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
-                for row in &lines[i..=end] {
-                    if row.text.trim().is_empty() {
-                        regions.push(SpannedRegion::blank(input, row.span()));
-                    } else {
-                        regions.push(SpannedRegion::structure(input, row.span()));
-                    }
+            flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
+            let end = simple_table_end(&lines, i).unwrap_or(i);
+            for row in &lines[i..=end] {
+                if row.text.trim().is_empty() {
+                    regions.push(SpannedRegion::blank(input, row.span()));
+                } else {
+                    regions.push(SpannedRegion::structure(input, row.span()));
                 }
-                i = end + 1;
-                continue;
             }
+            i = end + 1;
+            continue;
         }
 
         // Definition list: flush term plus an immediately indented definition.
@@ -1200,7 +1201,8 @@ fn is_definition_term(lines: &[Line<'_>], i: usize) -> bool {
 /// matching-width `=` border and does not stop on blanks. Close on the
 /// second matching-width border, or on the first when the next line is
 /// blank or the input ends. A different-width `=` border is malformed
-/// and is not a closer.
+/// and is not a closer. No matching closer: `None`, and the caller
+/// keeps the top as Structure (GitHub #347 / `simple_table_top`).
 fn simple_table_end(lines: &[Line<'_>], start: usize) -> Option<usize> {
     let toplen = lines[start].text.trim().len();
     let mut found = 0u32;
