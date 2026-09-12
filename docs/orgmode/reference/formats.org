@@ -135,6 +135,8 @@ These tokens within prose are not split across lines:
 - Body follows the same comment-reflow and optional =--format-code= rules as other formats when language is known (=minted= / =minted*= language arg, =lstlisting= / =lstlisting*= =language== option)
 - Inline =\verb= / =\lstinline= / =\spverb= / =\mintinline= / =\mint= / fancyvrb =\Verb= / =\Verb*= / =\SaveVerb= / piton.sty =\piton= (and extra =[latex].verbatim_commands=) stay atomic; inner =.!?%= do not split or comment.
   =\piton|...|= is verb-like; =\piton{...}= stays one token via the generic command argument
+- leftover listings.sty =\lstinputlisting= / =\lstinputlisting*= take optional =[...]= then a ={filename}=
+  The command stays one token; a flush following sentence stays on its own line
 
 *** Prose regions (reflowed)
 :PROPERTIES:
