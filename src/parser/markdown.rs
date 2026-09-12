@@ -183,12 +183,15 @@ fn html_comment_closed(text: &str) -> bool {
     }
 }
 
-/// CommonMark 4.6 HTML block types 1 and 3–7 (type 2 is `<!--`).
+/// CommonMark 4.6 HTML block types 1–7 (type 2 is `<!--`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum HtmlBlock {
     /// `<pre` / `<script` / `<style` / `<textarea` until the matching end tag.
     /// Emitted as Code so the body is not sentence-split.
     Type1,
+    /// `<!--` until `-->`. Top-level uses [`starts_html_comment`]; quoted
+    /// openers construct this so `> <!--` is not lazy-joined (GitHub #340).
+    Type2,
     /// `<?` until `?>`.
     Type3,
     /// `<!` + ASCII letter until `>`.
@@ -326,6 +329,9 @@ fn html_block_kind(line: &str) -> Option<HtmlBlock> {
     if HTML_TYPE1_OPEN_RE.is_match(rest) {
         return Some(HtmlBlock::Type1);
     }
+    if rest.starts_with("<!--") {
+        return Some(HtmlBlock::Type2);
+    }
     if rest.starts_with("<?") {
         return Some(HtmlBlock::Type3);
     }
@@ -347,6 +353,7 @@ fn html_block_kind(line: &str) -> Option<HtmlBlock> {
 fn html_block_line_ends(line: &str, kind: HtmlBlock) -> bool {
     match kind {
         HtmlBlock::Type1 => HTML_TYPE1_CLOSE_RE.is_match(line),
+        HtmlBlock::Type2 => line.contains("-->"),
         HtmlBlock::Type3 => line.contains("?>"),
         HtmlBlock::Type4 => line.contains('>'),
         HtmlBlock::Type5 => line.contains("]]>"),
@@ -411,6 +418,17 @@ fn emit_html_block(
     regions: &mut Vec<SpannedRegion>,
 ) -> usize {
     let end_idx = html_block_end_idx(kind, lines, start_idx);
+    emit_html_span(kind, lines, start_idx, end_idx, input, regions)
+}
+
+fn emit_html_span(
+    kind: HtmlBlock,
+    lines: &[Line<'_>],
+    start_idx: usize,
+    end_idx: usize,
+    input: &str,
+    regions: &mut Vec<SpannedRegion>,
+) -> usize {
     if kind == HtmlBlock::Type1 {
         let header = lines[start_idx].span();
         if end_idx == start_idx {
@@ -427,6 +445,103 @@ fn emit_html_block(
         regions.push(SpannedRegion::structure(input, ByteSpan::new(start, end)));
     }
     end_idx + 1
+}
+
+/// Inner text of a line that still belongs to a quote of `depth`.
+/// `None` when the line left the quote. HTML blocks have no lazy
+/// continuation (CommonMark 5.1), so an unquoted line ends the block.
+fn quoted_html_inner(line: &str, depth: usize) -> Option<&str> {
+    if quote_marker_depth(line) < depth {
+        return None;
+    }
+    strip_quote_markers(line, depth)
+}
+
+fn quoted_html_next_continues(lines: &[Line<'_>], j: usize, depth: usize) -> bool {
+    j + 1 < lines.len()
+        && quoted_html_inner(lines[j + 1].text, depth).is_some_and(|t| !t.trim().is_empty())
+}
+
+/// Quoted HTML-block end (GitHub #340). Same type rules as
+/// [`html_block_end_idx`], but only while the line stays in the quote.
+fn quoted_html_block_end_idx(
+    kind: HtmlBlock,
+    lines: &[Line<'_>],
+    start_idx: usize,
+    depth: usize,
+) -> usize {
+    match kind {
+        HtmlBlock::Type6 => {
+            if let Some(tag) = quoted_html_inner(lines[start_idx].text, depth)
+                .and_then(|t| type6_tag_name(html_block_rest(t)))
+            {
+                let mut nest = 0i32;
+                let mut j = start_idx;
+                loop {
+                    if let Some(inner) = quoted_html_inner(lines[j].text, depth) {
+                        if apply_type6_named_tags(inner, tag, &mut nest) {
+                            return j;
+                        }
+                    } else {
+                        return j.saturating_sub(1).max(start_idx);
+                    }
+                    if !quoted_html_next_continues(lines, j, depth) {
+                        return j;
+                    }
+                    j += 1;
+                }
+            }
+            let mut j = start_idx;
+            while quoted_html_next_continues(lines, j, depth) {
+                j += 1;
+            }
+            j
+        }
+        HtmlBlock::Type7 => {
+            let mut j = start_idx;
+            while quoted_html_next_continues(lines, j, depth) {
+                j += 1;
+            }
+            j
+        }
+        _ => {
+            if quoted_html_inner(lines[start_idx].text, depth)
+                .is_some_and(|t| html_block_line_ends(t, kind))
+            {
+                return start_idx;
+            }
+            let mut j = start_idx + 1;
+            while j < lines.len() {
+                match quoted_html_inner(lines[j].text, depth) {
+                    None => return j.saturating_sub(1).max(start_idx),
+                    Some(t) if html_block_line_ends(t, kind) => return j,
+                    Some(_) => j += 1,
+                }
+            }
+            lines.len().saturating_sub(1)
+        }
+    }
+}
+
+/// Type 2 (`<!--`) or types 1/3–7 on already-stripped quote content.
+fn quoted_html_kind(inner: &str) -> Option<HtmlBlock> {
+    if html_block_rest(inner).starts_with("<!--") {
+        Some(HtmlBlock::Type2)
+    } else {
+        html_block_kind(inner)
+    }
+}
+
+fn emit_quoted_html_block(
+    kind: HtmlBlock,
+    lines: &[Line<'_>],
+    start_idx: usize,
+    depth: usize,
+    input: &str,
+    regions: &mut Vec<SpannedRegion>,
+) -> usize {
+    let end_idx = quoted_html_block_end_idx(kind, lines, start_idx, depth);
+    emit_html_span(kind, lines, start_idx, end_idx, input, regions)
 }
 
 /// Two or more trailing spaces, or an unescaped trailing backslash.
@@ -1967,6 +2082,34 @@ impl FormatParser for MarkdownParser {
             // leftover `> Foo` text (GitHub #262).
             let quote_depth = quote_marker_depth(line_text);
             if quote_depth > 0 {
+                let text = strip_quote_markers(line_text, quote_depth).unwrap_or(line_text);
+                // Quoted HTML block (CM 4.6 + 5.1 / GitHub #340). Types 1-7
+                // may start after `>`. Lazy continuation does not apply, so
+                // the next unquoted line is a new paragraph.
+                if let Some(kind) = quoted_html_kind(text) {
+                    let in_paragraph = !current_prose.is_empty() || in_list_item;
+                    if kind.can_interrupt() || !in_paragraph {
+                        close_list_item(
+                            &mut in_list_item,
+                            &mut list_hang,
+                            &mut current_prose,
+                            &mut prose_span,
+                            &mut list_term,
+                            input,
+                            &mut regions,
+                        );
+                        flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
+                        i = emit_quoted_html_block(
+                            kind,
+                            &lines,
+                            i,
+                            quote_depth,
+                            input,
+                            &mut regions,
+                        );
+                        continue;
+                    }
+                }
                 close_list_item(
                     &mut in_list_item,
                     &mut list_hang,
@@ -1977,7 +2120,6 @@ impl FormatParser for MarkdownParser {
                     &mut regions,
                 );
                 flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
-                let text = strip_quote_markers(line_text, quote_depth).unwrap_or(line_text);
                 let marker_len = line_text.len() - text.len();
                 if text.trim().is_empty() {
                     regions.push(SpannedRegion::structure(input, line.span()));
@@ -4588,6 +4730,177 @@ mod tests {
             "oracle-silent path must match, got:\n{raw_out}"
         );
         assert_eq!(format_text(&raw_out, &raw).unwrap(), raw_out);
+    }
+
+    /// GitHub #340 / snapper-eyx7: quoted HTML blocks have no lazy
+    /// continuation. Unquoted following prose stays outside the quote.
+    fn ticket_quoted_html_fixture(opener: &str) -> String {
+        format!(
+            "Intro sentence here. Another intro sentence.\n\n> {opener}\nAfter tag. Next sentence.\n"
+        )
+    }
+
+    #[test]
+    fn quoted_html_div_is_structure_following_prose_unquoted() {
+        let input = ticket_quoted_html_fixture("<div>");
+        let regions = MarkdownParser.parse(&input);
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Structure(s) if s.contains('>') && s.contains("<div>")
+            )),
+            "> <div> must be Structure, got: {regions:?}"
+        );
+        assert!(
+            !regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(p) if p.contains("<div")
+            )),
+            "quoted <div> must not be Prose: {regions:?}"
+        );
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(p) if p.contains("After tag.") && p.contains("Next sentence.")
+            )),
+            "unquoted following line must stay Prose, got: {regions:?}"
+        );
+        assert!(
+            !regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(p) if p.contains("After tag.") && p.contains('>')
+            )),
+            "following prose must stay unquoted, got: {regions:?}"
+        );
+    }
+
+    #[test]
+    fn quoted_html_div_following_prose_still_splits() {
+        use crate::format::Format;
+        use crate::{FormatConfig, format_text};
+
+        let input = ticket_quoted_html_fixture("<div>");
+        let cfg = FormatConfig {
+            format: Format::Markdown,
+            ..Default::default()
+        }
+        .without_safety_backstops();
+        let out = format_text(&input, &cfg).unwrap();
+        assert!(
+            out.contains("Intro sentence here.\nAnother intro sentence.\n"),
+            "surrounding prose must still reflow, got:\n{out}"
+        );
+        assert!(
+            out.contains("> <div>\n"),
+            "> <div> must stay Structure, got:\n{out}"
+        );
+        assert!(
+            out.contains("After tag.\nNext sentence.\n"),
+            "unquoted following prose must still split, got:\n{out}"
+        );
+        assert!(
+            !out.contains("> After tag") && !out.contains("> Next sentence"),
+            "following prose must stay unquoted, got:\n{out}"
+        );
+        assert_eq!(format_text(&out, &cfg).unwrap(), out);
+    }
+
+    #[test]
+    fn quoted_html_pre_comment_span_following_prose_unquoted() {
+        use crate::format::Format;
+        use crate::{FormatConfig, format_text};
+
+        let cfg = FormatConfig {
+            format: Format::Markdown,
+            ..Default::default()
+        }
+        .without_safety_backstops();
+        for opener in ["<pre>", "<!--", "<span>"] {
+            let input = ticket_quoted_html_fixture(opener);
+            let regions = MarkdownParser.parse(&input);
+            assert!(
+                !regions.iter().any(|r| matches!(
+                    r,
+                    Region::Prose(p) if p.contains(opener)
+                )),
+                "> {opener} must not be Prose, got: {regions:?}"
+            );
+            assert!(
+                regions.iter().any(|r| matches!(
+                    r,
+                    Region::Prose(p) if p.contains("After tag.") && p.contains("Next sentence.")
+                )),
+                "> {opener} following line must stay Prose, got: {regions:?}"
+            );
+            let out = format_text(&input, &cfg).unwrap();
+            assert!(
+                out.contains(&format!("> {opener}\n")),
+                "> {opener} must stay on its line, got:\n{out}"
+            );
+            assert!(
+                out.contains("After tag.\nNext sentence.\n"),
+                "> {opener} following prose must still split, got:\n{out}"
+            );
+            assert!(
+                !out.contains("> After tag") && !out.contains("> Next sentence"),
+                "> {opener} following prose must stay unquoted, got:\n{out}"
+            );
+            assert_eq!(format_text(&out, &cfg).unwrap(), out);
+        }
+    }
+
+    #[test]
+    fn quoted_html_both_quoted_does_not_glue() {
+        use crate::format::Format;
+        use crate::{FormatConfig, format_text};
+
+        let input = "> <div>\n> After tag. Next sentence.\n";
+        let cfg = FormatConfig {
+            format: Format::Markdown,
+            ..Default::default()
+        }
+        .without_safety_backstops();
+        let out = format_text(input, &cfg).unwrap();
+        assert!(
+            !out.contains("> <div> After tag"),
+            "both-quoted HTML must not glue, got:\n{out}"
+        );
+        assert!(
+            out.contains("> <div>\n> After tag. Next sentence.\n"),
+            "unclosed quoted type-6 keeps the next quoted line raw, got:\n{out}"
+        );
+        assert!(
+            !out.contains("> After tag.\n> Next sentence"),
+            "both-quoted HTML must not sentence-split, got:\n{out}"
+        );
+        assert_eq!(format_text(&out, &cfg).unwrap(), out);
+    }
+
+    #[test]
+    fn top_level_html_types_still_interrupt() {
+        use crate::format::Format;
+        use crate::{FormatConfig, format_text};
+
+        let cfg = FormatConfig {
+            format: Format::Markdown,
+            ..Default::default()
+        }
+        .without_safety_backstops();
+        let input = concat!(
+            "Intro sentence here. Another intro sentence.\n",
+            "<div>\n",
+            "After tag. Next sentence.\n",
+        );
+        let out = format_text(input, &cfg).unwrap();
+        assert!(
+            out.contains("Intro sentence here.\nAnother intro sentence.\n"),
+            "top-level prose before type-6 must still split, got:\n{out}"
+        );
+        assert!(
+            out.contains("<div>\nAfter tag. Next sentence.\n"),
+            "top-level unclosed type-6 still runs to the following non-blank, got:\n{out}"
+        );
+        assert_eq!(format_text(&out, &cfg).unwrap(), out);
     }
 
     fn md_cfg() -> crate::FormatConfig {
