@@ -112,6 +112,7 @@ These tokens within prose are not split across lines:
 - minted.sty =minted*= is the starred twin of =minted= (same raw minted body)
 - tcolorbox listings =tcblisting*= is the starred twin of =tcblisting= (same raw listing body)
 - tcolorbox =tcbverbatimwrite= / =tcbwritetemp= write the env body raw to a file (same class as =VerbatimOut=)
+- tcolorbox leftover write/listing envs =tcboutputlisting= / =tcbexternal= / =dispExample= / =dispExample*= / =dispListing= / =dispListing*= are the same raw grab (tcblistingscore / tcbexternal / tcbdocumentation)
 - latexindent =filecontents= / =filecontents*= write the env body raw to a file
 - filecontentsdef.sty =filecontentsdef= writes the env body verbatim into a macro (same raw grab as =filecontents=)
 - filecontentsdef.sty leftover siblings =filecontentsgdef= / =filecontentsdefmacro= / =filecontentsgdefmacro= / =filecontentshere= and starred twins =filecontentsdef*= / =filecontentsgdef*= / =filecontentshere*= are the same raw grab
