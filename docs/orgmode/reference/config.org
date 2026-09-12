@@ -187,12 +187,13 @@ Adding =algorithm= stops reflow of that environment.
 
 String array of extra command names tokenized like the built-in verb command before sentence split.
 The next character after the name is the delimiter.
-Built-in names are =verb=, =lstinline=, =lstinputlisting=, =spverb=, =mintinline=, =inputminted=, =mint=, fancyvrb =Verb= / =Verb*= / =SaveVerb=, and piton.sty =\piton=; =lstinline= still accepts optional =[...]= and ={...}=.
+Built-in names are =verb=, =lstinline=, =lstinputlisting=, =spverb=, =mintinline=, =inputminted=, =mint=, fancyvrb =Verb= / =Verb*= / =SaveVerb= / =VerbatimInput= / =BVerbatimInput= / =LVerbatimInput=, and piton.sty =\piton=; =lstinline= still accepts optional =[...]= and ={...}=.
 =mintinline= / =mint= take optional =[...]=, a ={lang}= argument, then a delimiter or ={...}= body.
 =\inputminted= takes the same optional =[...]= and ={lang}= then a required ={filename}=; following flush prose stays on its own line.
 =SaveVerb= takes optional =[...]=, a ={name}= argument, then the same delimiter body as =Verb=.
 =\piton|...|= is verb-like (interior =.!?%= stay one token); =\piton{...}= stays one token via the generic command argument.
 =\lstinputlisting= takes optional =[...]= then a required ={filename}=; following flush prose stays on its own line.
+=\VerbatimInput= / =\BVerbatimInput= / =\LVerbatimInput= take optional =[...]= then a required ={filename}=; following flush prose stays on its own line.
 Adding another name keeps that command's delimited body atomic and treats an inner =%= as content, not a comment.
 
 * Code-block sections (=[code.<lang>]=)
