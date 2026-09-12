@@ -963,7 +963,6 @@ fn tcbinputlisting_cs_at(line: &str, at: usize) -> bool {
     !after.starts_with(|c: char| c.is_ascii_alphabetic())
 }
 
-
 /// Leftover piton.sty `\PitonInputFile` (optional `<...>`, optional
 /// `[...]`, required `{file}`; `d < > O { } m`; GitHub #406). Other
 /// verb spans are skipped so `\verb|\PitonInputFile{x}|` is not
@@ -986,7 +985,6 @@ fn pitoninputfile_cs_at(line: &str, at: usize) -> bool {
     };
     !after.starts_with(|c: char| c.is_ascii_alphabetic())
 }
-
 
 fn find_leftover_cmd_at(
     line: &str,
@@ -8132,5 +8130,4 @@ Some text.
             "prose after d<> PitonInputFile must still split, got:\n{range_out}"
         );
     }
-
 }

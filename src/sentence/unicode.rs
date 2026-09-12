@@ -400,7 +400,6 @@ pub(crate) fn latex_verb_span_end_with(
         return Some(find_unescaped_brace_close(text, i).unwrap_or_else(|| line_end(text, i)));
     }
 
-
     // piton.sty `\PitonInputFile<spec>[opts]{file}` (`d < > O { } m`;
     // GitHub #406). Optional angle then optional brackets, then a
     // required brace file arg. No brace is not a span.
@@ -424,7 +423,6 @@ pub(crate) fn latex_verb_span_end_with(
         i += 1;
         return Some(find_unescaped_brace_close(text, i).unwrap_or_else(|| line_end(text, i)));
     }
-
 
     if kind == VerbKind::Mint {
         if !text.get(i..).is_some_and(|s| s.starts_with('{')) {
@@ -583,8 +581,6 @@ fn skip_angle_group(text: &str, open_at: usize) -> Option<usize> {
     }
     None
 }
-
-
 
 fn skip_bracket_group(text: &str, open_at: usize) -> Option<usize> {
     let bytes = text.as_bytes();
@@ -2615,8 +2611,6 @@ mod tests {
             "PitonInputFile must not steal tcbinputlisting"
         );
     }
-
-
 
     /// Ticket fixture (GitHub #275): fancyvrb `\SaveVerb{name}|body|`
     /// is one token; following `After.` still splits.
