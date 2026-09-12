@@ -25,21 +25,27 @@ fn ticket_fixture() -> &'static str {
 }
 
 #[test]
-fn footnote_definition_is_structure_not_prose() {
+fn footnote_definition_marker_is_structure_body_is_prose() {
     let regions = MarkdownParser.parse(ticket_fixture());
+    assert!(
+        regions
+            .iter()
+            .any(|r| matches!(r, Region::Structure(s) if s == "[^1]: ")),
+        "footnote marker must be Structure, got {regions:?}"
+    );
     assert!(
         regions.iter().any(|r| matches!(
             r,
-            Region::Structure(s) if s.contains("[^1]: Footnote text. Second sentence.")
+            Region::Prose(s) if s.contains("Footnote text.") && s.contains("Second sentence.")
         )),
-        "footnote definition must be Structure, got {regions:?}"
+        "footnote body must be Prose, got {regions:?}"
     );
     assert!(
         !regions.iter().any(|r| matches!(
             r,
-            Region::Prose(s) if s.contains("[^1]:") || s.contains("Footnote text")
+            Region::Structure(s) if s.contains("Footnote text")
         )),
-        "footnote body must not be Prose, got {regions:?}"
+        "footnote body must not stay Structure, got {regions:?}"
     );
 }
 
@@ -106,12 +112,12 @@ fn ticket_fixture_does_not_reflow_definitions() {
         "footnote reference paragraph must still reflow, got:\n{out}"
     );
     assert!(
-        out.contains("[^1]: Footnote text. Second sentence."),
-        "footnote definition must not sentence-split, got:\n{out}"
+        out.contains("[^1]: Footnote text.\n      Second sentence."),
+        "footnote body must hang and split, got:\n{out}"
     );
     assert!(
-        !out.contains("[^1]: Footnote text.\nSecond sentence."),
-        "footnote must not leak a shorter body, got:\n{out}"
+        !out.lines().any(|l| l == "Second sentence."),
+        "must not emit a column-0 second sentence, got:\n{out}"
     );
     assert_eq!(format_text(&out, &md_cfg()).unwrap(), out);
 
@@ -124,4 +130,21 @@ fn ticket_fixture_does_not_reflow_definitions() {
         guarded_out, out,
         "oracle-on path must match, got:\n{guarded_out}"
     );
+}
+
+/// GitHub #410 / snapper-7kbk: GFM footnote definition body is a paragraph.
+#[test]
+fn footnote_definition_body_splits_and_hangs() {
+    let input = "See [^1]. Next.\n\n[^1]: fig. 1 is here. After.\n";
+    let out = format_text(input, &md_cfg()).unwrap();
+    assert_eq!(
+        out,
+        "See [^1].\nNext.\n\n[^1]: fig. 1 is here.\n      After.\n",
+        "After. must hang and split; See [^1]. / Next. unchanged, got:\n{out}"
+    );
+    assert!(
+        !out.lines().any(|l| l == "After."),
+        "must not emit a column-0 After., got:\n{out}"
+    );
+    assert_eq!(format_text(&out, &md_cfg()).unwrap(), out);
 }
