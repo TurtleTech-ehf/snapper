@@ -1049,7 +1049,6 @@ fn find_md_code_span(text: &str, open_at: usize) -> Option<usize> {
 /// Org `src_lang{...}` / `call_name(...)`, Org brace `H_{...}` / `x^{...}`
 /// (org-match-substring-regexp), RST `|fig. 1|` / `|name|_` / `|name|__`,
 /// paired spans).
-
 ///
 /// Ranges are half-open `[start, end)`, sorted, non-overlapping, and merged
 /// when a regex match wraps a paired span.
