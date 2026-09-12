@@ -59,8 +59,8 @@ impl FormatParser for RstParser {
 /// block-quote hang spaces as structure regions. Docutils container
 /// directives (admonitions, figure, topic, sidebar, container, leftover
 /// body.py parsed-literal / epigraph / highlights / pull-quote / compound /
-/// header / footer) nested-parse their body: the opener and option fields
-/// stay Structure; the body hangs as Prose.
+/// header / footer / line-block) nested-parse their body: the opener and
+/// option fields stay Structure; the body hangs as Prose.
 fn parse_line_based(input: &str) -> Vec<SpannedRegion> {
     let mut regions = Vec::new();
     let mut current_prose = String::new();
@@ -260,7 +260,7 @@ fn parse_line_based(input: &str) -> Vec<SpannedRegion> {
         // RST directive (`.. name::`). Container directives (admonitions,
         // figure, topic, sidebar, container, leftover body.py
         // parsed-literal / epigraph / highlights / pull-quote / compound /
-        // header / footer) nested-parse their body: the opener and
+        // header / footer / line-block) nested-parse their body: the opener
         // `:option:` fields stay Structure; the body hangs and reflows
         // like a block quote.
         // Opaque names keep the old freeze (GitHub #54 / #351 / #386).
@@ -271,7 +271,9 @@ fn parse_line_based(input: &str) -> Vec<SpannedRegion> {
         // Prose that still splits (GitHub #349). leftover body.py
         // `header` / `footer` is the same no-argument class (GitHub #422).
         // `parsed-literal` takes no argument; same-line text after `::`
-        // is leftover Prose (GitHub #426). SubstitutionDef
+        // is leftover Prose (GitHub #426). `line-block` takes no
+        // argument; same-line text after `::` is leftover Prose
+        // (GitHub #430). SubstitutionDef
         // `.. |name| replace::` is the same leftover: the replace body
         // is a nested-parsed paragraph (GitHub #417).
         let trimmed = line_text.trim_start();
@@ -784,8 +786,9 @@ fn rst_directive_name(trimmed: &str) -> Option<String> {
 
 /// Docutils specific admonitions plus leftover body.py names with no
 /// arguments (epigraph / highlights / pull-quote / compound / header /
-/// footer / parsed-literal): same-line text after `::` is the first
-/// nested-parsed body paragraph (GitHub #349 / #351 / #422 / #426).
+/// footer / parsed-literal / line-block): same-line text after `::` is
+/// the first nested-parsed body paragraph (GitHub #349 / #351 / #422 /
+/// #426 / #430).
 fn is_rst_specific_admonition(name: &str) -> bool {
     matches!(
         name,
@@ -805,14 +808,15 @@ fn is_rst_specific_admonition(name: &str) -> bool {
             | "header"
             | "footer"
             | "parsed-literal"
+            | "line-block"
     )
 }
 
 /// Docutils admonitions plus figure/topic/sidebar/container: bodies
 /// nested-parse, so hang + reflow. Leftover body.py names in
-/// `is_rst_specific_admonition` (including parsed-literal) are the
-/// same class. Option fields stay Structure via the field-list arm.
-/// Other directive names stay opaque. GitHub #386 / #426.
+/// `is_rst_specific_admonition` (including parsed-literal / line-block)
+/// are the same class. Option fields stay Structure via the field-list
+/// arm. Other directive names stay opaque. GitHub #386 / #426 / #430.
 fn is_rst_container_directive(name: &str) -> bool {
     is_rst_specific_admonition(name)
         || matches!(
