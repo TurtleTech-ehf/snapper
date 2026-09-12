@@ -33,6 +33,28 @@ fn plaintext_period_before_backticks_quote_is_span_safe() {
     );
 }
 
+/// GitHub #374 / snapper-fhe6. `".` A`'``aaa0`"0` is delimiters_balanced
+/// but format_text inserted a newline after `.`` so the span invariant
+/// failed. Markup closer-split must not cut inside the open quote.
+#[test]
+fn plaintext_quote_backtick_period_capital_is_span_safe() {
+    let input = "\".` A`'``aaa0`\"0";
+    assert!(
+        delimiters_balanced(input),
+        "seed must stay balanced\n in={input:?}"
+    );
+    let out = format_plain(input);
+    assert!(
+        !out.contains(".`\n"),
+        "must not split after .`\n in={input:?}\n out={out:?}"
+    );
+    assert_eq!(format_plain(&out), out, "idempotence");
+    assert!(
+        newlines_respect_delimiter_spans(&out),
+        "span newline\n in={input:?}\n out={out:?}"
+    );
+}
+
 /// GitHub #266. `(. aA. )A` is not idempotent on origin/main: first
 /// pass collapses the space (`(. aA.)A\n`), second pass splits
 /// (`(. aA.)\nA\n`). format_text twice must be identity.

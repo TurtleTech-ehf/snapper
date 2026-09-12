@@ -1404,7 +1404,23 @@ fn take_markup_terminal_sentence(seg: &str) -> Option<(String, String)> {
     if head.is_empty() || rest.is_empty() {
         return None;
     }
+    // GitHub #374: `.`` A` matches the markup-closer pattern while a
+    // quote/paren span is still open. Refuse if the head leaves
+    // DelimState inside (same protect+feed as the span invariant).
+    if markup_head_leaves_span_open(head) {
+        return None;
+    }
     Some((head.to_string(), rest.to_string()))
+}
+
+/// True when feeding `head` (after inline-token protect) leaves a
+/// DelimState span open. Markup closer-split must not invent a newline
+/// at that boundary.
+fn markup_head_leaves_span_open(head: &str) -> bool {
+    let (protected, _) = protect_inline_tokens(head);
+    let mut state = DelimState::default();
+    state.feed(&protected);
+    state.is_inside()
 }
 
 fn merge_quoted_punct_splits(segments: Vec<String>) -> Vec<String> {
@@ -3943,6 +3959,10 @@ mod tests {
         // PR #52 CI seed: period before backticks, then quote-backtick.
         // Next token is not a capital letter, so this is not a new sentence.
         assert_eq!(split("`.`` \"`"), vec!["`.`` \"`".to_string()]);
+        // GitHub #374 / snapper-fhe6: period+backtick then capital looks
+        // like a markup closer, but the opening quote is still open.
+        let seed = "\".` A`'``aaa0`\"0";
+        assert_eq!(split(seed), vec![seed.to_string()]);
     }
 
     #[test]
