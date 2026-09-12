@@ -2016,10 +2016,10 @@ impl FormatParser for MarkdownParser {
 
             // CommonMark 4.7 link-reference definition. Same-line dest, or
             // dest after one line ending, then optional title. Structure so
-            // dest/title are not joined or sentence-split. CM: an LRD does
-            // not interrupt a paragraph — we do not insert a blank, so
-            // pulldown HTML is unchanged when the line followed prose.
-            if is_link_reference_definition(line_text) {
+            // dest/title are not joined or sentence-split. An LRD does not
+            // interrupt a paragraph (CM 0.31.2 §4.7 / GitHub #357): after
+            // prose, the line stays in the open paragraph.
+            if current_prose.is_empty() && is_link_reference_definition(line_text) {
                 close_list_item(
                     &mut in_list_item,
                     &mut list_hang,
@@ -2038,7 +2038,8 @@ impl FormatParser for MarkdownParser {
                 }
                 continue;
             }
-            if is_link_reference_label_only(line_text)
+            if current_prose.is_empty()
+                && is_link_reference_label_only(line_text)
                 && i + 1 < total
                 && is_link_dest_continuation(lines[i + 1].text)
             {
@@ -5717,34 +5718,48 @@ mod tests {
     }
 
     #[test]
-    fn link_reference_definition_line_stays_structure_without_blank() {
+    fn link_reference_definition_does_not_interrupt_paragraph() {
         use crate::format_text;
 
-        let input = "See [foo]. Next sentence.\n[foo]: https://example.com/a.b\n";
+        let input = concat!(
+            "Foo is a sentence. Bar is another.\n",
+            "[foo]: /url/a.b\n",
+            "After. Next.\n",
+        );
         let regions = MarkdownParser.parse(input);
         assert!(
             regions.iter().any(|r| matches!(
                 r,
-                Region::Structure(s) if s.contains("[foo]: https://example.com/a.b")
+                Region::Prose(p)
+                    if p.contains("Foo is a sentence.")
+                        && p.contains("Bar is another.")
+                        && p.contains("[foo]: /url/a.b")
+                        && p.contains("After.")
+                        && p.contains("Next.")
             )),
-            "ticket [foo]: dest line must be Structure, got: {regions:?}"
+            "LRD must stay in the paragraph, got: {regions:?}"
         );
         assert!(
             !regions.iter().any(|r| matches!(
                 r,
-                Region::Prose(p) if p.contains("[foo]:")
+                Region::Structure(s) if s.contains("[foo]:")
             )),
-            "[foo]: dest must not join the paragraph Prose, got: {regions:?}"
+            "LRD must not become Structure that splits Foo/Bar, got: {regions:?}"
         );
         let out = format_text(input, &md_cfg()).unwrap();
         assert!(
-            out.contains("See [foo].\nNext sentence.\n[foo]: https://example.com/a.b"),
-            "LRD must stay its own line (no join, no extra blank), got:\n{out}"
+            out.contains("Foo is a sentence.\nBar is another."),
+            "Foo / Bar must still split, got:\n{out}"
         );
         assert!(
-            !out.contains("Next sentence. [foo]:"),
-            "must not glue dest onto the previous sentence, got:\n{out}"
+            out.contains("After.\nNext."),
+            "After. / Next. must still split, got:\n{out}"
         );
+        assert!(
+            !out.contains("After. Next."),
+            "fused After. Next. must not survive, got:\n{out}"
+        );
+        assert_eq!(format_text(&out, &md_cfg()).unwrap(), out);
     }
 
     #[test]
@@ -5837,9 +5852,19 @@ mod tests {
         assert!(
             regions.iter().any(|r| matches!(
                 r,
-                Region::Structure(s) if s.contains("[foo]: https://example.com/a.b")
+                Region::Prose(p)
+                    if p.contains("See [foo].")
+                        && p.contains("Next sentence.")
+                        && p.contains("[foo]: https://example.com/a.b")
             )),
-            "ticket [foo]: dest must be Structure, got: {regions:?}"
+            "no-blank [foo]: dest stays in the paragraph, got: {regions:?}"
+        );
+        assert!(
+            !regions.iter().any(|r| matches!(
+                r,
+                Region::Structure(s) if s.contains("[foo]:")
+            )),
+            "no-blank LRD must not be Structure, got: {regions:?}"
         );
         assert!(
             regions.iter().any(|r| matches!(

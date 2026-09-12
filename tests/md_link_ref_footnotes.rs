@@ -44,21 +44,24 @@ fn footnote_definition_is_structure_not_prose() {
 }
 
 #[test]
-fn ticket_fixture_link_ref_line_is_structure() {
+fn ticket_fixture_link_ref_line_stays_in_paragraph() {
     let regions = MarkdownParser.parse(ticket_fixture());
     assert!(
         regions.iter().any(|r| matches!(
             r,
-            Region::Structure(s) if s.contains("[foo]: https://example.com/a.b")
+            Region::Prose(s)
+                if s.contains("See [foo].")
+                    && s.contains("Next sentence.")
+                    && s.contains("[foo]: https://example.com/a.b")
         )),
-        "ticket [foo]: dest must be Structure, got {regions:?}"
+        "no-blank [foo]: dest stays in the paragraph, got {regions:?}"
     );
     assert!(
         !regions.iter().any(|r| matches!(
             r,
-            Region::Prose(s) if s.contains("[foo]:")
+            Region::Structure(s) if s.contains("[foo]:")
         )),
-        "ticket [foo]: dest must not be Prose, got {regions:?}"
+        "no-blank LRD must not be Structure, got {regions:?}"
     );
 }
 
