@@ -22,6 +22,8 @@
 //! are verbatim@start raw bodies (starred twins do not expand tabs).
 //! GitHub #306: moreverb verbatimwrite writes the env body raw via
 //! verbatim@start (same class as VerbatimOut / tcbverbatimwrite).
+//! GitHub #353: leftover sverb verbwrite / ignore / demo / demo*
+//! are the same sv@readenv raw grab (write / discard / demo display).
 //! GitHub #249: pythontex.sty pyblock / pyverbatim / pyconsole are the same
 //! VerbatimEnvironment class as pycode.
 //! GitHub #276: pythontex.sty pycode* / pyblock* / pyverbatim* / pyconsole*
@@ -368,6 +370,93 @@ fn moreverb_verbatimwrite_fixture_is_code_and_does_not_reflow() {
         "prose after verbatimwrite must still split, got:\n{out}"
     );
     assert_eq!(format_text(&out, &latex_cfg()).unwrap(), out);
+}
+
+/// Ticket fixture (GitHub #353): leftover sverb.sty `verbwrite` /
+/// `ignore` / `demo` / `demo*` (`sv@readenv` raw grab) stay Code.
+/// Required `{tmp.tex}` stays on the verbwrite begin header; following
+/// prose still splits. Landed moreverb `verbatimwrite` stays Code.
+#[test]
+fn sverb_leftover_write_and_demo_envs_are_code_and_do_not_reflow() {
+    let cases = [
+        ("verbwrite", "{tmp.tex}"),
+        ("ignore", ""),
+        ("demo", "{Title}"),
+        ("demo*", "{Title}"),
+    ];
+    for (name, arg) in cases {
+        let begin = format!("\\begin{{{name}}}{arg}");
+        let input =
+            format!("{begin}\nFirst line. Second line.\n\\end{{{name}}}\nAfter the block. Next.\n");
+        let regions = LatexParser::default().parse(&input);
+        let code = regions.iter().find_map(|r| match r {
+            Region::Code {
+                header,
+                body,
+                footer,
+                ..
+            } => Some((header.as_str(), body.as_str(), footer.as_str())),
+            _ => None,
+        });
+        let Some((header, body, footer)) = code else {
+            panic!("{name} must be Code, got: {regions:?}");
+        };
+        assert!(
+            header.contains(&begin),
+            "{name} begin must stay on the header, got header={header:?}"
+        );
+        assert!(
+            body.contains("First line. Second line."),
+            "{name} body must be Code, got body={body:?}"
+        );
+        assert!(
+            footer.contains(&format!("\\end{{{name}}}")),
+            "{name} footer must stay, got footer={footer:?}"
+        );
+        assert!(
+            !regions
+                .iter()
+                .any(|r| matches!(r, Region::Prose(p) if p.contains("First line"))),
+            "{name} body must not be Prose, got: {regions:?}"
+        );
+        let out = format_text(&input, &latex_cfg()).unwrap();
+        assert!(
+            out.contains(&begin) && out.contains(&format!("\\end{{{name}}}")),
+            "{name} begin/end must stay, got:\n{out}"
+        );
+        assert!(
+            out.contains("First line. Second line."),
+            "{name} body must stay one source line, got:\n{out}"
+        );
+        assert!(
+            !out.contains("First line.\nSecond line."),
+            "{name} must not reflow as prose, got:\n{out}"
+        );
+        assert!(
+            out.contains("After the block.\nNext."),
+            "prose after {name} must still split, got:\n{out}"
+        );
+        assert_eq!(format_text(&out, &latex_cfg()).unwrap(), out);
+    }
+
+    let landed = concat!(
+        "\\begin{verbatimwrite}{out.tex}\n",
+        "First line. Second line.\n",
+        "\\end{verbatimwrite}\n",
+        "After the block. Next.\n",
+    );
+    let landed_out = format_text(landed, &latex_cfg()).unwrap();
+    assert!(
+        landed_out.contains(
+            "\\begin{verbatimwrite}{out.tex}\nFirst line. Second line.\n\\end{verbatimwrite}"
+        ),
+        "landed verbatimwrite must stay a code env, got:\n{landed_out}"
+    );
+    assert!(
+        landed_out.contains("After the block.\nNext."),
+        "prose after landed verbatimwrite must still split, got:\n{landed_out}"
+    );
+    assert_eq!(format_text(&landed_out, &latex_cfg()).unwrap(), landed_out);
 }
 
 /// Ticket fixture (GitHub #246): tcolorbox listings `tcblisting*`
