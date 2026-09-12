@@ -151,7 +151,10 @@ static LSTLISTING_LANG_RE: LazyLock<Regex> = LazyLock::new(|| {
 /// `sympyconverbatim` / `sympysub` / `sympyconsub` / `pylabconcode` /
 /// `pylabconverbatim` / `pylabsub` / `pylabconsub` /
 /// `pythontexcustomcode` (same `VerbatimEnvironment` class as `pycode`;
-/// GitHub #249 / #274 / #276 / #277 / #278 / #333),
+/// GitHub #249 / #274 / #276 / #277 / #278 / #333), plus option-family
+/// `usefamily` / `\makepythontexfamily` leftovers (`rubycode`
+/// representative; ruby/rb/julia/juliacon/jl/matlab/octave/bash/sage/
+/// rust/rs/R/Rcon/perl/pl/perlsix/psix/javascript/js; GitHub #352),
 /// pythonhighlight.sty `python` (`\lstnewenvironment{python}`; same
 /// listings raw scan as `lstlisting`; GitHub #307),
 /// pyluatex.sty `pythonq` / `pythonrepl` (verbatim python / REPL
@@ -347,7 +350,49 @@ fn is_builtin_code_env(name: &str) -> bool {
             | "sagecommandline"
             | "comment"
             | "Piton"
-    )
+    ) || is_pythontex_option_family_env(name)
+}
+
+/// pythontex.sty `usefamily` / `\makepythontexfamily` option-only
+/// families (GitHub #352). Same `VerbatimEnvironment` class as `pycode`.
+/// Regular families mint `{name}code` / `{name}block` / `{name}verbatim`
+/// / `{name}sub` (and starred twins of the first three). `juliacon` /
+/// `Rcon` mint `{name}code` plus `{name}sole` (`juliaconsole` /
+/// `Rconsole`).
+fn is_pythontex_option_family_env(name: &str) -> bool {
+    const FAMILIES: &[&str] = &[
+        "ruby",
+        "rb",
+        "julia",
+        "jl",
+        "matlab",
+        "octave",
+        "bash",
+        "sage",
+        "rust",
+        "rs",
+        "R",
+        "perl",
+        "pl",
+        "perlsix",
+        "psix",
+        "javascript",
+        "js",
+    ];
+    if matches!(
+        name,
+        "juliaconcode" | "juliaconsole" | "juliaconsole*" | "Rconcode" | "Rconsole" | "Rconsole*"
+    ) {
+        return true;
+    }
+    FAMILIES.iter().any(|family| {
+        name.strip_prefix(family).is_some_and(|rest| {
+            matches!(
+                rest,
+                "code" | "code*" | "block" | "block*" | "verbatim" | "verbatim*" | "sub"
+            )
+        })
+    })
 }
 
 /// tree-sitter `displayed_equation` (`$$` or `\[`) / latexindent `displayMath` + `displayMathTeX`.
@@ -2067,6 +2112,47 @@ Some text.
         .without_safety_backstops()
     }
 
+    /// pythontex.sty option-family env names from `usefamily` /
+    /// `\makepythontexfamily` (GitHub #352).
+    fn pythontex_option_family_env_names() -> Vec<String> {
+        const FAMILIES: &[&str] = &[
+            "ruby",
+            "rb",
+            "julia",
+            "jl",
+            "matlab",
+            "octave",
+            "bash",
+            "sage",
+            "rust",
+            "rs",
+            "R",
+            "perl",
+            "pl",
+            "perlsix",
+            "psix",
+            "javascript",
+            "js",
+        ];
+        let mut names = Vec::new();
+        for family in FAMILIES {
+            for suffix in ["code", "block", "verbatim"] {
+                names.push(format!("{family}{suffix}"));
+                names.push(format!("{family}{suffix}*"));
+            }
+            names.push(format!("{family}sub"));
+        }
+        names.extend([
+            "juliaconcode".into(),
+            "juliaconsole".into(),
+            "juliaconsole*".into(),
+            "Rconcode".into(),
+            "Rconsole".into(),
+            "Rconsole*".into(),
+        ]);
+        names
+    }
+
     #[test]
     fn verb_with_inner_punct_round_trips() {
         use crate::format_text;
@@ -3753,6 +3839,92 @@ Some text.
         assert!(
             landed_out.contains("\\begin{pyconsole}\nFirst line. Second line.\n\\end{pyconsole}"),
             "landed pyconsole must stay a code env, got:\n{landed_out}"
+        );
+        assert!(
+            landed_out.contains("After the block.\nNext."),
+            "prose after landed pycode/pyconsole must still split, got:\n{landed_out}"
+        );
+        assert_eq!(format_text(&landed_out, &latex_cfg()).unwrap(), landed_out);
+    }
+
+    /// Ticket fixture (GitHub #352): pythontex.sty option-family
+    /// `usefamily` / `\makepythontexfamily` envs (`rubycode`
+    /// representative) are the same `VerbatimEnvironment` class as
+    /// landed `pycode` / `pyconsole`. Body stays Code; following prose
+    /// still splits. Default-family leftovers stay Code.
+    #[test]
+    fn pythontex_option_family_envs_are_code_not_prose() {
+        use crate::format_text;
+
+        for name in pythontex_option_family_env_names() {
+            let input = format!(
+                concat!(
+                    "\\begin{{{name}}}\n",
+                    "First line. Second line.\n",
+                    "\\end{{{name}}}\n",
+                    "After the block. Next.\n",
+                ),
+                name = name
+            );
+            let regions = LatexParser::default().parse(&input);
+            assert!(
+                regions.iter().any(|r| matches!(
+                    r,
+                    Region::Code { body, .. } if body.contains("First line. Second line.")
+                )),
+                "{name} body must be Code, got: {regions:?}"
+            );
+            assert!(
+                !regions
+                    .iter()
+                    .any(|r| matches!(r, Region::Prose(p) if p.contains("First line"))),
+                "{name} body must not leak into Prose, got: {regions:?}"
+            );
+            let out = format_text(&input, &latex_cfg()).unwrap();
+            assert!(
+                out.contains(&format!("\\begin{{{name}}}"))
+                    && out.contains(&format!("\\end{{{name}}}")),
+                "{name} begin/end must stay, got:\n{out}"
+            );
+            assert!(
+                out.contains("First line. Second line."),
+                "{name} body must stay one source line, got:\n{out}"
+            );
+            assert!(
+                !out.contains("First line.\nSecond line."),
+                "{name} must not reflow as prose, got:\n{out}"
+            );
+            assert!(
+                out.contains("After the block.\nNext."),
+                "prose after {name} must still split, got:\n{out}"
+            );
+            assert_eq!(format_text(&out, &latex_cfg()).unwrap(), out);
+        }
+
+        let landed = concat!(
+            "\\begin{pycode}\n",
+            "First line. Second line.\n",
+            "\\end{pycode}\n",
+            "\\begin{pyconsole}\n",
+            "First line. Second line.\n",
+            "\\end{pyconsole}\n",
+            "\\begin{pyconcode}\n",
+            "First line. Second line.\n",
+            "\\end{pyconcode}\n",
+            "After the block. Next.\n",
+        );
+        let landed_out = format_text(landed, &latex_cfg()).unwrap();
+        assert!(
+            landed_out.contains("\\begin{pycode}\nFirst line. Second line.\n\\end{pycode}"),
+            "landed pycode must stay a code env, got:\n{landed_out}"
+        );
+        assert!(
+            landed_out.contains("\\begin{pyconsole}\nFirst line. Second line.\n\\end{pyconsole}"),
+            "landed pyconsole must stay a code env, got:\n{landed_out}"
+        );
+        assert!(
+            landed_out.contains("\\begin{pyconcode}\nFirst line. Second line.\n\\end{pyconcode}"),
+            "leftover default-family pyconcode must stay a code env, got:\n{landed_out}"
         );
         assert!(
             landed_out.contains("After the block.\nNext."),
