@@ -202,11 +202,19 @@ pub fn protect_inline_tokens_with(
 /// `\SaveVerb{name}|...|` / `\piton|...|` /
 /// `\lstinputlisting[...]{file}` /
 /// `\verbatiminput{file}` / `\VerbatimInput[...]{file}` /
-/// `\listinginput[interval]{start}{file}` /
+/// `\PitonInputFile<...>[...]{file}` /
+/// `\PitonInputFileT` / `\PitonInputFileF` / `\PitonInputFileTF` /
+/// `\tcbinputlisting{keyvals}` /
 /// `\inputpy[...]{file}` / `\inputpycon[...]{file}` /
 /// `\inputpylab[...]{file}` / `\inputpylabcon[...]{file}` /
 /// `\inputsympy[...]{file}` / `\inputsympycon[...]{file}` /
-/// `\sageinput{file}` / `\inputsc[...]{name}` so inner `.!?%` cannot
+/// `\inputpygments[...]{lang}{file}` / `\pygment{lang}{code}` /
+/// `\CatchFileBetweenTags{macro}{file}{tag}` /
+/// `\CatchFileBetweenDelims{macro}{file}{start}{end}` /
+/// `\ExecuteMetaData[...]{tag}` /
+/// `\listinginput[interval]{start}{file}` /
+/// `\sageinput[...]{file}` /
+/// `\inputsc[...]{name}` so inner `.!?%` cannot
 /// split or comment. `\piton{...}` stays on the generic `\cmd{arg}`
 /// path (piton.sty brace syntax is not verbatim; GitHub #305).
 fn protect_latex_verbatim(
@@ -234,10 +242,15 @@ fn protect_latex_verbatim(
 
 /// Byte end of a `\verb` / `\lstinline` / `\spverb` / `\mintinline` /
 /// `\mint` / `\inputminted` / `\Verb` / `\SaveVerb` / `\piton` /
-/// `\lstinputlisting` / `\VerbatimInput` / `\BVerbatimInput` /
-/// `\LVerbatimInput` / `\listinginput` / `\inputpy` / `\inputpycon` /
-/// `\inputpylab` / `\inputpylabcon` / `\inputsympy` / `\inputsympycon` /
-/// `\sageinput` / `\inputsc` / extra-name span starting at `at`.
+/// `\lstinputlisting` / `\verbatiminput` / `\VerbatimInput` /
+/// `\BVerbatimInput` / `\LVerbatimInput` / `\PitonInputFile` /
+/// `\PitonInputFileT` / `\PitonInputFileF` / `\PitonInputFileTF` /
+/// `\tcbinputlisting` / `\inputpy` / `\inputpycon` /
+/// `\inputpylab` / `\inputpylabcon` / `\inputsympy` /
+/// `\inputsympycon` / `\inputpygments` / `\pygment` /
+/// `\CatchFileBetweenTags` / `\CatchFileBetweenDelims` /
+/// `\ExecuteMetaData` / `\listinginput` / `\sageinput` / `\inputsc` /
+/// extra-name span starting at `at`.
 ///
 /// `\verb` / `\verb*` / `\spverb` / `\spverb*` / `\Verb` / `\Verb*`: next
 /// character is the
@@ -255,28 +268,42 @@ fn protect_latex_verbatim(
 /// delimiter so `\piton{...}` stays on the generic `\cmd{arg}` path.
 /// `\lstinputlisting` / `\lstinputlisting*` (listings.sty leftover;
 /// GitHub #391) take optional `[...]` then a required `{filename}`;
-/// no brace is not a span. `\VerbatimInput` / `\BVerbatimInput` /
-/// `\LVerbatimInput` (fancyvrb.sty leftover; GitHub #399) use the same
-/// optional `[...]` then `{filename}` walk. Matched before `\Verb` so
-/// `\VerbatimInput` is not `\Verb` plus leftover letters. `\inputpy` /
+/// no brace is not a span. `\verbatiminput` / `\verbatiminput*`
+/// (tools/verbatim.sty leftover; GitHub #398) take a required
+/// `{filename}`; no brace is not a span. fancyvrb `\VerbatimInput` /
+/// `\BVerbatimInput` / `\LVerbatimInput` (and stars; `FV@Command`;
+/// GitHub #399) use the same optional `[...]` then `{filename}` walk.
+/// Matched before `\Verb` so `\VerbatimInput` is not rejected as
+/// `\Verb` + leftover. `\tcbinputlisting` (tcolorbox leftover;
+/// GitHub #400) takes one required `{keyval}` group; no optional
+/// `[...]` and no brace is not a span. `\PitonInputFile` (piton.sty
+/// leftover; `d < > O { } m`; GitHub #406) takes optional `<...>`,
+/// optional `[...]`, then a required `{filename}`; no brace is not a
+/// span. `\PitonInputFileT` / `\PitonInputFileF` (`d < > O { } m m`)
+/// and `\PitonInputFileTF` (`d < > O { } m m m`; GitHub #439) take the
+/// same optional args then extra required braces. `\inputpy` /
 /// `\inputpycon` / `\inputpylab` / `\inputpylabcon` / `\inputsympy` /
 /// `\inputsympycon` (pythontex.sty leftover; GitHub #419 / #433) take
 /// optional `[...]` then a required `{filename}`; no brace is not a
 /// span. Longer names first so `\inputpylab` is not `\inputpy` +
-/// leftover. `\inputpygments` is not a span (`inputpy` +
-/// alphabetic leftover). `\listinginput` (moreverb leftover; GitHub
-/// #424) takes optional `[interval]` then required `{start-line}` and
-/// `{filename}`; no second brace is not a span. There is no `*` form.
-/// `\sageinput` (sagetex leftover; GitHub #428) takes a required
-/// `{filename}`; no brace is not a span. `\sage` / `\sageplot` /
-/// `\sagestr` are not this name. There is no `*` form.
-/// `\inputsc` (scontents leftover sequence replay; GitHub #437)
-/// takes optional `[...]` then a required `{name}`; no brace is not
-/// a span. There is no `*` form. `\input` / `\inputpy` are not this
-/// name.
-/// Extra names are tokenized like `\verb`. With
-/// no closer, the span runs to end of line so an inner `%` is not a
-/// comment.
+/// leftover. `\inputpygments` (pythontex.sty leftover; GitHub #439)
+/// is its own span (same `{lang}` then `{file}` walk as
+/// `\inputminted`), not `inputpy` + leftover. `\pygment` takes
+/// `{lang}` then a delimiter or `{code}` body. `\CatchFileBetweenTags`
+/// takes three required braces; `\CatchFileBetweenDelims` takes four
+/// then optional `[setup]`; `\ExecuteMetaData` takes optional `[file]`
+/// then `{tag}`. `\listinginput` (moreverb
+/// leftover; GitHub #424) takes optional `[interval]` then required
+/// `{start-line}` and `{filename}`; no second brace is not a span.
+/// There is no `*` form. `\sageinput` (sagetex leftover; GitHub #428)
+/// takes optional `[...]` then a required `{filename}`; no brace is
+/// not a span. Alphabetic leftover rejects a longer name. `\sage` is
+/// a different, shorter name and is not this span. `\inputsc`
+/// (scontents leftover sequence replay; GitHub #437) takes optional
+/// `[...]` then a required `{name}`; no brace is not a span. There
+/// is no `*` form. `\input` / `\inputpy` are not this name. Extra
+/// names are tokenized like `\verb`. With no closer, the span runs
+/// to end of line so an inner `%` is not a comment.
 pub(crate) fn latex_verb_span_end_with(
     text: &str,
     at: usize,
@@ -301,10 +328,26 @@ pub(crate) fn latex_verb_span_end_with(
             return None;
         }
         (after_bs + "inputminted".len(), VerbKind::Mint)
-    } else if let Some(name_len) = inputpy_cmd_len(tail) {
+    } else if let Some(stripped) = tail.strip_prefix("inputpygments") {
+        // pythontex.sty leftover (GitHub #439). Same `{lang}` + file
+        // walk as inputminted. Matched before inputpy so this name
+        // is not rejected as inputpy + leftover.
+        if stripped.starts_with(|c: char| c.is_ascii_alphabetic()) {
+            return None;
+        }
+        (after_bs + "inputpygments".len(), VerbKind::Mint)
+    } else if let Some(stripped) = tail.strip_prefix("pygment") {
+        // pythontex.sty leftover (GitHub #439). `{lang}` then body
+        // like mint. Alphabetic leftover rejects pygments.
+        if stripped.starts_with(|c: char| c.is_ascii_alphabetic()) {
+            return None;
+        }
+        (after_bs + "pygment".len(), VerbKind::Mint)
+    } else if let Some(name) = inputpy_cs_name(tail) {
         // pythontex.sty leftover file-input (GitHub #419 / #433).
-        // Longer names first; `\inputpygments` is not a span.
-        (after_bs + name_len, VerbKind::Lstinputlisting)
+        // Longer names first. Same optional `[...]` then `{file}`
+        // walk as `\lstinputlisting`.
+        (after_bs + name.len(), VerbKind::Lstinputlisting)
     } else if let Some(stripped) = tail.strip_prefix("listinginput") {
         // moreverb leftover file-input (GitHub #424). No `*` form;
         // alphabetic tail rejects a longer name.
@@ -328,6 +371,36 @@ pub(crate) fn latex_verb_span_end_with(
             return None;
         }
         (after_bs + "inputsc".len(), VerbKind::Lstinputlisting)
+    } else if let Some(stripped) = tail.strip_prefix("CatchFileBetweenDelims") {
+        // catchfilebetweentags.sty leftover (GitHub #439). Four
+        // required braces, optional trailing `[setup]`. No `*` form.
+        if stripped.starts_with(|c: char| c.is_ascii_alphabetic() || c == '*') {
+            return None;
+        }
+        (
+            after_bs + "CatchFileBetweenDelims".len(),
+            VerbKind::CatchFileBetweenDelims,
+        )
+    } else if let Some(stripped) = tail.strip_prefix("CatchFileBetweenTags") {
+        // catchfilebetweentags.sty leftover (GitHub #439). Three
+        // required braces, optional trailing `[setup]`. No `*` form.
+        if stripped.starts_with(|c: char| c.is_ascii_alphabetic() || c == '*') {
+            return None;
+        }
+        (
+            after_bs + "CatchFileBetweenTags".len(),
+            VerbKind::CatchFileBetweenTags,
+        )
+    } else if let Some(stripped) = tail.strip_prefix("ExecuteMetaData") {
+        // catchfilebetweentags.sty leftover (GitHub #439). Optional
+        // `[file]` then required `{tag}`. No `*` form.
+        if stripped.starts_with(|c: char| c.is_ascii_alphabetic() || c == '*') {
+            return None;
+        }
+        (
+            after_bs + "ExecuteMetaData".len(),
+            VerbKind::Lstinputlisting,
+        )
     } else if let Some(stripped) = tail.strip_prefix("lstinputlisting") {
         if stripped.starts_with(|c: char| c.is_ascii_alphabetic()) {
             return None;
@@ -350,13 +423,11 @@ pub(crate) fn latex_verb_span_end_with(
             after_bs + "tcbinputlisting".len(),
             VerbKind::Tcbinputlisting,
         )
-    } else if let Some(stripped) = tail.strip_prefix("PitonInputFile") {
-        // Before `piton` so the longer leftover name is not `\piton`
-        // + alphabetic leftover (GitHub #406).
-        if stripped.starts_with(|c: char| c.is_ascii_alphabetic()) {
-            return None;
-        }
-        (after_bs + "PitonInputFile".len(), VerbKind::PitonInputFile)
+    } else if let Some((name, kind)) = pitoninputfile_cs_name(tail) {
+        // Longer leftover name, case-distinct from `\piton` (GitHub
+        // #406). T / F / TF siblings (GitHub #439) before the base
+        // name so they are not alphabetic leftover.
+        (after_bs + name.len(), kind)
     } else if let Some(stripped) = tail.strip_prefix("lstinline") {
         if stripped.starts_with(|c: char| c.is_ascii_alphabetic()) {
             return None;
@@ -479,8 +550,12 @@ pub(crate) fn latex_verb_span_end_with(
 
     // piton.sty `\PitonInputFile<spec>[opts]{file}` (`d < > O { } m`;
     // GitHub #406). Optional angle then optional brackets, then a
-    // required brace file arg. No brace is not a span.
-    if kind == VerbKind::PitonInputFile {
+    // required brace file arg. T / F take one extra brace; TF takes
+    // two (GitHub #439). No brace is not a span.
+    if matches!(
+        kind,
+        VerbKind::PitonInputFile | VerbKind::PitonInputFileT | VerbKind::PitonInputFileTF
+    ) {
         i = skip_ascii_ws(text, i);
         if text.get(i..).is_some_and(|s| s.starts_with('<')) {
             match skip_angle_group(text, i) {
@@ -494,11 +569,36 @@ pub(crate) fn latex_verb_span_end_with(
                 None => return Some(line_end(text, i)),
             }
         }
-        if !text.get(i..).is_some_and(|s| s.starts_with('{')) {
+        let extra = match kind {
+            VerbKind::PitonInputFileTF => 2,
+            VerbKind::PitonInputFileT => 1,
+            _ => 0,
+        };
+        return skip_required_brace_groups(text, i, 1 + extra);
+    }
+
+    // catchfilebetweentags.sty leftover (GitHub #439). Tags is three
+    // required braces; Delims is four. Optional trailing `[setup]`.
+    // A missing required brace is not a span.
+    if matches!(
+        kind,
+        VerbKind::CatchFileBetweenTags | VerbKind::CatchFileBetweenDelims
+    ) {
+        let n = match kind {
+            VerbKind::CatchFileBetweenDelims => 4,
+            _ => 3,
+        };
+        let Some(end) = skip_required_brace_groups(text, i, n) else {
             return None;
+        };
+        i = skip_ascii_ws(text, end);
+        if text.get(i..).is_some_and(|s| s.starts_with('[')) {
+            return match skip_bracket_group(text, i) {
+                Some(close) => Some(close),
+                None => Some(line_end(text, i)),
+            };
         }
-        i += 1;
-        return Some(find_unescaped_brace_close(text, i).unwrap_or_else(|| line_end(text, i)));
+        return Some(end);
     }
 
     if kind == VerbKind::Mint {
@@ -555,10 +655,11 @@ enum VerbKind {
     Delim,
     /// `\lstinline`: optional `[...]` then delimiter or `{...}`.
     Lstinline,
-    /// `\lstinputlisting` / `\VerbatimInput` / `\BVerbatimInput` /
-    /// `\LVerbatimInput` / `\inputpy` / `\inputpycon` / `\inputpylab` /
-    /// `\inputpylabcon` / `\inputsympy` / `\inputsympycon` / `\inputsc`:
-    /// optional `[...]` then required `{filename}` / `{name}`.
+    /// `\lstinputlisting` / fancyvrb `\VerbatimInput` family /
+    /// `\inputpy` / `\inputpycon` / `\inputpylab` / `\inputpylabcon` /
+    /// `\inputsympy` / `\inputsympycon` / `\sageinput` / `\inputsc` /
+    /// `\ExecuteMetaData`: optional `[...]` then required `{filename}`
+    /// / `{name}` / `{tag}`.
     Lstinputlisting,
     /// `\\verbatiminput`: required `{filename}` (verbatim.sty leftover).
     Verbatiminput,
@@ -572,8 +673,20 @@ enum VerbKind {
     /// `\PitonInputFile`: optional `<...>`, optional `[...]`, required
     /// `{filename}` (piton.sty leftover; GitHub #406).
     PitonInputFile,
-    /// `\mintinline` / `\mint` / `\inputminted`: optional `[...]`,
-    /// `{lang}`, then body.
+    /// `\PitonInputFileT` / `\PitonInputFileF`: same optional args,
+    /// `{file}`, then one extra required brace (GitHub #439).
+    PitonInputFileT,
+    /// `\PitonInputFileTF`: same optional args, `{file}`, then two
+    /// extra required braces (GitHub #439).
+    PitonInputFileTF,
+    /// `\CatchFileBetweenTags`: three required braces, optional
+    /// trailing `[setup]` (catchfilebetweentags leftover; GitHub #439).
+    CatchFileBetweenTags,
+    /// `\CatchFileBetweenDelims`: four required braces, optional
+    /// trailing `[setup]` (catchfilebetweentags leftover; GitHub #439).
+    CatchFileBetweenDelims,
+    /// `\mintinline` / `\mint` / `\inputminted` / `\inputpygments` /
+    /// `\pygment`: optional `[...]`, `{lang}`, then body.
     Mint,
     /// `\SaveVerb`: optional `[...]`, `{name}`, then delimiter body like `\Verb`.
     SaveVerb,
@@ -605,8 +718,8 @@ fn verbatiminput_cs_name(tail: &str) -> Option<&'static str> {
 /// pythontex.sty leftover default-family file-input (optional `[...]`,
 /// required `{file}`; GitHub #419 / #433). Longer names first so
 /// `\inputpylab` / `\inputpycon` are not `\inputpy` + leftover.
-/// `\inputpygments` is rejected as `inputpy` + alphabetic leftover.
-fn inputpy_cmd_len(tail: &str) -> Option<usize> {
+/// `\inputpygments` is a separate leftover matched before this family.
+fn inputpy_cs_name(tail: &str) -> Option<&'static str> {
     for name in [
         "inputpylabcon",
         "inputsympycon",
@@ -615,11 +728,29 @@ fn inputpy_cmd_len(tail: &str) -> Option<usize> {
         "inputsympy",
         "inputpy",
     ] {
-        if let Some(stripped) = tail.strip_prefix(name) {
-            if stripped.starts_with(|c: char| c.is_ascii_alphabetic()) {
-                return None;
+        if let Some(after) = tail.strip_prefix(name) {
+            if !after.starts_with(|c: char| c.is_ascii_alphabetic()) {
+                return Some(name);
             }
-            return Some(name.len());
+        }
+    }
+    None
+}
+
+/// piton.sty leftover `\PitonInputFile` family (GitHub #406 / #439).
+/// Longer T / F / TF names first so they are not the base name plus
+/// alphabetic leftover.
+fn pitoninputfile_cs_name(tail: &str) -> Option<(&'static str, VerbKind)> {
+    for (name, kind) in [
+        ("PitonInputFileTF", VerbKind::PitonInputFileTF),
+        ("PitonInputFileT", VerbKind::PitonInputFileT),
+        ("PitonInputFileF", VerbKind::PitonInputFileT),
+        ("PitonInputFile", VerbKind::PitonInputFile),
+    ] {
+        if let Some(after) = tail.strip_prefix(name) {
+            if !after.starts_with(|c: char| c.is_ascii_alphabetic()) {
+                return Some((name, kind));
+            }
         }
     }
     None
@@ -637,6 +768,8 @@ fn match_extra_verb_command<'a>(tail: &'a str, extras: &'a [String]) -> Option<&
             || name == "spverb"
             || name == "mintinline"
             || name == "inputminted"
+            || name == "inputpygments"
+            || name == "pygment"
             || name == "inputpy"
             || name == "inputpycon"
             || name == "inputpylab"
@@ -647,7 +780,10 @@ fn match_extra_verb_command<'a>(tail: &'a str, extras: &'a [String]) -> Option<&
             || name == "verbatiminput"
             || name == "tcbinputlisting"
             || name == "listinginput"
-            || name == "PitonInputFile"
+            || name == "sageinput"
+            || name == "CatchFileBetweenTags"
+            || name == "CatchFileBetweenDelims"
+            || name == "ExecuteMetaData"
             || name == "mint"
             || name == "Verb"
             || name == "SaveVerb"
@@ -655,6 +791,10 @@ fn match_extra_verb_command<'a>(tail: &'a str, extras: &'a [String]) -> Option<&
             || name == "BVerbatimInput"
             || name == "LVerbatimInput"
             || name == "piton"
+            || name == "PitonInputFile"
+            || name == "PitonInputFileT"
+            || name == "PitonInputFileF"
+            || name == "PitonInputFileTF"
         {
             continue;
         }
@@ -676,6 +816,23 @@ fn skip_ascii_ws(text: &str, mut i: usize) -> usize {
         i += 1;
     }
     i
+}
+
+/// `n` required `{...}` groups. Missing a group is not a span.
+/// An unclosed group runs to end of line.
+fn skip_required_brace_groups(text: &str, mut i: usize, n: usize) -> Option<usize> {
+    for _ in 0..n {
+        i = skip_ascii_ws(text, i);
+        if !text.get(i..).is_some_and(|s| s.starts_with('{')) {
+            return None;
+        }
+        i += 1;
+        match find_unescaped_brace_close(text, i) {
+            Some(end) => i = end,
+            None => return Some(line_end(text, i)),
+        }
+    }
+    Some(i)
 }
 
 /// xparse `d < >` optional delimited argument (piton.sty
@@ -2778,7 +2935,7 @@ mod tests {
         );
         assert_eq!(
             latex_verb_span_end_with(r"\inputpygments{python}{foo.py}", 0, &[]),
-            None,
+            Some(r"\inputpygments{python}{foo.py}".len()),
             "inputpy must not steal inputpygments"
         );
         assert_eq!(
@@ -2869,7 +3026,7 @@ mod tests {
         );
         assert_eq!(
             latex_verb_span_end_with(r"\inputpygments{python}{foo.py}", 0, &[]),
-            None,
+            Some(r"\inputpygments{python}{foo.py}".len()),
             "inputpylab must not steal inputpygments"
         );
     }
@@ -3016,6 +3173,237 @@ mod tests {
             latex_verb_span_end_with(r"\lstinputlisting{foo.py}", 0, &[]),
             Some(r"\lstinputlisting{foo.py}".len()),
             "listinginput must not steal lstinputlisting"
+        );
+    }
+
+    /// Ticket fixture (GitHub #439): pythontex.sty `\inputpygments`
+    /// / `\pygment` stay one leftover command; following `After.`
+    /// still splits. Tokenized like inputminted. extras skip so a
+    /// configured extra does not re-tokenize the no-brace form as
+    /// Delim. inputpy / inputminted unchanged.
+    #[test]
+    fn latex_inputpygments_pygment_stay_atomic() {
+        let cmd = r"\inputpygments{python}{foo.py}";
+        let text = r"See \inputpygments{python}{foo.py} here. After.";
+        let (_, placeholders) = protect_inline_tokens(text);
+        assert!(
+            placeholders.iter().any(|p| p == cmd),
+            "inputpygments span must be protected, got {placeholders:?}"
+        );
+        assert_eq!(latex_verb_span_end_with(cmd, 0, &[]), Some(cmd.len()));
+        assert_eq!(
+            split(text),
+            vec![
+                r"See \inputpygments{python}{foo.py} here.".to_string(),
+                "After.".to_string()
+            ]
+        );
+        assert_eq!(
+            latex_verb_span_end_with(r"\inputpygments[linenos]{python}{foo.py}", 0, &[]),
+            Some(r"\inputpygments[linenos]{python}{foo.py}".len()),
+            "inputpygments optional args must stay in the span"
+        );
+        assert_eq!(
+            latex_verb_span_end_with(r"\inputpygments foo.py", 0, &[]),
+            None,
+            "inputpygments without a {{lang}} arg is not a verb span"
+        );
+        let extras = ["inputpygments".to_string()];
+        assert_eq!(
+            latex_verb_span_end_with(r"\inputpygments foo.py", 0, &extras),
+            None,
+            "configured extra inputpygments must not re-tokenize the no-brace form as Delim"
+        );
+        assert_eq!(
+            latex_verb_span_end_with(cmd, 0, &extras),
+            Some(cmd.len()),
+            "configured extra inputpygments must keep the brace form as leftover"
+        );
+
+        let pygment = r"\pygment{python}{print(1)}";
+        assert_eq!(
+            latex_verb_span_end_with(pygment, 0, &[]),
+            Some(pygment.len()),
+            "pygment {{lang}}{{code}} must stay one span"
+        );
+        assert_eq!(
+            split(r"See \pygment{python}{print(1)} here. After."),
+            vec![
+                r"See \pygment{python}{print(1)} here.".to_string(),
+                "After.".to_string()
+            ]
+        );
+        assert_eq!(
+            latex_verb_span_end_with(r"\pygment{python}|print(1)|", 0, &[]),
+            Some(r"\pygment{python}|print(1)|".len()),
+            "pygment delimiter body must stay in the span"
+        );
+        let pygment_extras = ["pygment".to_string()];
+        assert_eq!(
+            latex_verb_span_end_with(r"\pygment python", 0, &pygment_extras),
+            None,
+            "configured extra pygment must not re-tokenize the no-brace form as Delim"
+        );
+        assert_eq!(
+            latex_verb_span_end_with(r"\pygments{python}{print(1)}", 0, &[]),
+            None,
+            "pygment must not steal pygments"
+        );
+        assert_eq!(
+            latex_verb_span_end_with(r"\inputpy{foo.py}", 0, &[]),
+            Some(r"\inputpy{foo.py}".len()),
+            "inputpygments must not steal inputpy"
+        );
+        assert_eq!(
+            latex_verb_span_end_with(r"\inputminted{python}{foo.py}", 0, &[]),
+            Some(r"\inputminted{python}{foo.py}".len()),
+            "inputpygments must not steal inputminted"
+        );
+    }
+
+    /// Ticket fixture (GitHub #439): catchfilebetweentags leftover
+    /// commands stay one span; following `After.` still splits.
+    /// extras skip the no-brace form.
+    #[test]
+    fn latex_catchfile_cmds_stay_atomic() {
+        let tags = r"\CatchFileBetweenTags{\tmp}{foo.tex}{TAG}";
+        let text = r"See \CatchFileBetweenTags{\tmp}{foo.tex}{TAG} here. After.";
+        let (_, placeholders) = protect_inline_tokens(text);
+        assert!(
+            placeholders.iter().any(|p| p == tags),
+            "CatchFileBetweenTags span must be protected, got {placeholders:?}"
+        );
+        assert_eq!(latex_verb_span_end_with(tags, 0, &[]), Some(tags.len()));
+        assert_eq!(
+            split(text),
+            vec![
+                r"See \CatchFileBetweenTags{\tmp}{foo.tex}{TAG} here.".to_string(),
+                "After.".to_string()
+            ]
+        );
+        let delims = r"\CatchFileBetweenDelims{\tmp}{foo.tex}{START}{END}";
+        assert_eq!(
+            latex_verb_span_end_with(delims, 0, &[]),
+            Some(delims.len()),
+            "CatchFileBetweenDelims four braces must stay one span"
+        );
+        assert_eq!(
+            latex_verb_span_end_with(
+                r"\CatchFileBetweenDelims{\tmp}{foo.tex}{START}{END}[\makeatletter]",
+                0,
+                &[]
+            ),
+            Some(r"\CatchFileBetweenDelims{\tmp}{foo.tex}{START}{END}[\makeatletter]".len()),
+            "CatchFileBetweenDelims optional setup must stay in the span"
+        );
+        let exec = r"\ExecuteMetaData{TAG}";
+        assert_eq!(latex_verb_span_end_with(exec, 0, &[]), Some(exec.len()));
+        assert_eq!(
+            latex_verb_span_end_with(r"\ExecuteMetaData[foo.tex]{TAG}", 0, &[]),
+            Some(r"\ExecuteMetaData[foo.tex]{TAG}".len()),
+            "ExecuteMetaData optional file must stay in the span"
+        );
+        assert_eq!(
+            latex_verb_span_end_with(r"\CatchFileBetweenTags foo.tex", 0, &[]),
+            None,
+            "CatchFileBetweenTags without braces is not a verb span"
+        );
+        let extras = ["CatchFileBetweenTags".to_string()];
+        assert_eq!(
+            latex_verb_span_end_with(r"\CatchFileBetweenTags foo.tex", 0, &extras),
+            None,
+            "configured extra CatchFileBetweenTags must not re-tokenize the no-brace form as Delim"
+        );
+        assert_eq!(
+            latex_verb_span_end_with(tags, 0, &extras),
+            Some(tags.len()),
+            "configured extra CatchFileBetweenTags must keep the brace form as leftover"
+        );
+        let exec_extras = ["ExecuteMetaData".to_string()];
+        assert_eq!(
+            latex_verb_span_end_with(r"\ExecuteMetaData TAG", 0, &exec_extras),
+            None,
+            "configured extra ExecuteMetaData must not re-tokenize the no-brace form as Delim"
+        );
+        assert_eq!(
+            latex_verb_span_end_with(r"\CatchFileBetweenTags*{\tmp}{foo.tex}{TAG}", 0, &[]),
+            None,
+            "CatchFileBetweenTags has no star form"
+        );
+        assert_eq!(
+            latex_verb_span_end_with(r"\ExecuteMetaData*{TAG}", 0, &[]),
+            None,
+            "ExecuteMetaData has no star form"
+        );
+    }
+
+    /// Ticket fixture (GitHub #439): piton.sty `\PitonInputFileT` /
+    /// `\PitonInputFileF` / `\PitonInputFileTF` stay one leftover
+    /// span. `\PitonInputFile` unchanged. extras skip the no-brace
+    /// form.
+    #[test]
+    fn latex_pitoninputfile_siblings_stay_atomic() {
+        let t = r"\PitonInputFileT{foo.py}{true}";
+        assert_eq!(
+            latex_verb_span_end_with(t, 0, &[]),
+            Some(t.len()),
+            "PitonInputFileT must stay one span"
+        );
+        assert_eq!(
+            split(r"See \PitonInputFileT{foo.py}{true} here. After."),
+            vec![
+                r"See \PitonInputFileT{foo.py}{true} here.".to_string(),
+                "After.".to_string()
+            ]
+        );
+        let f = r"\PitonInputFileF{foo.py}{false}";
+        assert_eq!(latex_verb_span_end_with(f, 0, &[]), Some(f.len()));
+        let tf = r"\PitonInputFileTF{foo.py}{true}{false}";
+        assert_eq!(latex_verb_span_end_with(tf, 0, &[]), Some(tf.len()));
+        assert_eq!(
+            latex_verb_span_end_with(r"\PitonInputFileT<python>{foo.py}{true}", 0, &[]),
+            Some(r"\PitonInputFileT<python>{foo.py}{true}".len()),
+            "PitonInputFileT optional angle must stay in the span"
+        );
+        assert_eq!(
+            latex_verb_span_end_with(
+                r"\PitonInputFileTF<1-10>[language=python]{foo.py}{t}{f}",
+                0,
+                &[]
+            ),
+            Some(r"\PitonInputFileTF<1-10>[language=python]{foo.py}{t}{f}".len()),
+            "PitonInputFileTF d<> plus optional args must stay one span"
+        );
+        assert_eq!(
+            latex_verb_span_end_with(r"\PitonInputFile{foo.py}", 0, &[]),
+            Some(r"\PitonInputFile{foo.py}".len()),
+            "PitonInputFile must stay a span"
+        );
+        assert_eq!(
+            latex_verb_span_end_with(r"\PitonInputFileT foo.py", 0, &[]),
+            None,
+            "PitonInputFileT without a brace file arg is not a verb span"
+        );
+        assert_eq!(
+            latex_verb_span_end_with(r"\PitonInputFileT{foo.py}", 0, &[]),
+            None,
+            "PitonInputFileT without the extra brace is not a verb span"
+        );
+        let extras = ["PitonInputFileT".to_string()];
+        assert_eq!(
+            latex_verb_span_end_with(r"\PitonInputFileT foo.py", 0, &extras),
+            None,
+            "configured extra PitonInputFileT must not re-tokenize the no-brace form as Delim"
+        );
+        assert_eq!(
+            latex_verb_span_end_with(t, 0, &extras),
+            Some(t.len()),
+            "configured extra PitonInputFileT must keep the brace form as leftover"
+        );
+        assert_eq!(
+            latex_verb_span_end_with(r"\piton|done. Next|", 0, &[]),
+            Some(r"\piton|done. Next|".len()),
+            "PitonInputFileT must not steal piton"
         );
     }
 

@@ -84,6 +84,11 @@
 //! following flush prose does not join the command line.
 //! GitHub #437: scontents.sty \\inputsc is one leftover command;
 //! following flush prose does not join the command line.
+//! GitHub #439: leftover filename-input / verbatim-input cmds
+//! (\\inputpygments / \\pygment / \\CatchFileBetweenTags /
+//! \\CatchFileBetweenDelims / \\ExecuteMetaData /
+//! \\PitonInputFileT / \\PitonInputFileF / \\PitonInputFileTF)
+//! stay one atomic command; following flush prose does not join.
 
 use snapper_fmt::format::Format;
 use snapper_fmt::parser::latex::LatexParser;
@@ -4285,5 +4290,192 @@ fn inputsc_fixture_does_not_join_following_prose() {
     assert!(
         !listing_out.contains("\\listinginput{1}{foo.py} After."),
         "listinginput must not join following prose, got:\n{listing_out}"
+    );
+}
+
+/// Ticket fixture (GitHub #439): leftover filename-input /
+/// verbatim-input cmds stay one atomic command. Following flush
+/// `After.` does not join. `After.` / `Next.` still split.
+/// `\inputpy` must not steal `\inputpygments`. `\PitonInputFile`
+/// unchanged.
+#[test]
+fn leftover_filename_input_fixture_does_not_join_following_prose() {
+    let input = concat!(
+        "Before. Next.\n",
+        "\\inputpygments{python}{foo.py}\n",
+        "After. Next.\n",
+    );
+    let regions = LatexParser::default().parse(input);
+    assert!(
+        regions.iter().any(|r| matches!(
+            r,
+            Region::Structure(s) if s.contains(r"\inputpygments{python}{foo.py}")
+        )),
+        "inputpygments must stay one Structure command, got: {regions:?}"
+    );
+    assert!(
+        !regions.iter().any(|r| matches!(
+            r,
+            Region::Prose(p) if p.contains(r"\inputpygments{python}{foo.py}")
+        )),
+        "inputpygments must not leak into Prose, got: {regions:?}"
+    );
+    assert!(
+        regions.iter().any(|r| matches!(
+            r,
+            Region::Prose(p) if p.contains("After.") && p.contains("Next.")
+        )),
+        "After. / Next. must stay Prose, got: {regions:?}"
+    );
+    let out = format_text(input, &latex_cfg()).unwrap();
+    assert!(
+        out.contains("\\inputpygments{python}{foo.py}\n"),
+        "inputpygments must stay one atomic command, got:\n{out}"
+    );
+    assert!(
+        !out.contains("\\inputpygments{python}{foo.py} After."),
+        "following flush prose must not join the command line, got:\n{out}"
+    );
+    assert!(
+        out.contains("Before.\nNext."),
+        "prose before inputpygments must still split, got:\n{out}"
+    );
+    assert!(
+        out.contains("After.\nNext."),
+        "prose after inputpygments must still split, got:\n{out}"
+    );
+    assert_eq!(format_text(&out, &latex_cfg()).unwrap(), out);
+
+    let pygment = concat!(
+        "Before. Next.\n",
+        "\\pygment{python}{print(1)}\n",
+        "After. Next.\n",
+    );
+    let pygment_out = format_text(pygment, &latex_cfg()).unwrap();
+    assert!(
+        pygment_out.contains("\\pygment{python}{print(1)}\n"),
+        "pygment must stay one atomic command, got:\n{pygment_out}"
+    );
+    assert!(
+        !pygment_out.contains("\\pygment{python}{print(1)} After."),
+        "pygment must not join following prose, got:\n{pygment_out}"
+    );
+    assert!(
+        pygment_out.contains("After.\nNext."),
+        "prose after pygment must still split, got:\n{pygment_out}"
+    );
+
+    let tags = concat!(
+        "Before. Next.\n",
+        "\\CatchFileBetweenTags{\\tmp}{foo.tex}{TAG}\n",
+        "After. Next.\n",
+    );
+    let tags_out = format_text(tags, &latex_cfg()).unwrap();
+    assert!(
+        tags_out.contains("\\CatchFileBetweenTags{\\tmp}{foo.tex}{TAG}\n"),
+        "CatchFileBetweenTags must stay one atomic command, got:\n{tags_out}"
+    );
+    assert!(
+        !tags_out.contains("\\CatchFileBetweenTags{\\tmp}{foo.tex}{TAG} After."),
+        "CatchFileBetweenTags must not join following prose, got:\n{tags_out}"
+    );
+    assert!(
+        tags_out.contains("After.\nNext."),
+        "prose after CatchFileBetweenTags must still split, got:\n{tags_out}"
+    );
+
+    let delims = concat!(
+        "Before. Next.\n",
+        "\\CatchFileBetweenDelims{\\tmp}{foo.tex}{START}{END}\n",
+        "After. Next.\n",
+    );
+    let delims_out = format_text(delims, &latex_cfg()).unwrap();
+    assert!(
+        delims_out.contains("\\CatchFileBetweenDelims{\\tmp}{foo.tex}{START}{END}\n"),
+        "CatchFileBetweenDelims must stay one atomic command, got:\n{delims_out}"
+    );
+    assert!(
+        !delims_out.contains("\\CatchFileBetweenDelims{\\tmp}{foo.tex}{START}{END} After."),
+        "CatchFileBetweenDelims must not join following prose, got:\n{delims_out}"
+    );
+
+    let exec = concat!(
+        "Before. Next.\n",
+        "\\ExecuteMetaData{TAG}\n",
+        "After. Next.\n",
+    );
+    let exec_out = format_text(exec, &latex_cfg()).unwrap();
+    assert!(
+        exec_out.contains("\\ExecuteMetaData{TAG}\n"),
+        "ExecuteMetaData must stay one atomic command, got:\n{exec_out}"
+    );
+    assert!(
+        !exec_out.contains("\\ExecuteMetaData{TAG} After."),
+        "ExecuteMetaData must not join following prose, got:\n{exec_out}"
+    );
+
+    let exec_file = concat!(
+        "Before. Next.\n",
+        "\\ExecuteMetaData[foo.tex]{TAG}\n",
+        "After. Next.\n",
+    );
+    let exec_file_out = format_text(exec_file, &latex_cfg()).unwrap();
+    assert!(
+        exec_file_out.contains("\\ExecuteMetaData[foo.tex]{TAG}\n"),
+        "ExecuteMetaData optional file must stay atomic, got:\n{exec_file_out}"
+    );
+    assert!(
+        !exec_file_out.contains("\\ExecuteMetaData[foo.tex]{TAG} After."),
+        "optional-file ExecuteMetaData must not join following prose, got:\n{exec_file_out}"
+    );
+
+    for (cmd, label) in [
+        (r"\PitonInputFileT{foo.py}{true}", "PitonInputFileT"),
+        (r"\PitonInputFileF{foo.py}{false}", "PitonInputFileF"),
+        (
+            r"\PitonInputFileTF{foo.py}{true}{false}",
+            "PitonInputFileTF",
+        ),
+    ] {
+        let sib = format!("Before. Next.\n{cmd}\nAfter. Next.\n");
+        let sib_out = format_text(&sib, &latex_cfg()).unwrap();
+        assert!(
+            sib_out.contains(&format!("{cmd}\n")),
+            "{label} must stay one atomic command, got:\n{sib_out}"
+        );
+        assert!(
+            !sib_out.contains(&format!("{cmd} After.")),
+            "{label} must not join following prose, got:\n{sib_out}"
+        );
+        assert!(
+            sib_out.contains("After.\nNext."),
+            "prose after {label} must still split, got:\n{sib_out}"
+        );
+    }
+
+    let piton = concat!(
+        "Before. Next.\n",
+        "\\PitonInputFile{foo.py}\n",
+        "After. Next.\n",
+    );
+    let piton_out = format_text(piton, &latex_cfg()).unwrap();
+    assert!(
+        piton_out.contains("\\PitonInputFile{foo.py}\n"),
+        "PitonInputFile must stay unchanged, got:\n{piton_out}"
+    );
+    assert!(
+        !piton_out.contains("\\PitonInputFile{foo.py} After."),
+        "PitonInputFile must not join following prose, got:\n{piton_out}"
+    );
+
+    let py = concat!("Before. Next.\n", "\\inputpy{foo.py}\n", "After. Next.\n",);
+    let py_out = format_text(py, &latex_cfg()).unwrap();
+    assert!(
+        py_out.contains("\\inputpy{foo.py}\n"),
+        "inputpy must stay unchanged, got:\n{py_out}"
+    );
+    assert!(
+        !py_out.contains("\\inputpy{foo.py} After."),
+        "inputpy must not join following prose, got:\n{py_out}"
     );
 }

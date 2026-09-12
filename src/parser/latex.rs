@@ -502,10 +502,15 @@ impl LatexParser {
     /// Byte offset of the first `%` that is not escaped as `\%` and is not
     /// inside `\verb` / `\lstinline` / `\spverb` / `\mintinline` / `\mint` /
     /// `\Verb` / `\SaveVerb` / `\piton` / `\lstinputlisting` /
-    /// `\inputminted` / `\verbatiminput` / `\VerbatimInput` / `\tcbinputlisting` /
-    /// `\listinginput` / `\inputpy` / `\inputpycon` / `\inputpylab` /
-    /// `\inputpylabcon` / `\inputsympy` / `\inputsympycon` / `\sageinput` /
-    /// `\inputsc` / configured verbatim commands.
+    /// `\inputminted` / `\verbatiminput` / `\VerbatimInput` /
+    /// `\tcbinputlisting` / `\PitonInputFile` / `\PitonInputFileT` /
+    /// `\PitonInputFileF` / `\PitonInputFileTF` / `\inputpy` /
+    /// `\inputpycon` / `\inputpylab` / `\inputpylabcon` /
+    /// `\inputsympy` / `\inputsympycon` / `\inputpygments` /
+    /// `\pygment` / `\CatchFileBetweenTags` /
+    /// `\CatchFileBetweenDelims` / `\ExecuteMetaData` /
+    /// `\listinginput` / `\sageinput` / `\inputsc` / configured
+    /// verbatim commands.
     fn unescaped_percent(&self, line: &str) -> Option<usize> {
         unescaped_percent_with(line, &self.extra_verbatim_commands)
     }
@@ -879,9 +884,13 @@ fn find_tex_cs(line: &str, from: usize, cs: &str) -> Option<usize> {
 /// `\iffalse` in ordinary TeX, skipping `\verb` / `\lstinline` /
 /// `\spverb` / `\mintinline` / `\mint` / `\inputminted` / `\Verb` /
 /// `\SaveVerb` / `\piton` / `\lstinputlisting` / `\verbatiminput` /
-/// `\VerbatimInput` / `\listinginput` / `\inputpy` / `\inputpycon` /
-/// `\inputpylab` / `\inputpylabcon` / `\inputsympy` / `\inputsympycon` /
-/// `\sageinput` / `\inputsc` spans.
+/// `\VerbatimInput` / `\tcbinputlisting` / `\PitonInputFile` /
+/// `\PitonInputFileT` / `\PitonInputFileF` / `\PitonInputFileTF` /
+/// `\inputpy` / `\inputpycon` / `\inputpylab` / `\inputpylabcon` /
+/// `\inputsympy` / `\inputsympycon` / `\inputpygments` / `\pygment` /
+/// `\CatchFileBetweenTags` / `\CatchFileBetweenDelims` /
+/// `\ExecuteMetaData` / `\listinginput` / `\sageinput` / `\inputsc`
+/// spans.
 fn find_iffalse_at(line: &str, from: usize, extra_cmds: &[String]) -> Option<usize> {
     let bytes = line.as_bytes();
     let mut i = from;
@@ -968,10 +977,11 @@ fn tcbinputlisting_cs_at(line: &str, at: usize) -> bool {
 }
 
 /// Leftover piton.sty `\PitonInputFile` (optional `<...>`, optional
-/// `[...]`, required `{file}`; `d < > O { } m`; GitHub #406). Other
-/// verb spans are skipped so `\verb|\PitonInputFile{x}|` is not
-/// stolen. Walk stops at an unescaped `%` so a comment is not a
-/// command tail.
+/// `[...]`, required `{file}`; `d < > O { } m`; GitHub #406) plus
+/// siblings `\PitonInputFileT` / `\PitonInputFileF` /
+/// `\PitonInputFileTF` (GitHub #439). Other verb spans are skipped
+/// so `\verb|\PitonInputFile{x}|` is not stolen. Walk stops at an
+/// unescaped `%` so a comment is not a command tail.
 fn find_pitoninputfile_at(
     line: &str,
     from: usize,
@@ -984,10 +994,17 @@ fn pitoninputfile_cs_at(line: &str, at: usize) -> bool {
     let Some(tail) = line.get(at..).and_then(|s| s.strip_prefix('\\')) else {
         return false;
     };
-    let Some(after) = tail.strip_prefix("PitonInputFile") else {
-        return false;
-    };
-    !after.starts_with(|c: char| c.is_ascii_alphabetic())
+    for name in [
+        "PitonInputFileTF",
+        "PitonInputFileT",
+        "PitonInputFileF",
+        "PitonInputFile",
+    ] {
+        if let Some(after) = tail.strip_prefix(name) {
+            return !after.starts_with(|c: char| c.is_ascii_alphabetic());
+        }
+    }
+    false
 }
 
 /// Leftover pythontex.sty default-family file-input (optional `[...]`,
@@ -997,7 +1014,7 @@ fn pitoninputfile_cs_at(line: &str, at: usize) -> bool {
 /// `\inputpylab` is not `\inputpy` + leftover. Other verb spans are
 /// skipped so `\verb|\inputpy{x}|` is not stolen. Walk stops at an
 /// unescaped `%` so a comment is not a command tail. `\inputpygments`
-/// is not a span (`inputpy` + alphabetic leftover).
+/// is a separate leftover (GitHub #439), not this walker.
 fn find_inputpy_at(line: &str, from: usize, extra_cmds: &[String]) -> Option<(usize, usize)> {
     find_leftover_cmd_at(line, from, extra_cmds, inputpy_cs_at)
 }
@@ -1076,6 +1093,49 @@ fn inputsc_cs_at(line: &str, at: usize) -> bool {
         return false;
     };
     !after.starts_with(|c: char| c.is_ascii_alphabetic() || c == '*')
+}
+
+/// Leftover filename-input / verbatim-input tail (GitHub #439). One
+/// leftover walker for pythontex.sty `\inputpygments` / `\pygment`
+/// and catchfilebetweentags.sty `\CatchFileBetweenTags` /
+/// `\CatchFileBetweenDelims` / `\ExecuteMetaData`. Other verb spans
+/// are skipped so `\verb|\inputpygments{python}{x}|` is not stolen.
+/// Walk stops at an unescaped `%` so a comment is not a command tail.
+/// `\inputpy` must not steal `\inputpygments`.
+fn find_leftover_filename_input_at(
+    line: &str,
+    from: usize,
+    extra_cmds: &[String],
+) -> Option<(usize, usize)> {
+    find_leftover_cmd_at(line, from, extra_cmds, leftover_filename_input_cs_at)
+}
+
+fn leftover_filename_input_cs_at(line: &str, at: usize) -> bool {
+    let Some(tail) = line.get(at..).and_then(|s| s.strip_prefix('\\')) else {
+        return false;
+    };
+    for name in [
+        "inputpygments",
+        "pygment",
+        "CatchFileBetweenTags",
+        "CatchFileBetweenDelims",
+        "ExecuteMetaData",
+    ] {
+        if let Some(after) = tail.strip_prefix(name) {
+            if after.starts_with(|c: char| c.is_ascii_alphabetic()) {
+                return false;
+            }
+            if matches!(
+                name,
+                "CatchFileBetweenTags" | "CatchFileBetweenDelims" | "ExecuteMetaData"
+            ) && after.starts_with('*')
+            {
+                return false;
+            }
+            return true;
+        }
+    }
+    false
 }
 
 fn find_leftover_cmd_at(
@@ -1851,6 +1911,13 @@ impl<'a> ParseState<'a> {
                     .or_else(|| find_listinginput_at(code, i, &self.parser.extra_verbatim_commands))
                     .or_else(|| find_sageinput_at(code, i, &self.parser.extra_verbatim_commands))
                     .or_else(|| find_inputsc_at(code, i, &self.parser.extra_verbatim_commands))
+                    .or_else(|| {
+                        find_leftover_filename_input_at(
+                            code,
+                            i,
+                            &self.parser.extra_verbatim_commands,
+                        )
+                    })
             {
                 self.append_item_or_prose(line.start + i, &code[i..start]);
                 self.push_structure(ByteSpan::new(
@@ -3020,6 +3087,172 @@ Some text.
             "prose after inputminted must still split, got:\n{minted_out}"
         );
         assert_eq!(format_text(&minted_out, &latex_cfg()).unwrap(), minted_out);
+    }
+
+    /// Ticket fixture (GitHub #439): leftover filename-input /
+    /// verbatim-input cmds stay one Structure span. Following flush
+    /// `After.` does not join. `After.` / `Next.` still split.
+    /// `\inputpy` must not steal `\inputpygments`. `\PitonInputFile`
+    /// unchanged.
+    #[test]
+    fn leftover_filename_input_does_not_join_following_prose() {
+        use crate::format_text;
+
+        let pygments = concat!(
+            "Before. Next.\n",
+            "\\inputpygments{python}{foo.py}\n",
+            "After. Next.\n",
+        );
+        let regions = LatexParser::default().parse(pygments);
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Structure(s) if s.contains(r"\inputpygments{python}{foo.py}")
+            )),
+            "inputpygments must stay one Structure command, got: {regions:?}"
+        );
+        assert!(
+            !regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(p) if p.contains(r"\inputpygments{python}{foo.py}")
+            )),
+            "inputpygments must not leak into Prose, got: {regions:?}"
+        );
+        let pygments_out = format_text(pygments, &latex_cfg()).unwrap();
+        assert!(
+            pygments_out.contains("\\inputpygments{python}{foo.py}\n"),
+            "inputpygments must stay one atomic command, got:\n{pygments_out}"
+        );
+        assert!(
+            !pygments_out.contains("\\inputpygments{python}{foo.py} After."),
+            "following flush prose must not join the inputpygments line, got:\n{pygments_out}"
+        );
+        assert!(
+            pygments_out.contains("Before.\nNext."),
+            "prose before inputpygments must still split, got:\n{pygments_out}"
+        );
+        assert!(
+            pygments_out.contains("After.\nNext."),
+            "prose after inputpygments must still split, got:\n{pygments_out}"
+        );
+        assert_eq!(
+            format_text(&pygments_out, &latex_cfg()).unwrap(),
+            pygments_out
+        );
+
+        let pygment = concat!(
+            "Before. Next.\n",
+            "\\pygment{python}{print(1)}\n",
+            "After. Next.\n",
+        );
+        let pygment_out = format_text(pygment, &latex_cfg()).unwrap();
+        assert!(
+            pygment_out.contains("\\pygment{python}{print(1)}\n"),
+            "pygment must stay one atomic command, got:\n{pygment_out}"
+        );
+        assert!(
+            !pygment_out.contains("\\pygment{python}{print(1)} After."),
+            "pygment must not join following prose, got:\n{pygment_out}"
+        );
+        assert!(
+            pygment_out.contains("After.\nNext."),
+            "prose after pygment must still split, got:\n{pygment_out}"
+        );
+
+        let tags = concat!(
+            "Before. Next.\n",
+            "\\CatchFileBetweenTags{\\tmp}{foo.tex}{TAG}\n",
+            "After. Next.\n",
+        );
+        let tags_out = format_text(tags, &latex_cfg()).unwrap();
+        assert!(
+            tags_out.contains("\\CatchFileBetweenTags{\\tmp}{foo.tex}{TAG}\n"),
+            "CatchFileBetweenTags must stay one atomic command, got:\n{tags_out}"
+        );
+        assert!(
+            !tags_out.contains("\\CatchFileBetweenTags{\\tmp}{foo.tex}{TAG} After."),
+            "CatchFileBetweenTags must not join following prose, got:\n{tags_out}"
+        );
+
+        let delims = concat!(
+            "Before. Next.\n",
+            "\\CatchFileBetweenDelims{\\tmp}{foo.tex}{START}{END}\n",
+            "After. Next.\n",
+        );
+        let delims_out = format_text(delims, &latex_cfg()).unwrap();
+        assert!(
+            delims_out.contains("\\CatchFileBetweenDelims{\\tmp}{foo.tex}{START}{END}\n"),
+            "CatchFileBetweenDelims must stay one atomic command, got:\n{delims_out}"
+        );
+        assert!(
+            !delims_out.contains("\\CatchFileBetweenDelims{\\tmp}{foo.tex}{START}{END} After."),
+            "CatchFileBetweenDelims must not join following prose, got:\n{delims_out}"
+        );
+
+        let exec = concat!(
+            "Before. Next.\n",
+            "\\ExecuteMetaData{TAG}\n",
+            "After. Next.\n",
+        );
+        let exec_out = format_text(exec, &latex_cfg()).unwrap();
+        assert!(
+            exec_out.contains("\\ExecuteMetaData{TAG}\n"),
+            "ExecuteMetaData must stay one atomic command, got:\n{exec_out}"
+        );
+        assert!(
+            !exec_out.contains("\\ExecuteMetaData{TAG} After."),
+            "ExecuteMetaData must not join following prose, got:\n{exec_out}"
+        );
+
+        for (cmd, label) in [
+            (r"\PitonInputFileT{foo.py}{true}", "PitonInputFileT"),
+            (r"\PitonInputFileF{foo.py}{false}", "PitonInputFileF"),
+            (
+                r"\PitonInputFileTF{foo.py}{true}{false}",
+                "PitonInputFileTF",
+            ),
+        ] {
+            let input = format!("Before. Next.\n{cmd}\nAfter. Next.\n");
+            let out = format_text(&input, &latex_cfg()).unwrap();
+            assert!(
+                out.contains(&format!("{cmd}\n")),
+                "{label} must stay one atomic command, got:\n{out}"
+            );
+            assert!(
+                !out.contains(&format!("{cmd} After.")),
+                "{label} must not join following prose, got:\n{out}"
+            );
+            assert!(
+                out.contains("After.\nNext."),
+                "prose after {label} must still split, got:\n{out}"
+            );
+        }
+
+        let piton = concat!(
+            "Before. Next.\n",
+            "\\PitonInputFile{foo.py}\n",
+            "After. Next.\n",
+        );
+        let piton_out = format_text(piton, &latex_cfg()).unwrap();
+        assert!(
+            piton_out.contains("\\PitonInputFile{foo.py}\n"),
+            "PitonInputFile must stay unchanged, got:\n{piton_out}"
+        );
+        assert!(
+            !piton_out.contains("\\PitonInputFile{foo.py} After."),
+            "PitonInputFile must not join following prose, got:\n{piton_out}"
+        );
+
+        let py = concat!("Before. Next.\n", "\\inputpy{foo.py}\n", "After. Next.\n",);
+        let py_out = format_text(py, &latex_cfg()).unwrap();
+        assert!(
+            py_out.contains("\\inputpy{foo.py}\n"),
+            "inputpy must stay unchanged, got:\n{py_out}"
+        );
+        assert!(
+            !py_out.contains("\\inputpy{foo.py} After."),
+            "inputpy must not join following prose, got:\n{py_out}"
+        );
     }
 
     /// Ticket fixture (GitHub #245): minted `\mintinline{lang}|body|` is

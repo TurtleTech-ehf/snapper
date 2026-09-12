@@ -187,8 +187,7 @@ Adding =algorithm= stops reflow of that environment.
 
 String array of extra command names tokenized like the built-in verb command before sentence split.
 The next character after the name is the delimiter.
-Built-in names are =verb=, =lstinline=, =lstinputlisting=, =spverb=, =mintinline=, =inputminted=, =mint=, fancyvrb =Verb= / =Verb*= / =SaveVerb= / =VerbatimInput=, piton.sty =\piton=, tools/verbatim.sty =\verbatiminput=, and tcolorbox =\tcbinputlisting=.
-=\tcbinputlisting= takes a required ={keyvals}= group; following flush prose stays on its own line.
+Built-in names are =verb=, =lstinline=, =lstinputlisting=, =spverb=, =mintinline=, =inputminted=, =mint=, fancyvrb =Verb= / =Verb*= / =SaveVerb= / =VerbatimInput= / =BVerbatimInput= / =LVerbatimInput=, piton.sty =\piton= / =\PitonInputFile= / =\PitonInputFileT= / =\PitonInputFileF= / =\PitonInputFileTF=, tools/verbatim.sty =\verbatiminput=, tcolorbox =\tcbinputlisting=, pythontex.sty =\inputpy= / =\inputpycon= / =\inputpylab= / =\inputsympy= / =\inputpygments= / =\pygment=, catchfilebetweentags.sty =\CatchFileBetweenTags= / =\CatchFileBetweenDelims= / =\ExecuteMetaData=, moreverb =\listinginput=, sagetex =\sageinput=, and scontents =\inputsc=; =lstinline= still accepts optional =[...]= and ={...}=.
 =mintinline= / =mint= take optional =[...]=, a ={lang}= argument, then a delimiter or ={...}= body.
 =\inputminted= takes the same optional =[...]= and ={lang}= then a required ={filename}=; following flush prose stays on its own line.
 =\tcbinputlisting= takes one keyval group; following flush prose stays on its own line.
@@ -197,6 +196,15 @@ Built-in names are =verb=, =lstinline=, =lstinputlisting=, =spverb=, =mintinline
 =\lstinputlisting= takes optional =[...]= then a required ={filename}=; following flush prose stays on its own line.
 =\VerbatimInput= / =\BVerbatimInput= / =\LVerbatimInput= take optional =[...]= then a required ={filename}=; following flush prose stays on its own line.
 =\verbatiminput= / =\verbatiminput*= take a required ={filename}=; following flush prose stays on its own line.
+=\PitonInputFile= takes optional =<...>=, optional =[...]=, then a required ={filename}=; following flush prose stays on its own line.
+=\PitonInputFileT= / =\PitonInputFileF= take the same optional args then ={file}= and one extra required brace; =\PitonInputFileTF= takes two extra braces; following flush prose stays on its own line.
+=\tcbinputlisting= takes one required ={keyval}= group; following flush prose stays on its own line.
+=\inputpy= / =\inputpycon= take optional =[...]= then a required ={filename}=; following flush prose stays on its own line.
+=\inputpygments= takes optional =[...]=, ={lang}=, then a required ={filename}=; =\pygment= takes ={lang}= then a delimiter or ={code}= body; following flush prose stays on its own line.
+=\CatchFileBetweenTags= takes ={macro}= ={file}= ={tag}=; =\CatchFileBetweenDelims= takes ={macro}= ={file}= ={start}= ={end}=; =\ExecuteMetaData= takes optional =[file]= then ={tag}=; following flush prose stays on its own line.
+=\listinginput= takes optional =[interval]= then required ={start}= and ={filename}=; following flush prose stays on its own line.
+=\sageinput= takes optional =[...]= then a required ={filename}=; following flush prose stays on its own line.
+=\inputsc= takes optional =[...]= then a required ={name}=; following flush prose stays on its own line.
 Adding another name keeps that command's delimited body atomic and treats an inner =%= as content, not a comment.
 
 * Code-block sections (=[code.<lang>]=)
