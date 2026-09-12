@@ -3476,6 +3476,14 @@ mod tests {
 
     #[test]
     fn org_inline_src_after_word_underscore_is_subscript() {
+        // GitHub #408 / snapper-kyhx: org-element--object-lex walks
+        // object-regexp left to right. `[_^][-{(*+.,[:alnum:]]` matches
+        // `_s` first, so `foo_src_python{print(1. 2)}` is two bare
+        // subscripts (`_src` + `_python`). Leftover `{print(1. 2)}` is
+        // prose and wrap may cut on `1. 2`. Same leftover for
+        // `foo_call_name(1. 2)` (`_call` + `_name`). After space,
+        // `_src_python{...}` and `foo-src_python{...}` are objects.
+        // Brace subscript `H_{2. 0}` is unchanged.
         use crate::format_text;
 
         let src = "src_python{print(1. 2)}";
@@ -3505,10 +3513,37 @@ mod tests {
             "interior period may wrap after word-underscore subscript, got:\n{wrapped}"
         );
         assert!(
-            wrapped.contains("Next sentence."),
-            "following sentence must still reflow, got:\n{wrapped}"
+            wrapped.contains("today.\nNext sentence."),
+            "following sentence must still split, got:\n{wrapped}"
         );
         assert_eq!(format_text(&wrapped, &wrap_cfg).unwrap(), wrapped);
+
+        let call = "call_name(1. 2)";
+        let call_in = "See foo_call_name(1. 2) today. Next sentence.\n";
+        let call_regions = OrgParser.parse(call_in);
+        assert!(
+            call_regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(p)
+                    if p.contains(call) && p.contains("Next sentence.")
+            )),
+            "foo_call leftover stays inline Prose, got: {call_regions:?}"
+        );
+        let call_out = format_text(call_in, &org_cfg()).unwrap();
+        assert!(
+            call_out.contains("today.\nNext sentence."),
+            "following sentence must still split after call leftover, got:\n{call_out}"
+        );
+
+        let brace = format_text("See H_{2. 0} today. Next.\n", &wrap_cfg).unwrap();
+        assert!(
+            brace.lines().any(|l| l.contains("H_{2. 0}")),
+            "brace subscript H_{{2. 0}} must stay one token, got:\n{brace}"
+        );
+        assert!(
+            !brace.contains("2.\n0") && !brace.contains("H_{2.\n"),
+            "must not wrap inside H_{{2. 0}}, got:\n{brace}"
+        );
     }
 
     /// Ticket fixture (Format::Org / GitHub #338): org-match-substring-regexp
