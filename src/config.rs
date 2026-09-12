@@ -31,8 +31,9 @@ pub struct FormatOverrides {
     /// sagecommandline,
     /// pythontex pycode/pycode*/pyblock/pyblock*/pyverbatim/pyverbatim*/
     /// pyconsole/pyconsole*/pygments plus sympy and pylab families and
-    /// starred twins, and pythonhighlight python; entries are
-    /// added to it.
+    /// starred twins, leftover default-family pyconcode/pyconverbatim/
+    /// pysub/pyconsub/sympycon*/pylabcon*/pythontexcustomcode, and
+    /// pythonhighlight python; entries are added to it.
     pub verbatim_envs: Vec<String>,
     /// Extra LaTeX environments treated as structure (no reflow).
     /// Meaningful under `[latex]` only. Missing or empty keeps
