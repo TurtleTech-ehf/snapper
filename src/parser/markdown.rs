@@ -450,7 +450,7 @@ fn emit_html_span(
 /// Inner text of a line that still belongs to a quote of `depth`.
 /// `None` when the line left the quote. HTML blocks have no lazy
 /// continuation (CommonMark 5.1), so an unquoted line ends the block.
-fn quoted_html_inner<'a>(line: &'a str, depth: usize) -> Option<&'a str> {
+fn quoted_html_inner(line: &str, depth: usize) -> Option<&str> {
     if quote_marker_depth(line) < depth {
         return None;
     }
