@@ -60,7 +60,8 @@ impl FormatParser for RstParser {
 /// directives (admonitions, figure, topic, sidebar, container, leftover
 /// body.py parsed-literal / epigraph / highlights / pull-quote / compound /
 /// header / footer / line-block) nested-parse their body: the opener and
-/// option fields stay Structure; the body hangs as Prose.
+/// option fields stay Structure; the body hangs as Prose. `meta` field
+/// values are leftover Prose; bibliographic `:Author:` stays Structure.
 fn parse_line_based(input: &str) -> Vec<SpannedRegion> {
     let mut regions = Vec::new();
     let mut current_prose = String::new();
@@ -83,6 +84,10 @@ fn parse_line_based(input: &str) -> Vec<SpannedRegion> {
     // the body hangs as a block quote, so a column-0 line must close that
     // hang instead of joining After markup into the note Prose.
     let mut in_container_body = false;
+    // `.. meta::` field-list body: marker Structure, same-line value
+    // leftover Prose (GitHub #434). Distinct from `:Author:` / `:class:`.
+    // Flush / less-indented fields close this; interior blanks do not.
+    let mut in_meta_body = false;
     // Line-block hang (`| `): first flush line that is not `| ` and not
     // a hang is a new paragraph, not more line-block (GitHub #409).
     let mut in_line_block = false;
@@ -275,7 +280,8 @@ fn parse_line_based(input: &str) -> Vec<SpannedRegion> {
         // argument; same-line text after `::` is leftover Prose
         // (GitHub #430). SubstitutionDef
         // `.. |name| replace::` is the same leftover: the replace body
-        // is a nested-parsed paragraph (GitHub #417).
+        // is a nested-parsed paragraph (GitHub #417). `meta` takes a
+        // field-list body; field values are leftover Prose (GitHub #434).
         let trimmed = line_text.trim_start();
         if trimmed.starts_with(".. ") && trimmed.contains("::") {
             flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
@@ -285,6 +291,7 @@ fn parse_line_based(input: &str) -> Vec<SpannedRegion> {
                 if line_text.len() > marker_len && !line_text[marker_len..].trim().is_empty() {
                     list_hang = Some(marker_len);
                     in_container_body = true;
+                    in_meta_body = false;
                     regions.push(SpannedRegion::structure(
                         input,
                         ByteSpan::new(line.start, line.start + marker_len),
@@ -296,14 +303,19 @@ fn parse_line_based(input: &str) -> Vec<SpannedRegion> {
                 }
             }
             regions.push(SpannedRegion::structure(input, line.span()));
-            if rst_directive_name(trimmed).is_some_and(|n| is_rst_container_directive(&n))
+            let dir_name = rst_directive_name(trimmed);
+            let is_meta = dir_name.as_deref() == Some("meta");
+            if dir_name.is_some_and(|n| is_rst_container_directive(&n))
                 || rst_substitution_replace_marker_len(line_text).is_some()
+                || is_meta
             {
                 in_container_body = true;
+                in_meta_body = is_meta;
                 i += 1;
                 continue;
             }
             in_container_body = false;
+            in_meta_body = false;
             let leading = line_text.len() - trimmed.len();
             // Docutils accepts a two-space body; +3 is convention only.
             directive_indent = leading + 2;
@@ -421,16 +433,26 @@ fn parse_line_based(input: &str) -> Vec<SpannedRegion> {
         // `:role:`text`` is interpreted text, not a field.
         // Empty `:name:` and simple `:Author:` stay whole-line
         // Structure (GitHub #330). Interior-colon names hang the body
-        // as Prose so SemBr still splits.
+        // as Prose so SemBr still splits. `.. meta::` field values are
+        // leftover Prose while they stay indented in the directive
+        // body; a flush field after the block is bibliographic
+        // Structure, not more meta leftover (GitHub #434).
         if let Some(marker_len) = rst_field_marker_len(line_text) {
             flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
             let body = &line_text[marker_len..];
-            let name = line_text[line_text.len() - trimmed.len()..marker_len].trim();
+            let leading = line_text.len() - trimmed.len();
+            let name = line_text[leading..marker_len].trim();
             let interior_colon = name
                 .strip_prefix(':')
                 .and_then(|s| s.strip_suffix(':'))
                 .is_some_and(|inner| inner.contains(':'));
-            if interior_colon && !body.trim().is_empty() {
+            // Docutils ends explicit markup at a less-indented / flush
+            // line. Keep hanging indented `:keywords:` after an interior
+            // blank; close on a flush bibliographic field.
+            if in_meta_body && leading == 0 {
+                in_meta_body = false;
+            }
+            if (interior_colon || (in_meta_body && leading > 0)) && !body.trim().is_empty() {
                 list_hang = Some(marker_len);
                 regions.push(SpannedRegion::structure(
                     input,
@@ -671,6 +693,7 @@ fn parse_line_based(input: &str) -> Vec<SpannedRegion> {
                 flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
                 in_container_body = false;
                 in_line_block = false;
+                in_meta_body = false;
             }
         }
 
@@ -697,6 +720,7 @@ fn parse_line_based(input: &str) -> Vec<SpannedRegion> {
         // Regular prose
         in_container_body = false;
         in_line_block = false;
+        in_meta_body = false;
         push_prose_line(&mut current_prose, &mut prose_span, line, true, true);
         i += 1;
     }
@@ -2286,6 +2310,182 @@ mod tests {
             );
             assert_eq!(format_text(&out, &cfg).unwrap(), out);
         }
+    }
+
+    /// Ticket fixture (Format::Rst / GitHub #434): `.. meta::` field
+    /// same-line body is leftover Prose. `:Author:` stays Structure.
+    fn leftover_meta_field_fixture() -> &'static str {
+        concat!(
+            ".. meta::\n",
+            "   :description: fig. 1 is here. After.\n",
+            "After. Next.\n",
+        )
+    }
+
+    #[test]
+    fn leftover_meta_field_marker_is_structure_body_is_hung_prose() {
+        let input = leftover_meta_field_fixture();
+        let regions = RstParser.parse(input);
+        assert!(
+            regions
+                .iter()
+                .any(|r| matches!(r, Region::Structure(s) if s.trim() == ".. meta::")),
+            "opener .. meta:: must stay Structure, got {regions:?}"
+        );
+        assert!(
+            regions
+                .iter()
+                .any(|r| matches!(r, Region::Structure(s) if s == "   :description: ")),
+            "meta field marker must stay Structure, got {regions:?}"
+        );
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(s) if s.contains("fig. 1 is here.") && s.contains("After.")
+            )),
+            "meta field body must be leftover Prose, got {regions:?}"
+        );
+        assert!(
+            !regions.iter().any(|r| matches!(
+                r,
+                Region::Structure(s) if s.contains("fig. 1 is here")
+            )),
+            "meta field body must not stay whole-line Structure, got {regions:?}"
+        );
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(s)
+                    if s.contains("After.") && s.contains("Next.") && !s.contains("fig. 1")
+            )),
+            "flush After. / Next. must stay a separate Prose after meta, got {regions:?}"
+        );
+        assert!(
+            !regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(s) if s.contains("fig. 1 is here.") && s.contains("Next.")
+            )),
+            "flush After. / Next. must not join the meta field body, got {regions:?}"
+        );
+    }
+
+    #[test]
+    fn leftover_meta_field_fixture_hangs_and_splits() {
+        use crate::format::Format;
+        use crate::{FormatConfig, format_text};
+
+        let cfg = FormatConfig {
+            format: Format::Rst,
+            max_width: 0,
+            ..Default::default()
+        }
+        .without_safety_backstops();
+        let input = leftover_meta_field_fixture();
+        let marker = "   :description: ";
+        let hang = " ".repeat(marker.len());
+        let out = format_text(input, &cfg).unwrap();
+        assert_eq!(
+            out,
+            format!(".. meta::\n{marker}fig. 1 is here.\n{hang}After.\nAfter.\nNext.\n"),
+            "meta field body must hang and split; flush After. / Next. stay flush, got:\n{out}"
+        );
+        assert!(
+            !out.contains(":description: fig. 1 is here. After."),
+            "meta field body must not stay one line, got:\n{out}"
+        );
+        assert_eq!(format_text(&out, &cfg).unwrap(), out);
+    }
+
+    /// Flush bibliographic field after `.. meta::` + blank is not a
+    /// meta leftover (snapper-gaxz / snapper-omso).
+    fn flush_author_after_meta_fixture() -> &'static str {
+        concat!(
+            ".. meta::\n",
+            "   :description: fig. 1 is here. After.\n",
+            "\n",
+            ":Author: Jane Doe. Also here.\n",
+        )
+    }
+
+    #[test]
+    fn flush_author_after_meta_stays_whole_line_structure() {
+        let input = flush_author_after_meta_fixture();
+        let regions = RstParser.parse(input);
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Structure(s) if s.contains(":Author: Jane Doe. Also here.")
+            )),
+            "flush :Author: after meta must stay whole-line Structure, got {regions:?}"
+        );
+        assert!(
+            !regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(s) if s.contains("Jane Doe")
+            )),
+            "flush :Author: body must not become leftover Prose, got {regions:?}"
+        );
+        use crate::format::Format;
+        use crate::{FormatConfig, format_text};
+        let cfg = FormatConfig {
+            format: Format::Rst,
+            max_width: 0,
+            ..Default::default()
+        }
+        .without_safety_backstops();
+        let out = format_text(input, &cfg).unwrap();
+        assert!(
+            out.contains(":Author: Jane Doe. Also here.\n"),
+            "flush :Author: must stay one Structure line, got:\n{out}"
+        );
+        assert!(
+            !out.contains("                 Also here."),
+            "flush :Author: must not hang Also. as meta leftover, got:\n{out}"
+        );
+    }
+
+    #[test]
+    fn indented_meta_keywords_after_blank_still_hang() {
+        let input = concat!(
+            ".. meta::\n",
+            "   :description: fig. 1 is here. After.\n",
+            "\n",
+            "   :keywords: more here. Next.\n",
+        );
+        let regions = RstParser.parse(input);
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Structure(s) if s == "   :keywords: "
+            )),
+            "indented :keywords: marker must stay Structure, got {regions:?}"
+        );
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(s) if s.contains("more here.") && s.contains("Next.")
+            )),
+            "indented :keywords: after interior blank must stay leftover Prose, got {regions:?}"
+        );
+        use crate::format::Format;
+        use crate::{FormatConfig, format_text};
+        let cfg = FormatConfig {
+            format: Format::Rst,
+            max_width: 0,
+            ..Default::default()
+        }
+        .without_safety_backstops();
+        let out = format_text(input, &cfg).unwrap();
+        let marker = "   :keywords: ";
+        let hang = " ".repeat(marker.len());
+        assert!(
+            !out.contains(":keywords: more here. Next."),
+            "indented :keywords: body must still split, got:\n{out}"
+        );
+        assert!(
+            out.contains(&format!("{marker}more here.\n{hang}Next.\n")),
+            "indented :keywords: must hang Next. under the marker, got:\n{out}"
+        );
     }
 
     #[test]
