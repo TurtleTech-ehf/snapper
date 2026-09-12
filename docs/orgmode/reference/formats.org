@@ -142,6 +142,7 @@ These tokens within prose are not split across lines:
   =\VerbatimInput= / =\BVerbatimInput= / =\LVerbatimInput= take optional =[...]= then a ={filename}=; a flush following sentence stays on its own line
   =\verbatiminput= / =\verbatiminput*= take a ={filename}=; a flush following sentence stays on its own line
   =\tcbinputlisting= takes a ={keyvals}= group; a flush following sentence stays on its own line
+  =\listinginput= takes optional =[interval]= then ={start}= and ={filename}=; a flush following sentence stays on its own line
 
 *** Prose regions (reflowed)
 :PROPERTIES:

@@ -197,6 +197,7 @@ Built-in names are =verb=, =lstinline=, =lstinputlisting=, =spverb=, =mintinline
 =\lstinputlisting= takes optional =[...]= then a required ={filename}=; following flush prose stays on its own line.
 =\VerbatimInput= / =\BVerbatimInput= / =\LVerbatimInput= take optional =[...]= then a required ={filename}=; following flush prose stays on its own line.
 =\verbatiminput= / =\verbatiminput*= take a required ={filename}=; following flush prose stays on its own line.
+=\listinginput= takes optional =[interval]= then required ={start}= and ={filename}=; following flush prose stays on its own line.
 Adding another name keeps that command's delimited body atomic and treats an inner =%= as content, not a comment.
 
 * Code-block sections (=[code.<lang>]=)
