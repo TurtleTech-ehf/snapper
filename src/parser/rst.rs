@@ -267,11 +267,15 @@ fn parse_line_based(input: &str) -> Vec<SpannedRegion> {
         // container body is a new paragraph, not more note (GitHub #344).
         // Specific admonitions nested-parse same-line text after `::`
         // as the first body paragraph: marker Structure, body hung
-        // Prose that still splits (GitHub #349).
+        // Prose that still splits (GitHub #349). SubstitutionDef
+        // `.. |name| replace::` is the same leftover: the replace body
+        // is a nested-parsed paragraph (GitHub #417).
         let trimmed = line_text.trim_start();
         if trimmed.starts_with(".. ") && trimmed.contains("::") {
             flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
-            if let Some(marker_len) = rst_admonition_marker_len(line_text) {
+            if let Some(marker_len) = rst_admonition_marker_len(line_text)
+                .or_else(|| rst_substitution_replace_marker_len(line_text))
+            {
                 if line_text.len() > marker_len && !line_text[marker_len..].trim().is_empty() {
                     list_hang = Some(marker_len);
                     in_container_body = true;
@@ -286,7 +290,9 @@ fn parse_line_based(input: &str) -> Vec<SpannedRegion> {
                 }
             }
             regions.push(SpannedRegion::structure(input, line.span()));
-            if rst_directive_name(trimmed).is_some_and(|n| is_rst_container_directive(&n)) {
+            if rst_directive_name(trimmed).is_some_and(|n| is_rst_container_directive(&n))
+                || rst_substitution_replace_marker_len(line_text).is_some()
+            {
                 in_container_body = true;
                 i += 1;
                 continue;
@@ -837,6 +843,41 @@ pub(crate) fn rst_admonition_marker_len(line: &str) -> Option<usize> {
     let after_colons = &line[colons_at + 2..];
     let pad = after_colons.len() - after_colons.trim_start().len();
     Some(colons_at + 2 + pad)
+}
+
+/// Byte length of a Docutils SubstitutionDef `.. |name| replace::`
+/// opener (plus following whitespace, including leading indent).
+/// `None` when the line is not a replace substitution. Body text after
+/// the marker is not included, so `Some(s.len())` is the Structure
+/// prefix used for hang (GitHub #417).
+pub(crate) fn rst_substitution_replace_marker_len(line: &str) -> Option<usize> {
+    let indent = line.len() - line.trim_start().len();
+    let trimmed = &line[indent..];
+    let rest = trimmed.strip_prefix("..")?;
+    if !rest.starts_with([' ', '\t']) {
+        return None;
+    }
+    let ws_after_dots = rest.len() - rest.trim_start().len();
+    let after_ws = &rest[ws_after_dots..];
+    let after_open = after_ws.strip_prefix('|')?;
+    let name_end = after_open.find('|')?;
+    if name_end == 0 {
+        return None;
+    }
+    let after_close = &after_open[name_end + 1..];
+    let mid_ws = after_close.len() - after_close.trim_start().len();
+    if mid_ws == 0 {
+        return None;
+    }
+    let after_mid = &after_close[mid_ws..];
+    const REPLACE: &str = "replace::";
+    if after_mid.len() < REPLACE.len() || !after_mid[..REPLACE.len()].eq_ignore_ascii_case(REPLACE)
+    {
+        return None;
+    }
+    let after_colons = &after_mid[REPLACE.len()..];
+    let pad = after_colons.len() - after_colons.trim_start().len();
+    Some(indent + 2 + ws_after_dots + 1 + name_end + 1 + mid_ws + REPLACE.len() + pad)
 }
 
 /// True when `trimmed` is an RST comment opener, not a `.. name::`
@@ -2058,6 +2099,70 @@ mod tests {
                     if s.contains("|fig. 1|") && s.contains("Next sentence.")
             )),
             "|fig. 1| and the next sentence must stay Prose, got {regions:?}"
+        );
+    }
+
+    /// Ticket fixture (Format::Rst / GitHub #417): SubstitutionDef
+    /// `.. |name| replace::` same-line body is leftover Prose.
+    fn substitution_replace_fixture() -> &'static str {
+        concat!(
+            "See |v|. Next.\n",
+            "\n",
+            ".. |v| replace:: fig. 1 is here. After.\n",
+        )
+    }
+
+    #[test]
+    fn substitution_replace_marker_is_structure_body_is_hung_prose() {
+        let regions = RstParser.parse(substitution_replace_fixture());
+        assert!(
+            regions
+                .iter()
+                .any(|r| matches!(r, Region::Structure(s) if s == ".. |v| replace:: ")),
+            "opener .. |v| replace:: must stay Structure, got {regions:?}"
+        );
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(s)
+                    if s.contains("fig. 1 is here.") && s.contains("After.")
+            )),
+            "same-line replace body must be Prose, got {regions:?}"
+        );
+        assert!(
+            !regions.iter().any(|r| matches!(
+                r,
+                Region::Structure(s) if s.contains("fig. 1 is here")
+            )),
+            "same-line replace body must not stay whole-line Structure, got {regions:?}"
+        );
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(s) if s.contains("See |v|.") && s.contains("Next.")
+            )),
+            "See |v|. / Next. must stay Prose, got {regions:?}"
+        );
+        assert_eq!(
+            rst_substitution_replace_marker_len(".. |v| replace:: "),
+            Some(".. |v| replace:: ".len())
+        );
+        assert_eq!(
+            rst_substitution_replace_marker_len(".. |v| replace:: fig. 1 is here. After."),
+            Some(".. |v| replace:: ".len())
+        );
+        assert_eq!(
+            rst_substitution_replace_marker_len(".. |v| image:: fig.png"),
+            None
+        );
+        assert_eq!(rst_substitution_replace_marker_len(".. note:: "), None);
+        assert_eq!(
+            rst_substitution_replace_marker_len(".. || replace:: x"),
+            None
+        );
+        assert_eq!(
+            rst_substitution_replace_marker_len(".. |v|replace:: x"),
+            None
         );
     }
 
