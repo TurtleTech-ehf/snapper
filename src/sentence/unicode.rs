@@ -379,6 +379,15 @@ pub(crate) fn latex_verb_span_end_with(
         return Some(find_unescaped_brace_close(text, i).unwrap_or_else(|| line_end(text, i)));
     }
 
+    if kind == VerbKind::Tcbinputlisting {
+        i = skip_ascii_ws(text, i);
+        if !text.get(i..).is_some_and(|s| s.starts_with('{')) {
+            return None;
+        }
+        i += 1;
+        return Some(find_unescaped_brace_close(text, i).unwrap_or_else(|| line_end(text, i)));
+    }
+
     if kind == VerbKind::Mint {
         if !text.get(i..).is_some_and(|s| s.starts_with('{')) {
             return None;
@@ -437,6 +446,8 @@ enum VerbKind {
     Lstinputlisting,
     /// `\verbatiminput`: required `{filename}` (verbatim.sty leftover).
     Verbatiminput,
+    /// `\tcbinputlisting`: one required `{keyvals}` group.
+    Tcbinputlisting,
     /// `\mintinline` / `\mint` / `\inputminted`: optional `[...]`,
     /// `{lang}`, then body.
     Mint,
@@ -466,6 +477,7 @@ fn match_extra_verb_command<'a>(tail: &'a str, extras: &'a [String]) -> Option<&
             || name == "mintinline"
             || name == "inputminted"
             || name == "verbatiminput"
+            || name == "tcbinputlisting"
             || name == "mint"
             || name == "Verb"
             || name == "SaveVerb"
