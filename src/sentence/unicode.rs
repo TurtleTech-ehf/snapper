@@ -2445,6 +2445,60 @@ mod tests {
         );
     }
 
+    /// Ticket fixture (GitHub #398): tools/verbatim.sty `\verbatiminput{file}`
+    /// is one token; following `After.` still splits.
+    #[test]
+    fn latex_verbatiminput_stays_atomic() {
+        let text = r"See \verbatiminput{foo.py} here. After.";
+        let (_, placeholders) = protect_inline_tokens(text);
+        assert!(
+            placeholders.iter().any(|p| p == r"\verbatiminput{foo.py}"),
+            "verbatiminput span must be protected, got {placeholders:?}"
+        );
+        assert_eq!(
+            latex_verb_span_end_with(r"\verbatiminput{foo.py}", 0, &[]),
+            Some(r"\verbatiminput{foo.py}".len())
+        );
+        assert_eq!(
+            split(text),
+            vec![
+                r"See \verbatiminput{foo.py} here.".to_string(),
+                "After.".to_string()
+            ]
+        );
+        assert_eq!(
+            latex_verb_span_end_with(r"\verbatiminput*{foo.py}", 0, &[]),
+            Some(r"\verbatiminput*{foo.py}".len())
+        );
+        let star = r"See \verbatiminput*{foo.py} here. After.";
+        assert_eq!(
+            split(star),
+            vec![
+                r"See \verbatiminput*{foo.py} here.".to_string(),
+                "After.".to_string()
+            ]
+        );
+        assert_eq!(
+            latex_verb_span_end_with(r"\verbatiminput foo.py", 0, &[]),
+            None,
+            "verbatiminput without a brace file arg is not a verb span"
+        );
+        assert_eq!(
+            latex_verb_span_end_with(r"\verb|a.b! c|", 0, &[]),
+            Some(r"\verb|a.b! c|".len()),
+            "verbatiminput must not steal verb"
+        );
+        assert_eq!(
+            latex_verb_span_end_with(r"\lstinputlisting{foo.py}", 0, &[]),
+            Some(r"\lstinputlisting{foo.py}".len()),
+            "verbatiminput must not steal lstinputlisting"
+        );
+        assert_eq!(
+            latex_verb_span_end_with(r"\inputminted{python}{foo.py}", 0, &[]),
+            Some(r"\inputminted{python}{foo.py}".len()),
+            "verbatiminput must not steal inputminted"
+        );
+    }
 
     /// Ticket fixture (GitHub #275): fancyvrb `\SaveVerb{name}|body|`
     /// is one token; following `After.` still splits.
