@@ -899,6 +899,16 @@ fn strip_quote_markers(line: &str, depth: usize) -> Option<&str> {
     Some(rest)
 }
 
+/// CommonMark 5.2 empty list item: marker then no payload. After quote
+/// markers, `> -` / `> *` / `> +` / `> 1.` is a blockquote whose only
+/// block is that empty item. An unquoted next line cannot lazily continue
+/// it (GitHub #339).
+fn is_empty_list_item(text: &str) -> bool {
+    LIST_ITEM_RE
+        .captures(text)
+        .is_some_and(|caps| caps.get(2).is_none_or(|m| m.as_str().is_empty()))
+}
+
 /// CommonMark 5.2 hang width. A marker at EOL (no trailing space) is W+1;
 /// `- ` / `1. ` / `-\t` stay `marker.len()`.
 fn list_marker_hang(marker: &str) -> usize {
@@ -1987,6 +1997,7 @@ impl FormatParser for MarkdownParser {
                     || is_thematic_break(text)
                     || is_footnote_definition(text)
                     || is_link_reference_definition(text)
+                    || is_empty_list_item(text)
                 {
                     regions.push(SpannedRegion::structure(input, line.span()));
                     i += 1;
@@ -2720,6 +2731,38 @@ mod tests {
                 "following prose must stay Prose, got {regions:?}"
             );
         }
+    }
+
+    /// GitHub #339: CommonMark 5.1+5.2 quoted empty list marker.
+    #[test]
+    fn quoted_empty_list_item_after_blank_is_structure() {
+        let input = concat!(
+            "Intro sentence here. Another intro sentence.\n",
+            "\n",
+            "> -\n",
+            "After empty item. Next sentence.\n",
+        );
+        let regions = MarkdownParser.parse(input);
+        assert!(
+            regions
+                .iter()
+                .any(|r| matches!(r, Region::Structure(s) if s.trim() == "> -")),
+            "> - after a blank must be Structure, got {regions:?}"
+        );
+        assert!(
+            !regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(p) if p.contains("After empty item.") && p.contains('>')
+            )),
+            "unquoted After must not join the quote, got {regions:?}"
+        );
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(p) if p.contains("After empty item.") && p.contains("Next sentence.")
+            )),
+            "following prose must stay Prose, got {regions:?}"
+        );
     }
 
     #[test]
