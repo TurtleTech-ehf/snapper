@@ -200,8 +200,7 @@ pub fn protect_inline_tokens_with(
 /// `\mintinline{lang}|...|` / `\mint{lang}{...}` /
 /// `\inputminted{lang}{file}` / `\Verb|...|` /
 /// `\SaveVerb{name}|...|` / `\piton|...|` /
-/// `\lstinputlisting[...]{file}` /
-/// `\tcbinputlisting{keyvals}` so inner `.!?%` cannot
+/// `\lstinputlisting[...]{file}` / `\verbatiminput{file}` so inner `.!?%` cannot
 /// split or comment. `\piton{...}` stays on the generic `\cmd{arg}`
 /// path (piton.sty brace syntax is not verbatim; GitHub #305).
 fn protect_latex_verbatim(
@@ -229,7 +228,7 @@ fn protect_latex_verbatim(
 
 /// Byte end of a `\verb` / `\lstinline` / `\spverb` / `\mintinline` /
 /// `\mint` / `\inputminted` / `\Verb` / `\SaveVerb` / `\piton` /
-/// `\lstinputlisting` / `\tcbinputlisting` /
+/// `\lstinputlisting` / `\verbatiminput` /
 /// extra-name span starting at `at`.
 ///
 /// `\verb` / `\verb*` / `\spverb` / `\spverb*` / `\Verb` / `\Verb*`: next
@@ -248,11 +247,11 @@ fn protect_latex_verbatim(
 /// delimiter so `\piton{...}` stays on the generic `\cmd{arg}` path.
 /// `\lstinputlisting` / `\lstinputlisting*` (listings.sty leftover;
 /// GitHub #391) take optional `[...]` then a required `{filename}`;
-/// no brace is not a span. `\tcbinputlisting` (tcolorbox leftover;
-/// GitHub #400) takes one keyval group; no brace is not a span.
-/// Extra names are tokenized like `\verb`.
-/// With no closer, the span runs to end of line so an inner `%` is
-/// not a comment.
+/// no brace is not a span. `\verbatiminput` / `\verbatiminput*`
+/// (tools/verbatim.sty leftover; GitHub #398) take a required
+/// `{filename}`; no brace is not a span. Extra names are tokenized
+/// like `\verb`. With no closer, the span runs to end of line so an
+/// inner `%` is not a comment.
 pub(crate) fn latex_verb_span_end_with(
     text: &str,
     at: usize,
@@ -285,6 +284,12 @@ pub(crate) fn latex_verb_span_end_with(
             after_bs + "lstinputlisting".len(),
             VerbKind::Lstinputlisting,
         )
+    } else if let Some(stripped) = tail.strip_prefix("verbatiminput") {
+        // Before `verb` so `\verbatiminput` is not `\verb` + leftover.
+        if stripped.starts_with(|c: char| c.is_ascii_alphabetic()) {
+            return None;
+        }
+        (after_bs + "verbatiminput".len(), VerbKind::Verbatiminput)
     } else if let Some(stripped) = tail.strip_prefix("tcbinputlisting") {
         if stripped.starts_with(|c: char| c.is_ascii_alphabetic()) {
             return None;
@@ -361,17 +366,12 @@ pub(crate) fn latex_verb_span_end_with(
     }
 
     // listings.sty `\lstinputlisting[opts]{file}` is brace-only.
-    if kind == VerbKind::Lstinputlisting {
-        if !text.get(i..).is_some_and(|s| s.starts_with('{')) {
-            return None;
+    // tools/verbatim.sty `\verbatiminput{file}` is the same brace file
+    // arg (no optional `[...]`; GitHub #398).
+    if matches!(kind, VerbKind::Lstinputlisting | VerbKind::Verbatiminput) {
+        if kind == VerbKind::Verbatiminput {
+            i = skip_ascii_ws(text, i);
         }
-        i += 1;
-        return Some(find_unescaped_brace_close(text, i).unwrap_or_else(|| line_end(text, i)));
-    }
-
-    // tcolorbox `\tcbinputlisting{keyvals}` is one keyval group.
-    if kind == VerbKind::Tcbinputlisting {
-        i = skip_ascii_ws(text, i);
         if !text.get(i..).is_some_and(|s| s.starts_with('{')) {
             return None;
         }
@@ -435,8 +435,8 @@ enum VerbKind {
     Lstinline,
     /// `\lstinputlisting`: optional `[...]` then required `{filename}`.
     Lstinputlisting,
-    /// `\tcbinputlisting`: one required `{keyvals}` group.
-    Tcbinputlisting,
+    /// `\verbatiminput`: required `{filename}` (verbatim.sty leftover).
+    Verbatiminput,
     /// `\mintinline` / `\mint` / `\inputminted`: optional `[...]`,
     /// `{lang}`, then body.
     Mint,
@@ -462,10 +462,10 @@ fn match_extra_verb_command<'a>(tail: &'a str, extras: &'a [String]) -> Option<&
             || name == "verb"
             || name == "lstinline"
             || name == "lstinputlisting"
-            || name == "tcbinputlisting"
             || name == "spverb"
             || name == "mintinline"
             || name == "inputminted"
+            || name == "verbatiminput"
             || name == "mint"
             || name == "Verb"
             || name == "SaveVerb"
@@ -2360,6 +2360,61 @@ mod tests {
         );
     }
 
+    /// Ticket fixture (GitHub #398): tools/verbatim.sty `\verbatiminput{file}`
+    /// is one token; following `After.` still splits.
+    #[test]
+    fn latex_verbatiminput_stays_atomic() {
+        let text = r"See \verbatiminput{foo.py} here. After.";
+        let (_, placeholders) = protect_inline_tokens(text);
+        assert!(
+            placeholders.iter().any(|p| p == r"\verbatiminput{foo.py}"),
+            "verbatiminput span must be protected, got {placeholders:?}"
+        );
+        assert_eq!(
+            latex_verb_span_end_with(r"\verbatiminput{foo.py}", 0, &[]),
+            Some(r"\verbatiminput{foo.py}".len())
+        );
+        assert_eq!(
+            split(text),
+            vec![
+                r"See \verbatiminput{foo.py} here.".to_string(),
+                "After.".to_string()
+            ]
+        );
+        assert_eq!(
+            latex_verb_span_end_with(r"\verbatiminput*{foo.py}", 0, &[]),
+            Some(r"\verbatiminput*{foo.py}".len())
+        );
+        let star = r"See \verbatiminput*{foo.py} here. After.";
+        assert_eq!(
+            split(star),
+            vec![
+                r"See \verbatiminput*{foo.py} here.".to_string(),
+                "After.".to_string()
+            ]
+        );
+        assert_eq!(
+            latex_verb_span_end_with(r"\verbatiminput foo.py", 0, &[]),
+            None,
+            "verbatiminput without a brace file arg is not a verb span"
+        );
+        assert_eq!(
+            latex_verb_span_end_with(r"\verb|a.b! c|", 0, &[]),
+            Some(r"\verb|a.b! c|".len()),
+            "verbatiminput must not steal verb"
+        );
+        assert_eq!(
+            latex_verb_span_end_with(r"\lstinputlisting{foo.py}", 0, &[]),
+            Some(r"\lstinputlisting{foo.py}".len()),
+            "verbatiminput must not steal lstinputlisting"
+        );
+        assert_eq!(
+            latex_verb_span_end_with(r"\inputminted{python}{foo.py}", 0, &[]),
+            Some(r"\inputminted{python}{foo.py}".len()),
+            "verbatiminput must not steal inputminted"
+        );
+    }
+
     /// Ticket fixture (GitHub #400): tcolorbox `\tcbinputlisting{keyvals}`
     /// is one leftover command; following `After.` still splits.
     #[test]
@@ -3870,7 +3925,7 @@ mod tests {
     #[test]
     fn plaintext_format_keeps_dialogue_quote_together() {
         use crate::format::Format;
-        use crate::{FormatConfig, format_text};
+        use crate::{format_text, FormatConfig};
 
         let input = "He said \"Hello world. How are you?\" Then he left.\n";
         let cfg = FormatConfig {
@@ -3987,7 +4042,7 @@ mod tests {
     #[test]
     fn newlines_invariant_holds_on_dialogue_output() {
         use crate::format::Format;
-        use crate::{FormatConfig, format_text};
+        use crate::{format_text, FormatConfig};
 
         let samples = [
             "He said \"Hello world. How are you?\" Then he left.\n",
@@ -4235,7 +4290,7 @@ mod tests {
     #[test]
     fn markdown_period_inside_closers_survives_format_roundtrip() {
         use crate::format::Format;
-        use crate::{FormatConfig, format_text};
+        use crate::{format_text, FormatConfig};
 
         let cfg = FormatConfig {
             format: Format::Markdown,
@@ -4249,7 +4304,7 @@ mod tests {
     #[test]
     fn org_markdown_style_bold_period_splits_without_headline() {
         use crate::format::Format;
-        use crate::{FormatConfig, format_text};
+        use crate::{format_text, FormatConfig};
 
         let cfg = FormatConfig {
             format: Format::Org,
@@ -4310,7 +4365,7 @@ mod tests {
     #[test]
     fn markdown_emphasis_format_text_does_not_break_inside_span() {
         use crate::format::Format;
-        use crate::{FormatConfig, format_text};
+        use crate::{format_text, FormatConfig};
 
         let cfg = FormatConfig {
             format: Format::Markdown,
@@ -4358,7 +4413,7 @@ mod tests {
     #[test]
     fn plaintext_bang_inside_code_span_stays_atomic_after_keep_break() {
         use crate::format::Format;
-        use crate::{FormatConfig, format_text};
+        use crate::{format_text, FormatConfig};
 
         let input = "?=\"`=!a`\n";
         let cfg = FormatConfig {
@@ -4378,7 +4433,7 @@ mod tests {
     #[test]
     fn keeps_break_before_lowercase_proper_noun() {
         use crate::format::Format;
-        use crate::{FormatConfig, format_text};
+        use crate::{format_text, FormatConfig};
 
         let input = "First sentence.\niCloud starts the second sentence.\n";
         for format in [
@@ -4405,7 +4460,7 @@ mod tests {
     #[test]
     fn splits_same_line_lowercase_proper_noun() {
         use crate::format::Format;
-        use crate::{FormatConfig, format_text};
+        use crate::{format_text, FormatConfig};
 
         assert_eq!(
             split("First sentence. iCloud starts the second sentence."),
