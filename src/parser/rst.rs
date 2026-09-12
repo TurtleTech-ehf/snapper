@@ -259,9 +259,26 @@ fn parse_line_based(input: &str) -> Vec<SpannedRegion> {
         // hangs and reflows like a block quote. Opaque names keep the
         // old freeze (GitHub #54). A flush paragraph after a compact
         // container body is a new paragraph, not more note (GitHub #344).
+        // Specific admonitions nested-parse same-line text after `::`
+        // as the first body paragraph: marker Structure, body hung
+        // Prose that still splits (GitHub #349).
         let trimmed = line_text.trim_start();
         if trimmed.starts_with(".. ") && trimmed.contains("::") {
             flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
+            if let Some(marker_len) = rst_admonition_marker_len(line_text) {
+                if line_text.len() > marker_len && !line_text[marker_len..].trim().is_empty() {
+                    list_hang = Some(marker_len);
+                    in_container_body = true;
+                    regions.push(SpannedRegion::structure(
+                        input,
+                        ByteSpan::new(line.start, line.start + marker_len),
+                    ));
+                    current_prose.push_str(line_text[marker_len..].trim());
+                    prose_span = Some(ByteSpan::new(line.start + marker_len, line.end));
+                    i += 1;
+                    continue;
+                }
+            }
             regions.push(SpannedRegion::structure(input, line.span()));
             if rst_directive_name(trimmed).is_some_and(|n| is_rst_container_directive(&n)) {
                 in_container_body = true;
@@ -743,10 +760,9 @@ fn rst_directive_name(trimmed: &str) -> Option<String> {
     Some(name.to_ascii_lowercase())
 }
 
-/// Docutils admonitions plus figure/topic/sidebar/container: bodies
-/// nested-parse, so hang + reflow. Option fields stay Structure via
-/// the field-list arm. Other directive names stay opaque.
-fn is_rst_container_directive(name: &str) -> bool {
+/// Docutils specific admonitions: no arguments; same-line text after
+/// `::` is the first nested-parsed body paragraph (GitHub #349).
+fn is_rst_specific_admonition(name: &str) -> bool {
     matches!(
         name,
         "note"
@@ -758,12 +774,50 @@ fn is_rst_container_directive(name: &str) -> bool {
             | "hint"
             | "error"
             | "attention"
-            | "admonition"
-            | "figure"
-            | "topic"
-            | "sidebar"
-            | "container"
     )
+}
+
+/// Docutils admonitions plus figure/topic/sidebar/container: bodies
+/// nested-parse, so hang + reflow. Option fields stay Structure via
+/// the field-list arm. Other directive names stay opaque.
+fn is_rst_container_directive(name: &str) -> bool {
+    is_rst_specific_admonition(name)
+        || matches!(
+            name,
+            "admonition" | "figure" | "topic" | "sidebar" | "container"
+        )
+}
+
+/// Byte length of a specific-admonition opener (`.. note::` plus
+/// following whitespace, including leading indent). `None` when the
+/// line is not a no-argument admonition. Body text after the marker
+/// is not included, so `Some(s.len())` is the Structure prefix used
+/// for hang (GitHub #349).
+pub(crate) fn rst_admonition_marker_len(line: &str) -> Option<usize> {
+    let indent = line.len() - line.trim_start().len();
+    let trimmed = &line[indent..];
+    let rest = trimmed.strip_prefix("..")?;
+    if !rest.starts_with([' ', '\t']) {
+        return None;
+    }
+    let name_off = rest.len() - rest.trim_start().len();
+    let after_ws = &rest[name_off..];
+    let name_end = after_ws.find("::")?;
+    let name = after_ws[..name_end].trim();
+    if name.is_empty()
+        || !name
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_' | b'.'))
+    {
+        return None;
+    }
+    if !is_rst_specific_admonition(&name.to_ascii_lowercase()) {
+        return None;
+    }
+    let colons_at = indent + 2 + name_off + name_end;
+    let after_colons = &line[colons_at + 2..];
+    let pad = after_colons.len() - after_colons.trim_start().len();
+    Some(colons_at + 2 + pad)
 }
 
 /// True when `trimmed` is an RST comment opener, not a `.. name::`
@@ -3106,6 +3160,43 @@ mod tests {
             "After markup must not inherit the note hang, got:\n{out}"
         );
         assert_eq!(format_text(&out, &cfg).unwrap(), out);
+    }
+
+    /// Ticket fixture (Format::Rst / GitHub #349): same-line note body.
+    fn same_line_note_fixture() -> &'static str {
+        ".. note:: This is a long note sentence that must reflow. Second sentence.\n"
+    }
+
+    #[test]
+    fn same_line_note_opener_is_structure_body_is_hung_prose() {
+        let regions = RstParser.parse(same_line_note_fixture());
+        assert!(
+            regions
+                .iter()
+                .any(|r| matches!(r, Region::Structure(s) if s == ".. note:: ")),
+            "opener .. note:: must stay Structure, got {regions:?}"
+        );
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(s)
+                    if s.contains("This is a long note sentence that must reflow.")
+                        && s.contains("Second sentence.")
+            )),
+            "same-line note body must be Prose, got {regions:?}"
+        );
+        assert!(
+            !regions.iter().any(|r| matches!(
+                r,
+                Region::Structure(s) if s.contains("This is a long note sentence")
+            )),
+            "same-line note body must not stay whole-line Structure, got {regions:?}"
+        );
+        assert_eq!(
+            rst_admonition_marker_len(".. note:: "),
+            Some(".. note:: ".len())
+        );
+        assert_eq!(rst_admonition_marker_len(".. figure:: image.png"), None);
     }
 
     #[test]
