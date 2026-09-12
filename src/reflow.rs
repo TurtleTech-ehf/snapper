@@ -1131,6 +1131,11 @@ fn hanging_indent_width(s: &str) -> usize {
     if crate::parser::markdown::md_definition_list_marker_len(s) == Some(s.len()) {
         return s.chars().count();
     }
+    // Markdown GFM footnote definition (`[^1]: `, `  [^note]: `): hang at
+    // marker width so the body stays a hung paragraph (GitHub #410).
+    if crate::parser::markdown::md_footnote_definition_marker_len(s) == Some(s.len()) {
+        return s.chars().count();
+    }
     // Parser markers are `core` plus one or more trailing spaces; leading
     // indent is part of the hang so nested `   - ` continues at column 5.
     // Extra spaces after `*` (`*  Candidate:`) stay in the hang so a
@@ -1858,6 +1863,11 @@ They are endowed with reason and conscience and should act towards one another i
         assert_eq!(hanging_indent_width("[fn:note] "), 10);
         assert_eq!(hanging_prefix("[fn:1] "), "       ");
         assert_eq!(hanging_prefix("[fn:note] "), "          ");
+        assert_eq!(hanging_indent_width("[^1]: "), 6);
+        assert_eq!(hanging_indent_width("  [^note]: "), 11);
+        assert_eq!(hanging_prefix("[^1]: "), "      ");
+        assert_eq!(hanging_prefix("  [^note]: "), "           ");
+        assert_eq!(hanging_indent_width("[^1]:"), 0);
         assert_eq!(hanging_indent_width("#+CAPTION: "), 11);
         assert_eq!(hanging_prefix("#+CAPTION: "), "           ");
         assert_eq!(
@@ -1943,6 +1953,16 @@ They are endowed with reason and conscience and should act towards one another i
             result,
             "[fn:1] This is a long footnote sentence that must stay inside the definition.\n       Second sentence.\n"
         );
+    }
+
+    #[test]
+    fn md_footnote_definition_hangs_second_sentence() {
+        let result = reflow_regions(vec![
+            Region::Structure("[^1]: ".to_string()),
+            Region::Prose("fig. 1 is here. After.".to_string()),
+            Region::Structure("\n".to_string()),
+        ]);
+        assert_eq!(result, "[^1]: fig. 1 is here.\n      After.\n");
     }
 
     #[test]
