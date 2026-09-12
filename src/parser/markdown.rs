@@ -19,20 +19,23 @@ static FENCED_LANG_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"^(?:`{3,}|~{3,})\s*([A-Za-z0-9_+.\-]+)").unwrap());
 
 /// CommonMark list marker: 0–3 spaces, then `-`/`*`/`+` or 1–9 digits plus
-/// `.`/`)`, then a space or the empty rest of the line (spec 0.31.2 sec 5.2).
-/// Ten or more digits is prose. Four or more spaces is indented code, not a
-/// list (spec 0.31.2 ex. 289). Empty markers do not interrupt a paragraph
-/// (`-` after prose is setext; GitHub #326).
+/// `.`/`)`, then a space, a tab, or the empty rest of the line (spec 0.31.2
+/// sec 5.2). Ten or more digits is prose. Four or more spaces is indented
+/// code, not a list (spec 0.31.2 ex. 289). Empty markers do not interrupt
+/// a paragraph (`-` after prose is setext; GitHub #326). Tab-padded (`-\t`)
+/// and two-space-padded (`-  `) empty markers are list items so the next
+/// unindented line is not lazy-joined (GitHub #337). One-space and
+/// three-or-more spaces stay as in #329.
 static LIST_ITEM_RE: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"^( {0,3}(?:[-*+]|\d{1,9}[.)])(?: |$))(.*)$").unwrap());
+    LazyLock::new(|| Regex::new(r"^( {0,3}(?:[-*+]|\d{1,9}[.)])(?:[ \t]|$))(.*)$").unwrap());
 
 /// List-looking line at any indent (including 4+ spaces). LIST_ITEM_RE is
 /// 0–3 only; a 4-space dash is indented code, but after a blank we still
 /// need the shape so hang-relative close can hand it to snapper-tupp.
-/// Digit cap matches LIST_ITEM_RE (CommonMark 1–9). Empty rest of line
-/// is still list-looking (sec 5.2).
+/// Digit cap matches LIST_ITEM_RE (CommonMark 1–9). Empty rest of line,
+/// including a tab after the marker, is still list-looking (sec 5.2 / #337).
 static LIST_LOOKING_RE: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"^[\t ]*(?:[-*+]|\d{1,9}[.)])(?: |$)").unwrap());
+    LazyLock::new(|| Regex::new(r"^[\t ]*(?:[-*+]|\d{1,9}[.)])(?:[ \t]|$)").unwrap());
 
 /// Match a markdown table row: line whose trimmed form starts and ends with `|`.
 /// Also matches separator rows like `|---|---|`.
@@ -897,13 +900,24 @@ fn strip_quote_markers(line: &str, depth: usize) -> Option<&str> {
 }
 
 /// CommonMark 5.2 hang width. A marker at EOL (no trailing space) is W+1;
-/// `- ` / `1. ` stay `marker.len()`.
+/// `- ` / `1. ` / `-\t` stay `marker.len()`.
 fn list_marker_hang(marker: &str) -> usize {
-    if marker.ends_with(' ') {
+    if marker.ends_with(' ') || marker.ends_with('\t') {
         marker.len()
     } else {
         marker.len() + 1
     }
+}
+
+/// Empty list-item remainder: EOL (#329), or exactly one leftover space
+/// so `-  ` is empty (GitHub #337). Three or more spaces stay content.
+fn list_item_rest_is_empty(rest: &str) -> bool {
+    rest.is_empty() || rest == " "
+}
+
+/// Bytes of a two-space empty pad (`-  `) to fold into the marker span.
+fn list_item_empty_pad(rest: &str) -> usize {
+    usize::from(rest == " ")
 }
 
 /// CommonMark 5.2 hang: marker width after quote markers (`- ` is 2,
@@ -914,9 +928,12 @@ fn list_opener_hang(line: &str) -> Option<usize> {
     let body = strip_quote_markers(line, depth)?;
     let caps = LIST_ITEM_RE.captures(body)?;
     let marker = caps.get(1).unwrap().as_str();
-    // Empty list items do not interrupt a paragraph (GitHub #326).
-    // After prose, lone `-` is a setext underline, not a list.
-    if caps.get(2).is_none_or(|m| m.as_str().is_empty()) {
+    // Empty list items do not interrupt a paragraph (GitHub #326 / #337).
+    // After prose, lone `-` / `-  ` / `-\t` is a setext underline, not a list.
+    if caps
+        .get(2)
+        .is_none_or(|m| list_item_rest_is_empty(m.as_str()))
+    {
         return None;
     }
     let token = marker.trim();
@@ -2014,7 +2031,12 @@ impl FormatParser for MarkdownParser {
                     );
                     flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
                     let marker = caps.get(1).unwrap().as_str();
-                    let marker_span = ByteSpan::new(line.start, line.start + marker.len());
+                    let rest = caps.get(2).map(|m| m.as_str()).unwrap_or("");
+                    // Fold the extra space of `-  ` into the marker so the
+                    // item stays empty and the next unindented line is not
+                    // lazy continuation (GitHub #337).
+                    let marker_len = marker.len() + list_item_empty_pad(rest);
+                    let marker_span = ByteSpan::new(line.start, line.start + marker_len);
                     regions.push(SpannedRegion::structure(input, marker_span));
                     in_list_item = true;
                     list_hang = Some(list_marker_hang(marker));
@@ -2026,7 +2048,7 @@ impl FormatParser for MarkdownParser {
                             term: &mut list_term,
                         },
                         line,
-                        marker.len(),
+                        marker_len,
                         false,
                         false,
                         input,
@@ -2669,6 +2691,37 @@ mod tests {
         );
     }
 
+    /// GitHub #337: two-space and tab-padded empty markers after a blank.
+    #[test]
+    fn padded_empty_list_item_after_blank_is_structure() {
+        for marker in ["-  ", "-\t", "*  ", "+\t"] {
+            let input = format!(
+                "Intro sentence here. Another intro sentence.\n\n{marker}\nAfter empty item. Next sentence.\n"
+            );
+            let regions = MarkdownParser.parse(&input);
+            assert!(
+                regions
+                    .iter()
+                    .any(|r| matches!(r, Region::Structure(s) if s == marker)),
+                "padded {marker:?} after a blank must be a list marker, got {regions:?}"
+            );
+            assert!(
+                !regions.iter().any(|r| matches!(
+                    r,
+                    Region::Prose(p) if p.contains("After empty item.") && p.contains(marker.chars().next().unwrap())
+                )),
+                "padded empty marker must not join the following prose, got {regions:?}"
+            );
+            assert!(
+                regions.iter().any(|r| matches!(
+                    r,
+                    Region::Prose(p) if p.contains("After empty item.") && p.contains("Next sentence.")
+                )),
+                "following prose must stay Prose, got {regions:?}"
+            );
+        }
+    }
+
     #[test]
     fn list_item_continuation_joined() {
         let input = "1. First line of item\ncontinuation text here.\nAnother sentence.";
@@ -3102,8 +3155,19 @@ mod tests {
         assert!(!list_interrupts_paragraph("-"));
         assert!(!list_interrupts_paragraph("*"));
         assert!(!list_interrupts_paragraph("+"));
+        // GitHub #337: tab-padded and two-space-padded empty markers.
+        assert_eq!(list_opener_hang("-  "), None);
+        assert_eq!(list_opener_hang("-\t"), None);
+        assert_eq!(list_opener_hang("*  "), None);
+        assert_eq!(list_opener_hang("+\t"), None);
+        assert!(!list_interrupts_paragraph("-  "));
+        assert!(!list_interrupts_paragraph("-\t"));
+        // One space is already empty; three spaces stay content (not empty).
+        assert_eq!(list_opener_hang("- "), None);
+        assert_eq!(list_opener_hang("-   "), Some(2));
         assert_eq!(list_marker_hang("-"), 2);
         assert_eq!(list_marker_hang("- "), 2);
+        assert_eq!(list_marker_hang("-\t"), 2);
         assert_eq!(list_marker_hang("1. "), 3);
     }
 
