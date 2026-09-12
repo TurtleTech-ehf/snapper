@@ -75,22 +75,26 @@ fn prompt_only_fixture() -> &'static str {
 fn prompt_only_doctest_is_structure_not_underline() {
     let regions = RstParser.parse(prompt_only_fixture());
     assert!(
+        regions
+            .iter()
+            .any(|r| matches!(r, Region::Structure(s) if s.trim() == ">>>")),
+        "prompt-only >>> at EOL must be Structure, got {regions:?}"
+    );
+    assert!(
+        regions.iter().any(|r| matches!(
+            r,
+            Region::Prose(s) if s.contains("Python-specific usage examples; begun with")
+        )),
+        "text after empty >>> must stay Prose, got {regions:?}"
+    );
+    assert!(
         regions.iter().any(|r| matches!(
             r,
             Region::Structure(s)
-                if s.contains(">>>")
-                    && s.contains("Python-specific usage examples; begun with")
-                    && s.contains(">>> print('(cut and pasted")
+                if s.contains(">>> print('(cut and pasted")
                     && s.contains("(cut and pasted from interactive Python sessions)")
         )),
-        "prompt-only >>> must open one Structure doctest, got {regions:?}"
-    );
-    assert!(
-        !regions.iter().any(|r| matches!(
-            r,
-            Region::Prose(s) if s.contains(">>>") || s.contains("Python-specific")
-        )),
-        "prompt-only >>> must not leave output as Prose, got {regions:?}"
+        "same-line >>> print must still open a Structure block, got {regions:?}"
     );
 }
 
