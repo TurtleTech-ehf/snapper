@@ -3,6 +3,8 @@
 //! Prose. Field marker stays Structure; After. still splits and hangs.
 //! Flush After. / Next. still split. `.. meta::` stays Structure.
 //! Top-level `:Author:` and note `:option:` stay whole-line Structure.
+//! Flush `:Author:` after `.. meta::` plus a blank stays Structure.
+//! Indented `:keywords:` after an interior blank still hangs.
 
 use snapper_fmt::format::Format;
 use snapper_fmt::parser::rst::RstParser;
@@ -114,6 +116,163 @@ fn author_field_stays_whole_line_structure() {
     );
     let out = format_text(input, &rst_cfg()).unwrap();
     assert_eq!(out, input, "valued field must hang as today, got:\n{out}");
+}
+
+#[test]
+fn flush_author_after_meta_blank_stays_structure() {
+    // Flush bibliographic field after meta + blank (snapper-gaxz).
+    let input = concat!(
+        ".. meta::\n",
+        "   :description: fig. 1 is here. After.\n",
+        "\n",
+        ":Author: Jane Doe. Also here.\n",
+    );
+    let regions = RstParser.parse(input);
+    assert!(
+        regions.iter().any(|r| matches!(
+            r,
+            Region::Structure(s) if s.contains(":Author: Jane Doe. Also here.")
+        )),
+        "flush :Author: after meta must stay whole-line Structure, got {regions:?}"
+    );
+    assert!(
+        !regions.iter().any(|r| matches!(
+            r,
+            Region::Prose(s) if s.contains("Jane Doe") || s.contains("Also here")
+        )),
+        "flush :Author: body after meta must not become leftover Prose, got {regions:?}"
+    );
+    let out = format_text(input, &rst_cfg()).unwrap();
+    assert!(
+        out.contains(":Author: Jane Doe. Also here.\n"),
+        "flush :Author: must stay one line, got:\n{out}"
+    );
+    assert!(
+        !out.contains("                 Also here."),
+        "Also. must not hang as meta leftover, got:\n{out}"
+    );
+}
+
+#[test]
+fn flush_author_after_meta_blank_does_not_split_next() {
+    // Later field list after the blank that ends meta (snapper-omso).
+    let input = concat!(
+        ".. meta::\n",
+        "   :description: fig. 1 is here. After.\n",
+        "\n",
+        ":Author: Jane Doe wrote this. Next.\n",
+    );
+    let regions = RstParser.parse(input);
+    assert!(
+        regions.iter().any(|r| matches!(
+            r,
+            Region::Structure(s) if s.contains(":Author: Jane Doe wrote this. Next.")
+        )),
+        "flush :Author: after meta blank must stay whole-line Structure, got {regions:?}"
+    );
+    assert!(
+        !regions.iter().any(|r| matches!(
+            r,
+            Region::Prose(s) if s.contains("Jane Doe") || s.contains("Next.")
+        )),
+        "flush :Author: body after meta blank must not become leftover Prose, got {regions:?}"
+    );
+    let out = format_text(input, &rst_cfg()).unwrap();
+    assert_eq!(
+        out,
+        concat!(
+            ".. meta::\n",
+            "   :description: fig. 1 is here.\n",
+            "                 After.\n",
+            "\n",
+            ":Author: Jane Doe wrote this. Next.\n",
+        ),
+        "flush :Author: after meta blank must stay whole-line; Next. must not split, got:\n{out}"
+    );
+}
+
+#[test]
+fn indented_keywords_after_meta_blank_still_hangs() {
+    // Interior blank does not end indented meta fields.
+    let input = concat!(
+        ".. meta::\n",
+        "   :description: fig. 1 is here. After.\n",
+        "\n",
+        "   :keywords: more. Also here.\n",
+    );
+    let regions = RstParser.parse(input);
+    assert!(
+        regions
+            .iter()
+            .any(|r| matches!(r, Region::Structure(s) if s == "   :keywords: ")),
+        "indented :keywords: marker after meta blank must stay Structure, got {regions:?}"
+    );
+    assert!(
+        regions.iter().any(|r| matches!(
+            r,
+            Region::Prose(s) if s.contains("more.") && s.contains("Also here.")
+        )),
+        "indented :keywords: body after meta blank must hang as leftover Prose, got {regions:?}"
+    );
+    let out = format_text(input, &rst_cfg()).unwrap();
+    assert_eq!(
+        out,
+        concat!(
+            ".. meta::\n",
+            "   :description: fig. 1 is here.\n",
+            "                 After.\n",
+            "\n",
+            "   :keywords: more.\n",
+            "              Also here.\n",
+        ),
+        "indented :keywords: after interior blank must hang and split, got:\n{out}"
+    );
+}
+
+#[test]
+fn less_indented_field_after_meta_stays_structure() {
+    let input = concat!(
+        ".. meta::\n",
+        "   :description: fig. 1 is here. After.\n",
+        "\n",
+        "  :Author: Jane Doe. Also here.\n",
+    );
+    let regions = RstParser.parse(input);
+    assert!(
+        regions.iter().any(|r| matches!(
+            r,
+            Region::Structure(s) if s.contains(":Author: Jane Doe. Also here.")
+        )),
+        "less-indented :Author: after meta must stay whole-line Structure, got {regions:?}"
+    );
+    assert!(
+        !regions.iter().any(|r| matches!(
+            r,
+            Region::Prose(s) if s.contains("Jane Doe")
+        )),
+        "less-indented :Author: body must not become leftover Prose, got {regions:?}"
+    );
+}
+
+#[test]
+fn author_after_meta_section_stays_structure() {
+    let input = concat!(
+        ".. meta::\n",
+        "   :description: fig. 1 is here. After.\n",
+        "\n",
+        "Title\n",
+        "=====\n",
+        "\n",
+        ":Author: Jane Doe wrote this. Next.\n",
+    );
+    let regions = RstParser.parse(input);
+    assert!(
+        regions.iter().any(|r| matches!(
+            r,
+            Region::Structure(s) if s.contains(":Author: Jane Doe wrote this. Next.")
+        )),
+        "flush :Author: after meta then section must stay whole-line Structure, got {regions:?}"
+    );
 }
 
 #[test]

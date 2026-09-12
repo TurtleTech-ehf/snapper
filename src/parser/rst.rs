@@ -87,8 +87,10 @@ fn parse_line_based(input: &str) -> Vec<SpannedRegion> {
     // Docutils `meta` body is a field list whose values are paragraphs.
     // Field markers stay Structure; same-line bodies hang as Prose
     // (GitHub #434). Top-level `:Author:` and directive `:option:`
-    // fields stay whole-line Structure.
+    // fields stay whole-line Structure. A flush or less-indented field
+    // ends the explicit-markup block; an interior blank does not.
     let mut in_meta = false;
+    let mut meta_indent: usize = 0;
     // Line-block hang (`| `): first flush line that is not `| ` and not
     // a hang is a new paragraph, not more line-block (GitHub #409).
     let mut in_line_block = false;
@@ -293,6 +295,7 @@ fn parse_line_based(input: &str) -> Vec<SpannedRegion> {
                     list_hang = Some(marker_len);
                     in_container_body = true;
                     in_meta = false;
+                    meta_indent = 0;
                     regions.push(SpannedRegion::structure(
                         input,
                         ByteSpan::new(line.start, line.start + marker_len),
@@ -312,11 +315,13 @@ fn parse_line_based(input: &str) -> Vec<SpannedRegion> {
             {
                 in_container_body = true;
                 in_meta = dir_name.as_deref().is_some_and(is_rst_meta_directive);
+                meta_indent = 0;
                 i += 1;
                 continue;
             }
             in_container_body = false;
             in_meta = false;
+            meta_indent = 0;
             let leading = line_text.len() - trimmed.len();
             // Docutils accepts a two-space body; +3 is convention only.
             directive_indent = leading + 2;
@@ -415,6 +420,8 @@ fn parse_line_based(input: &str) -> Vec<SpannedRegion> {
         // Section underline
         if is_underline(line_text) {
             flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
+            in_meta = false;
+            meta_indent = 0;
             regions.push(SpannedRegion::structure(input, line.span()));
             i += 1;
             continue;
@@ -423,6 +430,8 @@ fn parse_line_based(input: &str) -> Vec<SpannedRegion> {
         // Section title (next line is underline)
         if i + 1 < total && is_underline(lines[i + 1].text) {
             flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
+            in_meta = false;
+            meta_indent = 0;
             regions.push(SpannedRegion::structure(input, line.span()));
             i += 1;
             continue;
@@ -436,16 +445,27 @@ fn parse_line_based(input: &str) -> Vec<SpannedRegion> {
         // Structure (GitHub #330). Interior-colon names hang the body
         // as Prose so SemBr still splits. Meta field values are
         // leftover paragraphs: marker Structure, same-line body Prose
-        // (GitHub #434). Directive `:option:` fields stay Structure.
+        // (GitHub #434). A flush or less-indented field after `.. meta::`
+        // is bibliographic Structure, not a leftover. Directive
+        // `:option:` fields stay Structure.
         if let Some(marker_len) = rst_field_marker_len(line_text) {
             flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
             let body = &line_text[marker_len..];
-            let name = line_text[line_text.len() - trimmed.len()..marker_len].trim();
+            let leading = line_text.len() - trimmed.len();
+            let name = line_text[leading..marker_len].trim();
             let interior_colon = name
                 .strip_prefix(':')
                 .and_then(|s| s.strip_suffix(':'))
                 .is_some_and(|inner| inner.contains(':'));
-            if (interior_colon || in_meta) && !body.trim().is_empty() {
+            if in_meta && (leading == 0 || (meta_indent > 0 && leading < meta_indent)) {
+                in_meta = false;
+                meta_indent = 0;
+            }
+            let hang_meta = in_meta && leading > 0 && !body.trim().is_empty();
+            if hang_meta && meta_indent == 0 {
+                meta_indent = leading;
+            }
+            if (interior_colon || hang_meta) && !body.trim().is_empty() {
                 list_hang = Some(marker_len);
                 regions.push(SpannedRegion::structure(
                     input,
@@ -682,10 +702,11 @@ fn parse_line_based(input: &str) -> Vec<SpannedRegion> {
             // flush so After markup stays column-0 Prose (GitHub #344).
             // Same close for line-block: first flush line that is not
             // `| ` and not a hang is a new paragraph (GitHub #409).
-            if (in_container_body || in_line_block) && leading == 0 {
+            if (in_container_body || in_line_block || in_meta) && leading == 0 {
                 flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
                 in_container_body = false;
                 in_meta = false;
+                meta_indent = 0;
                 in_line_block = false;
             }
         }
@@ -713,6 +734,7 @@ fn parse_line_based(input: &str) -> Vec<SpannedRegion> {
         // Regular prose
         in_container_body = false;
         in_meta = false;
+        meta_indent = 0;
         in_line_block = false;
         push_prose_line(&mut current_prose, &mut prose_span, line, true, true);
         i += 1;
@@ -3867,6 +3889,31 @@ mod tests {
             "same-line meta field body must not stay one line, got:\n{out}"
         );
         assert_eq!(format_text(&out, &cfg).unwrap(), out);
+    }
+
+    #[test]
+    fn leftover_meta_flush_author_after_blank_stays_structure() {
+        let input = concat!(
+            ".. meta::\n",
+            "   :description: fig. 1 is here. After.\n",
+            "\n",
+            ":Author: Jane Doe. Also here.\n",
+        );
+        let regions = RstParser.parse(input);
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Structure(s) if s.contains(":Author: Jane Doe. Also here.")
+            )),
+            "flush :Author: after meta must stay whole-line Structure, got {regions:?}"
+        );
+        assert!(
+            !regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(s) if s.contains("Jane Doe")
+            )),
+            "flush :Author: body after meta must not become leftover Prose, got {regions:?}"
+        );
     }
 
     /// Ticket fixture (Format::Rst / GitHub #422): leftover body.py
