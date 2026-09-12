@@ -75,6 +75,7 @@ These tokens within prose are not split across lines:
 - Inline babel call: =call_name(...)= / =call_name[inside](...)[end]= (org-element-inline-babel-call-parser; same =\<call_= / subscript rule)
 - Inline footnotes: =[fn:: def]= / =[fn:name: def]= (org-element-footnote-reference-parser)
 - LaTeX fragments: =\(...\)=, =$...$=, =\cmd{arg}=, =\cmd[opt]{arg}= (org-element-latex-fragment-parser; interior backslash and optional =[arg]= stay one token). Same-line =\[...\]= is Structure
+- Brace sub/superscripts: =H_{2. 0}= / =x^{n. 1}= (org-match-substring-regexp brace arm; interior punct stays one wrap token). Bare =H_2= / =x^n= and no-space =H_{2.0}= are unchanged. Distinct from latex-fragment.
 - URLs: =https://...= (trailing sentence punctuation not swallowed)
 
 ** LaTeX (=--format latex=)

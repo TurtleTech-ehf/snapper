@@ -2514,6 +2514,76 @@ They are endowed with reason and conscience and should act towards one another i
     }
 
     #[test]
+    fn max_width_keeps_org_brace_subscript_atomic() {
+        // GitHub #338 / snapper-upgw: org-match-substring-regexp brace
+        // form stays one wrap token. Distinct from latex-fragment.
+        let token = "H_{2. 0}";
+        let sentence = "See H_{2. 0} today. Next.";
+        for clause in [false, true] {
+            let wrapped = wrap_sentence(sentence, 10, clause);
+            assert_atomic_token(&wrapped, token);
+            assert!(
+                !wrapped.contains("2.\n0") && !wrapped.contains("H_{2.\n"),
+                "must not wrap on the interior period, got:\n{wrapped}"
+            );
+            assert!(
+                wrapped.contains("today.\nNext."),
+                "following sentence must still split, got:\n{wrapped}"
+            );
+        }
+    }
+
+    #[test]
+    fn max_width_keeps_org_brace_superscript_atomic() {
+        let token = "x^{n. 1}";
+        let sentence = "See x^{n. 1} today. Next.";
+        for clause in [false, true] {
+            let wrapped = wrap_sentence(sentence, 10, clause);
+            assert_atomic_token(&wrapped, token);
+            assert!(
+                !wrapped.contains("n.\n1") && !wrapped.contains("x^{n.\n"),
+                "must not wrap on the interior period, got:\n{wrapped}"
+            );
+            assert!(
+                wrapped.contains("today.\nNext."),
+                "following sentence must still split, got:\n{wrapped}"
+            );
+        }
+    }
+
+    #[test]
+    fn max_width_keeps_org_paren_subscript_atomic() {
+        let token = "H_(2. 0)";
+        let sentence = "See H_(2. 0) today. Next.";
+        for clause in [false, true] {
+            let wrapped = wrap_sentence(sentence, 10, clause);
+            assert_atomic_token(&wrapped, token);
+            assert!(
+                !wrapped.contains("2.\n0") && !wrapped.contains("H_(2.\n"),
+                "must not wrap on the interior period, got:\n{wrapped}"
+            );
+            assert!(
+                wrapped.contains("today.\nNext."),
+                "following sentence must still split, got:\n{wrapped}"
+            );
+        }
+    }
+
+    #[test]
+    fn max_width_keeps_no_space_org_brace_subscript_unchanged() {
+        let token = "H_{2.0}";
+        let sentence = "See H_{2.0} today. Next.";
+        for clause in [false, true] {
+            let wrapped = wrap_sentence(sentence, 10, clause);
+            assert_atomic_token(&wrapped, token);
+            assert!(
+                wrapped.contains("today.\nNext."),
+                "following sentence must still split, got:\n{wrapped}"
+            );
+        }
+    }
+
+    #[test]
     fn max_width_keeps_rst_substitution_ref_atomic() {
         let token = "|fig. 1|";
         let sentence = "See |fig. 1| in the caption. Next sentence.";
