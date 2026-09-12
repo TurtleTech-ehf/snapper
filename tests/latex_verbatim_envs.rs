@@ -14,6 +14,9 @@
 //! GitHub #246: tcolorbox listings tcblisting* is the starred twin of tcblisting.
 //! GitHub #280: tcolorbox tcbverbatimwrite / tcbwritetemp write the env
 //! body raw to a file (same verbatim grab as VerbatimOut).
+//! GitHub #334: leftover tcolorbox tcboutputlisting / tcbexternal /
+//! dispExample / dispExample* / dispListing / dispListing* are the
+//! same raw grab (tcblistingscore / tcbexternal / tcbdocumentation).
 //! GitHub #250: moreverb verbatimtab is the same raw class as boxedverbatim.
 //! GitHub #279: moreverb listing / listingcont / listing* / listingcont*
 //! are verbatim@start raw bodies (starred twins do not expand tabs).
@@ -525,6 +528,103 @@ fn tcbwritetemp_fixture_is_code_and_does_not_reflow() {
         "prose after tcbwritetemp must still split, got:\n{out}"
     );
     assert_eq!(format_text(&out, &latex_cfg()).unwrap(), out);
+}
+
+/// Ticket fixture (GitHub #334): leftover tcolorbox write/listing
+/// envs `tcboutputlisting` / `tcbexternal` / `dispExample` /
+/// `dispExample*` / `dispListing` / `dispListing*` stay Code;
+/// following prose still splits. Landed `tcbverbatimwrite` /
+/// `tcbwritetemp` stay Code.
+#[test]
+fn tcolorbox_leftover_write_listing_envs_are_code_and_do_not_reflow() {
+    let cases = [
+        ("tcboutputlisting", ""),
+        ("tcbexternal", "{name}"),
+        ("dispExample", ""),
+        ("dispExample*", "{sbs}"),
+        ("dispListing", ""),
+        ("dispListing*", "{listing only}"),
+    ];
+    for (name, arg) in cases {
+        let begin = format!("\\begin{{{name}}}{arg}");
+        let input =
+            format!("{begin}\nFirst line. Second line.\n\\end{{{name}}}\nAfter the block. Next.\n");
+        let regions = LatexParser::default().parse(&input);
+        let code = regions.iter().find_map(|r| match r {
+            Region::Code {
+                header,
+                body,
+                footer,
+                ..
+            } => Some((header.as_str(), body.as_str(), footer.as_str())),
+            _ => None,
+        });
+        let Some((header, body, footer)) = code else {
+            panic!("{name} must be Code, got: {regions:?}");
+        };
+        assert!(
+            header.contains(&begin),
+            "{name} begin must stay on the header, got header={header:?}"
+        );
+        assert!(
+            body.contains("First line. Second line."),
+            "{name} body must be Code, got body={body:?}"
+        );
+        assert!(
+            footer.contains(&format!("\\end{{{name}}}")),
+            "{name} footer must stay, got footer={footer:?}"
+        );
+        assert!(
+            !regions
+                .iter()
+                .any(|r| matches!(r, Region::Prose(p) if p.contains("First line"))),
+            "{name} body must not be Prose, got: {regions:?}"
+        );
+        let out = format_text(&input, &latex_cfg()).unwrap();
+        assert!(
+            out.contains(&begin) && out.contains(&format!("\\end{{{name}}}")),
+            "{name} begin/end must stay, got:\n{out}"
+        );
+        assert!(
+            out.contains("First line. Second line."),
+            "{name} body must stay one source line, got:\n{out}"
+        );
+        assert!(
+            !out.contains("First line.\nSecond line."),
+            "{name} must not reflow as prose, got:\n{out}"
+        );
+        assert!(
+            out.contains("After the block.\nNext."),
+            "prose after {name} must still split, got:\n{out}"
+        );
+        assert_eq!(format_text(&out, &latex_cfg()).unwrap(), out);
+    }
+
+    let landed = concat!(
+        "\\begin{tcbverbatimwrite}{out.tex}\n",
+        "First line. Second line.\n",
+        "\\end{tcbverbatimwrite}\n",
+        "\\begin{tcbwritetemp}\n",
+        "First line. Second line.\n",
+        "\\end{tcbwritetemp}\n",
+        "After the block. Next.\n",
+    );
+    let landed_out = format_text(landed, &latex_cfg()).unwrap();
+    assert!(
+        landed_out.contains(
+            "\\begin{tcbverbatimwrite}{out.tex}\nFirst line. Second line.\n\\end{tcbverbatimwrite}"
+        ),
+        "landed tcbverbatimwrite must stay a code env, got:\n{landed_out}"
+    );
+    assert!(
+        landed_out.contains("\\begin{tcbwritetemp}\nFirst line. Second line.\n\\end{tcbwritetemp}"),
+        "landed tcbwritetemp must stay a code env, got:\n{landed_out}"
+    );
+    assert!(
+        landed_out.contains("After the block.\nNext."),
+        "prose after landed tcolorbox write envs must still split, got:\n{landed_out}"
+    );
+    assert_eq!(format_text(&landed_out, &latex_cfg()).unwrap(), landed_out);
 }
 
 /// Ticket fixture (GitHub #294): filecontentsdef.sty `filecontentsdef`
