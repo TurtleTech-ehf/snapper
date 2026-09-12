@@ -1086,12 +1086,17 @@ fn rst_quoted_literal_continues(line: &str, quote: u8) -> bool {
 /// 7-bit ASCII except alphanumerics (same set as quoted-literal quotes).
 /// Body.doctest wins over Body.line: prompt-only `>>>` / `>>> ` are not
 /// `>` adornments. `>>>>>` (and `>>` / `>>>>`) stay underlines.
+/// Body.explicit wins over Body.line: lone `..` is an empty comment
+/// (GitHub #343), not a `.` section underline. `...` / `....` stay underlines.
 fn is_underline(line: &str) -> bool {
     let trimmed = line.trim();
     if trimmed.len() < 2 {
         return false;
     }
     if is_rst_doctest_opener(trimmed) {
+        return false;
+    }
+    if is_rst_comment_opener(trimmed) {
         return false;
     }
     let first = trimmed.as_bytes()[0];
@@ -3257,6 +3262,17 @@ mod tests {
         assert!(is_underline(">>>>>"));
         assert!(is_underline("===== "));
         assert!(is_underline(":::::"));
+    }
+
+    #[test]
+    fn empty_explicit_comment_is_not_a_section_underline() {
+        assert!(!is_underline(".."));
+        assert!(!is_underline(".. "));
+        assert!(!is_underline("  .."));
+        assert!(!is_underline(".. a comment."));
+        assert!(is_underline("..."));
+        assert!(is_underline("...."));
+        assert!(is_underline("....."));
     }
 
     #[test]
