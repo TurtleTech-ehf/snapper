@@ -12,8 +12,9 @@
 //! GitHub #394: minted.sty \\inputminted is one leftover command;
 //! following flush prose stays on its own line.
 //! GitHub #400: tcolorbox \\tcbinputlisting.
-//! GitHub #398: tools/verbatim.sty \\verbatiminput / \\verbatiminput*
-//! is one leftover command; following flush prose stays on its own line.
+//! GitHub #399: fancyvrb.sty \\VerbatimInput / \\BVerbatimInput /
+//! \\LVerbatimInput is one leftover command; following flush prose
+//! stays on its own line.
 //! GitHub #273: minted.sty minted* is the starred twin of minted (same raw body).
 //! GitHub #275: fancyvrb \\SaveVerb{name}|body| is the same delimiter body as \\Verb.
 //! GitHub #246: tcolorbox listings tcblisting* is the starred twin of tcblisting.
@@ -2966,31 +2967,32 @@ fn inputminted_fixture_does_not_join_following_prose() {
     );
 }
 
-/// Ticket fixture (GitHub #398): tools/verbatim.sty `\verbatiminput{file}`
+/// Ticket fixture (GitHub #399): fancyvrb.sty `\VerbatimInput{file}`
 /// stays one atomic command. Following flush `After.` does not join
-/// the command line. `After.` / `Next.` still split. lstinputlisting /
-/// inputminted unchanged.
+/// the command line. `After.` / `Next.` still split. B/L twins and
+/// optional `[...]` stay atomic. inputminted / lstinputlisting
+/// unchanged.
 #[test]
 fn verbatiminput_fixture_does_not_join_following_prose() {
     let input = concat!(
         "Before. Next.\n",
-        "\\verbatiminput{foo.py}\n",
+        "\\VerbatimInput{foo.py}\n",
         "After. Next.\n",
     );
     let regions = LatexParser::default().parse(input);
     assert!(
         regions.iter().any(|r| matches!(
             r,
-            Region::Structure(s) if s.contains(r"\verbatiminput{foo.py}")
+            Region::Structure(s) if s.contains(r"\VerbatimInput{foo.py}")
         )),
-        "verbatiminput must stay one Structure command, got: {regions:?}"
+        "VerbatimInput must stay one Structure command, got: {regions:?}"
     );
     assert!(
         !regions.iter().any(|r| matches!(
             r,
-            Region::Prose(p) if p.contains(r"\verbatiminput{foo.py}")
+            Region::Prose(p) if p.contains(r"\VerbatimInput{foo.py}")
         )),
-        "verbatiminput must not leak into Prose, got: {regions:?}"
+        "VerbatimInput must not leak into Prose, got: {regions:?}"
     );
     assert!(
         regions.iter().any(|r| matches!(
@@ -3001,48 +3003,80 @@ fn verbatiminput_fixture_does_not_join_following_prose() {
     );
     let out = format_text(input, &latex_cfg()).unwrap();
     assert!(
-        out.contains("\\verbatiminput{foo.py}\n"),
-        "verbatiminput must stay one atomic command, got:\n{out}"
+        out.contains("\\VerbatimInput{foo.py}\n"),
+        "VerbatimInput must stay one atomic command, got:\n{out}"
     );
     assert!(
-        !out.contains("\\verbatiminput{foo.py} After."),
+        !out.contains("\\VerbatimInput{foo.py} After."),
         "following flush prose must not join the command line, got:\n{out}"
     );
     assert!(
         out.contains("Before.\nNext."),
-        "prose before verbatiminput must still split, got:\n{out}"
+        "prose before VerbatimInput must still split, got:\n{out}"
     );
     assert!(
         out.contains("After.\nNext."),
-        "prose after verbatiminput must still split, got:\n{out}"
+        "prose after VerbatimInput must still split, got:\n{out}"
     );
     assert_eq!(format_text(&out, &latex_cfg()).unwrap(), out);
 
-    let star = concat!(
+    for name in ["BVerbatimInput", "LVerbatimInput"] {
+        let twin = format!("Before. Next.\n\\{name}{{foo.py}}\nAfter. Next.\n");
+        let twin_out = format_text(&twin, &latex_cfg()).unwrap();
+        assert!(
+            twin_out.contains(&format!("\\{name}{{foo.py}}\n")),
+            "{name} must stay one atomic command, got:\n{twin_out}"
+        );
+        assert!(
+            !twin_out.contains(&format!("\\{name}{{foo.py}} After.")),
+            "{name} must not join following prose, got:\n{twin_out}"
+        );
+        assert!(
+            twin_out.contains("After.\nNext."),
+            "prose after {name} must still split, got:\n{twin_out}"
+        );
+    }
+
+    let opts = concat!(
         "Before. Next.\n",
-        "\\verbatiminput*{foo.py}\n",
+        "\\VerbatimInput[numbers=left]{foo.py}\n",
         "After. Next.\n",
     );
-    let star_out = format_text(star, &latex_cfg()).unwrap();
+    let opts_out = format_text(opts, &latex_cfg()).unwrap();
     assert!(
-        star_out.contains("\\verbatiminput*{foo.py}\n"),
-        "verbatiminput* must stay one atomic command, got:\n{star_out}"
+        opts_out.contains("\\VerbatimInput[numbers=left]{foo.py}\n"),
+        "VerbatimInput optional args must stay atomic, got:\n{opts_out}"
     );
     assert!(
-        !star_out.contains("\\verbatiminput*{foo.py} After."),
-        "starred verbatiminput must not join following prose, got:\n{star_out}"
+        !opts_out.contains("\\VerbatimInput[numbers=left]{foo.py} After."),
+        "optional-arg VerbatimInput must not join following prose, got:\n{opts_out}"
     );
     assert!(
-        star_out.contains("After.\nNext."),
-        "prose after starred verbatiminput must still split, got:\n{star_out}"
+        opts_out.contains("After.\nNext."),
+        "prose after optional-arg VerbatimInput must still split, got:\n{opts_out}"
     );
 
-    let lst = concat!(
+    let inputminted = concat!(
+        "Before. Next.\n",
+        "\\inputminted{python}{foo.py}\n",
+        "After. Next.\n",
+    );
+    let inputminted_out = format_text(inputminted, &latex_cfg()).unwrap();
+    assert!(
+        inputminted_out.contains("\\inputminted{python}{foo.py}\n"),
+        "inputminted must stay unchanged, got:\n{inputminted_out}"
+    );
+    assert!(
+        !inputminted_out.contains("\\inputminted{python}{foo.py} After."),
+        "inputminted must not join following prose, got:\n{inputminted_out}"
+    );
+
+    let lstinputlisting = concat!(
         "Before. Next.\n",
         "\\lstinputlisting{foo.py}\n",
         "After. Next.\n",
     );
-    let lst_out = format_text(lst, &latex_cfg()).unwrap();
+    let lst_out = format_text(lstinputlisting, &latex_cfg()).unwrap();
     assert!(
         lst_out.contains("\\lstinputlisting{foo.py}\n"),
         "lstinputlisting must stay unchanged, got:\n{lst_out}"
@@ -3050,21 +3084,6 @@ fn verbatiminput_fixture_does_not_join_following_prose() {
     assert!(
         !lst_out.contains("\\lstinputlisting{foo.py} After."),
         "lstinputlisting must not join following prose, got:\n{lst_out}"
-    );
-
-    let minted = concat!(
-        "Before. Next.\n",
-        "\\inputminted{python}{foo.py}\n",
-        "After. Next.\n",
-    );
-    let minted_out = format_text(minted, &latex_cfg()).unwrap();
-    assert!(
-        minted_out.contains("\\inputminted{python}{foo.py}\n"),
-        "inputminted must stay unchanged, got:\n{minted_out}"
-    );
-    assert!(
-        !minted_out.contains("\\inputminted{python}{foo.py} After."),
-        "inputminted must not join following prose, got:\n{minted_out}"
     );
 }
 
@@ -3340,31 +3359,31 @@ fn piton_env_and_pipe_cmd_fixture_is_code_and_does_not_reflow() {
         verb_out.contains("Use \\verb|a.b! c| here.\nNext sentence."),
         "prose after \\verb must still split, got:\n{verb_out}"
     );
-    /// Ticket fixture (GitHub #400): tcolorbox `\tcbinputlisting{keyvals}`
-    /// stays one leftover command. Following flush `After.` does not join
-    /// the command line. `After.` / `Next.` still split. tcboutputlisting /
-    /// lstinputlisting / inputminted unchanged.
+    /// Ticket fixture (GitHub #398): tools/verbatim.sty `\verbatiminput{file}`
+    /// stays one atomic command. Following flush `After.` does not join
+    /// the command line. `After.` / `Next.` still split. lstinputlisting /
+    /// inputminted unchanged.
     #[test]
-    fn tcbinputlisting_fixture_does_not_join_following_prose() {
+    fn verbatiminput_fixture_does_not_join_following_prose() {
         let input = concat!(
             "Before. Next.\n",
-            "\\tcbinputlisting{listing file=foo.py}\n",
+            "\\verbatiminput{foo.py}\n",
             "After. Next.\n",
         );
         let regions = LatexParser::default().parse(input);
         assert!(
             regions.iter().any(|r| matches!(
                 r,
-                Region::Structure(s) if s.contains(r"\tcbinputlisting{listing file=foo.py}")
+                Region::Structure(s) if s.contains(r"\verbatiminput{foo.py}")
             )),
-            "tcbinputlisting must stay one Structure command, got: {regions:?}"
+            "verbatiminput must stay one Structure command, got: {regions:?}"
         );
         assert!(
             !regions.iter().any(|r| matches!(
                 r,
-                Region::Prose(p) if p.contains(r"\tcbinputlisting{listing file=foo.py}")
+                Region::Prose(p) if p.contains(r"\verbatiminput{foo.py}")
             )),
-            "tcbinputlisting must not leak into Prose, got: {regions:?}"
+            "verbatiminput must not leak into Prose, got: {regions:?}"
         );
         assert!(
             regions.iter().any(|r| matches!(
@@ -3375,77 +3394,174 @@ fn piton_env_and_pipe_cmd_fixture_is_code_and_does_not_reflow() {
         );
         let out = format_text(input, &latex_cfg()).unwrap();
         assert!(
-            out.contains("\\tcbinputlisting{listing file=foo.py}\n"),
-            "tcbinputlisting must stay one atomic command, got:\n{out}"
+            out.contains("\\verbatiminput{foo.py}\n"),
+            "verbatiminput must stay one atomic command, got:\n{out}"
         );
         assert!(
-            !out.contains("\\tcbinputlisting{listing file=foo.py} After."),
+            !out.contains("\\verbatiminput{foo.py} After."),
             "following flush prose must not join the command line, got:\n{out}"
         );
         assert!(
             out.contains("Before.\nNext."),
-            "prose before tcbinputlisting must still split, got:\n{out}"
+            "prose before verbatiminput must still split, got:\n{out}"
         );
         assert!(
             out.contains("After.\nNext."),
-            "prose after tcbinputlisting must still split, got:\n{out}"
+            "prose after verbatiminput must still split, got:\n{out}"
         );
         assert_eq!(format_text(&out, &latex_cfg()).unwrap(), out);
 
-        let tcboutput = concat!(
-            "\\begin{tcboutputlisting}\n",
-            "First line. Second line.\n",
-            "\\end{tcboutputlisting}\n",
-            "After the block. Next.\n",
+        let star = concat!(
+            "Before. Next.\n",
+            "\\verbatiminput*{foo.py}\n",
+            "After. Next.\n",
         );
-        let tcboutput_out = format_text(tcboutput, &latex_cfg()).unwrap();
+        let star_out = format_text(star, &latex_cfg()).unwrap();
         assert!(
-            tcboutput_out.contains(
-                "\\begin{tcboutputlisting}\nFirst line. Second line.\n\\end{tcboutputlisting}"
-            ),
-            "tcboutputlisting must stay a code env, got:\n{tcboutput_out}"
+            star_out.contains("\\verbatiminput*{foo.py}\n"),
+            "verbatiminput* must stay one atomic command, got:\n{star_out}"
         );
         assert!(
-            tcboutput_out.contains("After the block.\nNext."),
-            "prose after tcboutputlisting must still split, got:\n{tcboutput_out}"
+            !star_out.contains("\\verbatiminput*{foo.py} After."),
+            "starred verbatiminput must not join following prose, got:\n{star_out}"
+        );
+        assert!(
+            star_out.contains("After.\nNext."),
+            "prose after starred verbatiminput must still split, got:\n{star_out}"
         );
 
-        let lstinput = concat!(
+        let lst = concat!(
             "Before. Next.\n",
             "\\lstinputlisting{foo.py}\n",
             "After. Next.\n",
         );
-        let lstinput_out = format_text(lstinput, &latex_cfg()).unwrap();
+        let lst_out = format_text(lst, &latex_cfg()).unwrap();
         assert!(
-            lstinput_out.contains("\\lstinputlisting{foo.py}\n"),
-            "lstinputlisting must stay one atomic command, got:\n{lstinput_out}"
+            lst_out.contains("\\lstinputlisting{foo.py}\n"),
+            "lstinputlisting must stay unchanged, got:\n{lst_out}"
         );
         assert!(
-            !lstinput_out.contains("\\lstinputlisting{foo.py} After."),
-            "lstinputlisting must not join following prose, got:\n{lstinput_out}"
-        );
-        assert!(
-            lstinput_out.contains("After.\nNext."),
-            "prose after lstinputlisting must still split, got:\n{lstinput_out}"
+            !lst_out.contains("\\lstinputlisting{foo.py} After."),
+            "lstinputlisting must not join following prose, got:\n{lst_out}"
         );
 
-        let minted_in = concat!(
+        let minted = concat!(
             "Before. Next.\n",
             "\\inputminted{python}{foo.py}\n",
             "After. Next.\n",
         );
-        let minted_in_out = format_text(minted_in, &latex_cfg()).unwrap();
+        let minted_out = format_text(minted, &latex_cfg()).unwrap();
         assert!(
-            minted_in_out.contains("\\inputminted{python}{foo.py}\n"),
-            "inputminted must stay one atomic command, got:\n{minted_in_out}"
+            minted_out.contains("\\inputminted{python}{foo.py}\n"),
+            "inputminted must stay unchanged, got:\n{minted_out}"
         );
         assert!(
-            !minted_in_out.contains("\\inputminted{python}{foo.py} After."),
-            "inputminted must not join following prose, got:\n{minted_in_out}"
-        );
-        assert!(
-            minted_in_out.contains("After.\nNext."),
-            "prose after inputminted must still split, got:\n{minted_in_out}"
+            !minted_out.contains("\\inputminted{python}{foo.py} After."),
+            "inputminted must not join following prose, got:\n{minted_out}"
         );
     }
+fn tcbinputlisting_fixture_does_not_join_following_prose() {
+    let input = concat!(
+        "Before. Next.\n",
+        "\\tcbinputlisting{listing file=foo.py}\n",
+        "After. Next.\n",
+    );
+    let regions = LatexParser::default().parse(input);
+    assert!(
+        regions.iter().any(|r| matches!(
+            r,
+            Region::Structure(s) if s.contains(r"\tcbinputlisting{listing file=foo.py}")
+        )),
+        "tcbinputlisting must stay one Structure command, got: {regions:?}"
+    );
+    assert!(
+        !regions.iter().any(|r| matches!(
+            r,
+            Region::Prose(p) if p.contains(r"\tcbinputlisting{listing file=foo.py}")
+        )),
+        "tcbinputlisting must not leak into Prose, got: {regions:?}"
+    );
+    assert!(
+        regions.iter().any(|r| matches!(
+            r,
+            Region::Prose(p) if p.contains("After.") && p.contains("Next.")
+        )),
+        "After. / Next. must stay Prose, got: {regions:?}"
+    );
+    let out = format_text(input, &latex_cfg()).unwrap();
+    assert!(
+        out.contains("\\tcbinputlisting{listing file=foo.py}\n"),
+        "tcbinputlisting must stay one atomic command, got:\n{out}"
+    );
+    assert!(
+        !out.contains("\\tcbinputlisting{listing file=foo.py} After."),
+        "following flush prose must not join the command line, got:\n{out}"
+    );
+    assert!(
+        out.contains("Before.\nNext."),
+        "prose before tcbinputlisting must still split, got:\n{out}"
+    );
+    assert!(
+        out.contains("After.\nNext."),
+        "prose after tcbinputlisting must still split, got:\n{out}"
+    );
+    assert_eq!(format_text(&out, &latex_cfg()).unwrap(), out);
+
+    let tcboutput = concat!(
+        "\\begin{tcboutputlisting}\n",
+        "First line. Second line.\n",
+        "\\end{tcboutputlisting}\n",
+        "After the block. Next.\n",
+    );
+    let tcboutput_out = format_text(tcboutput, &latex_cfg()).unwrap();
+    assert!(
+        tcboutput_out.contains(
+            "\\begin{tcboutputlisting}\nFirst line. Second line.\n\\end{tcboutputlisting}"
+        ),
+        "tcboutputlisting must stay a code env, got:\n{tcboutput_out}"
+    );
+    assert!(
+        tcboutput_out.contains("After the block.\nNext."),
+        "prose after tcboutputlisting must still split, got:\n{tcboutput_out}"
+    );
+
+    let lstinput = concat!(
+        "Before. Next.\n",
+        "\\lstinputlisting{foo.py}\n",
+        "After. Next.\n",
+    );
+    let lstinput_out = format_text(lstinput, &latex_cfg()).unwrap();
+    assert!(
+        lstinput_out.contains("\\lstinputlisting{foo.py}\n"),
+        "lstinputlisting must stay one atomic command, got:\n{lstinput_out}"
+    );
+    assert!(
+        !lstinput_out.contains("\\lstinputlisting{foo.py} After."),
+        "lstinputlisting must not join following prose, got:\n{lstinput_out}"
+    );
+    assert!(
+        lstinput_out.contains("After.\nNext."),
+        "prose after lstinputlisting must still split, got:\n{lstinput_out}"
+    );
+
+    let minted_in = concat!(
+        "Before. Next.\n",
+        "\\inputminted{python}{foo.py}\n",
+        "After. Next.\n",
+    );
+    let minted_in_out = format_text(minted_in, &latex_cfg()).unwrap();
+    assert!(
+        minted_in_out.contains("\\inputminted{python}{foo.py}\n"),
+        "inputminted must stay one atomic command, got:\n{minted_in_out}"
+    );
+    assert!(
+        !minted_in_out.contains("\\inputminted{python}{foo.py} After."),
+        "inputminted must not join following prose, got:\n{minted_in_out}"
+    );
+    assert!(
+        minted_in_out.contains("After.\nNext."),
+        "prose after inputminted must still split, got:\n{minted_in_out}"
+    );
+}
+
 }

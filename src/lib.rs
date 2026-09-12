@@ -147,7 +147,7 @@ pub struct FormatConfig {
     /// to `NON_PROSE_ENVS`. Empty keeps the built-in list.
     pub latex_structure_envs: Vec<String>,
     /// Extra LaTeX command names tokenized like `\verb` before split.
-    /// Empty keeps verb/lstinline/lstinputlisting/spverb/mintinline/inputminted/mint/Verb/SaveVerb/piton/verbatiminput.
+    /// Empty keeps verb/lstinline/lstinputlisting/spverb/mintinline/inputminted/mint/Verb/SaveVerb/VerbatimInput/piton/verbatiminput/tcbinputlisting.
     pub latex_verbatim_commands: Vec<String>,
 }
 
