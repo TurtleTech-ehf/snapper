@@ -21,7 +21,8 @@ pub struct FormatOverrides {
     /// filecontentsgdef*/filecontentshere*, scontents.sty
     /// scontents/verbatimsc, tree-sitter
     /// trivia, Overleaf Verbatim/boxedverbatim/tcblisting/tcblisting*/codeexample/
-    /// tcbverbatimwrite/tcbwritetemp,
+    /// tcbverbatimwrite/tcbwritetemp/tcboutputlisting/tcbexternal/
+    /// dispExample/dispExample*/dispListing/dispListing*,
     /// fancyvrb BVerbatim/LVerbatim/SaveVerbatim/VerbatimOut/VerbatimWrite/
     /// VerbatimBuffer and Verbatim*/BVerbatim*/LVerbatim*, fvextra VerbEnv,
     /// verbments pyglist,
