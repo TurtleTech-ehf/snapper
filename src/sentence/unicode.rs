@@ -641,6 +641,10 @@ fn match_extra_verb_command<'a>(tail: &'a str, extras: &'a [String]) -> Option<&
             || name == "inputminted"
             || name == "inputpy"
             || name == "inputpycon"
+            || name == "inputpylab"
+            || name == "inputpylabcon"
+            || name == "inputsympy"
+            || name == "inputsympycon"
             || name == "listinginput"
             || name == "sageinput"
             || name == "mint"
@@ -2887,9 +2891,16 @@ mod tests {
     /// Ticket fixture (GitHub #433): pythontex.sty `\inputpylab{file}` /
     /// `\inputsympy{file}` and con twins are the same leftover family
     /// as `\inputpy`. Following `After.` still splits. inputpy /
-    /// listinginput / sageinput unchanged.
+    /// listinginput / sageinput unchanged. A configured extra must
+    /// not re-tokenize the no-brace form as Delim.
     #[test]
     fn latex_inputpylab_inputsympy_stays_atomic() {
+        let extras = [
+            "inputpylab".to_string(),
+            "inputpylabcon".to_string(),
+            "inputsympy".to_string(),
+            "inputsympycon".to_string(),
+        ];
         for name in ["inputpylab", "inputpylabcon", "inputsympy", "inputsympycon"] {
             let cmd = format!("\\{name}{{foo.py}}");
             let text = format!("See {cmd} here. After.");
@@ -2909,10 +2920,32 @@ mod tests {
                 Some(opts.len()),
                 "{name} optional session must stay in the span"
             );
+            let no_brace = format!("\\{name} foo.py");
             assert_eq!(
-                latex_verb_span_end_with(&format!("\\{name} foo.py"), 0, &[]),
+                latex_verb_span_end_with(&no_brace, 0, &[]),
                 None,
                 "{name} without a brace file arg is not a verb span"
+            );
+            let one_extra = [name.to_string()];
+            assert_eq!(
+                latex_verb_span_end_with(&no_brace, 0, &one_extra),
+                None,
+                "configured extra {name} must not re-tokenize the no-brace form as Delim"
+            );
+            assert_eq!(
+                latex_verb_span_end_with(&cmd, 0, &one_extra),
+                Some(cmd.len()),
+                "configured extra {name} must keep the brace form as leftover"
+            );
+            assert_eq!(
+                latex_verb_span_end_with(&no_brace, 0, &extras),
+                None,
+                "configured extra must not re-tokenize no-brace {name} as Delim"
+            );
+            assert_eq!(
+                latex_verb_span_end_with(&cmd, 0, &extras),
+                Some(cmd.len()),
+                "configured extra must keep braced {name} as leftover family"
             );
         }
         assert_eq!(
