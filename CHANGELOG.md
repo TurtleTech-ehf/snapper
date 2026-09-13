@@ -6,6 +6,17 @@ All notable changes to this project will be documented in this file. See [conven
 
 - - -
 
+## v0.11.4 - 2026-09-13
+#### Bug Fixes
+- (**latex**) tokenize leftover moreverb listingcont as one walker (#477)
+- (**latex**) tokenize leftover fancyvrb DefineShortVerb as one walker (#474)
+- (**latex**) tokenize leftover moreverb verbatimwrite as one walker (#472)
+- (**latex**) tokenize leftover fvextra buffer cmds as one walker (#469)
+- (**latex**) tokenize leftover moreverb verbatimtabinput as one walker (#466)
+- (**latex**) tokenize leftover CatchFileDef CatchFileEdef as one walker (#464)
+
+- - -
+
 ## v0.11.3 - 2026-09-13
 #### Bug Fixes
 - (**org**) do not slice #+CAPTION prefix inside a UTF-8 char (#460)
