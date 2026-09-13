@@ -147,7 +147,7 @@ pub struct FormatConfig {
     /// to `NON_PROSE_ENVS`. Empty keeps the built-in list.
     pub latex_structure_envs: Vec<String>,
     /// Extra LaTeX command names tokenized like `\verb` before split.
-    /// Empty keeps verb/lstinline/lstinputlisting/spverb/mintinline/inputminted/mint/Verb/SaveVerb/VerbatimInput/piton/verbatiminput/PitonInputFile/PitonInputFileT/PitonInputFileF/PitonInputFileTF/tcbinputlisting/inputpy/inputpycon/inputpylab/inputpylabcon/inputsympy/inputsympycon/py/pyc/pys/pyb/pyv/pycon and twins/sympy/pylab and twins/usefamily ruby/rb/julia/jl/matlab/octave/bash/sage/rust/rs/R/perl/pl/perlsix/psix/javascript/js and twins/inputpygments/pygment/pythontexcustomc/inputpython/inputpythonfile/CatchFileBetweenTags/CatchFileBetweenDelims/ExecuteMetaData/listinginput/sageinput/sageplot/sagestr/pyth/Scontents/typestored/getstored/mergesc/meaningsc/foreachsc/UseVerb/UseVerbatim/LUseVerbatim/BUseVerbatim/EscVerb/inputsc.
+    /// Empty keeps verb/lstinline/lstinputlisting/spverb/mintinline/inputminted/mint/Verb/SaveVerb/VerbatimInput/piton/verbatiminput/PitonInputFile/PitonInputFileT/PitonInputFileF/PitonInputFileTF/tcbinputlisting/inputpy/inputpycon/inputpylab/inputpylabcon/inputsympy/inputsympycon/py/pyc/pys/pyb/pyv/pycon and twins/sympy/pylab and twins/usefamily ruby/rb/julia/jl/matlab/octave/bash/sage/rust/rs/R/perl/pl/perlsix/psix/javascript/js and twins/inputpygments/pygment/pythontexcustomc/inputpython/inputpythonfile/CatchFileBetweenTags/CatchFileBetweenDelims/ExecuteMetaData/CatchFileDef/CatchFileEdef/listinginput/sageinput/sageplot/sagestr/pyth/Scontents/typestored/getstored/mergesc/meaningsc/foreachsc/UseVerb/UseVerbatim/LUseVerbatim/BUseVerbatim/EscVerb/inputsc.
     pub latex_verbatim_commands: Vec<String>,
 }
 
