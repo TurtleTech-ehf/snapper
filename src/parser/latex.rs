@@ -1104,14 +1104,19 @@ fn leftover_filename_input_cs_at(line: &str, at: usize) -> bool {
     false
 }
 
-/// Leftover pythontex.sty default-family inline cmds (optional `[...]`,
-/// then delimiter or `{body}`; GitHub #441). One leftover walker for
-/// `\py` / `\pyc` / `\pys` / `\pyb` / `\pyv`, `\pycon` and twins,
-/// `\sympy` / `\pylab` and twins. Longer names first so `\pycon` /
-/// `\pylab` / `\pyc` are not `\py` + leftover. Other verb spans are
-/// skipped so `\verb|\py{x}|` is not stolen. Walk stops at an
-/// unescaped `%` so a comment is not a command tail. `\inputpy` /
-/// `\inputpygments` / `\pygment` stay their own leftovers.
+/// Leftover pythontex.sty default-family and `usefamily` inline cmds
+/// (optional `[...]`, then delimiter or `{body}`; GitHub #441 / #445).
+/// One leftover walker for `\py` / `\pyc` / `\pys` / `\pyb` / `\pyv`,
+/// `\pycon` and twins, `\sympy` / `\pylab` and twins, plus option-family
+/// `{name}` / `{name}c` / `{name}s` / `{name}b` / `{name}v` (ruby / rb /
+/// julia / jl / matlab / octave / bash / sage / rust / rs / R / perl /
+/// pl / perlsix / psix / javascript / js). Longer names first so
+/// `\pycon` / `\pylab` / `\pyc` / `\rubyc` are not a shorter name +
+/// leftover. Other verb spans are skipped so `\verb|\py{x}|` is not
+/// stolen. Walk stops at an unescaped `%` so a comment is not a
+/// command tail. `\inputpy` / `\inputpygments` / `\pygment` stay
+/// their own leftovers. `juliacon` / `Rcon` mint envs via
+/// `\makepythontexfamily@con`, not these inlines.
 fn find_pytx_inline_at(line: &str, from: usize, extra_cmds: &[String]) -> Option<(usize, usize)> {
     find_leftover_cmd_at(line, from, extra_cmds, pytx_inline_cs_at)
 }
@@ -4467,6 +4472,194 @@ Some text.
         assert!(
             extras_brace.contains("After.\nNext."),
             "configured extra py brace form must still split following prose, got:\n{extras_brace}"
+        );
+    }
+
+    /// Ticket fixture (GitHub #445): pythontex.sty leftover
+    /// `usefamily` inline cmds stay one Structure span (brace or
+    /// `|delim|` body). Following flush `After.` does not join.
+    /// `After.` / `Next.` still split. Longer names first so `\rubyc`
+    /// is not `\ruby` + leftover. `\py` / `\inputpy` / `\inputpython`
+    /// unchanged. extras skip so a configured extra does not
+    /// re-tokenize the no-body form as Delim. `juliacon` / `Rcon`
+    /// mint envs, not these inlines.
+    #[test]
+    fn pytx_usefamily_inline_cmds_do_not_join_following_prose() {
+        use crate::{FormatConfig, format_text};
+
+        const FAMILIES: &[&str] = &[
+            "ruby",
+            "rb",
+            "julia",
+            "jl",
+            "matlab",
+            "octave",
+            "bash",
+            "sage",
+            "rust",
+            "rs",
+            "R",
+            "perl",
+            "pl",
+            "perlsix",
+            "psix",
+            "javascript",
+            "js",
+        ];
+        let mut names = Vec::new();
+        for family in FAMILIES {
+            names.push(family.to_string());
+            for suffix in ["c", "s", "b", "v"] {
+                names.push(format!("{family}{suffix}"));
+            }
+        }
+        for name in &names {
+            let cmd = format!("\\{name}{{puts 1}}");
+            let input = format!("Before. Next.\n{cmd}\nAfter. Next.\n");
+            let regions = LatexParser::default().parse(&input);
+            assert!(
+                regions.iter().any(|r| matches!(
+                    r,
+                    Region::Structure(s) if s.contains(cmd.as_str())
+                )),
+                "{name} must stay one Structure command, got: {regions:?}"
+            );
+            assert!(
+                !regions.iter().any(|r| matches!(
+                    r,
+                    Region::Prose(p) if p.contains(cmd.as_str())
+                )),
+                "{name} must not leak into Prose, got: {regions:?}"
+            );
+            let out = format_text(&input, &latex_cfg()).unwrap();
+            assert!(
+                out.contains(&format!("{cmd}\n")),
+                "{name} must stay one atomic command, got:\n{out}"
+            );
+            assert!(
+                !out.contains(&format!("{cmd} After.")),
+                "following flush prose must not join the {name} line, got:\n{out}"
+            );
+            assert!(
+                out.contains("Before.\nNext."),
+                "prose before {name} must still split, got:\n{out}"
+            );
+            assert!(
+                out.contains("After.\nNext."),
+                "prose after {name} must still split, got:\n{out}"
+            );
+            assert_eq!(format_text(&out, &latex_cfg()).unwrap(), out);
+
+            let delim = format!("Before. Next.\n\\{name}|puts 1|\nAfter. Next.\n");
+            let delim_out = format_text(&delim, &latex_cfg()).unwrap();
+            assert!(
+                delim_out.contains(&format!("\\{name}|puts 1|\n")),
+                "{name} delimiter body must stay atomic, got:\n{delim_out}"
+            );
+            assert!(
+                !delim_out.contains(&format!("\\{name}|puts 1| After.")),
+                "delimiter {name} must not join following prose, got:\n{delim_out}"
+            );
+            assert!(
+                delim_out.contains("After.\nNext."),
+                "prose after delimiter {name} must still split, got:\n{delim_out}"
+            );
+        }
+
+        let ruby = concat!("Before. Next.\n", "\\ruby{puts 1}\n", "After. Next.\n",);
+        let ruby_out = format_text(ruby, &latex_cfg()).unwrap();
+        assert!(
+            ruby_out.contains("\\ruby{puts 1}\n"),
+            "ruby ticket fixture must stay one atomic command, got:\n{ruby_out}"
+        );
+        assert!(
+            !ruby_out.contains("\\ruby{puts 1} After."),
+            "ruby ticket fixture must not join following prose, got:\n{ruby_out}"
+        );
+        assert!(
+            ruby_out.contains("After.\nNext."),
+            "prose after ruby must still split, got:\n{ruby_out}"
+        );
+
+        let juliac = concat!("Before. Next.\n", "\\juliac{1+1}\n", "After. Next.\n",);
+        let juliac_out = format_text(juliac, &latex_cfg()).unwrap();
+        assert!(
+            juliac_out.contains("\\juliac{1+1}\n"),
+            "juliac ticket fixture must stay one atomic command, got:\n{juliac_out}"
+        );
+        assert!(
+            !juliac_out.contains("\\juliac{1+1} After."),
+            "juliac ticket fixture must not join following prose, got:\n{juliac_out}"
+        );
+
+        let rubyc = concat!("Before. Next.\n", "\\rubyc{puts 1}\n", "After. Next.\n",);
+        let rubyc_out = format_text(rubyc, &latex_cfg()).unwrap();
+        assert!(
+            rubyc_out.contains("\\rubyc{puts 1}\n"),
+            "rubyc must not be ruby + leftover, got:\n{rubyc_out}"
+        );
+        assert!(
+            !rubyc_out.contains("\\rubyc{puts 1} After."),
+            "rubyc must not join following prose, got:\n{rubyc_out}"
+        );
+
+        let py = concat!("Before. Next.\n", "\\py{print(1)}\n", "After. Next.\n",);
+        let py_out = format_text(py, &latex_cfg()).unwrap();
+        assert!(
+            py_out.contains("\\py{print(1)}\n"),
+            "py must stay unchanged, got:\n{py_out}"
+        );
+        assert!(
+            !py_out.contains("\\py{print(1)} After."),
+            "py must not join following prose, got:\n{py_out}"
+        );
+
+        let inputpy = concat!("Before. Next.\n", "\\inputpy{foo.py}\n", "After. Next.\n",);
+        let inputpy_out = format_text(inputpy, &latex_cfg()).unwrap();
+        assert!(
+            inputpy_out.contains("\\inputpy{foo.py}\n"),
+            "inputpy must stay unchanged, got:\n{inputpy_out}"
+        );
+        assert!(
+            !inputpy_out.contains("\\inputpy{foo.py} After."),
+            "inputpy must not join following prose, got:\n{inputpy_out}"
+        );
+
+        let inputpython = concat!(
+            "Before. Next.\n",
+            "\\inputpython{foo.py}{1}{20}\n",
+            "After. Next.\n",
+        );
+        let inputpython_out = format_text(inputpython, &latex_cfg()).unwrap();
+        assert!(
+            inputpython_out.contains("\\inputpython{foo.py}{1}{20}\n"),
+            "inputpython must stay unchanged, got:\n{inputpython_out}"
+        );
+        assert!(
+            !inputpython_out.contains("\\inputpython{foo.py}{1}{20} After."),
+            "inputpython must not join following prose, got:\n{inputpython_out}"
+        );
+
+        let extras_cfg = FormatConfig {
+            format: crate::format::Format::Latex,
+            latex_verbatim_commands: vec!["ruby".to_string()],
+            ..Default::default()
+        }
+        .without_safety_backstops();
+        let extras_out = format_text("Before. Next.\n\\ruby After. Next.\n", &extras_cfg).unwrap();
+        assert!(
+            extras_out.contains("After.\nNext."),
+            "configured extra ruby must not re-tokenize the no-body form as Delim, got:\n{extras_out}"
+        );
+        let extras_brace =
+            format_text("Before. Next.\n\\ruby{puts 1}\nAfter. Next.\n", &extras_cfg).unwrap();
+        assert!(
+            extras_brace.contains("\\ruby{puts 1}\n"),
+            "configured extra ruby must keep the brace form as leftover, got:\n{extras_brace}"
+        );
+        assert!(
+            extras_brace.contains("After.\nNext."),
+            "configured extra ruby brace form must still split following prose, got:\n{extras_brace}"
         );
     }
 

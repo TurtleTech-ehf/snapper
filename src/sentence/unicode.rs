@@ -294,9 +294,13 @@ fn protect_latex_verbatim(
 /// span. Longer names first so `\inputpylab` is not `\inputpy` +
 /// leftover. `\py` / `\pyc` / `\pys` / `\pyb` / `\pyv` / `\pycon`
 /// and twins / `\sympy` / `\pylab` and twins (pythontex.sty leftover
-/// inline; GitHub #441) take optional `[...]` then a delimiter or
-/// `{body}` like `\lstinline`. Longer names first so `\pycon` /
-/// `\pylab` / `\pyc` are not `\py` + leftover. An ASCII-letter next
+/// inline; GitHub #441) plus `usefamily` leftovers `\ruby` / `\rb` /
+/// `\julia` / `\jl` / `\matlab` / `\octave` / `\bash` / `\sage` /
+/// `\rust` / `\rs` / `\R` / `\perl` / `\pl` / `\perlsix` / `\psix` /
+/// `\javascript` / `\js` and twins (GitHub #445) take optional
+/// `[...]` then a delimiter or `{body}` like `\lstinline`. Longer
+/// names first so `\pycon` / `\pylab` / `\pyc` / `\rubyc` are not a
+/// shorter name + leftover. An ASCII-letter next
 /// token is not a delimiter, so `\py After.` is not a span.
 /// `\inputpy` / `\inputpygments` / `\pygment` stay their own spans.
 /// `\inputpygments` (pythontex.sty leftover; GitHub #439)
@@ -388,9 +392,10 @@ pub(crate) fn latex_verb_span_end_with(
         // walk as `\lstinputlisting`.
         (after_bs + name.len(), VerbKind::Lstinputlisting)
     } else if let Some(name) = pytx_inline_cs_name(tail) {
-        // pythontex.sty leftover default-family inline (GitHub #441).
-        // Longer names first so `\pycon` / `\pylab` / `\pyc` are not
-        // `\py` + leftover. Optional `[...]` then delimiter or `{body}`.
+        // pythontex.sty leftover default-family and usefamily inline
+        // (GitHub #441 / #445). Longer names first so `\pycon` /
+        // `\pylab` / `\pyc` / `\rubyc` are not a shorter name + leftover.
+        // Optional `[...]` then delimiter or `{body}`.
         (after_bs + name.len(), VerbKind::PytxInline)
     } else if let Some(stripped) = tail.strip_prefix("listinginput") {
         // moreverb leftover file-input (GitHub #424). No `*` form;
@@ -776,8 +781,9 @@ enum VerbKind {
     /// `\pygment`: optional `[...]`, `{lang}`, then body.
     Mint,
     /// pythontex leftover inline (`\py` / `\pyc` / `\pys` / `\pyb` /
-    /// `\pyv` / `\pycon` and twins / `\sympy` / `\pylab` and twins):
-    /// optional `[...]`, then delimiter or `{body}` (GitHub #441).
+    /// `\pyv` / `\pycon` and twins / `\sympy` / `\pylab` and twins /
+    /// `usefamily` `\ruby` / `\juliac` and twins): optional `[...]`,
+    /// then delimiter or `{body}` (GitHub #441 / #445).
     /// An ASCII-letter next token is not a delimiter.
     PytxInline,
     /// `\SaveVerb`: optional `[...]`, `{name}`, then delimiter body like `\Verb`.
@@ -793,41 +799,131 @@ fn line_end(text: &str, from: usize) -> usize {
         .unwrap_or(text.len())
 }
 
-/// pythontex.sty leftover default-family inline cmds (optional `[...]`,
-/// then delimiter or `{body}`; GitHub #441). Longer names first so
-/// `\pycon` / `\pylab` / `\pyc` are not `\py` + leftover.
-/// No `*` form (`newrobustcmd`). Console families mint `c`/`s`/`v`
-/// twins, not `b` (`MakeFamilyFVCons`). `\inputpy` / `\inputpygments`
-/// / `\pygment` are separate leftovers.
+/// pythontex.sty leftover default-family and `usefamily` inline cmds
+/// (optional `[...]`, then delimiter or `{body}`; GitHub #441 / #445).
+/// Longer names first so `\pycon` / `\pylab` / `\pyc` / `\rubyc` /
+/// `\javascript` are not a shorter name + leftover. No `*` form
+/// (`newrobustcmd`). Console families mint `c`/`s`/`v` twins, not `b`
+/// (`MakeFamilyFVCons`). Regular `usefamily` leftovers mint `{name}`
+/// / `{name}c` / `{name}s` / `{name}b` / `{name}v` (`MakeInlineFV` /
+/// `MakeInlinecFV` / `MakeInlinesFV` / `MakeInlinebFV` /
+/// `MakeInlinevFV`). `juliacon` / `Rcon` mint envs via
+/// `\makepythontexfamily@con`, not these inlines. `\inputpy` /
+/// `\inputpygments` / `\pygment` are separate leftovers.
 pub(crate) fn pytx_inline_cs_name(tail: &str) -> Option<&'static str> {
     for name in [
+        "javascriptb",
+        "javascriptc",
+        "javascripts",
+        "javascriptv",
+        "javascript",
         "pylabconc",
         "pylabcons",
         "pylabconv",
         "sympyconc",
         "sympycons",
         "sympyconv",
+        "perlsixb",
+        "perlsixc",
+        "perlsixs",
+        "perlsixv",
         "pylabcon",
         "sympycon",
+        "matlabb",
+        "matlabc",
+        "matlabs",
+        "matlabv",
+        "octaveb",
+        "octavec",
+        "octaves",
+        "octavev",
+        "perlsix",
+        "juliab",
+        "juliac",
+        "julias",
+        "juliav",
+        "matlab",
+        "octave",
         "pyconc",
         "pycons",
         "pyconv",
+        "pylabb",
         "pylabc",
         "pylabs",
-        "pylabb",
         "pylabv",
+        "sympyb",
         "sympyc",
         "sympys",
-        "sympyb",
         "sympyv",
+        "bashb",
+        "bashc",
+        "bashs",
+        "bashv",
+        "julia",
+        "perlb",
+        "perlc",
+        "perls",
+        "perlv",
+        "psixb",
+        "psixc",
+        "psixs",
+        "psixv",
         "pycon",
         "pylab",
+        "rubyb",
+        "rubyc",
+        "rubys",
+        "rubyv",
+        "rustb",
+        "rustc",
+        "rusts",
+        "rustv",
+        "sageb",
+        "sagec",
+        "sages",
+        "sagev",
         "sympy",
+        "bash",
+        "perl",
+        "psix",
+        "ruby",
+        "rust",
+        "sage",
+        "jlb",
+        "jlc",
+        "jls",
+        "jlv",
+        "jsb",
+        "jsc",
+        "jss",
+        "jsv",
+        "plb",
+        "plc",
+        "pls",
+        "plv",
+        "pyb",
         "pyc",
         "pys",
-        "pyb",
         "pyv",
+        "rbb",
+        "rbc",
+        "rbs",
+        "rbv",
+        "rsb",
+        "rsc",
+        "rss",
+        "rsv",
+        "Rb",
+        "Rc",
+        "Rs",
+        "Rv",
+        "jl",
+        "js",
+        "pl",
         "py",
+        "rb",
+        "rs",
+        "R",
     ] {
         if let Some(after) = tail.strip_prefix(name) {
             if !after.starts_with(|c: char| c.is_ascii_alphabetic() || c == '*') {
@@ -3795,6 +3891,155 @@ mod tests {
             latex_verb_span_end_with(r"\py*{print(1)}", 0, &[]),
             None,
             "pythontex inline has no star form"
+        );
+    }
+
+    /// Ticket fixture (GitHub #445): pythontex.sty leftover
+    /// `usefamily` inline cmds stay one span (brace or `|delim|`
+    /// body). Following `After.` still splits. Longer names first so
+    /// `\rubyc` is not `\ruby` + leftover. extras skip so a configured
+    /// extra does not re-tokenize the no-body form as Delim. `\py` /
+    /// `\inputpy` / `\inputpython` stay their own spans. `juliacon` /
+    /// `Rcon` mint envs, not these inlines.
+    #[test]
+    fn latex_pytx_usefamily_inline_cmds_stay_atomic() {
+        const FAMILIES: &[&str] = &[
+            "ruby",
+            "rb",
+            "julia",
+            "jl",
+            "matlab",
+            "octave",
+            "bash",
+            "sage",
+            "rust",
+            "rs",
+            "R",
+            "perl",
+            "pl",
+            "perlsix",
+            "psix",
+            "javascript",
+            "js",
+        ];
+        let mut names = Vec::new();
+        for family in FAMILIES {
+            names.push(family.to_string());
+            for suffix in ["c", "s", "b", "v"] {
+                names.push(format!("{family}{suffix}"));
+            }
+        }
+        for name in &names {
+            let cmd = format!("\\{name}{{puts 1}}");
+            let text = format!("See {cmd} here. After.");
+            let (_, placeholders) = protect_inline_tokens(&text);
+            assert!(
+                placeholders.iter().any(|p| p == &cmd),
+                "{name} span must be protected, got {placeholders:?}"
+            );
+            assert_eq!(
+                latex_verb_span_end_with(&cmd, 0, &[]),
+                Some(cmd.len()),
+                "{name} brace body must stay one span"
+            );
+            assert_eq!(
+                split(&text),
+                vec![format!("See {cmd} here."), "After.".to_string()]
+            );
+            let delim = format!("\\{name}|puts 1|");
+            assert_eq!(
+                latex_verb_span_end_with(&delim, 0, &[]),
+                Some(delim.len()),
+                "{name} delimiter body must stay one span"
+            );
+            let opts = format!("\\{name}[sess]{{puts 1}}");
+            assert_eq!(
+                latex_verb_span_end_with(&opts, 0, &[]),
+                Some(opts.len()),
+                "{name} optional args must stay in the span"
+            );
+            let no_body = format!("\\{name} After.");
+            assert_eq!(
+                latex_verb_span_end_with(&no_body, 0, &[]),
+                None,
+                "{name} without a body is not a verb span"
+            );
+            let extras = [name.to_string()];
+            assert_eq!(
+                latex_verb_span_end_with(&no_body, 0, &extras),
+                None,
+                "configured extra {name} must not re-tokenize the no-body form as Delim"
+            );
+            assert_eq!(
+                latex_verb_span_end_with(&cmd, 0, &extras),
+                Some(cmd.len()),
+                "configured extra {name} must keep the brace form as leftover"
+            );
+        }
+        assert_eq!(
+            pytx_inline_cs_name("rubyc{puts 1}"),
+            Some("rubyc"),
+            "rubyc must not be ruby + leftover"
+        );
+        assert_eq!(
+            pytx_inline_cs_name("ruby{puts 1}"),
+            Some("ruby"),
+            "ruby base name must stay ruby"
+        );
+        assert_eq!(
+            latex_verb_span_end_with(r"\rubyc{puts 1}", 0, &[]),
+            Some(r"\rubyc{puts 1}".len()),
+            "rubyc must not be ruby + leftover"
+        );
+        assert_eq!(
+            latex_verb_span_end_with(r"\juliac{1+1}", 0, &[]),
+            Some(r"\juliac{1+1}".len()),
+            "juliac ticket fixture must stay one span"
+        );
+        assert_eq!(
+            latex_verb_span_end_with(r"\javascriptc{1}", 0, &[]),
+            Some(r"\javascriptc{1}".len()),
+            "javascriptc must not be js + leftover"
+        );
+        assert_eq!(
+            latex_verb_span_end_with(r"\perlsix{1}", 0, &[]),
+            Some(r"\perlsix{1}".len()),
+            "perlsix must not be perl + leftover"
+        );
+        assert_eq!(
+            latex_verb_span_end_with(r"\juliacon{1+1}", 0, &[]),
+            None,
+            "juliacon mints envs, not these inlines"
+        );
+        assert_eq!(
+            latex_verb_span_end_with(r"\Rcon{1+1}", 0, &[]),
+            None,
+            "Rcon mints envs, not these inlines"
+        );
+        assert_eq!(
+            latex_verb_span_end_with(r"\py{print(1)}", 0, &[]),
+            Some(r"\py{print(1)}".len()),
+            "py inline must stay unchanged"
+        );
+        assert_eq!(
+            latex_verb_span_end_with(r"\inputpy{foo.py}", 0, &[]),
+            Some(r"\inputpy{foo.py}".len()),
+            "usefamily inline must not steal inputpy"
+        );
+        assert_eq!(
+            latex_verb_span_end_with(r"\inputpython{foo.py}{1}{20}", 0, &[]),
+            Some(r"\inputpython{foo.py}{1}{20}".len()),
+            "usefamily inline must not steal inputpython"
+        );
+        assert_eq!(
+            latex_verb_span_end_with(r"\sageinput{foo.sage}", 0, &[]),
+            Some(r"\sageinput{foo.sage}".len()),
+            "sage inline must not steal sageinput"
+        );
+        assert_eq!(
+            latex_verb_span_end_with(r"\ruby*{puts 1}", 0, &[]),
+            None,
+            "usefamily inline has no star form"
         );
     }
 
