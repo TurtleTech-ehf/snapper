@@ -92,6 +92,10 @@
 //! \\CatchFileBetweenDelims / \\ExecuteMetaData /
 //! \\PitonInputFileT / \\PitonInputFileF / \\PitonInputFileTF)
 //! stay one atomic command; following flush prose does not join.
+//! GitHub #441: pythontex.sty leftover inline \\py / \\pyc / \\pys /
+//! \\pyb / \\pyv / \\pycon and twins / \\sympy / \\pylab and twins
+//! stay one atomic command (brace or |delim| body); following flush
+//! prose does not join.
 
 use snapper_fmt::format::Format;
 use snapper_fmt::parser::latex::LatexParser;
@@ -4581,6 +4585,100 @@ fn leftover_filename_input_fixture_does_not_join_following_prose() {
     assert!(
         !piton_out.contains("\\PitonInputFile{foo.py} After."),
         "PitonInputFile must not join following prose, got:\n{piton_out}"
+    );
+
+    let py = concat!("Before. Next.\n", "\\inputpy{foo.py}\n", "After. Next.\n",);
+    let py_out = format_text(py, &latex_cfg()).unwrap();
+    assert!(
+        py_out.contains("\\inputpy{foo.py}\n"),
+        "inputpy must stay unchanged, got:\n{py_out}"
+    );
+    assert!(
+        !py_out.contains("\\inputpy{foo.py} After."),
+        "inputpy must not join following prose, got:\n{py_out}"
+    );
+}
+
+/// Ticket fixture (GitHub #441): pythontex.sty leftover inline
+/// `\py` / `\pyc` / `\pys` / `\pyb` / `\pyv` / `\pycon` and twins /
+/// `\sympy` / `\pylab` and twins stay one Structure span. Following
+/// flush `After.` does not join. `After.` / `Next.` still split.
+/// `\inputpy` / `\inputpygments` / `\pygment` unchanged.
+#[test]
+fn pytx_inline_fixture_does_not_join_following_prose() {
+    for name in ["py", "pyc", "pys", "pyb", "pyv", "pycon", "sympy", "pylab"] {
+        let cmd = format!("\\{name}{{print(1)}}");
+        let input = format!("Before. Next.\n{cmd}\nAfter. Next.\n");
+        let regions = LatexParser::default().parse(&input);
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Structure(s) if s.contains(cmd.as_str())
+            )),
+            "{name} must stay one Structure command, got: {regions:?}"
+        );
+        assert!(
+            !regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(p) if p.contains(cmd.as_str())
+            )),
+            "{name} must not leak into Prose, got: {regions:?}"
+        );
+        let out = format_text(&input, &latex_cfg()).unwrap();
+        assert!(
+            out.contains(&format!("{cmd}\n")),
+            "{name} must stay one atomic command, got:\n{out}"
+        );
+        assert!(
+            !out.contains(&format!("{cmd} After.")),
+            "following flush prose must not join the {name} line, got:\n{out}"
+        );
+        assert!(
+            out.contains("Before.\nNext."),
+            "prose before {name} must still split, got:\n{out}"
+        );
+        assert!(
+            out.contains("After.\nNext."),
+            "prose after {name} must still split, got:\n{out}"
+        );
+        assert_eq!(format_text(&out, &latex_cfg()).unwrap(), out);
+
+        let delim = format!("Before. Next.\n\\{name}|print(1)|\nAfter. Next.\n");
+        let delim_out = format_text(&delim, &latex_cfg()).unwrap();
+        assert!(
+            delim_out.contains(&format!("\\{name}|print(1)|\n")),
+            "{name} delimiter body must stay atomic, got:\n{delim_out}"
+        );
+        assert!(
+            !delim_out.contains(&format!("\\{name}|print(1)| After.")),
+            "delimiter {name} must not join following prose, got:\n{delim_out}"
+        );
+    }
+
+    let pygments = concat!(
+        "Before. Next.\n",
+        "\\inputpygments{python}{foo.py}\n",
+        "After. Next.\n",
+    );
+    let pygments_out = format_text(pygments, &latex_cfg()).unwrap();
+    assert!(
+        pygments_out.contains("\\inputpygments{python}{foo.py}\n"),
+        "inputpygments must stay unchanged, got:\n{pygments_out}"
+    );
+    assert!(
+        !pygments_out.contains("\\inputpygments{python}{foo.py} After."),
+        "inputpygments must not join following prose, got:\n{pygments_out}"
+    );
+
+    let pygment = concat!(
+        "Before. Next.\n",
+        "\\pygment{python}{print(1)}\n",
+        "After. Next.\n",
+    );
+    let pygment_out = format_text(pygment, &latex_cfg()).unwrap();
+    assert!(
+        pygment_out.contains("\\pygment{python}{print(1)}\n"),
+        "pygment must stay unchanged, got:\n{pygment_out}"
     );
 
     let py = concat!("Before. Next.\n", "\\inputpy{foo.py}\n", "After. Next.\n",);
