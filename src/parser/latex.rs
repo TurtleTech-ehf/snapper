@@ -5,8 +5,9 @@ use crate::parser::{
     ByteSpan, FormatParser, Line, SpannedRegion, flush_prose_spanned, iter_lines, join_prose_gap,
 };
 use crate::sentence::unicode::{
-    latex_verb_span_end_with, pyth_cs_name, pythontexcustomc_cs_name, pytx_inline_cs_name,
-    sagetex_inline_cs_name, scontents_leftover_cs_name, verb_span_leftover_cs_name,
+    fancyvrb_leftover_cs_name, latex_verb_span_end_with, pyth_cs_name, pythontexcustomc_cs_name,
+    pytx_inline_cs_name, sagetex_inline_cs_name, scontents_leftover_cs_name,
+    verb_span_leftover_cs_name,
 };
 
 // Environments whose content is NOT prose (math, code, tables, pictures).
@@ -517,7 +518,8 @@ impl LatexParser {
     /// `\ExecuteMetaData` / `\listinginput` / `\sageinput` /
     /// `\inputsc` / `\Scontents` / `\typestored` / `\getstored` /
     /// `\mergesc` / `\meaningsc` / `\foreachsc` / `\pythontexcustomc` /
-    /// `\pyth` / configured verbatim commands.
+    /// `\pyth` / `\UseVerb` / `\UseVerbatim` / `\LUseVerbatim` /
+    /// `\BUseVerbatim` / `\EscVerb` / configured verbatim commands.
     fn unescaped_percent(&self, line: &str) -> Option<usize> {
         unescaped_percent_with(line, &self.extra_verbatim_commands)
     }
@@ -901,7 +903,8 @@ fn find_tex_cs(line: &str, from: usize, cs: &str) -> Option<usize> {
 /// `\CatchFileBetweenDelims` / `\ExecuteMetaData` / `\listinginput` /
 /// `\sageinput` / `\inputsc` / `\Scontents` / `\typestored` /
 /// `\getstored` / `\mergesc` / `\meaningsc` / `\foreachsc` /
-/// `\pythontexcustomc` / `\pyth` spans.
+/// `\pythontexcustomc` / `\pyth` / `\UseVerb` / `\UseVerbatim` /
+/// `\LUseVerbatim` / `\BUseVerbatim` / `\EscVerb` spans.
 fn find_iffalse_at(line: &str, from: usize, extra_cmds: &[String]) -> Option<usize> {
     let bytes = line.as_bytes();
     let mut i = from;
@@ -1276,6 +1279,60 @@ fn verb_span_leftover_cs_at(line: &str, at: usize) -> bool {
         return false;
     };
     verb_span_leftover_cs_name(tail).is_some()
+}
+
+/// fancyvrb leftover replay / leftover `\Verb` / fvextra leftover
+/// `\EscVerb` (GitHub #457). One leftover walker for `\UseVerb` /
+/// `\UseVerb*` / `\UseVerb[opt]{name}`, `\UseVerbatim` /
+/// `\LUseVerbatim` / `\BUseVerbatim` `{name}`, leftover `\Verb`, and
+/// `\EscVerb` delimiter or `{code}`. Own-line leftover only so
+/// mid-sentence `\Verb|x|` stays Prose (unicode protected). Longer
+/// names first so `\UseVerbatim` is not `\UseVerb` + leftover.
+/// `\SaveVerb` / `\verb` / `\piton` stay their own leftovers.
+/// `\Piton{...}` is not a leftover user cmd. Other verb spans are
+/// skipped so `\verb|\UseVerb{x}|` is not stolen. Walk stops at an
+/// unescaped `%` so a comment is not a command tail.
+fn find_fancyvrb_leftover_at(
+    line: &str,
+    from: usize,
+    extra_cmds: &[String],
+) -> Option<(usize, usize)> {
+    let bytes = line.as_bytes();
+    let mut i = from;
+    let stop = unescaped_percent_with(line, extra_cmds).unwrap_or(line.len());
+    while i < stop {
+        if bytes[i] == b'\\' {
+            if fancyvrb_leftover_cs_at(line, i) {
+                if let Some(end) = latex_verb_span_end_with(line, i, extra_cmds) {
+                    // Own-line leftover only. Whole-line prefix (`line[..i]`,
+                    // not the leftover-scan `from`) so a mid-line leftover
+                    // after earlier tokens stays Prose. Mid-sentence unicode
+                    // spans stay Prose so splice does not break
+                    // `See \Verb|x| here.`
+                    if line[..i].trim().is_empty() && line[end..].trim().is_empty() {
+                        return Some((i, end));
+                    }
+                }
+            }
+            if let Some(end) = latex_verb_span_end_with(line, i, extra_cmds) {
+                i = end;
+                continue;
+            }
+            if let Some(name) = tex_cs_at(line, i) {
+                i += name.len();
+                continue;
+            }
+        }
+        i += 1;
+    }
+    None
+}
+
+fn fancyvrb_leftover_cs_at(line: &str, at: usize) -> bool {
+    let Some(tail) = line.get(at..).and_then(|s| s.strip_prefix('\\')) else {
+        return false;
+    };
+    fancyvrb_leftover_cs_name(tail).is_some()
 }
 
 /// `\piton{...}` is not a unicode verb span. Walk one brace group so
@@ -2157,6 +2214,9 @@ impl<'a> ParseState<'a> {
                     .or_else(|| find_pytx_inline_at(code, i, &self.parser.extra_verbatim_commands))
                     .or_else(|| {
                         find_verb_span_leftover_at(code, i, &self.parser.extra_verbatim_commands)
+                    })
+                    .or_else(|| {
+                        find_fancyvrb_leftover_at(code, i, &self.parser.extra_verbatim_commands)
                     })
             {
                 self.append_item_or_prose(line.start + i, &code[i..start]);
@@ -4988,6 +5048,157 @@ Some text.
         assert!(
             extras_delim.contains("After.\nNext."),
             "configured extra lstinline delim form must still split following prose, got:\n{extras_delim}"
+        );
+    }
+
+    /// Ticket fixture (GitHub #457): fancyvrb leftover replay /
+    /// leftover `\Verb` / fvextra leftover `\EscVerb` stay one
+    /// Structure span. Following flush `After.` does not join.
+    /// `After.` / `Next.` still split. Mid-sentence `See \Verb|x| here.`
+    /// still splits. `\SaveVerb` / `\verb` / `\piton` stay atomic.
+    /// extras skip so a configured extra does not re-tokenize the
+    /// no-brace form as Delim.
+    #[test]
+    fn fancyvrb_leftover_cmds_do_not_join_following_prose() {
+        use crate::{FormatConfig, format_text};
+
+        for cmd in [
+            r"\UseVerb{foo}",
+            r"\UseVerb*{foo}",
+            r"\UseVerb[formatcom=\small]{foo}",
+            r"\UseVerbatim{foo}",
+            r"\LUseVerbatim{foo}",
+            r"\BUseVerbatim{foo}",
+            r"\Verb|print(1)|",
+            r"\EscVerb|print(1)|",
+        ] {
+            let input = format!("Before. Next.\n{cmd}\nAfter. Next.\n");
+            let regions = LatexParser::default().parse(&input);
+            assert!(
+                regions.iter().any(|r| matches!(
+                    r,
+                    Region::Structure(s) if s.contains(cmd)
+                )),
+                "{cmd} must stay one Structure command, got: {regions:?}"
+            );
+            assert!(
+                !regions.iter().any(|r| matches!(
+                    r,
+                    Region::Prose(p) if p.contains(cmd)
+                )),
+                "{cmd} must not leak into Prose, got: {regions:?}"
+            );
+            assert!(
+                regions.iter().any(|r| matches!(
+                    r,
+                    Region::Prose(p) if p.contains("After.") && p.contains("Next.")
+                )),
+                "After. / Next. must stay Prose after {cmd}, got: {regions:?}"
+            );
+            let out = format_text(&input, &latex_cfg()).unwrap();
+            assert!(
+                out.contains(&format!("{cmd}\n")),
+                "{cmd} must stay one atomic command, got:\n{out}"
+            );
+            assert!(
+                !out.contains(&format!("{cmd} After.")),
+                "following flush prose must not join the {cmd} line, got:\n{out}"
+            );
+            assert!(
+                out.contains("Before.\nNext."),
+                "prose before {cmd} must still split, got:\n{out}"
+            );
+            assert!(
+                out.contains("After.\nNext."),
+                "prose after {cmd} must still split, got:\n{out}"
+            );
+            assert_eq!(format_text(&out, &latex_cfg()).unwrap(), out);
+        }
+
+        let mid = "See \\Verb|x| here. After.\n";
+        let mid_out = format_text(mid, &latex_cfg()).unwrap();
+        assert!(
+            mid_out.contains("See \\Verb|x| here.\nAfter."),
+            "mid-sentence Verb must stay protected and still split, got:\n{mid_out}"
+        );
+
+        let saveverb = concat!(
+            "Before. Next.\n",
+            "\\SaveVerb{foo}|print(1)|\n",
+            "After. Next.\n",
+        );
+        let saveverb_out = format_text(saveverb, &latex_cfg()).unwrap();
+        assert!(
+            saveverb_out.contains("\\SaveVerb{foo}|print(1)|\n"),
+            "SaveVerb must stay unchanged, got:\n{saveverb_out}"
+        );
+        assert!(
+            !saveverb_out.contains("\\SaveVerb{foo}|print(1)| After."),
+            "SaveVerb must not join following prose, got:\n{saveverb_out}"
+        );
+
+        let verb = concat!("Before. Next.\n", "\\verb|print(1)|\n", "After. Next.\n",);
+        let verb_out = format_text(verb, &latex_cfg()).unwrap();
+        assert!(
+            verb_out.contains("\\verb|print(1)|\n"),
+            "verb must stay unchanged, got:\n{verb_out}"
+        );
+        assert!(
+            !verb_out.contains("\\verb|print(1)| After."),
+            "verb must not join following prose, got:\n{verb_out}"
+        );
+
+        let piton = concat!("Before. Next.\n", "\\piton{print(1)}\n", "After. Next.\n",);
+        let piton_out = format_text(piton, &latex_cfg()).unwrap();
+        assert!(
+            piton_out.contains("\\piton{print(1)}\n"),
+            "piton must stay unchanged, got:\n{piton_out}"
+        );
+        assert!(
+            !piton_out.contains("\\piton{print(1)} After."),
+            "piton must not join following prose, got:\n{piton_out}"
+        );
+
+        let extras_cfg = FormatConfig {
+            format: crate::format::Format::Latex,
+            latex_verbatim_commands: vec!["UseVerb".to_string(), "EscVerb".to_string()],
+            ..Default::default()
+        }
+        .without_safety_backstops();
+        let extras_out =
+            format_text("Before. Next.\n\\UseVerb After. Next.\n", &extras_cfg).unwrap();
+        assert!(
+            extras_out.contains("After.\nNext."),
+            "configured extra UseVerb must not re-tokenize the no-brace form as Delim, got:\n{extras_out}"
+        );
+        let extras_esc =
+            format_text("Before. Next.\n\\EscVerb After. Next.\n", &extras_cfg).unwrap();
+        assert!(
+            extras_esc.contains("After.\nNext."),
+            "configured extra EscVerb must not re-tokenize the no-brace form as Delim, got:\n{extras_esc}"
+        );
+        let extras_brace =
+            format_text("Before. Next.\n\\UseVerb{foo}\nAfter. Next.\n", &extras_cfg).unwrap();
+        assert!(
+            extras_brace.contains("\\UseVerb{foo}\n"),
+            "configured extra UseVerb must keep the brace form as leftover, got:\n{extras_brace}"
+        );
+        assert!(
+            extras_brace.contains("After.\nNext."),
+            "configured extra UseVerb brace form must still split following prose, got:\n{extras_brace}"
+        );
+        let extras_delim = format_text(
+            "Before. Next.\n\\EscVerb|print(1)|\nAfter. Next.\n",
+            &extras_cfg,
+        )
+        .unwrap();
+        assert!(
+            extras_delim.contains("\\EscVerb|print(1)|\n"),
+            "configured extra EscVerb must keep the delim form as leftover, got:\n{extras_delim}"
+        );
+        assert!(
+            extras_delim.contains("After.\nNext."),
+            "configured extra EscVerb delim form must still split following prose, got:\n{extras_delim}"
         );
     }
 

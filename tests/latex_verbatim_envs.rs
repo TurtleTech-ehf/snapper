@@ -117,6 +117,10 @@
 //! \\lstinline / \\mintinline / \\mint / \\SaveVerb / \\spverb /
 //! \\piton stay one atomic Structure command; following flush prose
 //! does not join.
+//! GitHub #457: fancyvrb leftover replay \\UseVerb / \\UseVerbatim /
+//! \\LUseVerbatim / \\BUseVerbatim / leftover \\Verb / fvextra leftover
+//! \\EscVerb stay one atomic Structure command; following flush prose
+//! does not join.
 
 use snapper_fmt::format::Format;
 use snapper_fmt::parser::latex::LatexParser;
@@ -5153,6 +5157,153 @@ fn verb_span_leftover_cmds_fixture_does_not_join_following_prose() {
     assert!(
         extras_delim.contains("After.\nNext."),
         "configured extra lstinline delim form must still split following prose, got:\n{extras_delim}"
+    );
+}
+
+/// Ticket fixture (GitHub #457): fancyvrb leftover replay /
+/// leftover `\Verb` / fvextra leftover `\EscVerb` stay one atomic
+/// command. Following flush `After.` does not join. `After.` /
+/// `Next.` still split. Mid-sentence `See \Verb|x| here.` still
+/// splits. `\SaveVerb` / `\verb` / `\piton` stay atomic. extras skip
+/// so a configured extra does not re-tokenize the no-brace form as
+/// Delim.
+#[test]
+fn fancyvrb_leftover_cmds_fixture_does_not_join_following_prose() {
+    for cmd in [
+        r"\UseVerb{foo}",
+        r"\UseVerb*{foo}",
+        r"\UseVerb[formatcom=\small]{foo}",
+        r"\UseVerbatim{foo}",
+        r"\LUseVerbatim{foo}",
+        r"\BUseVerbatim{foo}",
+        r"\Verb|print(1)|",
+        r"\EscVerb|print(1)|",
+    ] {
+        let input = format!("Before. Next.\n{cmd}\nAfter. Next.\n");
+        let regions = LatexParser::default().parse(&input);
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Structure(s) if s.contains(cmd)
+            )),
+            "{cmd} must stay one Structure command, got: {regions:?}"
+        );
+        assert!(
+            !regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(p) if p.contains(cmd)
+            )),
+            "{cmd} must not leak into Prose, got: {regions:?}"
+        );
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(p) if p.contains("After.") && p.contains("Next.")
+            )),
+            "After. / Next. must stay Prose after {cmd}, got: {regions:?}"
+        );
+        let out = format_text(&input, &latex_cfg()).unwrap();
+        assert!(
+            out.contains(&format!("{cmd}\n")),
+            "{cmd} must stay one atomic command, got:\n{out}"
+        );
+        assert!(
+            !out.contains(&format!("{cmd} After.")),
+            "following flush prose must not join the {cmd} line, got:\n{out}"
+        );
+        assert!(
+            out.contains("Before.\nNext."),
+            "prose before {cmd} must still split, got:\n{out}"
+        );
+        assert!(
+            out.contains("After.\nNext."),
+            "prose after {cmd} must still split, got:\n{out}"
+        );
+        assert_eq!(format_text(&out, &latex_cfg()).unwrap(), out);
+    }
+
+    let mid = "See \\Verb|x| here. After.\n";
+    let mid_out = format_text(mid, &latex_cfg()).unwrap();
+    assert!(
+        mid_out.contains("See \\Verb|x| here.\nAfter."),
+        "mid-sentence Verb must stay protected and still split, got:\n{mid_out}"
+    );
+
+    let saveverb = concat!(
+        "Before. Next.\n",
+        "\\SaveVerb{foo}|print(1)|\n",
+        "After. Next.\n",
+    );
+    let saveverb_out = format_text(saveverb, &latex_cfg()).unwrap();
+    assert!(
+        saveverb_out.contains("\\SaveVerb{foo}|print(1)|\n"),
+        "SaveVerb must stay unchanged, got:\n{saveverb_out}"
+    );
+    assert!(
+        !saveverb_out.contains("\\SaveVerb{foo}|print(1)| After."),
+        "SaveVerb must not join following prose, got:\n{saveverb_out}"
+    );
+
+    let verb = concat!("Before. Next.\n", "\\verb|print(1)|\n", "After. Next.\n",);
+    let verb_out = format_text(verb, &latex_cfg()).unwrap();
+    assert!(
+        verb_out.contains("\\verb|print(1)|\n"),
+        "verb must stay unchanged, got:\n{verb_out}"
+    );
+    assert!(
+        !verb_out.contains("\\verb|print(1)| After."),
+        "verb must not join following prose, got:\n{verb_out}"
+    );
+
+    let piton = concat!("Before. Next.\n", "\\piton{print(1)}\n", "After. Next.\n",);
+    let piton_out = format_text(piton, &latex_cfg()).unwrap();
+    assert!(
+        piton_out.contains("\\piton{print(1)}\n"),
+        "piton must stay unchanged, got:\n{piton_out}"
+    );
+    assert!(
+        !piton_out.contains("\\piton{print(1)} After."),
+        "piton must not join following prose, got:\n{piton_out}"
+    );
+
+    let extras_cfg = FormatConfig {
+        format: Format::Latex,
+        latex_verbatim_commands: vec!["UseVerb".to_string(), "EscVerb".to_string()],
+        ..Default::default()
+    }
+    .without_safety_backstops();
+    let extras_out = format_text("Before. Next.\n\\UseVerb After. Next.\n", &extras_cfg).unwrap();
+    assert!(
+        extras_out.contains("After.\nNext."),
+        "configured extra UseVerb must not re-tokenize the no-brace form as Delim, got:\n{extras_out}"
+    );
+    let extras_esc = format_text("Before. Next.\n\\EscVerb After. Next.\n", &extras_cfg).unwrap();
+    assert!(
+        extras_esc.contains("After.\nNext."),
+        "configured extra EscVerb must not re-tokenize the no-brace form as Delim, got:\n{extras_esc}"
+    );
+    let extras_brace =
+        format_text("Before. Next.\n\\UseVerb{foo}\nAfter. Next.\n", &extras_cfg).unwrap();
+    assert!(
+        extras_brace.contains("\\UseVerb{foo}\n"),
+        "configured extra UseVerb must keep the brace form as leftover, got:\n{extras_brace}"
+    );
+    assert!(
+        extras_brace.contains("After.\nNext."),
+        "configured extra UseVerb brace form must still split following prose, got:\n{extras_brace}"
+    );
+    let extras_delim = format_text(
+        "Before. Next.\n\\EscVerb|print(1)|\nAfter. Next.\n",
+        &extras_cfg,
+    )
+    .unwrap();
+    assert!(
+        extras_delim.contains("\\EscVerb|print(1)|\n"),
+        "configured extra EscVerb must keep the delim form as leftover, got:\n{extras_delim}"
+    );
+    assert!(
+        extras_delim.contains("After.\nNext."),
+        "configured extra EscVerb delim form must still split following prose, got:\n{extras_delim}"
     );
 }
 
