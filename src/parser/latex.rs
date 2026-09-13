@@ -1268,6 +1268,120 @@ fn pytx_inline_cs_at(line: &str, at: usize) -> bool {
     pytx_inline_cs_name(tail).is_some()
 }
 
+/// Leftover inline verb-span cmds (GitHub #452). One leftover walker
+/// for kernel `\verb` / `\verb*`, listings `\lstinline`, minted
+/// `\mintinline` / `\mint`, fancyvrb `\SaveVerb`, spverbatim `\spverb`,
+/// and piton.sty `\piton`. Unicode spans already exist; this walker
+/// classifies an own-line leftover as Structure so following flush
+/// prose does not join. Mid-sentence spans stay Prose (unicode
+/// protected). Longer names first so `\mintinline` is not `\mint` +
+/// leftover. Other leftover walkers stay their own. `\Verb` is not
+/// this leftover. `\piton{...}` is not a verb span (generic cmd-arg;
+/// GitHub #305) and is walked as one brace group. Other verb spans
+/// are skipped so `\verb|\lstinline{x}|` is not stolen. Walk stops at
+/// an unescaped `%` so a comment is not a command tail.
+fn find_verb_span_leftover_at(
+    line: &str,
+    from: usize,
+    extra_cmds: &[String],
+) -> Option<(usize, usize)> {
+    let bytes = line.as_bytes();
+    let mut i = from;
+    let stop = unescaped_percent_with(line, extra_cmds).unwrap_or(line.len());
+    while i < stop {
+        if bytes[i] == b'\\' {
+            if verb_span_leftover_cs_at(line, i) {
+                if let Some(end) = latex_verb_span_end_with(line, i, extra_cmds)
+                    .or_else(|| piton_brace_leftover_end(line, i))
+                {
+                    // Own-line leftover only. Mid-sentence unicode spans
+                    // stay Prose so splice does not break `See \verb|x| here.`
+                    if line[..i].trim().is_empty() && line[end..].trim().is_empty() {
+                        return Some((i, end));
+                    }
+                }
+            }
+            if let Some(end) = latex_verb_span_end_with(line, i, extra_cmds) {
+                i = end;
+                continue;
+            }
+            if let Some(name) = tex_cs_at(line, i) {
+                i += name.len();
+                continue;
+            }
+        }
+        i += 1;
+    }
+    None
+}
+
+fn verb_span_leftover_cs_at(line: &str, at: usize) -> bool {
+    let Some(tail) = line.get(at..).and_then(|s| s.strip_prefix('\\')) else {
+        return false;
+    };
+    verb_span_leftover_cs_name(tail).is_some()
+}
+
+/// Longer names first so `\mintinline` is not `\mint` + leftover.
+/// `\Verb` is not this leftover. Star forms follow the existing
+/// unicode span (`\verb*`).
+fn verb_span_leftover_cs_name(tail: &str) -> Option<&'static str> {
+    for name in [
+        "mintinline",
+        "lstinline",
+        "SaveVerb",
+        "spverb",
+        "piton",
+        "mint",
+        "verb",
+    ] {
+        if let Some(after) = tail.strip_prefix(name) {
+            if after.starts_with(|c: char| c.is_ascii_alphabetic()) {
+                return None;
+            }
+            return Some(name);
+        }
+    }
+    None
+}
+
+/// `\piton{...}` is not a unicode verb span. Walk one brace group so
+/// the leftover walker can classify the generic cmd-arg as Structure.
+fn piton_brace_leftover_end(line: &str, at: usize) -> Option<usize> {
+    let tail = line.get(at..)?.strip_prefix('\\')?;
+    let after = tail.strip_prefix("piton")?;
+    if after.starts_with(|c: char| c.is_ascii_alphabetic() || c == '*') {
+        return None;
+    }
+    let mut i = at + 1 + "piton".len();
+    while line
+        .as_bytes()
+        .get(i)
+        .is_some_and(|b| matches!(b, b' ' | b'\t'))
+    {
+        i += 1;
+    }
+    if !line.get(i..)?.starts_with('{') {
+        return None;
+    }
+    i += 1;
+    let bytes = line.as_bytes();
+    while i < bytes.len() {
+        if bytes[i] == b'\n' {
+            return Some(i);
+        }
+        if bytes[i] == b'\\' && i + 1 < bytes.len() {
+            i += 2;
+            continue;
+        }
+        if bytes[i] == b'}' {
+            return Some(i + 1);
+        }
+        i += 1;
+    }
+    Some(line.len())
+}
+
 fn find_leftover_cmd_at(
     line: &str,
     from: usize,
@@ -2059,6 +2173,9 @@ impl<'a> ParseState<'a> {
                     })
                     .or_else(|| find_pyth_at(code, i, &self.parser.extra_verbatim_commands))
                     .or_else(|| find_pytx_inline_at(code, i, &self.parser.extra_verbatim_commands))
+                    .or_else(|| {
+                        find_verb_span_leftover_at(code, i, &self.parser.extra_verbatim_commands)
+                    })
             {
                 self.append_item_or_prose(line.start + i, &code[i..start]);
                 self.push_structure(ByteSpan::new(
@@ -3656,6 +3773,140 @@ Some text.
         assert!(
             extras_brace.contains("After.\nNext."),
             "configured extra Scontents brace form must still split following prose, got:\n{extras_brace}"
+        );
+    }
+
+    /// Ticket fixture (GitHub #452): leftover inline verb-span cmds
+    /// stay one Structure span. Following flush `After.` does not join.
+    /// `After.` / `Next.` still split. Mid-sentence `See \verb|x| here.`
+    /// still splits. Unicode spans stay protected. `\py` / `\sageplot`
+    /// stay atomic. extras skip so a configured extra does not
+    /// re-tokenize the no-brace mintinline form as Delim.
+    #[test]
+    fn verb_span_leftover_cmds_do_not_join_following_prose() {
+        use crate::{FormatConfig, format_text};
+
+        for cmd in [
+            r"\lstinline|print(1)|",
+            r"\verb|print(1)|",
+            r"\verb*|print(1)|",
+            r"\mintinline{python}|print(1)|",
+            r"\mint{python}|print(1)|",
+            r"\SaveVerb{foo}|print(1)|",
+            r"\spverb|print(1)|",
+            r"\piton{print(1)}",
+        ] {
+            let input = format!("Before. Next.\n{cmd}\nAfter. Next.\n");
+            let regions = LatexParser::default().parse(&input);
+            assert!(
+                regions.iter().any(|r| matches!(
+                    r,
+                    Region::Structure(s) if s.contains(cmd)
+                )),
+                "{cmd} must stay one Structure command, got: {regions:?}"
+            );
+            assert!(
+                !regions.iter().any(|r| matches!(
+                    r,
+                    Region::Prose(p) if p.contains(cmd)
+                )),
+                "{cmd} must not leak into Prose, got: {regions:?}"
+            );
+            assert!(
+                regions.iter().any(|r| matches!(
+                    r,
+                    Region::Prose(p) if p.contains("After.") && p.contains("Next.")
+                )),
+                "After. / Next. must stay Prose after {cmd}, got: {regions:?}"
+            );
+            let out = format_text(&input, &latex_cfg()).unwrap();
+            assert!(
+                out.contains(&format!("{cmd}\n")),
+                "{cmd} must stay one atomic command, got:\n{out}"
+            );
+            assert!(
+                !out.contains(&format!("{cmd} After.")),
+                "following flush prose must not join the {cmd} line, got:\n{out}"
+            );
+            assert!(
+                out.contains("Before.\nNext."),
+                "prose before {cmd} must still split, got:\n{out}"
+            );
+            assert!(
+                out.contains("After.\nNext."),
+                "prose after {cmd} must still split, got:\n{out}"
+            );
+            assert_eq!(format_text(&out, &latex_cfg()).unwrap(), out);
+        }
+
+        let mid = "See \\verb|x| here. After.\n";
+        let mid_out = format_text(mid, &latex_cfg()).unwrap();
+        assert!(
+            mid_out.contains("See \\verb|x| here.\nAfter."),
+            "mid-sentence verb span must stay protected and still split, got:\n{mid_out}"
+        );
+
+        let piton_pipe = concat!("Before. Next.\n", "\\piton|print(1)|\n", "After. Next.\n",);
+        let piton_pipe_out = format_text(piton_pipe, &latex_cfg()).unwrap();
+        assert!(
+            piton_pipe_out.contains("\\piton|print(1)|\n"),
+            "piton delimiter body must stay atomic, got:\n{piton_pipe_out}"
+        );
+        assert!(
+            !piton_pipe_out.contains("\\piton|print(1)| After."),
+            "delimiter piton must not join following prose, got:\n{piton_pipe_out}"
+        );
+
+        let py = concat!("Before. Next.\n", "\\py{print(1)}\n", "After. Next.\n",);
+        let py_out = format_text(py, &latex_cfg()).unwrap();
+        assert!(
+            py_out.contains("\\py{print(1)}\n"),
+            "py must stay unchanged, got:\n{py_out}"
+        );
+        assert!(
+            !py_out.contains("\\py{print(1)} After."),
+            "py must not join following prose, got:\n{py_out}"
+        );
+
+        let sageplot = concat!(
+            "Before. Next.\n",
+            "\\sageplot{plot(sin(x))}\n",
+            "After. Next.\n",
+        );
+        let sageplot_out = format_text(sageplot, &latex_cfg()).unwrap();
+        assert!(
+            sageplot_out.contains("\\sageplot{plot(sin(x))}\n"),
+            "sageplot must stay unchanged, got:\n{sageplot_out}"
+        );
+        assert!(
+            !sageplot_out.contains("\\sageplot{plot(sin(x))} After."),
+            "sageplot must not join following prose, got:\n{sageplot_out}"
+        );
+
+        let extras_cfg = FormatConfig {
+            format: crate::format::Format::Latex,
+            latex_verbatim_commands: vec!["lstinline".to_string(), "mintinline".to_string()],
+            ..Default::default()
+        }
+        .without_safety_backstops();
+        let extras_out =
+            format_text("Before. Next.\n\\mintinline After. Next.\n", &extras_cfg).unwrap();
+        assert!(
+            extras_out.contains("After.\nNext."),
+            "configured extra must not re-tokenize the no-brace mintinline form as Delim, got:\n{extras_out}"
+        );
+        let extras_delim = format_text(
+            "Before. Next.\n\\lstinline|print(1)|\nAfter. Next.\n",
+            &extras_cfg,
+        )
+        .unwrap();
+        assert!(
+            extras_delim.contains("\\lstinline|print(1)|\n"),
+            "configured extra lstinline must keep the delim form as leftover, got:\n{extras_delim}"
+        );
+        assert!(
+            extras_delim.contains("After.\nNext."),
+            "configured extra lstinline delim form must still split following prose, got:\n{extras_delim}"
         );
     }
 
