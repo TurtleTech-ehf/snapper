@@ -223,7 +223,10 @@ pub fn protect_inline_tokens_with(
 /// `\getstored[...]{seq}` / `\mergesc[...]{seq}` /
 /// `\meaningsc[...]{seq}` / `\foreachsc[...]{seq}` /
 /// `\pythontexcustomc[...]{type}{code}` /
-/// `\pyth{code}` / `\pyth|code|` so inner `.!?%` cannot
+/// `\pyth{code}` / `\pyth|code|` /
+/// `\UseVerb[...]{name}` / `\UseVerbatim{name}` /
+/// `\LUseVerbatim{name}` / `\BUseVerbatim{name}` /
+/// `\EscVerb|code|` / `\EscVerb{code}` so inner `.!?%` cannot
 /// split or comment. `\piton{...}` stays on the generic `\cmd{arg}`
 /// path (piton.sty brace syntax is not verbatim; GitHub #305).
 fn protect_latex_verbatim(
@@ -263,7 +266,8 @@ fn protect_latex_verbatim(
 /// `\CatchFileBetweenDelims` / `\ExecuteMetaData` / `\listinginput` /
 /// `\sageinput` / `\inputsc` / `\Scontents` / `\typestored` /
 /// `\getstored` / `\mergesc` / `\meaningsc` / `\foreachsc` /
-/// `\pythontexcustomc` / `\pyth` / extra-name span
+/// `\pythontexcustomc` / `\pyth` / `\UseVerb` / `\UseVerbatim` /
+/// `\LUseVerbatim` / `\BUseVerbatim` / `\EscVerb` / extra-name span
 /// starting at `at`.
 ///
 /// `\verb` / `\verb*` / `\spverb` / `\spverb*` / `\Verb` / `\Verb*`: next
@@ -358,8 +362,17 @@ fn protect_latex_verbatim(
 /// `\foreachsc` take optional `[...]` then a required `{seq}` (`o m`
 /// / `O{-1} m`). Longer names first. No brace is not a span. Only
 /// `\Scontents` has a `*` form. `\inputsc` stays its own leftover.
-/// `\newenvsc` is a constructor, not this leftover. Extra
-/// names are tokenized like `\verb`. With no closer, the span runs
+/// `\newenvsc` is a constructor, not this leftover. fancyvrb leftover
+/// replay / leftover `\Verb` / fvextra leftover `\EscVerb` (GitHub
+/// #457): `\UseVerb` / `\UseVerb*` take optional `[...]` then required
+/// `{name}`; `\UseVerbatim` / `\LUseVerbatim` / `\BUseVerbatim` take
+/// optional `[...]` then `{name}`; leftover `\Verb` is the same
+/// delimiter class as kernel `\verb`; `\EscVerb` takes a delimiter or
+/// `{code}`. Longer names first so `\UseVerbatim` is not `\UseVerb` +
+/// leftover. No brace is not a span for the UseVerb family. An
+/// ASCII-letter next token is not an `\EscVerb` delimiter, so
+/// `\EscVerb After.` is not a span. Extra names are tokenized like
+/// `\verb`. With no closer, the span runs
 /// to end of line so an inner `%` is not a comment.
 pub(crate) fn latex_verb_span_end_with(
     text: &str,
@@ -561,11 +574,18 @@ pub(crate) fn latex_verb_span_end_with(
     } else if let Some(name) = verbatiminput_cs_name(tail) {
         // Before `Verb`: `\VerbatimInput` is not `\Verb` + leftover.
         (after_bs + name.len(), VerbKind::Lstinputlisting)
-    } else if let Some(stripped) = tail.strip_prefix("Verb") {
-        if stripped.starts_with(|c: char| c.is_ascii_alphabetic()) {
-            return None;
-        }
-        (after_bs + "Verb".len(), VerbKind::Delim)
+    } else if let Some(name) = fancyvrb_leftover_cs_name(tail) {
+        // fancyvrb leftover replay / leftover `\Verb` / fvextra
+        // leftover `\EscVerb` (GitHub #457). Longer names first so
+        // `\UseVerbatim` is not `\UseVerb` + leftover. `\Verb` stays
+        // Delim. `\EscVerb` is delimiter or `{code}`. UseVerb family
+        // is optional `[...]` then `{name}`.
+        let kind = match name {
+            "EscVerb" => VerbKind::EscVerb,
+            "Verb" => VerbKind::Delim,
+            _ => VerbKind::Lstinputlisting,
+        };
+        (after_bs + name.len(), kind)
     } else if let Some(stripped) = tail.strip_prefix("SaveVerb") {
         if stripped.starts_with(|c: char| c.is_ascii_alphabetic()) {
             return None;
@@ -604,6 +624,7 @@ pub(crate) fn latex_verb_span_end_with(
             | VerbKind::PytxInline
             | VerbKind::Pythontexcustomc
             | VerbKind::Scontents
+            | VerbKind::EscVerb
     ) {
         i = skip_ascii_ws(text, i);
         if text.get(i..).is_some_and(|s| s.starts_with('[')) {
@@ -818,7 +839,11 @@ pub(crate) fn latex_verb_span_end_with(
     // and for `\pyth After.`.
     if matches!(
         kind,
-        VerbKind::PytxInline | VerbKind::Pythontexcustomc | VerbKind::Pyth | VerbKind::Scontents
+        VerbKind::PytxInline
+            | VerbKind::Pythontexcustomc
+            | VerbKind::Pyth
+            | VerbKind::Scontents
+            | VerbKind::EscVerb
     ) && delim.is_ascii_alphabetic()
     {
         return None;
@@ -833,6 +858,7 @@ pub(crate) fn latex_verb_span_end_with(
             | VerbKind::Pythontexcustomc
             | VerbKind::Pyth
             | VerbKind::Scontents
+            | VerbKind::EscVerb
     ) && delim == '{';
     if brace_body {
         return Some(find_unescaped_brace_close(text, i).unwrap_or_else(|| line_end(text, i)));
@@ -862,8 +888,10 @@ enum VerbKind {
     /// `\inputpy` / `\inputpycon` / `\inputpylab` / `\inputpylabcon` /
     /// `\inputsympy` / `\inputsympycon` / `\sageinput` / `\inputsc` /
     /// `\typestored` / `\getstored` / `\mergesc` / `\meaningsc` /
-    /// `\foreachsc` / `\ExecuteMetaData`: optional `[...]` then
-    /// required `{filename}` / `{name}` / `{tag}` / `{seq}`.
+    /// `\foreachsc` / `\ExecuteMetaData` / fancyvrb leftover
+    /// `\UseVerb` / `\UseVerbatim` / `\LUseVerbatim` / `\BUseVerbatim`:
+    /// optional `[...]` then required `{filename}` / `{name}` / `{tag}`
+    /// / `{seq}`.
     Lstinputlisting,
     /// `\\verbatiminput`: required `{filename}` (verbatim.sty leftover).
     Verbatiminput,
@@ -919,6 +947,10 @@ enum VerbKind {
     /// optional `[...]`, then a standard or verbatim arg (delimiter or
     /// `{body}`). An ASCII-letter next token is not a delimiter.
     Scontents,
+    /// fvextra leftover `\EscVerb` (GitHub #457): optional `[...]`,
+    /// then a delimiter or `{code}`. An ASCII-letter next token is not
+    /// a delimiter.
+    EscVerb,
     /// `\SaveVerb`: optional `[...]`, `{name}`, then delimiter body like `\Verb`.
     SaveVerb,
     /// `\piton`: verb-like delimiter except `{` (GitHub #305).
@@ -1015,6 +1047,32 @@ pub(crate) fn verb_span_leftover_cs_name(tail: &str) -> Option<&'static str> {
         "piton",
         "mint",
         "verb",
+    ] {
+        let Some(after) = tail.strip_prefix(name) else {
+            continue;
+        };
+        if after.starts_with(|c: char| c.is_ascii_alphabetic()) {
+            return None;
+        }
+        return Some(name);
+    }
+    None
+}
+
+/// fancyvrb leftover replay / leftover `\Verb` / fvextra leftover
+/// `\EscVerb` (GitHub #457). Longer names first so `\UseVerbatim` is
+/// not `\UseVerb` + leftover. `\SaveVerb` / `\VerbatimInput` stay
+/// their own leftovers (alphabetic leftover rejects a longer name).
+/// `\Piton{...}` is not a leftover user cmd. Star forms follow the
+/// existing unicode span.
+pub(crate) fn fancyvrb_leftover_cs_name(tail: &str) -> Option<&'static str> {
+    for name in [
+        "LUseVerbatim",
+        "BUseVerbatim",
+        "UseVerbatim",
+        "UseVerb",
+        "EscVerb",
+        "Verb",
     ] {
         let Some(after) = tail.strip_prefix(name) else {
             continue;
@@ -1246,6 +1304,7 @@ fn match_extra_verb_command<'a>(tail: &'a str, extras: &'a [String]) -> Option<&
             || pythontexcustomc_cs_name(name).is_some_and(|n| n == name.as_str())
             || pyth_cs_name(name).is_some_and(|n| n == name.as_str())
             || scontents_leftover_cs_name(name).is_some_and(|n| n == name.as_str())
+            || fancyvrb_leftover_cs_name(name).is_some_and(|n| n == name.as_str())
             || name == "listinginput"
             || name == "sageinput"
             || name == "inputpythonfile"
@@ -4141,6 +4200,128 @@ mod tests {
             latex_verb_span_end_with(r"\inputsc{foo}", 0, &[]),
             Some(r"\inputsc{foo}".len()),
             "scontents leftover must not steal inputsc"
+        );
+    }
+
+    /// Ticket fixture (GitHub #457): fancyvrb leftover replay /
+    /// leftover `\Verb` / fvextra leftover `\EscVerb` stay one span.
+    /// Longer names first so `\UseVerbatim` is not `\UseVerb` + leftover.
+    /// extras skip so a configured extra does not re-tokenize the
+    /// no-brace form as Delim. `\SaveVerb` / `\VerbatimInput` stay
+    /// their own leftovers.
+    #[test]
+    fn latex_fancyvrb_leftover_cmds_stay_atomic() {
+        assert_eq!(
+            latex_verb_span_end_with(r"\UseVerb{foo}", 0, &[]),
+            Some(r"\UseVerb{foo}".len()),
+            "UseVerb name brace is a leftover span"
+        );
+        assert_eq!(
+            latex_verb_span_end_with(r"\UseVerb*{foo}", 0, &[]),
+            Some(r"\UseVerb*{foo}".len()),
+            "UseVerb star form is a leftover span"
+        );
+        assert_eq!(
+            latex_verb_span_end_with(r"\UseVerb[formatcom=\small]{foo}", 0, &[]),
+            Some(r"\UseVerb[formatcom=\small]{foo}".len()),
+            "UseVerb optional keys then name brace is a leftover span"
+        );
+        assert_eq!(
+            latex_verb_span_end_with(r"\UseVerbatim{foo}", 0, &[]),
+            Some(r"\UseVerbatim{foo}".len()),
+            "UseVerbatim is not UseVerb plus leftover"
+        );
+        assert_eq!(
+            latex_verb_span_end_with(r"\LUseVerbatim{foo}", 0, &[]),
+            Some(r"\LUseVerbatim{foo}".len()),
+            "LUseVerbatim name brace is a leftover span"
+        );
+        assert_eq!(
+            latex_verb_span_end_with(r"\BUseVerbatim{foo}", 0, &[]),
+            Some(r"\BUseVerbatim{foo}".len()),
+            "BUseVerbatim name brace is a leftover span"
+        );
+        assert_eq!(
+            latex_verb_span_end_with(r"\Verb|print(1)|", 0, &[]),
+            Some(r"\Verb|print(1)|".len()),
+            "leftover Verb delimiter body is a span"
+        );
+        assert_eq!(
+            latex_verb_span_end_with(r"\EscVerb|print(1)|", 0, &[]),
+            Some(r"\EscVerb|print(1)|".len()),
+            "EscVerb delimiter body is a leftover span"
+        );
+        assert_eq!(
+            latex_verb_span_end_with(r"\EscVerb{print(1)}", 0, &[]),
+            Some(r"\EscVerb{print(1)}".len()),
+            "EscVerb brace body is a leftover span"
+        );
+        assert_eq!(
+            latex_verb_span_end_with(r"\UseVerb After.", 0, &[]),
+            None,
+            "UseVerb without a brace name is not a verb span"
+        );
+        assert_eq!(
+            latex_verb_span_end_with(r"\EscVerb After.", 0, &[]),
+            None,
+            "EscVerb ASCII-letter next token is not a delimiter"
+        );
+        assert_eq!(
+            fancyvrb_leftover_cs_name("UseVerbatim{foo}"),
+            Some("UseVerbatim"),
+            "UseVerbatim is the longer leftover name"
+        );
+        assert_eq!(
+            fancyvrb_leftover_cs_name("UseVerb{foo}"),
+            Some("UseVerb"),
+            "UseVerb is this leftover"
+        );
+        assert_eq!(
+            fancyvrb_leftover_cs_name("SaveVerb{foo}"),
+            None,
+            "SaveVerb stays its own leftover"
+        );
+        assert_eq!(
+            fancyvrb_leftover_cs_name("VerbatimInput{foo}"),
+            None,
+            "VerbatimInput stays its own leftover"
+        );
+        assert_eq!(
+            fancyvrb_leftover_cs_name("UseVerbatimInput"),
+            None,
+            "alphabetic leftover rejects a longer name"
+        );
+
+        let extras = ["UseVerb".to_string(), "EscVerb".to_string()];
+        assert_eq!(
+            latex_verb_span_end_with(r"\UseVerb After.", 0, &extras),
+            None,
+            "configured extra UseVerb must not re-tokenize the no-brace form as Delim"
+        );
+        assert_eq!(
+            latex_verb_span_end_with(r"\EscVerb After.", 0, &extras),
+            None,
+            "configured extra EscVerb must not re-tokenize the no-brace form as Delim"
+        );
+        assert_eq!(
+            latex_verb_span_end_with(r"\UseVerb{foo}", 0, &extras),
+            Some(r"\UseVerb{foo}".len()),
+            "configured extra UseVerb must keep the brace form as leftover"
+        );
+        assert_eq!(
+            latex_verb_span_end_with(r"\EscVerb|print(1)|", 0, &extras),
+            Some(r"\EscVerb|print(1)|".len()),
+            "configured extra EscVerb must keep the delim form as leftover"
+        );
+        assert_eq!(
+            latex_verb_span_end_with(r"\SaveVerb{foo}|print(1)|", 0, &[]),
+            Some(r"\SaveVerb{foo}|print(1)|".len()),
+            "fancyvrb leftover must not steal SaveVerb"
+        );
+        assert_eq!(
+            latex_verb_span_end_with(r"\VerbatimInput{foo.py}", 0, &[]),
+            Some(r"\VerbatimInput{foo.py}".len()),
+            "fancyvrb leftover must not steal VerbatimInput"
         );
     }
 
