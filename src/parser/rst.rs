@@ -909,7 +909,11 @@ pub(crate) fn rst_substitution_replace_marker_len(line: &str) -> Option<usize> {
     }
     let after_mid = &after_close[mid_ws..];
     const REPLACE: &str = "replace::";
-    if after_mid.len() < REPLACE.len() || !after_mid[..REPLACE.len()].eq_ignore_ascii_case(REPLACE)
+    // Same mid-char prefix as `org_caption_marker_len`: `get` so a
+    // 9-byte slice inside '—' / '→' is None, not a panic.
+    if !after_mid
+        .get(..REPLACE.len())
+        .is_some_and(|h| h.eq_ignore_ascii_case(REPLACE))
     {
         return None;
     }
@@ -2201,6 +2205,16 @@ mod tests {
         assert_eq!(
             rst_substitution_replace_marker_len(".. |v|replace:: x"),
             None
+        );
+        // GitHub #459: `replace::` is 9 bytes; mid-char prefix is None.
+        assert_eq!(rst_substitution_replace_marker_len(".. |v| xxxxxxx—"), None);
+        assert_eq!(
+            rst_substitution_replace_marker_len(".. |v| xxxxxxxx→"),
+            None
+        );
+        assert_eq!(
+            rst_substitution_replace_marker_len(".. |v| replace:: α β"),
+            Some(".. |v| replace:: ".len())
         );
     }
 

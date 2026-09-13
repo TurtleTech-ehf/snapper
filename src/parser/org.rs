@@ -67,7 +67,12 @@ pub(crate) fn org_caption_marker_len(line: &str) -> Option<usize> {
     let lead = line.len() - line.trim_start_matches([' ', '\t']).len();
     let rest = &line[lead..];
     const KEY: &str = "#+CAPTION";
-    if rest.len() < KEY.len() || !rest[..KEY.len()].eq_ignore_ascii_case(KEY) {
+    // `get` so a 9-byte prefix that lands inside a multibyte char
+    // (em-dash at bytes 7..10, arrow at 8..11) is None, not a panic.
+    if !rest
+        .get(..KEY.len())
+        .is_some_and(|h| h.eq_ignore_ascii_case(KEY))
+    {
         return None;
     }
     let mut i = KEY.len();
@@ -3991,6 +3996,68 @@ mod tests {
         assert_eq!(org_caption_marker_len("#+BEGIN_SRC rust"), None);
         assert_eq!(org_caption_marker_len("See #+CAPTION: x"), None);
         assert_eq!(org_caption_marker_len("#+CAPTION : x"), None);
+        // GitHub #459: byte 9 inside '—' (7..10) / '→' (8..11).
+        assert_eq!(
+            org_caption_marker_len("itself — the tag workflow does):"),
+            None
+        );
+        assert_eq!(
+            org_caption_marker_len("Hartree → eV and Hartree/bohr → eV/Å"),
+            None
+        );
+        assert_eq!(org_caption_marker_len("#+CAPTION: α β"), Some(11));
+        assert_eq!(org_caption_marker_len("#+caption: α β"), Some(11));
+    }
+
+    #[test]
+    fn format_text_wrap_line_starting_with_emdash_or_arrow_does_not_panic() {
+        use crate::format_text;
+
+        let em = concat!(
+            "A short lead sentence.\n",
+            "— not dependency pins such as nickel).\n",
+        );
+        let arrow = concat!(
+            "A short lead sentence.\n",
+            "→ eV and Hartree/bohr at the boundary.\n",
+        );
+        let out_em = format_text(em, &org_cfg()).unwrap();
+        let out_ar = format_text(arrow, &org_cfg()).unwrap();
+        assert!(
+            out_em.contains('—'),
+            "em-dash continuation must survive, got:\n{out_em}"
+        );
+        assert!(
+            out_ar.contains('→'),
+            "arrow continuation must survive, got:\n{out_ar}"
+        );
+        assert_eq!(format_text(&out_em, &org_cfg()).unwrap(), out_em);
+        assert_eq!(format_text(&out_ar, &org_cfg()).unwrap(), out_ar);
+
+        let wrap_cfg = crate::FormatConfig {
+            format: crate::format::Format::Org,
+            max_width: 24,
+            ..Default::default()
+        }
+        .without_safety_backstops();
+        let wrapped_em = format_text(
+            "Fill this line then — more words after the dash.\n",
+            &wrap_cfg,
+        )
+        .unwrap();
+        let wrapped_ar = format_text(
+            "Fill this line then → more words after the arrow.\n",
+            &wrap_cfg,
+        )
+        .unwrap();
+        assert!(
+            wrapped_em.contains('—'),
+            "wrapped em-dash must survive, got:\n{wrapped_em}"
+        );
+        assert!(
+            wrapped_ar.contains('→'),
+            "wrapped arrow must survive, got:\n{wrapped_ar}"
+        );
     }
 
     #[test]
