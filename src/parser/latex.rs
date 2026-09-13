@@ -517,7 +517,7 @@ impl LatexParser {
     /// `\pygment` / `\inputpython` / `\inputpythonfile` /
     /// `\CatchFileBetweenTags` / `\CatchFileBetweenDelims` /
     /// `\ExecuteMetaData` / `\CatchFileDef` / `\CatchFileEdef` /
-    /// `\listinginput` / `\verbatimtabinput` / `\verbatimwrite` / `\sageinput` /
+    /// `\listinginput` / `\listingcont` / `\verbatimtabinput` / `\verbatimwrite` / `\sageinput` /
     /// `\inputsc` / `\Scontents` / `\typestored` / `\getstored` /
     /// `\mergesc` / `\meaningsc` / `\foreachsc` / `\pythontexcustomc` /
     /// `\pyth` / `\UseVerb` / `\UseVerbatim` / `\LUseVerbatim` /
@@ -906,7 +906,8 @@ fn find_tex_cs(line: &str, from: usize, cs: &str) -> Option<usize> {
 /// twins / `\inputpygments` / `\pygment` / `\inputpython` /
 /// `\inputpythonfile` / `\CatchFileBetweenTags` /
 /// `\CatchFileBetweenDelims` / `\ExecuteMetaData` / `\CatchFileDef` /
-/// `\CatchFileEdef` / `\listinginput` / `\verbatimtabinput` /
+/// `\CatchFileEdef` / `\listinginput` / `\listingcont` /
+/// `\verbatimtabinput` /
 /// `\verbatimwrite` / `\sageinput` / `\inputsc` / `\Scontents` /
 /// `\typestored` /
 /// `\getstored` / `\mergesc` / `\meaningsc` / `\foreachsc` /
@@ -1076,6 +1077,24 @@ fn listinginput_cs_at(line: &str, at: usize) -> bool {
         return false;
     };
     let Some(after) = tail.strip_prefix("listinginput") else {
+        return false;
+    };
+    !after.starts_with(|c: char| c.is_ascii_alphabetic() || c == '*')
+}
+
+/// Leftover moreverb `\listingcont` (no args; GitHub #476). Other verb
+/// spans are skipped so `\verb|\listingcont|` is not stolen. Walk stops
+/// at an unescaped `%` so a comment is not a command tail. There is no
+/// `*` form. `\listinginput` stays its own leftover.
+fn find_listingcont_at(line: &str, from: usize, extra_cmds: &[String]) -> Option<(usize, usize)> {
+    find_leftover_cmd_at(line, from, extra_cmds, listingcont_cs_at)
+}
+
+fn listingcont_cs_at(line: &str, at: usize) -> bool {
+    let Some(tail) = line.get(at..).and_then(|s| s.strip_prefix('\\')) else {
+        return false;
+    };
+    let Some(after) = tail.strip_prefix("listingcont") else {
         return false;
     };
     !after.starts_with(|c: char| c.is_ascii_alphabetic() || c == '*')
@@ -2312,6 +2331,7 @@ impl<'a> ParseState<'a> {
                     })
                     .or_else(|| find_inputpy_at(code, i, &self.parser.extra_verbatim_commands))
                     .or_else(|| find_listinginput_at(code, i, &self.parser.extra_verbatim_commands))
+                    .or_else(|| find_listingcont_at(code, i, &self.parser.extra_verbatim_commands))
                     .or_else(|| {
                         find_verbatimtabinput_at(code, i, &self.parser.extra_verbatim_commands)
                     })
@@ -11099,6 +11119,96 @@ Some text.
         assert!(
             extras_brace.contains("After.\nNext."),
             "configured extra DefineShortVerb brace form must still split following prose, got:\n{extras_brace}"
+        );
+    }
+
+    /// Ticket fixture (GitHub #476): moreverb leftover `\listingcont`
+    /// stays one Structure span. Following flush `After.` does not
+    /// join. `After.` / `Next.` still split. `\listinginput` stays
+    /// atomic. extras skip so a configured extra does not re-tokenize
+    /// the no-brace form as Delim.
+    #[test]
+    fn listingcont_does_not_join_following_prose() {
+        use crate::{FormatConfig, format_text};
+
+        let input = concat!("Before. Next.\n", "\\listingcont\n", "After. Next.\n",);
+        let regions = LatexParser::default().parse(input);
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Structure(s) if s.contains(r"\listingcont")
+            )),
+            "listingcont must stay one Structure command, got: {regions:?}"
+        );
+        assert!(
+            !regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(p) if p.contains(r"\listingcont")
+            )),
+            "listingcont must not leak into Prose, got: {regions:?}"
+        );
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(p) if p.contains("After.") && p.contains("Next.")
+            )),
+            "After. / Next. must stay Prose, got: {regions:?}"
+        );
+        let out = format_text(input, &latex_cfg()).unwrap();
+        assert!(
+            out.contains("\\listingcont\n"),
+            "listingcont must stay one atomic command, got:\n{out}"
+        );
+        assert!(
+            !out.contains("\\listingcont After."),
+            "following flush prose must not join the command line, got:\n{out}"
+        );
+        assert!(
+            out.contains("Before.\nNext."),
+            "prose before listingcont must still split, got:\n{out}"
+        );
+        assert!(
+            out.contains("After.\nNext."),
+            "prose after listingcont must still split, got:\n{out}"
+        );
+        assert_eq!(format_text(&out, &latex_cfg()).unwrap(), out);
+
+        let listing = concat!(
+            "Before. Next.\n",
+            "\\listinginput{1}{foo.py}\n",
+            "After. Next.\n",
+        );
+        let listing_out = format_text(listing, &latex_cfg()).unwrap();
+        assert!(
+            listing_out.contains("\\listinginput{1}{foo.py}\n"),
+            "listinginput must stay unchanged, got:\n{listing_out}"
+        );
+        assert!(
+            !listing_out.contains("\\listinginput{1}{foo.py} After."),
+            "listinginput must not join following prose, got:\n{listing_out}"
+        );
+
+        let extras_cfg = FormatConfig {
+            format: crate::format::Format::Latex,
+            latex_verbatim_commands: vec!["listingcont".to_string()],
+            ..Default::default()
+        }
+        .without_safety_backstops();
+        let extras_out =
+            format_text("Before. Next.\n\\listingcont After. Next.\n", &extras_cfg).unwrap();
+        assert!(
+            extras_out.contains("After.\nNext."),
+            "configured extra listingcont must not re-tokenize the no-brace form as Delim, got:\n{extras_out}"
+        );
+        let extras_own =
+            format_text("Before. Next.\n\\listingcont\nAfter. Next.\n", &extras_cfg).unwrap();
+        assert!(
+            extras_own.contains("\\listingcont\n"),
+            "configured extra listingcont must keep the leftover form, got:\n{extras_own}"
+        );
+        assert!(
+            extras_own.contains("After.\nNext."),
+            "configured extra listingcont leftover form must still split following prose, got:\n{extras_own}"
         );
     }
 
