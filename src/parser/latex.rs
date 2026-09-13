@@ -4,7 +4,9 @@ use std::sync::LazyLock;
 use crate::parser::{
     ByteSpan, FormatParser, Line, SpannedRegion, flush_prose_spanned, iter_lines, join_prose_gap,
 };
-use crate::sentence::unicode::{latex_verb_span_end_with, pytx_inline_cs_name};
+use crate::sentence::unicode::{
+    latex_verb_span_end_with, pytx_inline_cs_name, sagetex_inline_cs_name,
+};
 
 // Environments whose content is NOT prose (math, code, tables, pictures).
 // Extra names are tree-sitter-latex `math_environment` plus latexindent
@@ -512,7 +514,8 @@ impl LatexParser {
     /// `\pygment` / `\inputpython` / `\inputpythonfile` /
     /// `\CatchFileBetweenTags` / `\CatchFileBetweenDelims` /
     /// `\ExecuteMetaData` / `\listinginput` / `\sageinput` /
-    /// `\inputsc` / configured verbatim commands.
+    /// `\sageplot` / `\sagestr` / `\inputsc` / configured verbatim
+    /// commands.
     fn unescaped_percent(&self, line: &str) -> Option<usize> {
         unescaped_percent_with(line, &self.extra_verbatim_commands)
     }
@@ -894,7 +897,7 @@ fn find_tex_cs(line: &str, from: usize, cs: &str) -> Option<usize> {
 /// twins / `\inputpygments` / `\pygment` / `\inputpython` /
 /// `\inputpythonfile` / `\CatchFileBetweenTags` /
 /// `\CatchFileBetweenDelims` / `\ExecuteMetaData` / `\listinginput` /
-/// `\sageinput` / `\inputsc` spans.
+/// `\sageinput` / `\sageplot` / `\sagestr` / `\inputsc` spans.
 fn find_iffalse_at(line: &str, from: usize, extra_cmds: &[String]) -> Option<usize> {
     let bytes = line.as_bytes();
     let mut i = from;
@@ -1068,6 +1071,30 @@ fn listinginput_cs_at(line: &str, at: usize) -> bool {
 /// name. There is no `*` form.
 fn find_sageinput_at(line: &str, from: usize, extra_cmds: &[String]) -> Option<(usize, usize)> {
     find_leftover_cmd_at(line, from, extra_cmds, sageinput_cs_at)
+}
+
+/// Leftover sagetex.sty inline cmds (GitHub #446). One leftover walker
+/// for `\sageplot` (optional `[ltx opts]` `[fmt]`, required
+/// `{graphics}`) and `\sagestr` (required `{code}`). Longer names
+/// first so `\sageplot` / `\sagestr` / `\sageinput` are not `\sage` +
+/// leftover. Other verb spans are skipped so `\verb|\sageplot{x}|` is
+/// not stolen. Walk stops at an unescaped `%` so a comment is not a
+/// command tail. `\sage` stays the pythontex usefamily leftover
+/// (GitHub #445). `\sageinput` stays its own leftover (GitHub #428).
+/// There is no `*` form.
+fn find_sagetex_inline_at(
+    line: &str,
+    from: usize,
+    extra_cmds: &[String],
+) -> Option<(usize, usize)> {
+    find_leftover_cmd_at(line, from, extra_cmds, sagetex_inline_cs_at)
+}
+
+fn sagetex_inline_cs_at(line: &str, at: usize) -> bool {
+    let Some(tail) = line.get(at..).and_then(|s| s.strip_prefix('\\')) else {
+        return false;
+    };
+    sagetex_inline_cs_name(tail).is_some()
 }
 
 fn sageinput_cs_at(line: &str, at: usize) -> bool {
@@ -1947,6 +1974,9 @@ impl<'a> ParseState<'a> {
                     .or_else(|| find_inputpy_at(code, i, &self.parser.extra_verbatim_commands))
                     .or_else(|| find_listinginput_at(code, i, &self.parser.extra_verbatim_commands))
                     .or_else(|| find_sageinput_at(code, i, &self.parser.extra_verbatim_commands))
+                    .or_else(|| {
+                        find_sagetex_inline_at(code, i, &self.parser.extra_verbatim_commands)
+                    })
                     .or_else(|| find_inputsc_at(code, i, &self.parser.extra_verbatim_commands))
                     .or_else(|| {
                         find_leftover_filename_input_at(
@@ -3732,6 +3762,188 @@ Some text.
         assert!(
             extras_brace.contains("After.\nNext."),
             "configured extra ruby brace form must still split following prose, got:\n{extras_brace}"
+        );
+    }
+
+    /// Ticket fixture (GitHub #446): sagetex leftover `\sageplot` /
+    /// `\sagestr` stay one Structure span. Following flush `After.`
+    /// does not join. `After.` / `Next.` still split. Longer names
+    /// first so `\sageplot` / `\sagestr` / `\sageinput` are not
+    /// `\sage` + leftover. `\sage` / `\sageinput` unchanged. extras
+    /// skip so a configured extra does not re-tokenize the no-brace
+    /// form as Delim.
+    #[test]
+    fn sagetex_inline_cmds_do_not_join_following_prose() {
+        use crate::{FormatConfig, format_text};
+
+        let sage = concat!("Before. Next.\n", "\\sage{1+1}\n", "After. Next.\n",);
+        let sage_out = format_text(sage, &latex_cfg()).unwrap();
+        assert!(
+            sage_out.contains("\\sage{1+1}\n"),
+            "sage must stay one atomic command, got:\n{sage_out}"
+        );
+        assert!(
+            !sage_out.contains("\\sage{1+1} After."),
+            "sage must not join following prose, got:\n{sage_out}"
+        );
+        assert!(
+            sage_out.contains("Before.\nNext."),
+            "prose before sage must still split, got:\n{sage_out}"
+        );
+        assert!(
+            sage_out.contains("After.\nNext."),
+            "prose after sage must still split, got:\n{sage_out}"
+        );
+        assert_eq!(format_text(&sage_out, &latex_cfg()).unwrap(), sage_out);
+
+        let plot = concat!(
+            "Before. Next.\n",
+            "\\sageplot{plot(sin(x))}\n",
+            "After. Next.\n",
+        );
+        let regions = LatexParser::default().parse(plot);
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Structure(s) if s.contains(r"\sageplot{plot(sin(x))}")
+            )),
+            "sageplot must stay one Structure command, got: {regions:?}"
+        );
+        assert!(
+            !regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(p) if p.contains(r"\sageplot{plot(sin(x))}")
+            )),
+            "sageplot must not leak into Prose, got: {regions:?}"
+        );
+        let plot_out = format_text(plot, &latex_cfg()).unwrap();
+        assert!(
+            plot_out.contains("\\sageplot{plot(sin(x))}\n"),
+            "sageplot must stay one atomic command, got:\n{plot_out}"
+        );
+        assert!(
+            !plot_out.contains("\\sageplot{plot(sin(x))} After."),
+            "following flush prose must not join the sageplot line, got:\n{plot_out}"
+        );
+        assert!(
+            plot_out.contains("Before.\nNext."),
+            "prose before sageplot must still split, got:\n{plot_out}"
+        );
+        assert!(
+            plot_out.contains("After.\nNext."),
+            "prose after sageplot must still split, got:\n{plot_out}"
+        );
+        assert_eq!(format_text(&plot_out, &latex_cfg()).unwrap(), plot_out);
+
+        let opts = concat!(
+            "Before. Next.\n",
+            "\\sageplot[width=.75\\textwidth]{plot(sin(x))}\n",
+            "After. Next.\n",
+        );
+        let opts_out = format_text(opts, &latex_cfg()).unwrap();
+        assert!(
+            opts_out.contains("\\sageplot[width=.75\\textwidth]{plot(sin(x))}\n"),
+            "sageplot ltx opts must stay atomic, got:\n{opts_out}"
+        );
+        assert!(
+            !opts_out.contains("\\sageplot[width=.75\\textwidth]{plot(sin(x))} After."),
+            "optional-arg sageplot must not join following prose, got:\n{opts_out}"
+        );
+
+        let fmt = concat!(
+            "Before. Next.\n",
+            "\\sageplot[][png]{plot(sin(x))}\n",
+            "After. Next.\n",
+        );
+        let fmt_out = format_text(fmt, &latex_cfg()).unwrap();
+        assert!(
+            fmt_out.contains("\\sageplot[][png]{plot(sin(x))}\n"),
+            "sageplot format opt must stay atomic, got:\n{fmt_out}"
+        );
+        assert!(
+            !fmt_out.contains("\\sageplot[][png]{plot(sin(x))} After."),
+            "two-optional sageplot must not join following prose, got:\n{fmt_out}"
+        );
+
+        let sagestr = concat!("Before. Next.\n", "\\sagestr{foo}\n", "After. Next.\n",);
+        let sagestr_regions = LatexParser::default().parse(sagestr);
+        assert!(
+            sagestr_regions.iter().any(|r| matches!(
+                r,
+                Region::Structure(s) if s.contains(r"\sagestr{foo}")
+            )),
+            "sagestr must stay one Structure command, got: {sagestr_regions:?}"
+        );
+        assert!(
+            !sagestr_regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(p) if p.contains(r"\sagestr{foo}")
+            )),
+            "sagestr must not leak into Prose, got: {sagestr_regions:?}"
+        );
+        let sagestr_out = format_text(sagestr, &latex_cfg()).unwrap();
+        assert!(
+            sagestr_out.contains("\\sagestr{foo}\n"),
+            "sagestr must stay one atomic command, got:\n{sagestr_out}"
+        );
+        assert!(
+            !sagestr_out.contains("\\sagestr{foo} After."),
+            "following flush prose must not join the sagestr line, got:\n{sagestr_out}"
+        );
+        assert!(
+            sagestr_out.contains("After.\nNext."),
+            "prose after sagestr must still split, got:\n{sagestr_out}"
+        );
+        assert_eq!(
+            format_text(&sagestr_out, &latex_cfg()).unwrap(),
+            sagestr_out
+        );
+
+        let sageinput = concat!(
+            "Before. Next.\n",
+            "\\sageinput{foo.sage}\n",
+            "After. Next.\n",
+        );
+        let sageinput_out = format_text(sageinput, &latex_cfg()).unwrap();
+        assert!(
+            sageinput_out.contains("\\sageinput{foo.sage}\n"),
+            "sageinput must stay unchanged, got:\n{sageinput_out}"
+        );
+        assert!(
+            !sageinput_out.contains("\\sageinput{foo.sage} After."),
+            "sageinput must not join following prose, got:\n{sageinput_out}"
+        );
+
+        let extras_cfg = FormatConfig {
+            format: crate::format::Format::Latex,
+            latex_verbatim_commands: vec!["sageplot".to_string(), "sagestr".to_string()],
+            ..Default::default()
+        }
+        .without_safety_backstops();
+        let extras_out =
+            format_text("Before. Next.\n\\sageplot After. Next.\n", &extras_cfg).unwrap();
+        assert!(
+            extras_out.contains("After.\nNext."),
+            "configured extra sageplot must not re-tokenize the no-brace form as Delim, got:\n{extras_out}"
+        );
+        let extras_str =
+            format_text("Before. Next.\n\\sagestr After. Next.\n", &extras_cfg).unwrap();
+        assert!(
+            extras_str.contains("After.\nNext."),
+            "configured extra sagestr must not re-tokenize the no-brace form as Delim, got:\n{extras_str}"
+        );
+        let extras_brace = format_text(
+            "Before. Next.\n\\sageplot{plot(sin(x))}\nAfter. Next.\n",
+            &extras_cfg,
+        )
+        .unwrap();
+        assert!(
+            extras_brace.contains("\\sageplot{plot(sin(x))}\n"),
+            "configured extra sageplot must keep the brace form as leftover, got:\n{extras_brace}"
+        );
+        assert!(
+            extras_brace.contains("After.\nNext."),
+            "configured extra sageplot brace form must still split following prose, got:\n{extras_brace}"
         );
     }
 
