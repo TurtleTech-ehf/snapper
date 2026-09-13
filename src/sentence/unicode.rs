@@ -221,6 +221,7 @@ pub fn protect_inline_tokens_with(
 /// `\listinginput[interval]{start}{file}` /
 /// `\verbatimtabinput[...]{file}` / `\verbatimtabinput*{file}` /
 /// `\verbatimwrite{file}` / `\verbatimwrite*{file}` /
+/// `\listingcont` /
 /// `\sageinput[...]{file}` /
 /// `\inputsc[...]{name}` / `\Scontents[...]{body}` /
 /// `\Scontents*[...]{body}` / `\typestored[...]{seq}` /
@@ -272,7 +273,7 @@ fn protect_latex_verbatim(
 /// `\inputpythonfile` / `\CatchFileBetweenTags` /
 /// `\CatchFileBetweenDelims` / `\ExecuteMetaData` / `\CatchFileDef` /
 /// `\CatchFileEdef` / `\listinginput` / `\verbatimtabinput` /
-/// `\verbatimwrite` /
+/// `\verbatimwrite` / `\listingcont` /
 /// `\sageinput` / `\inputsc` / `\Scontents` / `\typestored` /
 /// `\getstored` / `\mergesc` / `\meaningsc` / `\foreachsc` /
 /// `\pythontexcustomc` / `\pyth` / `\UseVerb` / `\UseVerbatim` /
@@ -356,7 +357,10 @@ fn protect_latex_verbatim(
 /// `\verbatimwrite*` (moreverb leftover; GitHub #471) take a required
 /// `{filename}`; no brace is not a span. Starred twin is the same walk.
 /// `\verbatimtabinput` / `\listinginput` / `\verbatiminput` stay their
-/// own leftovers. `\sageinput` (sagetex leftover; GitHub #428)
+/// own leftovers. `\listingcont` (moreverb leftover; GitHub #476)
+/// takes no args; the span is the name only so following flush prose
+/// is not a delimiter. No `*` form. `\listinginput` stays its own
+/// leftover. `\sageinput` (sagetex leftover; GitHub #428)
 /// takes optional `[...]` then a required `{filename}`; no brace is
 /// not a span. Alphabetic leftover rejects a longer name. `\sage` is
 /// a different, shorter name and is not this span. `\sageplot` /
@@ -499,6 +503,14 @@ pub(crate) fn latex_verb_span_end_with(
             return None;
         }
         (after_bs + "listinginput".len(), VerbKind::Listinginput)
+    } else if let Some(stripped) = tail.strip_prefix("listingcont") {
+        // moreverb leftover (GitHub #476). No args. No `*` form;
+        // alphabetic tail rejects a longer name. `\listinginput`
+        // stays its own leftover.
+        if stripped.starts_with(|c: char| c.is_ascii_alphabetic() || c == '*') {
+            return None;
+        }
+        (after_bs + "listingcont".len(), VerbKind::Listingcont)
     } else if let Some(stripped) = tail.strip_prefix("sageinput") {
         // sagetex leftover file-input (GitHub #428). No `*` form;
         // alphabetic tail rejects `\sageinputfoo`. `\sage` /
@@ -693,6 +705,12 @@ pub(crate) fn latex_verb_span_end_with(
         if next == '{' {
             return None;
         }
+    }
+
+    // moreverb leftover `\listingcont` (GitHub #476). No args. Span is
+    // the name only. Do not swallow following flush prose as Delim.
+    if kind == VerbKind::Listingcont {
+        return Some(i);
     }
 
     // fvextra leftover buffer cmds (GitHub #468). Optional `[...]`
@@ -1012,6 +1030,9 @@ enum VerbKind {
     /// `\listinginput`: optional `[interval]`, required `{start-line}`,
     /// required `{filename}` (moreverb leftover; GitHub #424).
     Listinginput,
+    /// `\listingcont`: no args (moreverb leftover; GitHub #476). Span
+    /// is the name only. No `*` form.
+    Listingcont,
     /// `\PitonInputFile`: optional `<...>`, optional `[...]`, required
     /// `{filename}` (piton.sty leftover; GitHub #406).
     PitonInputFile,
@@ -1487,6 +1508,7 @@ fn match_extra_verb_command<'a>(tail: &'a str, extras: &'a [String]) -> Option<&
             || fancyvrb_shortverb_leftover_cs_name(name).is_some_and(|n| n == name.as_str())
             || fvextra_buffer_leftover_cs_name(name).is_some_and(|n| n == name.as_str())
             || name == "listinginput"
+            || name == "listingcont"
             || name == "verbatimtabinput"
             || name == "verbatimwrite"
             || name == "sageinput"
@@ -4027,6 +4049,54 @@ mod tests {
             latex_verb_span_end_with(r"\verbatiminput{foo.py}", 0, &[]),
             Some(r"\verbatiminput{foo.py}".len()),
             "verbatimwrite must not steal verbatiminput"
+        );
+    }
+
+    /// Ticket fixture (GitHub #476): moreverb `\listingcont` stays one
+    /// leftover command (name only); following `After.` still splits.
+    /// extras skip so a configured extra does not re-tokenize the
+    /// no-brace form as Delim. listinginput / verbatimwrite unchanged.
+    #[test]
+    fn latex_listingcont_stays_atomic() {
+        let text = r"See \listingcont here. After.";
+        let (_, placeholders) = protect_inline_tokens(text);
+        assert!(
+            placeholders.iter().any(|p| p == r"\listingcont"),
+            "listingcont span must be protected, got {placeholders:?}"
+        );
+        assert_eq!(
+            latex_verb_span_end_with(r"\listingcont", 0, &[]),
+            Some(r"\listingcont".len())
+        );
+        assert_eq!(
+            split(text),
+            vec![r"See \listingcont here.".to_string(), "After.".to_string()]
+        );
+        assert_eq!(
+            latex_verb_span_end_with(r"\listingcont After.", 0, &[]),
+            Some(r"\listingcont".len()),
+            "listingcont span is the name only"
+        );
+        assert_eq!(
+            latex_verb_span_end_with(r"\listingcont*", 0, &[]),
+            None,
+            "listingcont has no star form"
+        );
+        let extras = ["listingcont".to_string()];
+        assert_eq!(
+            latex_verb_span_end_with(r"\listingcont After.", 0, &extras),
+            Some(r"\listingcont".len()),
+            "configured extra listingcont must not re-tokenize the no-brace form as Delim"
+        );
+        assert_eq!(
+            latex_verb_span_end_with(r"\listinginput{1}{foo.py}", 0, &[]),
+            Some(r"\listinginput{1}{foo.py}".len()),
+            "listingcont must not steal listinginput"
+        );
+        assert_eq!(
+            latex_verb_span_end_with(r"\verbatimwrite{foo.py}", 0, &[]),
+            Some(r"\verbatimwrite{foo.py}".len()),
+            "listingcont must not steal verbatimwrite"
         );
     }
 
