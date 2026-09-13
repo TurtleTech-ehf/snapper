@@ -218,6 +218,7 @@ pub fn protect_inline_tokens_with(
 /// `\ExecuteMetaData[...]{tag}` /
 /// `\listinginput[interval]{start}{file}` /
 /// `\sageinput[...]{file}` /
+/// `\sageplot[ltx opts][fmt]{graphics}` / `\sagestr{code}` /
 /// `\inputsc[...]{name}` so inner `.!?%` cannot
 /// split or comment. `\piton{...}` stays on the generic `\cmd{arg}`
 /// path (piton.sty brace syntax is not verbatim; GitHub #305).
@@ -256,7 +257,8 @@ fn protect_latex_verbatim(
 /// `\inputpygments` / `\pygment` / `\inputpython` /
 /// `\inputpythonfile` / `\CatchFileBetweenTags` /
 /// `\CatchFileBetweenDelims` / `\ExecuteMetaData` / `\listinginput` /
-/// `\sageinput` / `\inputsc` / extra-name span starting at `at`.
+/// `\sageinput` / `\sageplot` / `\sagestr` / `\inputsc` / extra-name
+/// span starting at `at`.
 ///
 /// `\verb` / `\verb*` / `\spverb` / `\spverb*` / `\Verb` / `\Verb*`: next
 /// character is the
@@ -320,7 +322,12 @@ fn protect_latex_verbatim(
 /// There is no `*` form. `\sageinput` (sagetex leftover; GitHub #428)
 /// takes optional `[...]` then a required `{filename}`; no brace is
 /// not a span. Alphabetic leftover rejects a longer name. `\sage` is
-/// a different, shorter name and is not this span. `\inputsc`
+/// a different, shorter name and is not this span. `\sageplot` /
+/// `\sagestr` (sagetex leftover inline; GitHub #446) take optional
+/// `[ltx opts][fmt]` then required `{graphics}`, or required `{code}`.
+/// Longer names first so they are not `\sage` + leftover. No brace is
+/// not a span. There is no `*` form. `\sage` stays the pythontex
+/// usefamily leftover (GitHub #445). `\inputsc`
 /// (scontents leftover sequence replay; GitHub #437) takes optional
 /// `[...]` then a required `{name}`; no brace is not a span. There
 /// is no `*` form. `\input` / `\inputpy` are not this name. Extra
@@ -389,6 +396,11 @@ pub(crate) fn latex_verb_span_end_with(
         // Longer names first. Same optional `[...]` then `{file}`
         // walk as `\lstinputlisting`.
         (after_bs + name.len(), VerbKind::Lstinputlisting)
+    } else if let Some(name) = sagetex_inline_cs_name(tail) {
+        // sagetex leftover inline (GitHub #446). Longer names first so
+        // `\sageplot` / `\sagestr` are not `\sage` + leftover. Optional
+        // `[ltx opts][fmt]` then required `{graphics}` / `{code}`.
+        (after_bs + name.len(), VerbKind::SagetexInline)
     } else if let Some(name) = pytx_inline_cs_name(tail) {
         // pythontex.sty leftover default-family and usefamily inline
         // (GitHub #441 / #445). Longer names first so `\pycon` /
@@ -560,6 +572,24 @@ pub(crate) fn latex_verb_span_end_with(
         }
         i += 1;
         return Some(find_unescaped_brace_close(text, i).unwrap_or_else(|| line_end(text, i)));
+    }
+
+    // sagetex leftover inline (GitHub #446). `\sageplot` takes optional
+    // `[ltx opts][fmt]` then required `{graphics}`. `\sagestr` takes
+    // required `{code}`. No brace is not a span. There is no `*` form.
+    if kind == VerbKind::SagetexInline {
+        i = skip_ascii_ws(text, i);
+        for _ in 0..2 {
+            if text.get(i..).is_some_and(|s| s.starts_with('[')) {
+                match skip_bracket_group(text, i) {
+                    Some(end) => i = skip_ascii_ws(text, end),
+                    None => return Some(line_end(text, i)),
+                }
+            } else {
+                break;
+            }
+        }
+        return skip_required_brace_groups(text, i, 1);
     }
 
     // tcolorbox `\tcbinputlisting{keyvals}` and sagetex
@@ -786,6 +816,9 @@ enum VerbKind {
     /// then delimiter or `{body}` (GitHub #441 / #445).
     /// An ASCII-letter next token is not a delimiter.
     PytxInline,
+    /// sagetex leftover inline (`\sageplot` / `\sagestr`; GitHub #446):
+    /// optional `[ltx opts][fmt]`, then required `{graphics}` / `{code}`.
+    SagetexInline,
     /// `\SaveVerb`: optional `[...]`, `{name}`, then delimiter body like `\Verb`.
     SaveVerb,
     /// `\piton`: verb-like delimiter except `{` (GitHub #305).
@@ -806,6 +839,21 @@ fn verbatiminput_cs_name(tail: &str) -> Option<&'static str> {
     for name in ["BVerbatimInput", "LVerbatimInput", "VerbatimInput"] {
         if let Some(after) = tail.strip_prefix(name) {
             if !after.starts_with(|c: char| c.is_ascii_alphabetic()) {
+                return Some(name);
+            }
+        }
+    }
+    None
+}
+
+/// sagetex leftover inline cmds (GitHub #446). Longer names first so
+/// `\sageplot` / `\sagestr` are not `\sage` + leftover. `\sage` stays
+/// the pythontex usefamily leftover (GitHub #445). `\sageinput` is a
+/// separate leftover. No `*` form.
+pub(crate) fn sagetex_inline_cs_name(tail: &str) -> Option<&'static str> {
+    for name in ["sageplot", "sagestr"] {
+        if let Some(after) = tail.strip_prefix(name) {
+            if !after.starts_with(|c: char| c.is_ascii_alphabetic() || c == '*') {
                 return Some(name);
             }
         }
@@ -1013,6 +1061,7 @@ fn match_extra_verb_command<'a>(tail: &'a str, extras: &'a [String]) -> Option<&
             || name == "verbatiminput"
             || name == "tcbinputlisting"
             || pytx_inline_cs_name(name).is_some_and(|n| n == name.as_str())
+            || sagetex_inline_cs_name(name).is_some_and(|n| n == name.as_str())
             || name == "listinginput"
             || name == "sageinput"
             || name == "inputpythonfile"
@@ -3858,6 +3907,166 @@ mod tests {
             latex_verb_span_end_with(r"\ruby*{puts 1}", 0, &[]),
             None,
             "usefamily inline has no star form"
+        );
+    }
+
+    /// Ticket fixture (GitHub #446): sagetex leftover inline
+    /// `\sageplot[ltx opts][fmt]{graphics}` and `\sagestr{code}` stay
+    /// one span. Following `After.` still splits. Longer names first
+    /// so `\sageplot` / `\sagestr` / `\sageinput` are not `\sage` +
+    /// leftover. extras skip so a configured extra does not
+    /// re-tokenize the no-brace form as Delim. `\sage` stays the
+    /// pythontex usefamily leftover. `\sageinput` stays its own span.
+    #[test]
+    fn latex_sagetex_inline_cmds_stay_atomic() {
+        let plot = r"\sageplot{plot(sin(x))}";
+        let text = r"See \sageplot{plot(sin(x))} here. After.";
+        let (_, placeholders) = protect_inline_tokens(text);
+        assert!(
+            placeholders.iter().any(|p| p == plot),
+            "sageplot span must be protected, got {placeholders:?}"
+        );
+        assert_eq!(
+            latex_verb_span_end_with(plot, 0, &[]),
+            Some(plot.len()),
+            "sageplot brace body must stay one span"
+        );
+        assert_eq!(
+            split(text),
+            vec![
+                r"See \sageplot{plot(sin(x))} here.".to_string(),
+                "After.".to_string()
+            ]
+        );
+        let opts = r"\sageplot[width=.75\textwidth]{plot(sin(x), x, 0, 2*pi)}";
+        assert_eq!(
+            latex_verb_span_end_with(opts, 0, &[]),
+            Some(opts.len()),
+            "sageplot optional ltx opts must stay in the span"
+        );
+        let fmt = r"\sageplot[][png]{plot(sin(x), x, 0, pi)}";
+        assert_eq!(
+            latex_verb_span_end_with(fmt, 0, &[]),
+            Some(fmt.len()),
+            "sageplot optional fmt must stay in the span"
+        );
+        let both = r"\sageplot[height=4cm][png]{plot(sin(x))}";
+        assert_eq!(
+            latex_verb_span_end_with(both, 0, &[]),
+            Some(both.len()),
+            "sageplot both optional args must stay in the span"
+        );
+        assert_eq!(
+            latex_verb_span_end_with(r"\sageplot {plot(sin(x))}", 0, &[]),
+            Some(r"\sageplot {plot(sin(x))}".len()),
+            "sageplot may skip space before the graphics brace"
+        );
+        assert_eq!(
+            latex_verb_span_end_with(r"\sageplot After.", 0, &[]),
+            None,
+            "sageplot without a brace is not a verb span"
+        );
+        assert_eq!(
+            latex_verb_span_end_with(r"\sageplot*{plot(sin(x))}", 0, &[]),
+            None,
+            "sageplot has no star form"
+        );
+
+        let sagestr = r"\sagestr{foo}";
+        let sagestr_text = r"See \sagestr{foo} here. After.";
+        let (_, sagestr_ph) = protect_inline_tokens(sagestr_text);
+        assert!(
+            sagestr_ph.iter().any(|p| p == sagestr),
+            "sagestr span must be protected, got {sagestr_ph:?}"
+        );
+        assert_eq!(
+            latex_verb_span_end_with(sagestr, 0, &[]),
+            Some(sagestr.len()),
+            "sagestr brace body must stay one span"
+        );
+        assert_eq!(
+            split(sagestr_text),
+            vec![r"See \sagestr{foo} here.".to_string(), "After.".to_string()]
+        );
+        assert_eq!(
+            latex_verb_span_end_with(r"\sagestr {foo}", 0, &[]),
+            Some(r"\sagestr {foo}".len()),
+            "sagestr may skip space before the code brace"
+        );
+        assert_eq!(
+            latex_verb_span_end_with(r"\sagestr After.", 0, &[]),
+            None,
+            "sagestr without a brace is not a verb span"
+        );
+        assert_eq!(
+            latex_verb_span_end_with(r"\sagestr*{foo}", 0, &[]),
+            None,
+            "sagestr has no star form"
+        );
+
+        assert_eq!(
+            sagetex_inline_cs_name("sageplot{plot(sin(x))}"),
+            Some("sageplot"),
+            "sageplot must not be sage + leftover"
+        );
+        assert_eq!(
+            sagetex_inline_cs_name("sagestr{foo}"),
+            Some("sagestr"),
+            "sagestr must not be sage + leftover"
+        );
+        assert_eq!(
+            sagetex_inline_cs_name("sage{1+1}"),
+            None,
+            "sage stays the pythontex usefamily leftover"
+        );
+        assert_eq!(
+            sagetex_inline_cs_name("sageinput{foo.sage}"),
+            None,
+            "sageinput is not this leftover"
+        );
+
+        let extras_plot = ["sageplot".to_string()];
+        assert_eq!(
+            latex_verb_span_end_with(r"\sageplot After.", 0, &extras_plot),
+            None,
+            "configured extra sageplot must not re-tokenize the no-brace form as Delim"
+        );
+        assert_eq!(
+            latex_verb_span_end_with(plot, 0, &extras_plot),
+            Some(plot.len()),
+            "configured extra sageplot must keep the brace form as leftover"
+        );
+        let extras_str = ["sagestr".to_string()];
+        assert_eq!(
+            latex_verb_span_end_with(r"\sagestr After.", 0, &extras_str),
+            None,
+            "configured extra sagestr must not re-tokenize the no-brace form as Delim"
+        );
+        assert_eq!(
+            latex_verb_span_end_with(sagestr, 0, &extras_str),
+            Some(sagestr.len()),
+            "configured extra sagestr must keep the brace form as leftover"
+        );
+
+        assert_eq!(
+            latex_verb_span_end_with(r"\sage{1+1}", 0, &[]),
+            Some(r"\sage{1+1}".len()),
+            "sage brace form must stay the usefamily leftover"
+        );
+        assert_eq!(
+            latex_verb_span_end_with(r"\sage|1+1|", 0, &[]),
+            Some(r"\sage|1+1|".len()),
+            "sage delimiter form must stay the usefamily leftover"
+        );
+        assert_eq!(
+            latex_verb_span_end_with(r"\sageinput{foo.sage}", 0, &[]),
+            Some(r"\sageinput{foo.sage}".len()),
+            "sageplot leftover must not steal sageinput"
+        );
+        assert_eq!(
+            latex_verb_span_end_with(r"\sagec{1+1}", 0, &[]),
+            Some(r"\sagec{1+1}".len()),
+            "sagetex inline must not steal usefamily sagec"
         );
     }
 

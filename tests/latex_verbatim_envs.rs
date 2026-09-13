@@ -98,6 +98,8 @@
 //! \\rs / \\R / \\perl / \\pl / \\perlsix / \\psix / \\javascript /
 //! \\js and twins stay one atomic command (brace or |delim| body);
 //! following flush prose does not join.
+//! GitHub #446: sagetex leftover inline \\sageplot / \\sagestr stay
+//! one atomic command; following flush prose does not join.
 //! GitHub #443: pythonhighlight.sty leftover \\inputpython /
 //! \\inputpythonfile stay one atomic command; following flush prose
 //! does not join.
@@ -4196,6 +4198,160 @@ fn sageinput_fixture_does_not_join_following_prose() {
     assert!(
         !piton_out.contains("\\PitonInputFile{foo.py} After."),
         "PitonInputFile must not join following prose, got:\n{piton_out}"
+    );
+}
+
+/// Ticket fixture (GitHub #446): sagetex leftover inline
+/// `\sageplot[ltx opts][fmt]{graphics}` and `\sagestr{code}` stay one
+/// atomic command. Following flush `After.` does not join the command
+/// line. `After.` / `Next.` still split. Longer names first so
+/// `\sageplot` / `\sagestr` / `\sageinput` are not `\sage` + leftover.
+/// `\sage` stays the pythontex usefamily leftover. `\sageinput`
+/// unchanged. extras skip so a configured extra does not re-tokenize
+/// the no-brace form as Delim.
+#[test]
+fn sagetex_inline_cmds_do_not_join_following_prose() {
+    for (cmd, name) in [
+        (r"\sageplot{plot(sin(x))}", "sageplot"),
+        (r"\sagestr{foo}", "sagestr"),
+    ] {
+        let input = format!("Before. Next.\n{cmd}\nAfter. Next.\n");
+        let regions = LatexParser::default().parse(&input);
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Structure(s) if s.contains(cmd)
+            )),
+            "{name} must stay one Structure command, got: {regions:?}"
+        );
+        assert!(
+            !regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(p) if p.contains(cmd)
+            )),
+            "{name} must not leak into Prose, got: {regions:?}"
+        );
+        let out = format_text(&input, &latex_cfg()).unwrap();
+        assert!(
+            out.contains(&format!("{cmd}\n")),
+            "{name} must stay one atomic command, got:\n{out}"
+        );
+        assert!(
+            !out.contains(&format!("{cmd} After.")),
+            "following flush prose must not join the {name} line, got:\n{out}"
+        );
+        assert!(
+            out.contains("Before.\nNext."),
+            "prose before {name} must still split, got:\n{out}"
+        );
+        assert!(
+            out.contains("After.\nNext."),
+            "prose after {name} must still split, got:\n{out}"
+        );
+        assert_eq!(format_text(&out, &latex_cfg()).unwrap(), out);
+    }
+
+    let plot_opts = concat!(
+        "Before. Next.\n",
+        "\\sageplot[width=.75\\textwidth]{plot(sin(x), x, 0, 2*pi)}\n",
+        "After. Next.\n",
+    );
+    let plot_opts_out = format_text(plot_opts, &latex_cfg()).unwrap();
+    assert!(
+        plot_opts_out.contains("\\sageplot[width=.75\\textwidth]{plot(sin(x), x, 0, 2*pi)}\n"),
+        "sageplot optional ltx opts must stay atomic, got:\n{plot_opts_out}"
+    );
+    assert!(
+        !plot_opts_out
+            .contains("\\sageplot[width=.75\\textwidth]{plot(sin(x), x, 0, 2*pi)} After."),
+        "optional-arg sageplot must not join following prose, got:\n{plot_opts_out}"
+    );
+    assert!(
+        plot_opts_out.contains("After.\nNext."),
+        "prose after optional-arg sageplot must still split, got:\n{plot_opts_out}"
+    );
+
+    let plot_fmt = concat!(
+        "Before. Next.\n",
+        "\\sageplot[][png]{plot(sin(x), x, 0, pi)}\n",
+        "After. Next.\n",
+    );
+    let plot_fmt_out = format_text(plot_fmt, &latex_cfg()).unwrap();
+    assert!(
+        plot_fmt_out.contains("\\sageplot[][png]{plot(sin(x), x, 0, pi)}\n"),
+        "sageplot optional fmt must stay atomic, got:\n{plot_fmt_out}"
+    );
+    assert!(
+        !plot_fmt_out.contains("\\sageplot[][png]{plot(sin(x), x, 0, pi)} After."),
+        "fmt sageplot must not join following prose, got:\n{plot_fmt_out}"
+    );
+
+    let sage = concat!("Before. Next.\n", "\\sage{1+1}\n", "After. Next.\n",);
+    let sage_out = format_text(sage, &latex_cfg()).unwrap();
+    assert!(
+        sage_out.contains("\\sage{1+1}\n"),
+        "sage must stay the usefamily leftover, got:\n{sage_out}"
+    );
+    assert!(
+        !sage_out.contains("\\sage{1+1} After."),
+        "sage must not join following prose, got:\n{sage_out}"
+    );
+    assert!(
+        sage_out.contains("After.\nNext."),
+        "prose after sage must still split, got:\n{sage_out}"
+    );
+
+    let sageinput = concat!(
+        "Before. Next.\n",
+        "\\sageinput{foo.sage}\n",
+        "After. Next.\n",
+    );
+    let sageinput_out = format_text(sageinput, &latex_cfg()).unwrap();
+    assert!(
+        sageinput_out.contains("\\sageinput{foo.sage}\n"),
+        "sageinput must stay unchanged, got:\n{sageinput_out}"
+    );
+    assert!(
+        !sageinput_out.contains("\\sageinput{foo.sage} After."),
+        "sageinput must not join following prose, got:\n{sageinput_out}"
+    );
+
+    let extras_cfg = FormatConfig {
+        format: Format::Latex,
+        latex_verbatim_commands: vec!["sageplot".to_string()],
+        ..Default::default()
+    }
+    .without_safety_backstops();
+    let extras_out = format_text("Before. Next.\n\\sageplot After. Next.\n", &extras_cfg).unwrap();
+    assert!(
+        extras_out.contains("After.\nNext."),
+        "configured extra sageplot must not re-tokenize the no-brace form as Delim, got:\n{extras_out}"
+    );
+    let extras_brace = format_text(
+        "Before. Next.\n\\sageplot{plot(sin(x))}\nAfter. Next.\n",
+        &extras_cfg,
+    )
+    .unwrap();
+    assert!(
+        extras_brace.contains("\\sageplot{plot(sin(x))}\n"),
+        "configured extra sageplot must keep the brace form as leftover, got:\n{extras_brace}"
+    );
+    assert!(
+        extras_brace.contains("After.\nNext."),
+        "configured extra sageplot brace form must still split following prose, got:\n{extras_brace}"
+    );
+
+    let extras_str_cfg = FormatConfig {
+        format: Format::Latex,
+        latex_verbatim_commands: vec!["sagestr".to_string()],
+        ..Default::default()
+    }
+    .without_safety_backstops();
+    let extras_str_out =
+        format_text("Before. Next.\n\\sagestr After. Next.\n", &extras_str_cfg).unwrap();
+    assert!(
+        extras_str_out.contains("After.\nNext."),
+        "configured extra sagestr must not re-tokenize the no-brace form as Delim, got:\n{extras_str_out}"
     );
 }
 
