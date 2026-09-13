@@ -209,6 +209,9 @@ pub fn protect_inline_tokens_with(
 /// `\inputpylab[...]{file}` / `\inputpylabcon[...]{file}` /
 /// `\inputsympy[...]{file}` / `\inputsympycon[...]{file}` /
 /// `\inputpygments[...]{lang}{file}` / `\pygment{lang}{code}` /
+/// `\py{code}` / `\pyc{code}` / `\pys{code}` / `\pyb{code}` /
+/// `\pyv{code}` / `\pycon{code}` / `\sympy{code}` / `\pylab{code}`
+/// and twins /
 /// `\CatchFileBetweenTags{macro}{file}{tag}` /
 /// `\CatchFileBetweenDelims{macro}{file}{start}{end}` /
 /// `\ExecuteMetaData[...]{tag}` /
@@ -247,8 +250,9 @@ fn protect_latex_verbatim(
 /// `\PitonInputFileT` / `\PitonInputFileF` / `\PitonInputFileTF` /
 /// `\tcbinputlisting` / `\inputpy` / `\inputpycon` /
 /// `\inputpylab` / `\inputpylabcon` / `\inputsympy` /
-/// `\inputsympycon` / `\inputpygments` / `\pygment` /
-/// `\CatchFileBetweenTags` / `\CatchFileBetweenDelims` /
+/// `\inputsympycon` / `\inputpygments` / `\pygment` / `\py` /
+/// `\pyc` / `\pys` / `\pyb` / `\pyv` / `\pycon` / `\sympy` /
+/// `\pylab` and twins / `\CatchFileBetweenTags` / `\CatchFileBetweenDelims` /
 /// `\ExecuteMetaData` / `\listinginput` / `\sageinput` / `\inputsc` /
 /// extra-name span starting at `at`.
 ///
@@ -289,7 +293,14 @@ fn protect_latex_verbatim(
 /// leftover. `\inputpygments` (pythontex.sty leftover; GitHub #439)
 /// is its own span (same `{lang}` then `{file}` walk as
 /// `\inputminted`), not `inputpy` + leftover. `\pygment` takes
-/// `{lang}` then a delimiter or `{code}` body. `\CatchFileBetweenTags`
+/// `{lang}` then a delimiter or `{code}` body. Default-family
+/// pythontex.sty leftover inline cmds (`\py` / `\pyc` / `\pys` /
+/// `\pyb` / `\pyv`, `\pycon` and twins, `\sympy` / `\pylab` and
+/// twins; GitHub #441) take optional `[...]` then a delimiter or
+/// `{body}` like `\verb` / `\mint`. Longer names first so
+/// `\pycon` / `\pylab` / `\pyc` are not `\py` + leftover.
+/// `\inputpy` / `\inputpygments` / `\pygment` stay their own
+/// spans. No body is not a span. `\CatchFileBetweenTags`
 /// takes three required braces; `\CatchFileBetweenDelims` takes four
 /// then optional `[setup]`; `\ExecuteMetaData` takes optional `[file]`
 /// then `{tag}`. `\listinginput` (moreverb
@@ -348,6 +359,11 @@ pub(crate) fn latex_verb_span_end_with(
         // Longer names first. Same optional `[...]` then `{file}`
         // walk as `\lstinputlisting`.
         (after_bs + name.len(), VerbKind::Lstinputlisting)
+    } else if let Some(name) = pythontex_inline_cs_name(tail) {
+        // pythontex.sty leftover default-family inline (GitHub #441).
+        // After inputpygments / pygment / inputpy so those stay
+        // their own spans. Longer names first.
+        (after_bs + name.len(), VerbKind::PythontexInline)
     } else if let Some(stripped) = tail.strip_prefix("listinginput") {
         // moreverb leftover file-input (GitHub #424). No `*` form;
         // alphabetic tail rejects a longer name.
@@ -610,6 +626,39 @@ pub(crate) fn latex_verb_span_end_with(
         }
     }
 
+    // pythontex.sty leftover default-family inline (GitHub #441).
+    // Optional `[...]` (spaces only to reach `[`), then a delimiter
+    // or `{body}` like `\verb` / `\mint`. Space or EOL after the
+    // name is the no-body form and is not a span.
+    if kind == VerbKind::PythontexInline {
+        let j = skip_ascii_ws(text, i);
+        if text.get(j..).is_some_and(|s| s.starts_with('[')) {
+            match skip_bracket_group(text, j) {
+                Some(end) => i = skip_ascii_ws(text, end),
+                None => return Some(line_end(text, j)),
+            }
+        }
+        let delim = text.get(i..).and_then(|s| s.chars().next())?;
+        if delim == '\n' || delim.is_ascii_whitespace() {
+            return None;
+        }
+        i += delim.len_utf8();
+        if delim == '{' {
+            return Some(find_unescaped_brace_close(text, i).unwrap_or_else(|| line_end(text, i)));
+        }
+        while i < text.len() {
+            let ch = text[i..].chars().next()?;
+            if ch == '\n' {
+                return Some(i);
+            }
+            if ch == delim {
+                return Some(i + ch.len_utf8());
+            }
+            i += ch.len_utf8();
+        }
+        return Some(text.len());
+    }
+
     // After `{name}`, the next character is the delimiter (Verb / FV@Scan).
     if kind == VerbKind::SaveVerb {
         if !text.get(i..).is_some_and(|s| s.starts_with('{')) {
@@ -686,6 +735,9 @@ enum VerbKind {
     /// `\mintinline` / `\mint` / `\inputminted` / `\inputpygments` /
     /// `\pygment`: optional `[...]`, `{lang}`, then body.
     Mint,
+    /// pythontex.sty leftover default-family inline (`\py` / twins;
+    /// GitHub #441): optional `[...]`, then delimiter or `{body}`.
+    PythontexInline,
     /// `\SaveVerb`: optional `[...]`, `{name}`, then delimiter body like `\Verb`.
     SaveVerb,
     /// `\piton`: verb-like delimiter except `{` (GitHub #305).
@@ -734,6 +786,54 @@ fn inputpy_cs_name(tail: &str) -> Option<&'static str> {
     }
     None
 }
+
+/// pythontex.sty leftover default-family inline cmds (optional
+/// `[...]`, delimiter or `{body}`; GitHub #441). Longer names
+/// first so `\pycon` / `\pylab` / `\pyc` are not `\py` + leftover.
+/// No `*` form; alphabetic leftover rejects `\pygment`.
+fn pythontex_inline_cs_name(tail: &str) -> Option<&'static str> {
+    for name in PYTHONTEX_INLINE_CS {
+        if let Some(after) = tail.strip_prefix(name) {
+            if !after.starts_with(|c: char| c.is_ascii_alphabetic() || c == '*') {
+                return Some(name);
+            }
+        }
+    }
+    None
+}
+
+/// Always-defined pythontex.sty default-family inline names from
+/// `\pytx@MakeInlinecFV` / `sFV` / `FV` / `bFV` / `vFV` (and
+/// console twins). Longest first.
+const PYTHONTEX_INLINE_CS: &[&str] = &[
+    "pylabconc",
+    "pylabcons",
+    "pylabconv",
+    "sympyconc",
+    "sympycons",
+    "sympyconv",
+    "pylabcon",
+    "sympycon",
+    "pylabc",
+    "pylabs",
+    "pylabb",
+    "pylabv",
+    "sympyc",
+    "sympys",
+    "sympyb",
+    "sympyv",
+    "pyconc",
+    "pycons",
+    "pyconv",
+    "pylab",
+    "sympy",
+    "pycon",
+    "pyc",
+    "pys",
+    "pyb",
+    "pyv",
+    "py",
+];
 
 /// piton.sty leftover `\PitonInputFile` family (GitHub #406 / #439).
 /// Longer T / F / TF names first so they are not the base name plus
@@ -793,6 +893,7 @@ fn match_extra_verb_command<'a>(tail: &'a str, extras: &'a [String]) -> Option<&
             || name == "PitonInputFileT"
             || name == "PitonInputFileF"
             || name == "PitonInputFileTF"
+            || pythontex_inline_cs_name(name).is_some()
         {
             continue;
         }
@@ -3256,6 +3357,98 @@ mod tests {
             latex_verb_span_end_with(r"\inputminted{python}{foo.py}", 0, &[]),
             Some(r"\inputminted{python}{foo.py}".len()),
             "inputpygments must not steal inputminted"
+        );
+    }
+
+    /// Ticket fixture (GitHub #441): pythontex.sty leftover
+    /// default-family inline cmds stay one span; following `After.`
+    /// still splits. Brace or `|delim|` body. Longer names first.
+    /// extras skip so a configured extra does not re-tokenize the
+    /// no-body form as Delim. inputpy / inputpygments / pygment
+    /// unchanged.
+    #[test]
+    fn latex_pythontex_inline_stays_atomic() {
+        for name in [
+            "py", "pyc", "pys", "pyb", "pyv", "pycon", "pyconc", "pycons", "pyconv", "sympy",
+            "sympyc", "sympys", "sympyb", "sympyv", "sympycon", "pylab", "pylabc", "pylabs",
+            "pylabb", "pylabv", "pylabcon",
+        ] {
+            let cmd = format!("\\{name}{{print(1)}}");
+            let text = format!("See {cmd} here. After.");
+            let (_, placeholders) = protect_inline_tokens(&text);
+            assert!(
+                placeholders.iter().any(|p| p == &cmd),
+                "{name} brace span must be protected, got {placeholders:?}"
+            );
+            assert_eq!(latex_verb_span_end_with(&cmd, 0, &[]), Some(cmd.len()));
+            assert_eq!(
+                split(&text),
+                vec![format!("See {cmd} here."), "After.".to_string()]
+            );
+            let delim = format!("\\{name}|print(1)|");
+            assert_eq!(
+                latex_verb_span_end_with(&delim, 0, &[]),
+                Some(delim.len()),
+                "{name} delimiter body must stay in the span"
+            );
+            let opts = format!("\\{name}[sess]{{print(1)}}");
+            assert_eq!(
+                latex_verb_span_end_with(&opts, 0, &[]),
+                Some(opts.len()),
+                "{name} optional session must stay in the span"
+            );
+            let no_body = format!("\\{name} After.");
+            assert_eq!(
+                latex_verb_span_end_with(&no_body, 0, &[]),
+                None,
+                "{name} without a body is not a verb span"
+            );
+            let extras = [name.to_string()];
+            assert_eq!(
+                latex_verb_span_end_with(&no_body, 0, &extras),
+                None,
+                "configured extra {name} must not re-tokenize the no-body form as Delim"
+            );
+            assert_eq!(
+                latex_verb_span_end_with(&cmd, 0, &extras),
+                Some(cmd.len()),
+                "configured extra {name} must keep the brace form as leftover"
+            );
+        }
+        assert_eq!(
+            latex_verb_span_end_with(r"\pycon{print(1)}", 0, &[]),
+            Some(r"\pycon{print(1)}".len()),
+            "pycon must not be py + leftover"
+        );
+        assert_eq!(
+            latex_verb_span_end_with(r"\pylab{print(1)}", 0, &[]),
+            Some(r"\pylab{print(1)}".len()),
+            "pylab must not be py + leftover"
+        );
+        assert_eq!(
+            latex_verb_span_end_with(r"\pyc{print(1)}", 0, &[]),
+            Some(r"\pyc{print(1)}".len()),
+            "pyc must not be py + leftover"
+        );
+        assert_eq!(
+            latex_verb_span_end_with(r"\inputpy{foo.py}", 0, &[]),
+            Some(r"\inputpy{foo.py}".len()),
+            "inputpy must stay a span"
+        );
+        assert_eq!(
+            latex_verb_span_end_with(r"\inputpygments{python}{foo.py}", 0, &[]),
+            Some(r"\inputpygments{python}{foo.py}".len()),
+            "inputpygments must stay a span"
+        );
+        assert_eq!(
+            latex_verb_span_end_with(r"\pygment{python}{print(1)}", 0, &[]),
+            Some(r"\pygment{python}{print(1)}".len()),
+            "pygment must stay a span"
+        );
+        assert_eq!(
+            latex_verb_span_end_with(r"\py*{print(1)}", 0, &[]),
+            None,
+            "pythontex inline has no star form"
         );
     }
 
