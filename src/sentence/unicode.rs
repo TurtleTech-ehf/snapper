@@ -219,6 +219,7 @@ pub fn protect_inline_tokens_with(
 /// `\CatchFileDef{macro}{file}{setup}` /
 /// `\CatchFileEdef{macro}{file}{setup}` /
 /// `\listinginput[interval]{start}{file}` /
+/// `\verbatimtabinput[...]{file}` / `\verbatimtabinput*{file}` /
 /// `\sageinput[...]{file}` /
 /// `\inputsc[...]{name}` / `\Scontents[...]{body}` /
 /// `\Scontents*[...]{body}` / `\typestored[...]{seq}` /
@@ -266,7 +267,7 @@ fn protect_latex_verbatim(
 /// `\inputpygments` / `\pygment` / `\inputpython` /
 /// `\inputpythonfile` / `\CatchFileBetweenTags` /
 /// `\CatchFileBetweenDelims` / `\ExecuteMetaData` / `\CatchFileDef` /
-/// `\CatchFileEdef` / `\listinginput` /
+/// `\CatchFileEdef` / `\listinginput` / `\verbatimtabinput` /
 /// `\sageinput` / `\inputsc` / `\Scontents` / `\typestored` /
 /// `\getstored` / `\mergesc` / `\meaningsc` / `\foreachsc` /
 /// `\pythontexcustomc` / `\pyth` / `\UseVerb` / `\UseVerbatim` /
@@ -340,7 +341,10 @@ fn protect_latex_verbatim(
 /// leftovers. `\listinginput` (moreverb
 /// leftover; GitHub #424) takes optional `[interval]` then required
 /// `{start-line}` and `{filename}`; no second brace is not a span.
-/// There is no `*` form. `\sageinput` (sagetex leftover; GitHub #428)
+/// There is no `*` form. `\verbatimtabinput` / `\verbatimtabinput*`
+/// (moreverb leftover; GitHub #465) take optional `[tabwidth]` then a
+/// required `{filename}`; no brace is not a span. Matched before
+/// `\verbatiminput` so this is not rejected as leftover. `\sageinput` (sagetex leftover; GitHub #428)
 /// takes optional `[...]` then a required `{filename}`; no brace is
 /// not a span. Alphabetic leftover rejects a longer name. `\sage` is
 /// a different, shorter name and is not this span. `\sageplot` /
@@ -545,6 +549,18 @@ pub(crate) fn latex_verb_span_end_with(
         }
         (
             after_bs + "lstinputlisting".len(),
+            VerbKind::Lstinputlisting,
+        )
+    } else if let Some(stripped) = tail.strip_prefix("verbatimtabinput") {
+        // moreverb leftover file-input (GitHub #465). Optional
+        // `[tabwidth]`, required `{filename}`. Star form allowed.
+        // Matched before `verbatiminput` so this is not rejected as
+        // leftover. Alphabetic leftover rejects a longer name.
+        if stripped.starts_with(|c: char| c.is_ascii_alphabetic()) {
+            return None;
+        }
+        (
+            after_bs + "verbatimtabinput".len(),
             VerbKind::Lstinputlisting,
         )
     } else if let Some(stripped) = tail.strip_prefix("verbatiminput") {
@@ -1343,6 +1359,7 @@ fn match_extra_verb_command<'a>(tail: &'a str, extras: &'a [String]) -> Option<&
             || scontents_leftover_cs_name(name).is_some_and(|n| n == name.as_str())
             || fancyvrb_leftover_cs_name(name).is_some_and(|n| n == name.as_str())
             || name == "listinginput"
+            || name == "verbatimtabinput"
             || name == "sageinput"
             || name == "inputpythonfile"
             || name == "inputpython"
@@ -3739,6 +3756,81 @@ mod tests {
             latex_verb_span_end_with(r"\lstinputlisting{foo.py}", 0, &[]),
             Some(r"\lstinputlisting{foo.py}".len()),
             "listinginput must not steal lstinputlisting"
+        );
+    }
+
+    /// Ticket fixture (GitHub #465): moreverb `\verbatimtabinput{file}`
+    /// / `\verbatimtabinput*` stay one leftover file-input command;
+    /// following `After.` still splits. Optional `[tabwidth]` stays in
+    /// the span. extras skip so a configured extra does not
+    /// re-tokenize the no-brace form as Delim. listinginput /
+    /// verbatiminput unchanged.
+    #[test]
+    fn latex_verbatimtabinput_stays_atomic() {
+        let text = r"See \verbatimtabinput{foo.py} here. After.";
+        let (_, placeholders) = protect_inline_tokens(text);
+        assert!(
+            placeholders
+                .iter()
+                .any(|p| p == r"\verbatimtabinput{foo.py}"),
+            "verbatimtabinput span must be protected, got {placeholders:?}"
+        );
+        assert_eq!(
+            latex_verb_span_end_with(r"\verbatimtabinput{foo.py}", 0, &[]),
+            Some(r"\verbatimtabinput{foo.py}".len())
+        );
+        assert_eq!(
+            split(text),
+            vec![
+                r"See \verbatimtabinput{foo.py} here.".to_string(),
+                "After.".to_string()
+            ]
+        );
+        assert_eq!(
+            latex_verb_span_end_with(r"\verbatimtabinput[8]{foo.py}", 0, &[]),
+            Some(r"\verbatimtabinput[8]{foo.py}".len()),
+            "verbatimtabinput optional tabwidth must stay in the span"
+        );
+        assert_eq!(
+            latex_verb_span_end_with(r"\verbatimtabinput*{foo.py}", 0, &[]),
+            Some(r"\verbatimtabinput*{foo.py}".len()),
+            "verbatimtabinput star form must stay a span"
+        );
+        assert_eq!(
+            latex_verb_span_end_with(r"\verbatimtabinput*[8]{foo.py}", 0, &[]),
+            Some(r"\verbatimtabinput*[8]{foo.py}".len()),
+            "verbatimtabinput star plus tabwidth must stay in the span"
+        );
+        assert_eq!(
+            latex_verb_span_end_with(r"\verbatimtabinput {foo.py}", 0, &[]),
+            Some(r"\verbatimtabinput {foo.py}".len()),
+            "verbatimtabinput may skip space before the file brace"
+        );
+        assert_eq!(
+            latex_verb_span_end_with(r"\verbatimtabinput foo.py", 0, &[]),
+            None,
+            "verbatimtabinput without a brace file arg is not a verb span"
+        );
+        let extras = ["verbatimtabinput".to_string()];
+        assert_eq!(
+            latex_verb_span_end_with(r"\verbatimtabinput foo.py", 0, &extras),
+            None,
+            "configured extra verbatimtabinput must not re-tokenize the no-brace form as Delim"
+        );
+        assert_eq!(
+            latex_verb_span_end_with(r"\verbatimtabinput{foo.py}", 0, &extras),
+            Some(r"\verbatimtabinput{foo.py}".len()),
+            "configured extra verbatimtabinput must keep the brace form as leftover"
+        );
+        assert_eq!(
+            latex_verb_span_end_with(r"\verbatiminput{foo.py}", 0, &[]),
+            Some(r"\verbatiminput{foo.py}".len()),
+            "verbatimtabinput must not steal verbatiminput"
+        );
+        assert_eq!(
+            latex_verb_span_end_with(r"\listinginput{1}{foo.py}", 0, &[]),
+            Some(r"\listinginput{1}{foo.py}".len()),
+            "verbatimtabinput must not steal listinginput"
         );
     }
 
