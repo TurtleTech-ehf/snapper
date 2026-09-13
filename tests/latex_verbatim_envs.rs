@@ -100,6 +100,8 @@
 //! following flush prose does not join.
 //! GitHub #446: sagetex leftover inline \\sageplot / \\sagestr stay
 //! one atomic command; following flush prose does not join.
+//! GitHub #449: pythontex.sty leftover \\pythontexcustomc stays one
+//! atomic command; following flush prose does not join.
 //! GitHub #443: pythonhighlight.sty leftover \\inputpython /
 //! \\inputpythonfile stay one atomic command; following flush prose
 //! does not join.
@@ -4344,6 +4346,144 @@ fn sagetex_inline_cmds_do_not_join_following_prose() {
     assert!(
         extras_brace.contains("After.\nNext."),
         "configured extra sageplot brace form must still split following prose, got:\n{extras_brace}"
+    );
+}
+
+/// Ticket fixture (GitHub #449): pythontex.sty leftover
+/// `\pythontexcustomc[begin|end]{type}{code}` stays one atomic
+/// command. Following flush `After.` does not join the command line.
+/// `After.` / `Next.` still split. Longer name first so this is not
+/// `\py` + leftover. `\py` / `\inputpy` / `pythontexcustomcode` env
+/// unchanged. extras skip so a configured extra does not re-tokenize
+/// the no-brace form as Delim.
+#[test]
+fn pythontexcustomc_fixture_does_not_join_following_prose() {
+    let input = concat!(
+        "Before. Next.\n",
+        "\\pythontexcustomc{python}{import numpy}\n",
+        "After. Next.\n",
+    );
+    let regions = LatexParser::default().parse(input);
+    assert!(
+        regions.iter().any(|r| matches!(
+            r,
+            Region::Structure(s) if s.contains(r"\pythontexcustomc{python}{import numpy}")
+        )),
+        "pythontexcustomc must stay one Structure command, got: {regions:?}"
+    );
+    assert!(
+        !regions.iter().any(|r| matches!(
+            r,
+            Region::Prose(p) if p.contains(r"\pythontexcustomc{python}{import numpy}")
+        )),
+        "pythontexcustomc must not leak into Prose, got: {regions:?}"
+    );
+    let out = format_text(input, &latex_cfg()).unwrap();
+    assert!(
+        out.contains("\\pythontexcustomc{python}{import numpy}\n"),
+        "pythontexcustomc must stay one atomic command, got:\n{out}"
+    );
+    assert!(
+        !out.contains("\\pythontexcustomc{python}{import numpy} After."),
+        "following flush prose must not join the pythontexcustomc line, got:\n{out}"
+    );
+    assert!(
+        out.contains("Before.\nNext."),
+        "prose before pythontexcustomc must still split, got:\n{out}"
+    );
+    assert!(
+        out.contains("After.\nNext."),
+        "prose after pythontexcustomc must still split, got:\n{out}"
+    );
+    assert_eq!(format_text(&out, &latex_cfg()).unwrap(), out);
+
+    let begin = concat!(
+        "Before. Next.\n",
+        "\\pythontexcustomc[begin]{python}{import numpy}\n",
+        "After. Next.\n",
+    );
+    let begin_out = format_text(begin, &latex_cfg()).unwrap();
+    assert!(
+        begin_out.contains("\\pythontexcustomc[begin]{python}{import numpy}\n"),
+        "pythontexcustomc optional begin must stay atomic, got:\n{begin_out}"
+    );
+    assert!(
+        !begin_out.contains("\\pythontexcustomc[begin]{python}{import numpy} After."),
+        "optional-arg pythontexcustomc must not join following prose, got:\n{begin_out}"
+    );
+    assert!(
+        begin_out.contains("After.\nNext."),
+        "prose after optional-arg pythontexcustomc must still split, got:\n{begin_out}"
+    );
+
+    let py = concat!("Before. Next.\n", "\\py{print(1)}\n", "After. Next.\n",);
+    let py_out = format_text(py, &latex_cfg()).unwrap();
+    assert!(
+        py_out.contains("\\py{print(1)}\n"),
+        "py must stay unchanged, got:\n{py_out}"
+    );
+    assert!(
+        !py_out.contains("\\py{print(1)} After."),
+        "py must not join following prose, got:\n{py_out}"
+    );
+
+    let inputpy = concat!("Before. Next.\n", "\\inputpy{foo.py}\n", "After. Next.\n",);
+    let inputpy_out = format_text(inputpy, &latex_cfg()).unwrap();
+    assert!(
+        inputpy_out.contains("\\inputpy{foo.py}\n"),
+        "inputpy must stay unchanged, got:\n{inputpy_out}"
+    );
+    assert!(
+        !inputpy_out.contains("\\inputpy{foo.py} After."),
+        "inputpy must not join following prose, got:\n{inputpy_out}"
+    );
+
+    let custom = concat!(
+        "Before. Next.\n",
+        "\\begin{pythontexcustomcode}{py}\n",
+        "First line. Second line.\n",
+        "\\end{pythontexcustomcode}\n",
+        "After. Next.\n",
+    );
+    let custom_out = format_text(custom, &latex_cfg()).unwrap();
+    assert!(
+        custom_out.contains(
+            "\\begin{pythontexcustomcode}{py}\nFirst line. Second line.\n\\end{pythontexcustomcode}"
+        ),
+        "pythontexcustomcode env must stay unchanged, got:\n{custom_out}"
+    );
+    assert!(
+        custom_out.contains("After.\nNext."),
+        "prose after pythontexcustomcode must still split, got:\n{custom_out}"
+    );
+
+    let extras_cfg = FormatConfig {
+        format: Format::Latex,
+        latex_verbatim_commands: vec!["pythontexcustomc".to_string()],
+        ..Default::default()
+    }
+    .without_safety_backstops();
+    let extras_out = format_text(
+        "Before. Next.\n\\pythontexcustomc After. Next.\n",
+        &extras_cfg,
+    )
+    .unwrap();
+    assert!(
+        extras_out.contains("After.\nNext."),
+        "configured extra pythontexcustomc must not re-tokenize the no-brace form as Delim, got:\n{extras_out}"
+    );
+    let extras_brace = format_text(
+        "Before. Next.\n\\pythontexcustomc{python}{import numpy}\nAfter. Next.\n",
+        &extras_cfg,
+    )
+    .unwrap();
+    assert!(
+        extras_brace.contains("\\pythontexcustomc{python}{import numpy}\n"),
+        "configured extra pythontexcustomc must keep the brace form as leftover, got:\n{extras_brace}"
+    );
+    assert!(
+        extras_brace.contains("After.\nNext."),
+        "configured extra pythontexcustomc brace form must still split following prose, got:\n{extras_brace}"
     );
 }
 
