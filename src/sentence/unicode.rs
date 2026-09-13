@@ -636,9 +636,7 @@ pub(crate) fn latex_verb_span_end_with(
             VerbKind::CatchFileBetweenDelims => 4,
             _ => 3,
         };
-        let Some(end) = skip_required_brace_groups(text, i, n) else {
-            return None;
-        };
+        let end = skip_required_brace_groups(text, i, n)?;
         i = skip_ascii_ws(text, end);
         if text.get(i..).is_some_and(|s| s.starts_with('[')) {
             return match skip_bracket_group(text, i) {
@@ -660,9 +658,7 @@ pub(crate) fn latex_verb_span_end_with(
     // required `{file}`, then optional `[first]` and `[last]`. No
     // brace is not a span. There is no `*` form.
     if kind == VerbKind::Inputpythonfile {
-        let Some(end) = skip_required_brace_groups(text, i, 1) else {
-            return None;
-        };
+        let end = skip_required_brace_groups(text, i, 1)?;
         i = skip_ascii_ws(text, end);
         let mut last = end;
         for _ in 0..2 {
