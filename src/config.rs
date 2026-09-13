@@ -49,7 +49,7 @@ pub struct FormatOverrides {
     pub structure_envs: Vec<String>,
     /// Extra LaTeX command names tokenized like `\verb` before split.
     /// Meaningful under `[latex]` only. Missing or empty keeps
-    /// verb/lstinline/lstinputlisting/spverb/mintinline/inputminted/mint/Verb/SaveVerb/VerbatimInput/piton/verbatiminput/PitonInputFile/PitonInputFileT/PitonInputFileF/PitonInputFileTF/tcbinputlisting/inputpy/inputpycon/inputpylab/inputpylabcon/inputsympy/inputsympycon/py/pyc/pys/pyb/pyv/pycon and twins/sympy/pylab and twins/inputpygments/pygment/CatchFileBetweenTags/CatchFileBetweenDelims/ExecuteMetaData/listinginput/sageinput/inputsc.
+    /// verb/lstinline/lstinputlisting/spverb/mintinline/inputminted/mint/Verb/SaveVerb/VerbatimInput/piton/verbatiminput/PitonInputFile/PitonInputFileT/PitonInputFileF/PitonInputFileTF/tcbinputlisting/inputpy/inputpycon/inputpylab/inputpylabcon/inputsympy/inputsympycon/py/pyc/pys/pyb/pyv/pycon and twins/sympy/pylab and twins/inputpygments/pygment/CatchFileBetweenTags/CatchFileBetweenDelims/ExecuteMetaData/listinginput/sageinput/inputsc/inputpython/inputpythonfile.
     pub verbatim_commands: Vec<String>,
 }
 

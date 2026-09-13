@@ -147,7 +147,7 @@ pub struct FormatConfig {
     /// to `NON_PROSE_ENVS`. Empty keeps the built-in list.
     pub latex_structure_envs: Vec<String>,
     /// Extra LaTeX command names tokenized like `\verb` before split.
-    /// Empty keeps verb/lstinline/lstinputlisting/spverb/mintinline/inputminted/mint/Verb/SaveVerb/VerbatimInput/piton/verbatiminput/PitonInputFile/PitonInputFileT/PitonInputFileF/PitonInputFileTF/tcbinputlisting/inputpy/inputpycon/inputpylab/inputpylabcon/inputsympy/inputsympycon/py/pyc/pys/pyb/pyv/pycon and twins/sympy/pylab and twins/inputpygments/pygment/CatchFileBetweenTags/CatchFileBetweenDelims/ExecuteMetaData/listinginput/sageinput/inputsc.
+    /// Empty keeps verb/lstinline/lstinputlisting/spverb/mintinline/inputminted/mint/Verb/SaveVerb/VerbatimInput/piton/verbatiminput/PitonInputFile/PitonInputFileT/PitonInputFileF/PitonInputFileTF/tcbinputlisting/inputpy/inputpycon/inputpylab/inputpylabcon/inputsympy/inputsympycon/py/pyc/pys/pyb/pyv/pycon and twins/sympy/pylab and twins/inputpygments/pygment/CatchFileBetweenTags/CatchFileBetweenDelims/ExecuteMetaData/listinginput/sageinput/inputsc/inputpython/inputpythonfile.
     pub latex_verbatim_commands: Vec<String>,
 }
 

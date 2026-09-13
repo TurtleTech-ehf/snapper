@@ -93,6 +93,9 @@
 //! \\pyb / \\pyv / \\pycon and twins / \\sympy / \\pylab and twins
 //! stay one atomic command (brace or |delim| body); following flush
 //! prose does not join.
+//! GitHub #443: pythonhighlight.sty leftover \\inputpython /
+//! \\inputpythonfile stay one atomic command; following flush prose
+//! does not join.
 
 use snapper_fmt::format::Format;
 use snapper_fmt::parser::latex::LatexParser;
@@ -4564,6 +4567,106 @@ fn pytx_inline_fixture_does_not_join_following_prose() {
     assert!(
         pygment_out.contains("\\pygment{python}{print(1)}\n"),
         "pygment must stay unchanged, got:\n{pygment_out}"
+    );
+
+    let py = concat!("Before. Next.\n", "\\inputpy{foo.py}\n", "After. Next.\n",);
+    let py_out = format_text(py, &latex_cfg()).unwrap();
+    assert!(
+        py_out.contains("\\inputpy{foo.py}\n"),
+        "inputpy must stay unchanged, got:\n{py_out}"
+    );
+    assert!(
+        !py_out.contains("\\inputpy{foo.py} After."),
+        "inputpy must not join following prose, got:\n{py_out}"
+    );
+}
+
+/// Ticket fixture (GitHub #443): pythonhighlight.sty leftover
+/// `\inputpython{file}{first}{last}` / `\inputpythonfile{file}` /
+/// `\inputpythonfile{file}[first][last]` stay one atomic command.
+/// Following flush `After.` does not join. `After.` / `Next.` still
+/// split. `\lstinputlisting` / `\inputpy` unchanged.
+#[test]
+fn pythonhighlight_input_fixture_does_not_join_following_prose() {
+    let input = concat!(
+        "Before. Next.\n",
+        "\\inputpython{foo.py}{1}{20}\n",
+        "After. Next.\n",
+    );
+    let regions = LatexParser::default().parse(input);
+    assert!(
+        regions.iter().any(|r| matches!(
+            r,
+            Region::Structure(s) if s.contains(r"\inputpython{foo.py}{1}{20}")
+        )),
+        "inputpython must stay one Structure command, got: {regions:?}"
+    );
+    assert!(
+        !regions.iter().any(|r| matches!(
+            r,
+            Region::Prose(p) if p.contains(r"\inputpython{foo.py}{1}{20}")
+        )),
+        "inputpython must not leak into Prose, got: {regions:?}"
+    );
+    assert!(
+        regions.iter().any(|r| matches!(
+            r,
+            Region::Prose(p) if p.contains("After.") && p.contains("Next.")
+        )),
+        "After. / Next. must stay Prose, got: {regions:?}"
+    );
+    let out = format_text(input, &latex_cfg()).unwrap();
+    assert!(
+        out.contains("\\inputpython{foo.py}{1}{20}\n"),
+        "inputpython must stay one atomic command, got:\n{out}"
+    );
+    assert!(
+        !out.contains("\\inputpython{foo.py}{1}{20} After."),
+        "following flush prose must not join the command line, got:\n{out}"
+    );
+    assert!(
+        out.contains("Before.\nNext."),
+        "prose before inputpython must still split, got:\n{out}"
+    );
+    assert!(
+        out.contains("After.\nNext."),
+        "prose after inputpython must still split, got:\n{out}"
+    );
+    assert_eq!(format_text(&out, &latex_cfg()).unwrap(), out);
+
+    for cmd in [
+        r"\inputpythonfile{foo.py}",
+        r"\inputpythonfile{foo.py}[1][20]",
+    ] {
+        let file = format!("Before. Next.\n{cmd}\nAfter. Next.\n");
+        let file_out = format_text(&file, &latex_cfg()).unwrap();
+        assert!(
+            file_out.contains(&format!("{cmd}\n")),
+            "inputpythonfile must stay one atomic command, got:\n{file_out}"
+        );
+        assert!(
+            !file_out.contains(&format!("{cmd} After.")),
+            "inputpythonfile must not join following prose, got:\n{file_out}"
+        );
+        assert!(
+            file_out.contains("After.\nNext."),
+            "prose after inputpythonfile must still split, got:\n{file_out}"
+        );
+    }
+
+    let lst = concat!(
+        "Before. Next.\n",
+        "\\lstinputlisting{foo.py}\n",
+        "After. Next.\n",
+    );
+    let lst_out = format_text(lst, &latex_cfg()).unwrap();
+    assert!(
+        lst_out.contains("\\lstinputlisting{foo.py}\n"),
+        "lstinputlisting must stay unchanged, got:\n{lst_out}"
+    );
+    assert!(
+        !lst_out.contains("\\lstinputlisting{foo.py} After."),
+        "lstinputlisting must not join following prose, got:\n{lst_out}"
     );
 
     let py = concat!("Before. Next.\n", "\\inputpy{foo.py}\n", "After. Next.\n",);

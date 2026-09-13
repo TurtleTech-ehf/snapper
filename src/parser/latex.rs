@@ -511,7 +511,8 @@ impl LatexParser {
     /// and twins / `\inputpygments` /
     /// `\pygment` / `\CatchFileBetweenTags` /
     /// `\CatchFileBetweenDelims` / `\ExecuteMetaData` /
-    /// `\listinginput` / `\sageinput` / `\inputsc` / configured
+    /// `\listinginput` / `\sageinput` / `\inputsc` / `\inputpython` /
+    /// `\inputpythonfile` / configured
     /// verbatim commands.
     fn unescaped_percent(&self, line: &str) -> Option<usize> {
         unescaped_percent_with(line, &self.extra_verbatim_commands)
@@ -893,7 +894,8 @@ fn find_tex_cs(line: &str, from: usize, cs: &str) -> Option<usize> {
 /// `\pyb` / `\pyv` / `\pycon` and twins / `\sympy` / `\pylab` and
 /// twins / `\inputpygments` / `\pygment` /
 /// `\CatchFileBetweenTags` / `\CatchFileBetweenDelims` /
-/// `\ExecuteMetaData` / `\listinginput` / `\sageinput` / `\inputsc`
+/// `\ExecuteMetaData` / `\listinginput` / `\sageinput` / `\inputsc` /
+/// `\inputpython` / `\inputpythonfile`
 /// spans.
 fn find_iffalse_at(line: &str, from: usize, extra_cmds: &[String]) -> Option<usize> {
     let bytes = line.as_bytes();
@@ -1099,13 +1101,16 @@ fn inputsc_cs_at(line: &str, at: usize) -> bool {
     !after.starts_with(|c: char| c.is_ascii_alphabetic() || c == '*')
 }
 
-/// Leftover filename-input / verbatim-input tail (GitHub #439). One
-/// leftover walker for pythontex.sty `\inputpygments` / `\pygment`
-/// and catchfilebetweentags.sty `\CatchFileBetweenTags` /
-/// `\CatchFileBetweenDelims` / `\ExecuteMetaData`. Other verb spans
-/// are skipped so `\verb|\inputpygments{python}{x}|` is not stolen.
-/// Walk stops at an unescaped `%` so a comment is not a command tail.
-/// `\inputpy` must not steal `\inputpygments`.
+/// Leftover filename-input / verbatim-input tail (GitHub #439 / #443).
+/// One leftover walker for pythontex.sty `\inputpygments` / `\pygment`,
+/// catchfilebetweentags.sty `\CatchFileBetweenTags` /
+/// `\CatchFileBetweenDelims` / `\ExecuteMetaData`, and
+/// pythonhighlight.sty `\inputpython` / `\inputpythonfile`. Longer
+/// `inputpythonfile` first so it is not `inputpython` + leftover.
+/// Other verb spans are skipped so `\verb|\inputpygments{python}{x}|`
+/// is not stolen. Walk stops at an unescaped `%` so a comment is not
+/// a command tail. `\inputpy` / `\lstinputlisting` stay their own
+/// leftovers. There is no `*` form.
 fn find_leftover_filename_input_at(
     line: &str,
     from: usize,
@@ -1119,6 +1124,8 @@ fn leftover_filename_input_cs_at(line: &str, at: usize) -> bool {
         return false;
     };
     for name in [
+        "inputpythonfile",
+        "inputpython",
         "inputpygments",
         "pygment",
         "CatchFileBetweenTags",
@@ -1131,7 +1138,11 @@ fn leftover_filename_input_cs_at(line: &str, at: usize) -> bool {
             }
             if matches!(
                 name,
-                "CatchFileBetweenTags" | "CatchFileBetweenDelims" | "ExecuteMetaData"
+                "CatchFileBetweenTags"
+                    | "CatchFileBetweenDelims"
+                    | "ExecuteMetaData"
+                    | "inputpythonfile"
+                    | "inputpython"
             ) && after.starts_with('*')
             {
                 return false;
@@ -3408,6 +3419,123 @@ Some text.
         assert!(
             extras_brace.contains("After.\nNext."),
             "configured extra py brace form must still split following prose, got:\n{extras_brace}"
+        );
+    }
+
+    /// Ticket fixture (GitHub #443): pythonhighlight.sty leftover
+    /// `\inputpython{file}{first}{last}` / `\inputpythonfile{file}` /
+    /// `\inputpythonfile{file}[first][last]` stay one Structure span.
+    /// Following flush `After.` does not join. `After.` / `Next.`
+    /// still split. `\lstinputlisting` / `\inputpy` unchanged.
+    #[test]
+    fn pythonhighlight_input_does_not_join_following_prose() {
+        use crate::{FormatConfig, format_text};
+
+        let input = concat!(
+            "Before. Next.\n",
+            "\\inputpython{foo.py}{1}{20}\n",
+            "After. Next.\n",
+        );
+        let regions = LatexParser::default().parse(input);
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Structure(s) if s.contains(r"\inputpython{foo.py}{1}{20}")
+            )),
+            "inputpython must stay one Structure command, got: {regions:?}"
+        );
+        assert!(
+            !regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(p) if p.contains(r"\inputpython{foo.py}{1}{20}")
+            )),
+            "inputpython must not leak into Prose, got: {regions:?}"
+        );
+        let out = format_text(input, &latex_cfg()).unwrap();
+        assert!(
+            out.contains("\\inputpython{foo.py}{1}{20}\n"),
+            "inputpython must stay one atomic command, got:\n{out}"
+        );
+        assert!(
+            !out.contains("\\inputpython{foo.py}{1}{20} After."),
+            "following flush prose must not join the inputpython line, got:\n{out}"
+        );
+        assert!(
+            out.contains("Before.\nNext."),
+            "prose before inputpython must still split, got:\n{out}"
+        );
+        assert!(
+            out.contains("After.\nNext."),
+            "prose after inputpython must still split, got:\n{out}"
+        );
+        assert_eq!(format_text(&out, &latex_cfg()).unwrap(), out);
+
+        for cmd in [
+            r"\inputpythonfile{foo.py}",
+            r"\inputpythonfile{foo.py}[1][20]",
+        ] {
+            let input = format!("Before. Next.\n{cmd}\nAfter. Next.\n");
+            let out = format_text(&input, &latex_cfg()).unwrap();
+            assert!(
+                out.contains(&format!("{cmd}\n")),
+                "inputpythonfile must stay one atomic command, got:\n{out}"
+            );
+            assert!(
+                !out.contains(&format!("{cmd} After.")),
+                "following flush prose must not join the inputpythonfile line, got:\n{out}"
+            );
+            assert!(
+                out.contains("After.\nNext."),
+                "prose after inputpythonfile must still split, got:\n{out}"
+            );
+        }
+
+        let lst = concat!(
+            "Before. Next.\n",
+            "\\lstinputlisting{foo.py}\n",
+            "After. Next.\n",
+        );
+        let lst_out = format_text(lst, &latex_cfg()).unwrap();
+        assert!(
+            lst_out.contains("\\lstinputlisting{foo.py}\n"),
+            "lstinputlisting must stay unchanged, got:\n{lst_out}"
+        );
+        assert!(
+            !lst_out.contains("\\lstinputlisting{foo.py} After."),
+            "lstinputlisting must not join following prose, got:\n{lst_out}"
+        );
+
+        let py = concat!("Before. Next.\n", "\\inputpy{foo.py}\n", "After. Next.\n",);
+        let py_out = format_text(py, &latex_cfg()).unwrap();
+        assert!(
+            py_out.contains("\\inputpy{foo.py}\n"),
+            "inputpy must stay unchanged, got:\n{py_out}"
+        );
+        assert!(
+            !py_out.contains("\\inputpy{foo.py} After."),
+            "inputpy must not join following prose, got:\n{py_out}"
+        );
+
+        let extras_cfg = FormatConfig {
+            format: crate::format::Format::Latex,
+            latex_verbatim_commands: vec!["inputpython".to_string()],
+            ..Default::default()
+        }
+        .without_safety_backstops();
+        let extras_out =
+            format_text("Before. Next.\n\\inputpython After. Next.\n", &extras_cfg).unwrap();
+        assert!(
+            extras_out.contains("After.\nNext."),
+            "configured extra inputpython must not re-tokenize the no-brace form as Delim, got:\n{extras_out}"
+        );
+        let extras_brace = format_text(
+            "Before. Next.\n\\inputpython{foo.py}{1}{20}\nAfter. Next.\n",
+            &extras_cfg,
+        )
+        .unwrap();
+        assert!(
+            extras_brace.contains("\\inputpython{foo.py}{1}{20}\n"),
+            "configured extra inputpython must keep the brace form as leftover, got:\n{extras_brace}"
         );
     }
 

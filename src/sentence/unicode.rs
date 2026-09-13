@@ -254,6 +254,7 @@ fn protect_latex_verbatim(
 /// `\inputpygments` / `\pygment` /
 /// `\CatchFileBetweenTags` / `\CatchFileBetweenDelims` /
 /// `\ExecuteMetaData` / `\listinginput` / `\sageinput` / `\inputsc` /
+/// `\inputpython` / `\inputpythonfile` /
 /// extra-name span starting at `at`.
 ///
 /// `\verb` / `\verb*` / `\spverb` / `\spverb*` / `\Verb` / `\Verb*`: next
@@ -312,9 +313,14 @@ fn protect_latex_verbatim(
 /// a different, shorter name and is not this span. `\inputsc`
 /// (scontents leftover sequence replay; GitHub #437) takes optional
 /// `[...]` then a required `{name}`; no brace is not a span. There
-/// is no `*` form. `\input` / `\inputpy` are not this name. Extra
-/// names are tokenized like `\verb`. With no closer, the span runs
-/// to end of line so an inner `%` is not a comment.
+/// is no `*` form. `\input` / `\inputpy` are not this name.
+/// `\inputpython` (pythonhighlight leftover; GitHub #443) takes three
+/// required braces `{file}{first}{last}`; no brace is not a span.
+/// `\inputpythonfile` (`moo`: required `{file}`, optional `[first]`
+/// `[last]`) is the longer name and is matched first. There is no
+/// `*` form. `\inputpy` / `\lstinputlisting` stay their own spans.
+/// Extra names are tokenized like `\verb`. With no closer, the span
+/// runs to end of line so an inner `%` is not a comment.
 pub(crate) fn latex_verb_span_end_with(
     text: &str,
     at: usize,
@@ -354,6 +360,24 @@ pub(crate) fn latex_verb_span_end_with(
             return None;
         }
         (after_bs + "pygment".len(), VerbKind::Mint)
+    } else if let Some(stripped) = tail.strip_prefix("inputpythonfile") {
+        // pythonhighlight.sty leftover (GitHub #443). xparse `moo`:
+        // required `{file}`, optional `[first][last]`. Longer name
+        // before `inputpython`. No `*` form.
+        if stripped.starts_with(|c: char| c.is_ascii_alphabetic() || c == '*') {
+            return None;
+        }
+        (
+            after_bs + "inputpythonfile".len(),
+            VerbKind::Inputpythonfile,
+        )
+    } else if let Some(stripped) = tail.strip_prefix("inputpython") {
+        // pythonhighlight.sty leftover (GitHub #443). Three required
+        // braces `{file}{first}{last}`. No `*` form.
+        if stripped.starts_with(|c: char| c.is_ascii_alphabetic() || c == '*') {
+            return None;
+        }
+        (after_bs + "inputpython".len(), VerbKind::Inputpython)
     } else if let Some(name) = inputpy_cs_name(tail) {
         // pythontex.sty leftover file-input (GitHub #419 / #433).
         // Longer names first. Same optional `[...]` then `{file}`
@@ -619,6 +643,36 @@ pub(crate) fn latex_verb_span_end_with(
         return Some(end);
     }
 
+    // pythonhighlight.sty leftover (GitHub #443). Three required
+    // braces `{file}{first}{last}`. A missing required brace is not
+    // a span. There is no `*` form.
+    if kind == VerbKind::Inputpython {
+        return skip_required_brace_groups(text, i, 3);
+    }
+
+    // pythonhighlight.sty leftover (GitHub #443). xparse `moo`:
+    // required `{file}`, then optional `[first]` and `[last]`. No
+    // brace is not a span. There is no `*` form.
+    if kind == VerbKind::Inputpythonfile {
+        let end = skip_required_brace_groups(text, i, 1)?;
+        i = skip_ascii_ws(text, end);
+        let mut last = end;
+        for _ in 0..2 {
+            if text.get(i..).is_some_and(|s| s.starts_with('[')) {
+                match skip_bracket_group(text, i) {
+                    Some(close) => {
+                        last = close;
+                        i = skip_ascii_ws(text, close);
+                    }
+                    None => return Some(line_end(text, i)),
+                }
+            } else {
+                break;
+            }
+        }
+        return Some(last);
+    }
+
     if kind == VerbKind::Mint {
         if !text.get(i..).is_some_and(|s| s.starts_with('{')) {
             return None;
@@ -718,6 +772,12 @@ enum VerbKind {
     /// optional `[...]`, then delimiter or `{body}` (GitHub #441).
     /// An ASCII-letter next token is not a delimiter.
     PytxInline,
+    /// `\inputpython`: three required braces `{file}{first}{last}`
+    /// (pythonhighlight leftover; GitHub #443).
+    Inputpython,
+    /// `\inputpythonfile`: required `{file}`, optional `[first][last]`
+    /// (pythonhighlight leftover xparse `moo`; GitHub #443).
+    Inputpythonfile,
     /// `\SaveVerb`: optional `[...]`, `{name}`, then delimiter body like `\Verb`.
     SaveVerb,
     /// `\piton`: verb-like delimiter except `{` (GitHub #305).
@@ -852,6 +912,8 @@ fn match_extra_verb_command<'a>(tail: &'a str, extras: &'a [String]) -> Option<&
             || name == "inputsympy"
             || name == "inputsympycon"
             || name == "inputsc"
+            || name == "inputpythonfile"
+            || name == "inputpython"
             || name == "verbatiminput"
             || name == "tcbinputlisting"
             || pytx_inline_cs_name(name).is_some_and(|n| n == name.as_str())
@@ -3432,6 +3494,112 @@ mod tests {
             latex_verb_span_end_with(r"\py*{print(1)}", 0, &[]),
             None,
             "pythontex inline has no star form"
+        );
+    }
+
+    /// Ticket fixture (GitHub #443): pythonhighlight leftover
+    /// `\inputpython` / `\inputpythonfile` stay one span. Following
+    /// `After.` still splits. extras skip so a configured extra does
+    /// not re-tokenize the no-brace form as Delim. `\inputpy` /
+    /// `\lstinputlisting` stay their own spans.
+    #[test]
+    fn latex_pythonhighlight_input_cmds_stay_atomic() {
+        let cmd = r"\inputpython{foo.py}{1}{20}";
+        let text = r"See \inputpython{foo.py}{1}{20} here. After.";
+        let (_, placeholders) = protect_inline_tokens(text);
+        assert!(
+            placeholders.iter().any(|p| p == cmd),
+            "inputpython span must be protected, got {placeholders:?}"
+        );
+        assert_eq!(latex_verb_span_end_with(cmd, 0, &[]), Some(cmd.len()));
+        assert_eq!(
+            split(text),
+            vec![
+                r"See \inputpython{foo.py}{1}{20} here.".to_string(),
+                "After.".to_string()
+            ]
+        );
+        assert_eq!(
+            latex_verb_span_end_with(r"\inputpython foo.py", 0, &[]),
+            None,
+            "inputpython without braces is not a verb span"
+        );
+        assert_eq!(
+            latex_verb_span_end_with(r"\inputpython{foo.py}{1}", 0, &[]),
+            None,
+            "inputpython missing a required brace is not a verb span"
+        );
+        let extras = ["inputpython".to_string()];
+        assert_eq!(
+            latex_verb_span_end_with(r"\inputpython foo.py", 0, &extras),
+            None,
+            "configured extra inputpython must not re-tokenize the no-brace form as Delim"
+        );
+        assert_eq!(
+            latex_verb_span_end_with(cmd, 0, &extras),
+            Some(cmd.len()),
+            "configured extra inputpython must keep the brace form as leftover"
+        );
+        assert_eq!(
+            latex_verb_span_end_with(r"\inputpython*{foo.py}{1}{20}", 0, &[]),
+            None,
+            "inputpython has no star form"
+        );
+
+        let file = r"\inputpythonfile{foo.py}";
+        assert_eq!(
+            latex_verb_span_end_with(file, 0, &[]),
+            Some(file.len()),
+            "inputpythonfile file-only form must stay one span"
+        );
+        let ranged = r"\inputpythonfile{foo.py}[1][20]";
+        assert_eq!(
+            latex_verb_span_end_with(ranged, 0, &[]),
+            Some(ranged.len()),
+            "inputpythonfile optional line range must stay in the span"
+        );
+        assert_eq!(
+            latex_verb_span_end_with(r"\inputpythonfile{foo.py}[1]", 0, &[]),
+            Some(r"\inputpythonfile{foo.py}[1]".len()),
+            "inputpythonfile one optional line must stay in the span"
+        );
+        assert_eq!(
+            split(r"See \inputpythonfile{foo.py}[1][20] here. After."),
+            vec![
+                r"See \inputpythonfile{foo.py}[1][20] here.".to_string(),
+                "After.".to_string()
+            ]
+        );
+        let file_extras = ["inputpythonfile".to_string()];
+        assert_eq!(
+            latex_verb_span_end_with(r"\inputpythonfile foo.py", 0, &file_extras),
+            None,
+            "configured extra inputpythonfile must not re-tokenize the no-brace form as Delim"
+        );
+        assert_eq!(
+            latex_verb_span_end_with(file, 0, &file_extras),
+            Some(file.len()),
+            "configured extra inputpythonfile must keep the brace form as leftover"
+        );
+        assert_eq!(
+            latex_verb_span_end_with(r"\inputpythonfile*{foo.py}", 0, &[]),
+            None,
+            "inputpythonfile has no star form"
+        );
+        assert_eq!(
+            latex_verb_span_end_with(r"\inputpythonfile{foo.py}[1][20]", 0, &[]),
+            Some(r"\inputpythonfile{foo.py}[1][20]".len()),
+            "inputpython must not steal inputpythonfile"
+        );
+        assert_eq!(
+            latex_verb_span_end_with(r"\inputpy{foo.py}", 0, &[]),
+            Some(r"\inputpy{foo.py}".len()),
+            "inputpython must not steal inputpy"
+        );
+        assert_eq!(
+            latex_verb_span_end_with(r"\lstinputlisting{foo.py}", 0, &[]),
+            Some(r"\lstinputlisting{foo.py}".len()),
+            "inputpython must not steal lstinputlisting"
         );
     }
 
