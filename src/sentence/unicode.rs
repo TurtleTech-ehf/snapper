@@ -358,7 +358,17 @@ fn protect_latex_verbatim(
 /// `\foreachsc` take optional `[...]` then a required `{seq}` (`o m`
 /// / `O{-1} m`). Longer names first. No brace is not a span. Only
 /// `\Scontents` has a `*` form. `\inputsc` stays its own leftover.
-/// `\newenvsc` is a constructor, not this leftover. Extra
+/// `\newenvsc` is a constructor, not this leftover. fancyvrb leftover
+/// replay `\UseVerb` / `\UseVerb*` / `\UseVerbatim` / `\LUseVerbatim` /
+/// `\BUseVerbatim` (`FV@Command`; GitHub #457) take optional `[...]`
+/// then a required `{name}`; no brace is not a span. Longer names
+/// first so `\UseVerbatim` is not `\UseVerb` + leftover. Leftover
+/// `\Verb` is the same delimiter body as kernel `\verb` (5vlw covered
+/// kernel `\verb` only). fvextra leftover `\EscVerb` takes optional
+/// `[...]` then a delimiter or `{code}` body; an ASCII-letter next
+/// token is not a delimiter, so `\EscVerb After.` is not a span. This
+/// ticket is following-prose join only (do not reopen snapper-5u95
+/// interior punct). Extra
 /// names are tokenized like `\verb`. With no closer, the span runs
 /// to end of line so an inner `%` is not a comment.
 pub(crate) fn latex_verb_span_end_with(
@@ -561,11 +571,16 @@ pub(crate) fn latex_verb_span_end_with(
     } else if let Some(name) = verbatiminput_cs_name(tail) {
         // Before `Verb`: `\VerbatimInput` is not `\Verb` + leftover.
         (after_bs + name.len(), VerbKind::Lstinputlisting)
-    } else if let Some(stripped) = tail.strip_prefix("Verb") {
-        if stripped.starts_with(|c: char| c.is_ascii_alphabetic()) {
-            return None;
-        }
-        (after_bs + "Verb".len(), VerbKind::Delim)
+    } else if let Some(name) = fancyvrb_leftover_cs_name(tail) {
+        // Before kernel-style `Verb` leftover: `\UseVerbatim` is not
+        // `\UseVerb` + leftover. `\Verb` is this leftover (GitHub
+        // #457); kernel `\verb` stays on the later branch.
+        let kind = match name {
+            "EscVerb" => VerbKind::Scontents,
+            "Verb" => VerbKind::Delim,
+            _ => VerbKind::Lstinputlisting,
+        };
+        (after_bs + name.len(), kind)
     } else if let Some(stripped) = tail.strip_prefix("SaveVerb") {
         if stripped.starts_with(|c: char| c.is_ascii_alphabetic()) {
             return None;
@@ -862,8 +877,10 @@ enum VerbKind {
     /// `\inputpy` / `\inputpycon` / `\inputpylab` / `\inputpylabcon` /
     /// `\inputsympy` / `\inputsympycon` / `\sageinput` / `\inputsc` /
     /// `\typestored` / `\getstored` / `\mergesc` / `\meaningsc` /
-    /// `\foreachsc` / `\ExecuteMetaData`: optional `[...]` then
-    /// required `{filename}` / `{name}` / `{tag}` / `{seq}`.
+    /// `\foreachsc` / `\ExecuteMetaData` / fancyvrb leftover
+    /// `\UseVerb` / `\UseVerbatim` / `\LUseVerbatim` / `\BUseVerbatim`:
+    /// optional `[...]` then required `{filename}` / `{name}` / `{tag}`
+    /// / `{seq}`.
     Lstinputlisting,
     /// `\\verbatiminput`: required `{filename}` (verbatim.sty leftover).
     Verbatiminput,
@@ -915,9 +932,10 @@ enum VerbKind {
     /// `{code}` like `\lstinline`. No optional `[...]`. No `*` form.
     /// An ASCII-letter next token is not a delimiter.
     Pyth,
-    /// scontents leftover `\Scontents` / `\Scontents*` (GitHub #451):
-    /// optional `[...]`, then a standard or verbatim arg (delimiter or
-    /// `{body}`). An ASCII-letter next token is not a delimiter.
+    /// scontents leftover `\Scontents` / `\Scontents*` (GitHub #451)
+    /// and fvextra leftover `\EscVerb` (GitHub #457): optional `[...]`,
+    /// then a standard or verbatim arg (delimiter or `{body}`). An
+    /// ASCII-letter next token is not a delimiter.
     Scontents,
     /// `\SaveVerb`: optional `[...]`, `{name}`, then delimiter body like `\Verb`.
     SaveVerb,
@@ -1015,6 +1033,33 @@ pub(crate) fn verb_span_leftover_cs_name(tail: &str) -> Option<&'static str> {
         "piton",
         "mint",
         "verb",
+    ] {
+        let Some(after) = tail.strip_prefix(name) else {
+            continue;
+        };
+        if after.starts_with(|c: char| c.is_ascii_alphabetic()) {
+            return None;
+        }
+        return Some(name);
+    }
+    None
+}
+
+/// fancyvrb leftover replay / leftover `\Verb` / fvextra leftover
+/// `\EscVerb` (GitHub #457). Longer names first so `\UseVerbatim` is
+/// not `\UseVerb` + leftover. `\VerbatimInput` stays its own leftover
+/// (alphabetic leftover rejects a longer name). Kernel `\verb` stays
+/// the #452 leftover. `\SaveVerb` stays the #452 leftover. `\Piton`
+/// is not this leftover (env only). Star forms follow the existing
+/// unicode span (`\UseVerb*` / `\Verb*` / `\EscVerb*`).
+pub(crate) fn fancyvrb_leftover_cs_name(tail: &str) -> Option<&'static str> {
+    for name in [
+        "LUseVerbatim",
+        "BUseVerbatim",
+        "UseVerbatim",
+        "UseVerb",
+        "EscVerb",
+        "Verb",
     ] {
         let Some(after) = tail.strip_prefix(name) else {
             continue;
@@ -1246,6 +1291,7 @@ fn match_extra_verb_command<'a>(tail: &'a str, extras: &'a [String]) -> Option<&
             || pythontexcustomc_cs_name(name).is_some_and(|n| n == name.as_str())
             || pyth_cs_name(name).is_some_and(|n| n == name.as_str())
             || scontents_leftover_cs_name(name).is_some_and(|n| n == name.as_str())
+            || fancyvrb_leftover_cs_name(name).is_some_and(|n| n == name.as_str())
             || name == "listinginput"
             || name == "sageinput"
             || name == "inputpythonfile"
