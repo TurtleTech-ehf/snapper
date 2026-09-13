@@ -216,6 +216,8 @@ pub fn protect_inline_tokens_with(
 /// `\CatchFileBetweenTags{macro}{file}{tag}` /
 /// `\CatchFileBetweenDelims{macro}{file}{start}{end}` /
 /// `\ExecuteMetaData[...]{tag}` /
+/// `\CatchFileDef{macro}{file}{setup}` /
+/// `\CatchFileEdef{macro}{file}{setup}` /
 /// `\listinginput[interval]{start}{file}` /
 /// `\sageinput[...]{file}` /
 /// `\inputsc[...]{name}` / `\Scontents[...]{body}` /
@@ -263,7 +265,8 @@ fn protect_latex_verbatim(
 /// `\pycon` and twins / `\sympy` / `\pylab` and twins /
 /// `\inputpygments` / `\pygment` / `\inputpython` /
 /// `\inputpythonfile` / `\CatchFileBetweenTags` /
-/// `\CatchFileBetweenDelims` / `\ExecuteMetaData` / `\listinginput` /
+/// `\CatchFileBetweenDelims` / `\ExecuteMetaData` / `\CatchFileDef` /
+/// `\CatchFileEdef` / `\listinginput` /
 /// `\sageinput` / `\inputsc` / `\Scontents` / `\typestored` /
 /// `\getstored` / `\mergesc` / `\meaningsc` / `\foreachsc` /
 /// `\pythontexcustomc` / `\pyth` / `\UseVerb` / `\UseVerbatim` /
@@ -329,7 +332,10 @@ fn protect_latex_verbatim(
 /// stay their own leftovers. `\CatchFileBetweenTags`
 /// takes three required braces; `\CatchFileBetweenDelims` takes four
 /// then optional `[setup]`; `\ExecuteMetaData` takes optional `[file]`
-/// then `{tag}`. `\listinginput` (moreverb
+/// then `{tag}`. `\CatchFileDef` / `\CatchFileEdef` (catchfile.sty
+/// leftover; GitHub #462) take three required braces `{macro}{file}{setup}`.
+/// Longer names first so this is not `CatchFile` + leftover. No brace
+/// is not a span. There is no `*` form. `\listinginput` (moreverb
 /// leftover; GitHub #424) takes optional `[interval]` then required
 /// `{start-line}` and `{filename}`; no second brace is not a span.
 /// There is no `*` form. `\sageinput` (sagetex leftover; GitHub #428)
@@ -514,6 +520,22 @@ pub(crate) fn latex_verb_span_end_with(
             after_bs + "CatchFileBetweenTags".len(),
             VerbKind::CatchFileBetweenTags,
         )
+    } else if let Some(stripped) = tail.strip_prefix("CatchFileEdef") {
+        // catchfile.sty leftover (GitHub #462). Three required braces
+        // `{macro}{file}{setup}`. No `*` form. Longer names first so
+        // this is not `CatchFile` + leftover.
+        if stripped.starts_with(|c: char| c.is_ascii_alphabetic() || c == '*') {
+            return None;
+        }
+        (after_bs + "CatchFileEdef".len(), VerbKind::CatchFileDef)
+    } else if let Some(stripped) = tail.strip_prefix("CatchFileDef") {
+        // catchfile.sty leftover (GitHub #462). Three required braces
+        // `{macro}{file}{setup}`. No `*` form. Longer names first so
+        // this is not `CatchFile` + leftover.
+        if stripped.starts_with(|c: char| c.is_ascii_alphabetic() || c == '*') {
+            return None;
+        }
+        (after_bs + "CatchFileDef".len(), VerbKind::CatchFileDef)
     } else if let Some(stripped) = tail.strip_prefix("ExecuteMetaData") {
         // catchfilebetweentags.sty leftover (GitHub #439). Optional
         // `[file]` then required `{tag}`. No `*` form.
@@ -777,6 +799,13 @@ pub(crate) fn latex_verb_span_end_with(
         return Some(end);
     }
 
+    // catchfile.sty leftover (GitHub #462). Three required braces
+    // `{macro}{file}{setup}`. A missing required brace is not a span.
+    // There is no `*` form.
+    if kind == VerbKind::CatchFileDef {
+        return skip_required_brace_groups(text, i, 3);
+    }
+
     // pythonhighlight.sty leftover (GitHub #443). Three required
     // braces `{file}{first}{last}`. A missing required brace is not
     // a span. There is no `*` form.
@@ -917,6 +946,9 @@ enum VerbKind {
     /// `\CatchFileBetweenDelims`: four required braces, optional
     /// trailing `[setup]` (catchfilebetweentags leftover; GitHub #439).
     CatchFileBetweenDelims,
+    /// `\CatchFileDef` / `\CatchFileEdef`: three required braces
+    /// `{macro}{file}{setup}` (catchfile leftover; GitHub #462).
+    CatchFileDef,
     /// `\inputpython`: three required braces `{file}{first}{last}`
     /// (pythonhighlight leftover; GitHub #443).
     Inputpython,
@@ -1311,6 +1343,8 @@ fn match_extra_verb_command<'a>(tail: &'a str, extras: &'a [String]) -> Option<&
             || name == "inputpython"
             || name == "CatchFileBetweenTags"
             || name == "CatchFileBetweenDelims"
+            || name == "CatchFileEdef"
+            || name == "CatchFileDef"
             || name == "ExecuteMetaData"
             || name == "mint"
             || name == "Verb"
@@ -4847,6 +4881,78 @@ mod tests {
             latex_verb_span_end_with(r"\ExecuteMetaData*{TAG}", 0, &[]),
             None,
             "ExecuteMetaData has no star form"
+        );
+    }
+
+    /// Ticket fixture (GitHub #462): catchfile.sty leftover
+    /// `\CatchFileDef` / `\CatchFileEdef` stay one span; following
+    /// `After.` still splits. Longer names first so this is not
+    /// `CatchFile` + leftover. extras skip the no-brace form.
+    #[test]
+    fn latex_catchfile_def_cmds_stay_atomic() {
+        let def = r"\CatchFileDef{\foo}{foo.py}{}";
+        let text = r"See \CatchFileDef{\foo}{foo.py}{} here. After.";
+        let (_, placeholders) = protect_inline_tokens(text);
+        assert!(
+            placeholders.iter().any(|p| p == def),
+            "CatchFileDef span must be protected, got {placeholders:?}"
+        );
+        assert_eq!(latex_verb_span_end_with(def, 0, &[]), Some(def.len()));
+        assert_eq!(
+            split(text),
+            vec![
+                r"See \CatchFileDef{\foo}{foo.py}{} here.".to_string(),
+                "After.".to_string()
+            ]
+        );
+        let edef = r"\CatchFileEdef{\foo}{foo.py}{}";
+        assert_eq!(
+            latex_verb_span_end_with(edef, 0, &[]),
+            Some(edef.len()),
+            "CatchFileEdef three braces must stay one span"
+        );
+        let tags = r"\CatchFileBetweenTags{\tmp}{foo.tex}{TAG}";
+        assert_eq!(
+            latex_verb_span_end_with(tags, 0, &[]),
+            Some(tags.len()),
+            "CatchFileBetweenTags must stay one span"
+        );
+        assert_eq!(
+            latex_verb_span_end_with(r"\CatchFileDef foo.py", 0, &[]),
+            None,
+            "CatchFileDef without braces is not a verb span"
+        );
+        let extras = ["CatchFileDef".to_string()];
+        assert_eq!(
+            latex_verb_span_end_with(r"\CatchFileDef foo.py", 0, &extras),
+            None,
+            "configured extra CatchFileDef must not re-tokenize the no-brace form as Delim"
+        );
+        assert_eq!(
+            latex_verb_span_end_with(def, 0, &extras),
+            Some(def.len()),
+            "configured extra CatchFileDef must keep the brace form as leftover"
+        );
+        let edef_extras = ["CatchFileEdef".to_string()];
+        assert_eq!(
+            latex_verb_span_end_with(r"\CatchFileEdef foo.py", 0, &edef_extras),
+            None,
+            "configured extra CatchFileEdef must not re-tokenize the no-brace form as Delim"
+        );
+        assert_eq!(
+            latex_verb_span_end_with(r"\CatchFileDef*{\foo}{foo.py}{}", 0, &[]),
+            None,
+            "CatchFileDef has no star form"
+        );
+        assert_eq!(
+            latex_verb_span_end_with(r"\CatchFileEdef*{\foo}{foo.py}{}", 0, &[]),
+            None,
+            "CatchFileEdef has no star form"
+        );
+        assert_eq!(
+            latex_verb_span_end_with(r"\CatchFileDef{\foo}{foo.py}", 0, &[]),
+            None,
+            "CatchFileDef missing setup brace is not a span"
         );
     }
 

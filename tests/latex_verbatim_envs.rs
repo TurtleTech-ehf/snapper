@@ -89,6 +89,9 @@
 //! \\CatchFileBetweenDelims / \\ExecuteMetaData /
 //! \\PitonInputFileT / \\PitonInputFileF / \\PitonInputFileTF)
 //! stay one atomic command; following flush prose does not join.
+//! GitHub #462: catchfile.sty leftover \\CatchFileDef /
+//! \\CatchFileEdef stay one atomic command; following flush prose
+//! does not join.
 //! GitHub #441: pythontex.sty leftover inline \\py / \\pyc / \\pys /
 //! \\pyb / \\pyv / \\pycon and twins / \\sympy / \\pylab and twins
 //! stay one atomic command (brace or |delim| body); following flush
@@ -5376,6 +5379,113 @@ fn leftover_filename_input_fixture_does_not_join_following_prose() {
     assert!(
         !py_out.contains("\\inputpy{foo.py} After."),
         "inputpy must not join following prose, got:\n{py_out}"
+    );
+}
+
+/// Ticket fixture (GitHub #462): catchfile.sty leftover
+/// `\CatchFileDef{\macro}{file}{setup}` and `\CatchFileEdef` stay one
+/// atomic command. Following flush `After.` does not join. `After.` /
+/// `Next.` still split. Longer names first so this is not `CatchFile`
+/// + leftover. `\CatchFileBetweenTags` stays atomic. extras skip so a
+/// configured extra does not re-tokenize the no-brace form as Delim.
+#[test]
+fn catchfile_leftover_cmds_fixture_does_not_join_following_prose() {
+    for cmd in [
+        r"\CatchFileDef{\foo}{foo.py}{}",
+        r"\CatchFileEdef{\foo}{foo.py}{}",
+    ] {
+        let input = format!("Before. Next.\n{cmd}\nAfter. Next.\n");
+        let regions = LatexParser::default().parse(&input);
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Structure(s) if s.contains(cmd)
+            )),
+            "{cmd} must stay one Structure command, got: {regions:?}"
+        );
+        assert!(
+            !regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(p) if p.contains(cmd)
+            )),
+            "{cmd} must not leak into Prose, got: {regions:?}"
+        );
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(p) if p.contains("After.") && p.contains("Next.")
+            )),
+            "After. / Next. must stay Prose after {cmd}, got: {regions:?}"
+        );
+        let out = format_text(&input, &latex_cfg()).unwrap();
+        assert!(
+            out.contains(&format!("{cmd}\n")),
+            "{cmd} must stay one atomic command, got:\n{out}"
+        );
+        assert!(
+            !out.contains(&format!("{cmd} After.")),
+            "following flush prose must not join the {cmd} line, got:\n{out}"
+        );
+        assert!(
+            out.contains("Before.\nNext."),
+            "prose before {cmd} must still split, got:\n{out}"
+        );
+        assert!(
+            out.contains("After.\nNext."),
+            "prose after {cmd} must still split, got:\n{out}"
+        );
+        assert_eq!(format_text(&out, &latex_cfg()).unwrap(), out);
+    }
+
+    let tags = concat!(
+        "Before. Next.\n",
+        "\\CatchFileBetweenTags{\\tmp}{foo.tex}{TAG}\n",
+        "After. Next.\n",
+    );
+    let tags_out = format_text(tags, &latex_cfg()).unwrap();
+    assert!(
+        tags_out.contains("\\CatchFileBetweenTags{\\tmp}{foo.tex}{TAG}\n"),
+        "CatchFileBetweenTags must stay one atomic command, got:\n{tags_out}"
+    );
+    assert!(
+        !tags_out.contains("\\CatchFileBetweenTags{\\tmp}{foo.tex}{TAG} After."),
+        "CatchFileBetweenTags must not join following prose, got:\n{tags_out}"
+    );
+    assert!(
+        tags_out.contains("After.\nNext."),
+        "prose after CatchFileBetweenTags must still split, got:\n{tags_out}"
+    );
+
+    let extras_cfg = FormatConfig {
+        format: Format::Latex,
+        latex_verbatim_commands: vec!["CatchFileDef".to_string(), "CatchFileEdef".to_string()],
+        ..Default::default()
+    }
+    .without_safety_backstops();
+    let extras_out =
+        format_text("Before. Next.\n\\CatchFileDef After. Next.\n", &extras_cfg).unwrap();
+    assert!(
+        extras_out.contains("After.\nNext."),
+        "configured extra CatchFileDef must not re-tokenize the no-brace form as Delim, got:\n{extras_out}"
+    );
+    let extras_edef =
+        format_text("Before. Next.\n\\CatchFileEdef After. Next.\n", &extras_cfg).unwrap();
+    assert!(
+        extras_edef.contains("After.\nNext."),
+        "configured extra CatchFileEdef must not re-tokenize the no-brace form as Delim, got:\n{extras_edef}"
+    );
+    let extras_brace = format_text(
+        "Before. Next.\n\\CatchFileDef{\\foo}{foo.py}{}\nAfter. Next.\n",
+        &extras_cfg,
+    )
+    .unwrap();
+    assert!(
+        extras_brace.contains("\\CatchFileDef{\\foo}{foo.py}{}\n"),
+        "configured extra CatchFileDef must keep the brace form as leftover, got:\n{extras_brace}"
+    );
+    assert!(
+        extras_brace.contains("After.\nNext."),
+        "configured extra CatchFileDef brace form must still split following prose, got:\n{extras_brace}"
     );
 }
 
