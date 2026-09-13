@@ -110,6 +110,9 @@
 //! does not join.
 //! GitHub #450: pythonhighlight.sty leftover \\pyth stays one atomic
 //! command; following flush prose does not join.
+//! GitHub #451: scontents leftover \\Scontents / \\Scontents* /
+//! \\typestored / \\getstored / \\mergesc / \\meaningsc / \\foreachsc
+//! stay one atomic command; following flush prose does not join.
 
 use snapper_fmt::format::Format;
 use snapper_fmt::parser::latex::LatexParser;
@@ -4859,6 +4862,155 @@ fn inputsc_fixture_does_not_join_following_prose() {
     assert!(
         !listing_out.contains("\\listinginput{1}{foo.py} After."),
         "listinginput must not join following prose, got:\n{listing_out}"
+    );
+}
+
+/// Ticket fixture (GitHub #451): scontents leftover cmds stay one
+/// atomic command. Following flush `After.` does not join the
+/// command line. `After.` / `Next.` still split. Longer names first.
+/// `\inputsc` / scontents env unchanged. extras skip so a configured
+/// extra does not re-tokenize the no-brace form as Delim.
+#[test]
+fn scontents_leftover_cmds_fixture_does_not_join_following_prose() {
+    for cmd in [
+        r"\Scontents*{foo bar}",
+        r"\Scontents{foo bar}",
+        r"\typestored{foo}",
+        r"\getstored{foo}",
+        r"\mergesc{foo}",
+        r"\meaningsc{foo}",
+        r"\foreachsc{foo}",
+    ] {
+        let input = format!("Before. Next.\n{cmd}\nAfter. Next.\n");
+        let regions = LatexParser::default().parse(&input);
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Structure(s) if s.contains(cmd)
+            )),
+            "{cmd} must stay one Structure command, got: {regions:?}"
+        );
+        assert!(
+            !regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(p) if p.contains(cmd)
+            )),
+            "{cmd} must not leak into Prose, got: {regions:?}"
+        );
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(p) if p.contains("After.") && p.contains("Next.")
+            )),
+            "After. / Next. must stay Prose after {cmd}, got: {regions:?}"
+        );
+        let out = format_text(&input, &latex_cfg()).unwrap();
+        assert!(
+            out.contains(&format!("{cmd}\n")),
+            "{cmd} must stay one atomic command, got:\n{out}"
+        );
+        assert!(
+            !out.contains(&format!("{cmd} After.")),
+            "following flush prose must not join the {cmd} line, got:\n{out}"
+        );
+        assert!(
+            out.contains("Before.\nNext."),
+            "prose before {cmd} must still split, got:\n{out}"
+        );
+        assert!(
+            out.contains("After.\nNext."),
+            "prose after {cmd} must still split, got:\n{out}"
+        );
+        assert_eq!(format_text(&out, &latex_cfg()).unwrap(), out);
+    }
+
+    let opts = concat!(
+        "Before. Next.\n",
+        "\\Scontents[print-cmd=true]{foo bar}\n",
+        "After. Next.\n",
+    );
+    let opts_out = format_text(opts, &latex_cfg()).unwrap();
+    assert!(
+        opts_out.contains("\\Scontents[print-cmd=true]{foo bar}\n"),
+        "Scontents optional keys must stay atomic, got:\n{opts_out}"
+    );
+    assert!(
+        !opts_out.contains("\\Scontents[print-cmd=true]{foo bar} After."),
+        "optional-key Scontents must not join following prose, got:\n{opts_out}"
+    );
+
+    let delim = concat!(
+        "Before. Next.\n",
+        "\\Scontents*|foo bar|\n",
+        "After. Next.\n",
+    );
+    let delim_out = format_text(delim, &latex_cfg()).unwrap();
+    assert!(
+        delim_out.contains("\\Scontents*|foo bar|\n"),
+        "Scontents* verbatim delimiter must stay atomic, got:\n{delim_out}"
+    );
+    assert!(
+        !delim_out.contains("\\Scontents*|foo bar| After."),
+        "delimiter Scontents* must not join following prose, got:\n{delim_out}"
+    );
+
+    let inputsc = concat!("Before. Next.\n", "\\inputsc{foo}\n", "After. Next.\n",);
+    let inputsc_out = format_text(inputsc, &latex_cfg()).unwrap();
+    assert!(
+        inputsc_out.contains("\\inputsc{foo}\n"),
+        "inputsc must stay unchanged, got:\n{inputsc_out}"
+    );
+    assert!(
+        !inputsc_out.contains("\\inputsc{foo} After."),
+        "inputsc must not join following prose, got:\n{inputsc_out}"
+    );
+
+    for name in ["scontents", "verbatimsc"] {
+        let env = format!(
+            concat!(
+                "\\begin{{{name}}}\n",
+                "First line. Second line.\n",
+                "\\end{{{name}}}\n",
+                "After the block. Next.\n",
+            ),
+            name = name
+        );
+        let env_out = format_text(&env, &latex_cfg()).unwrap();
+        assert!(
+            env_out.contains(&format!(
+                "\\begin{{{name}}}\nFirst line. Second line.\n\\end{{{name}}}"
+            )),
+            "{name} must stay a code env, got:\n{env_out}"
+        );
+        assert!(
+            env_out.contains("After the block.\nNext."),
+            "prose after {name} must still split, got:\n{env_out}"
+        );
+    }
+
+    let extras_cfg = FormatConfig {
+        format: Format::Latex,
+        latex_verbatim_commands: vec!["Scontents".to_string()],
+        ..Default::default()
+    }
+    .without_safety_backstops();
+    let extras_out = format_text("Before. Next.\n\\Scontents After. Next.\n", &extras_cfg).unwrap();
+    assert!(
+        extras_out.contains("After.\nNext."),
+        "configured extra Scontents must not re-tokenize the no-brace form as Delim, got:\n{extras_out}"
+    );
+    let extras_brace = format_text(
+        "Before. Next.\n\\Scontents{foo bar}\nAfter. Next.\n",
+        &extras_cfg,
+    )
+    .unwrap();
+    assert!(
+        extras_brace.contains("\\Scontents{foo bar}\n"),
+        "configured extra Scontents must keep the brace form as leftover, got:\n{extras_brace}"
+    );
+    assert!(
+        extras_brace.contains("After.\nNext."),
+        "configured extra Scontents brace form must still split following prose, got:\n{extras_brace}"
     );
 }
 
