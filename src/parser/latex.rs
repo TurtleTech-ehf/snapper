@@ -5,7 +5,8 @@ use crate::parser::{
     ByteSpan, FormatParser, Line, SpannedRegion, flush_prose_spanned, iter_lines, join_prose_gap,
 };
 use crate::sentence::unicode::{
-    latex_verb_span_end_with, pythontexcustomc_cs_name, pytx_inline_cs_name, sagetex_inline_cs_name,
+    latex_verb_span_end_with, pyth_cs_name, pythontexcustomc_cs_name, pytx_inline_cs_name,
+    sagetex_inline_cs_name,
 };
 
 // Environments whose content is NOT prose (math, code, tables, pictures).
@@ -511,7 +512,7 @@ impl LatexParser {
     /// `\inputsympy` / `\inputsympycon` / `\py` / `\pyc` / `\pys` /
     /// `\pyb` / `\pyv` / `\pycon` and twins / `\sympy` / `\pylab`
     /// and twins / `\inputpygments` /
-    /// `\pygment` / `\inputpython` / `\inputpythonfile` /
+    /// `\pygment` / `\inputpython` / `\inputpythonfile` / `\pyth` /
     /// `\CatchFileBetweenTags` / `\CatchFileBetweenDelims` /
     /// `\ExecuteMetaData` / `\listinginput` / `\sageinput` /
     /// `\inputsc` / `\pythontexcustomc` / configured verbatim commands.
@@ -894,7 +895,7 @@ fn find_tex_cs(line: &str, from: usize, cs: &str) -> Option<usize> {
 /// `\inputsympy` / `\inputsympycon` / `\py` / `\pyc` / `\pys` /
 /// `\pyb` / `\pyv` / `\pycon` and twins / `\sympy` / `\pylab` and
 /// twins / `\inputpygments` / `\pygment` / `\inputpython` /
-/// `\inputpythonfile` / `\CatchFileBetweenTags` /
+/// `\inputpythonfile` / `\pyth` / `\CatchFileBetweenTags` /
 /// `\CatchFileBetweenDelims` / `\ExecuteMetaData` / `\listinginput` /
 /// `\sageinput` / `\inputsc` / `\pythontexcustomc` spans.
 fn find_iffalse_at(line: &str, from: usize, extra_cmds: &[String]) -> Option<usize> {
@@ -1197,6 +1198,23 @@ fn pythontexcustomc_cs_at(line: &str, at: usize) -> bool {
         return false;
     };
     pythontexcustomc_cs_name(tail).is_some()
+}
+
+/// Leftover pythonhighlight.sty `\pyth` (delimiter or `{code}` body
+/// like `\lstinline`; GitHub #450). Longer name first so it is not
+/// `\py` + leftover. Other verb spans are skipped so `\verb|\pyth{x}|`
+/// is not stolen. Walk stops at an unescaped `%` so a comment is not
+/// a command tail. `\inputpython` / `\inputpythonfile` / `\py` stay
+/// their own leftovers. There is no `*` form.
+fn find_pyth_at(line: &str, from: usize, extra_cmds: &[String]) -> Option<(usize, usize)> {
+    find_leftover_cmd_at(line, from, extra_cmds, pyth_cs_at)
+}
+
+fn pyth_cs_at(line: &str, at: usize) -> bool {
+    let Some(tail) = line.get(at..).and_then(|s| s.strip_prefix('\\')) else {
+        return false;
+    };
+    pyth_cs_name(tail).is_some()
 }
 
 /// Leftover pythontex.sty default-family and `usefamily` inline cmds
@@ -2009,6 +2027,7 @@ impl<'a> ParseState<'a> {
                     .or_else(|| {
                         find_pythontexcustomc_at(code, i, &self.parser.extra_verbatim_commands)
                     })
+                    .or_else(|| find_pyth_at(code, i, &self.parser.extra_verbatim_commands))
                     .or_else(|| find_pytx_inline_at(code, i, &self.parser.extra_verbatim_commands))
             {
                 self.append_item_or_prose(line.start + i, &code[i..start]);
@@ -3311,6 +3330,146 @@ Some text.
         assert!(
             extras_brace.contains("After.\nNext."),
             "configured extra pythontexcustomc brace form must still split following prose, got:\n{extras_brace}"
+        );
+    }
+
+    /// Ticket fixture (GitHub #450): pythonhighlight.sty leftover
+    /// `\pyth{code}` / `\pyth|code|` stays one Structure span.
+    /// Following flush `After.` does not join. `After.` / `Next.`
+    /// still split. Longer name first so it is not `\py` + leftover.
+    /// `\inputpython` / `\inputpythonfile` / `\pythontexcustomc` /
+    /// `\py` unchanged. extras skip so a configured extra does not
+    /// re-tokenize the no-brace form as Delim.
+    #[test]
+    fn pyth_does_not_join_following_prose() {
+        use crate::{FormatConfig, format_text};
+
+        let cmd = r"\pyth{print(1)}";
+        let input = format!("Before. Next.\n{cmd}\nAfter. Next.\n");
+        let regions = LatexParser::default().parse(&input);
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Structure(s) if s.contains(cmd)
+            )),
+            "pyth must stay one Structure command, got: {regions:?}"
+        );
+        assert!(
+            !regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(p) if p.contains(cmd)
+            )),
+            "pyth must not leak into Prose, got: {regions:?}"
+        );
+        let out = format_text(&input, &latex_cfg()).unwrap();
+        assert!(
+            out.contains(&format!("{cmd}\n")),
+            "pyth must stay one atomic command, got:\n{out}"
+        );
+        assert!(
+            !out.contains(&format!("{cmd} After.")),
+            "following flush prose must not join the pyth line, got:\n{out}"
+        );
+        assert!(
+            out.contains("Before.\nNext."),
+            "prose before pyth must still split, got:\n{out}"
+        );
+        assert!(
+            out.contains("After.\nNext."),
+            "prose after pyth must still split, got:\n{out}"
+        );
+        assert_eq!(format_text(&out, &latex_cfg()).unwrap(), out);
+
+        let delim = concat!("Before. Next.\n", "\\pyth|print(1)|\n", "After. Next.\n",);
+        let delim_out = format_text(delim, &latex_cfg()).unwrap();
+        assert!(
+            delim_out.contains("\\pyth|print(1)|\n"),
+            "pyth delimiter body must stay atomic, got:\n{delim_out}"
+        );
+        assert!(
+            !delim_out.contains("\\pyth|print(1)| After."),
+            "delimiter pyth must not join following prose, got:\n{delim_out}"
+        );
+
+        let py = concat!("Before. Next.\n", "\\py{print(1)}\n", "After. Next.\n",);
+        let py_out = format_text(py, &latex_cfg()).unwrap();
+        assert!(
+            py_out.contains("\\py{print(1)}\n"),
+            "py must stay unchanged, got:\n{py_out}"
+        );
+        assert!(
+            !py_out.contains("\\py{print(1)} After."),
+            "py must not join following prose, got:\n{py_out}"
+        );
+
+        let inputpython = concat!(
+            "Before. Next.\n",
+            "\\inputpython{foo.py}{1}{20}\n",
+            "After. Next.\n",
+        );
+        let inputpython_out = format_text(inputpython, &latex_cfg()).unwrap();
+        assert!(
+            inputpython_out.contains("\\inputpython{foo.py}{1}{20}\n"),
+            "inputpython must stay unchanged, got:\n{inputpython_out}"
+        );
+        assert!(
+            !inputpython_out.contains("\\inputpython{foo.py}{1}{20} After."),
+            "inputpython must not join following prose, got:\n{inputpython_out}"
+        );
+
+        let inputpythonfile = concat!(
+            "Before. Next.\n",
+            "\\inputpythonfile{foo.py}\n",
+            "After. Next.\n",
+        );
+        let inputpythonfile_out = format_text(inputpythonfile, &latex_cfg()).unwrap();
+        assert!(
+            inputpythonfile_out.contains("\\inputpythonfile{foo.py}\n"),
+            "inputpythonfile must stay unchanged, got:\n{inputpythonfile_out}"
+        );
+        assert!(
+            !inputpythonfile_out.contains("\\inputpythonfile{foo.py} After."),
+            "inputpythonfile must not join following prose, got:\n{inputpythonfile_out}"
+        );
+
+        let customc = concat!(
+            "Before. Next.\n",
+            "\\pythontexcustomc{python}{import numpy}\n",
+            "After. Next.\n",
+        );
+        let customc_out = format_text(customc, &latex_cfg()).unwrap();
+        assert!(
+            customc_out.contains("\\pythontexcustomc{python}{import numpy}\n"),
+            "pythontexcustomc must stay unchanged, got:\n{customc_out}"
+        );
+        assert!(
+            !customc_out.contains("\\pythontexcustomc{python}{import numpy} After."),
+            "pythontexcustomc must not join following prose, got:\n{customc_out}"
+        );
+
+        let extras_cfg = FormatConfig {
+            format: crate::format::Format::Latex,
+            latex_verbatim_commands: vec!["pyth".to_string()],
+            ..Default::default()
+        }
+        .without_safety_backstops();
+        let extras_out = format_text("Before. Next.\n\\pyth After. Next.\n", &extras_cfg).unwrap();
+        assert!(
+            extras_out.contains("After.\nNext."),
+            "configured extra pyth must not re-tokenize the no-brace form as Delim, got:\n{extras_out}"
+        );
+        let extras_brace = format_text(
+            "Before. Next.\n\\pyth{print(1)}\nAfter. Next.\n",
+            &extras_cfg,
+        )
+        .unwrap();
+        assert!(
+            extras_brace.contains("\\pyth{print(1)}\n"),
+            "configured extra pyth must keep the brace form as leftover, got:\n{extras_brace}"
+        );
+        assert!(
+            extras_brace.contains("After.\nNext."),
+            "configured extra pyth brace form must still split following prose, got:\n{extras_brace}"
         );
     }
 

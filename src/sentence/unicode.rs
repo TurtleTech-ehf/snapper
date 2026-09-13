@@ -254,7 +254,7 @@ fn protect_latex_verbatim(
 /// `\inputsympycon` / `\py` / `\pyc` / `\pys` / `\pyb` / `\pyv` /
 /// `\pycon` and twins / `\sympy` / `\pylab` and twins /
 /// `\inputpygments` / `\pygment` / `\inputpython` /
-/// `\inputpythonfile` / `\CatchFileBetweenTags` /
+/// `\inputpythonfile` / `\pyth` / `\CatchFileBetweenTags` /
 /// `\CatchFileBetweenDelims` / `\ExecuteMetaData` / `\listinginput` /
 /// `\sageinput` / `\inputsc` / `\pythontexcustomc` / extra-name span
 /// starting at `at`.
@@ -311,7 +311,13 @@ fn protect_latex_verbatim(
 /// `\inputpythonfile` (pythonhighlight.sty leftover file-input;
 /// GitHub #443) take three required braces or xparse `moo`
 /// (`{file}` then optional `[first][last]`). No brace is not a
-/// span. There is no `*` form. `\lstinputlisting` / `\inputpy`
+/// span. There is no `*` form. `\pyth` (pythonhighlight.sty leftover
+/// inline; GitHub #450) takes a delimiter or `{code}` body like
+/// `\lstinline`. Longer name first so it is not `\py` + leftover.
+/// No brace is not a span. There is no `*` form. An ASCII-letter
+/// next token is not a delimiter, so `\pyth After.` is not a span.
+/// `\inputpython` / `\inputpythonfile` / `\py` stay their own
+/// leftovers. `\lstinputlisting` / `\inputpy`
 /// stay their own leftovers. `\CatchFileBetweenTags`
 /// takes three required braces; `\CatchFileBetweenDelims` takes four
 /// then optional `[setup]`; `\ExecuteMetaData` takes optional `[file]`
@@ -396,6 +402,11 @@ pub(crate) fn latex_verb_span_end_with(
             return None;
         }
         (after_bs + "inputpython".len(), VerbKind::Inputpython)
+    } else if let Some(name) = pyth_cs_name(tail) {
+        // pythonhighlight.sty leftover (GitHub #450). Longer name
+        // first so `\pyth` is not `\py` + leftover. Delimiter or
+        // `{code}` body like `\lstinline`. No `*` form.
+        (after_bs + name.len(), VerbKind::Pyth)
     } else if let Some(name) = inputpy_cs_name(tail) {
         // pythontex.sty leftover file-input (GitHub #419 / #433).
         // Longer names first. Same optional `[...]` then `{file}`
@@ -562,6 +573,7 @@ pub(crate) fn latex_verb_span_end_with(
             | VerbKind::SaveVerb
             | VerbKind::PytxInline
             | VerbKind::Pythontexcustomc
+            | VerbKind::Pyth
     ) {
         i = skip_ascii_ws(text, i);
         if text.get(i..).is_some_and(|s| s.starts_with('[')) {
@@ -758,9 +770,12 @@ pub(crate) fn latex_verb_span_end_with(
         return None;
     }
     // pythontex `\py After.` is leftover prose, not `A` as a delimiter.
-    // Same for `\pythontexcustomc{python} After.` after the type brace.
-    if matches!(kind, VerbKind::PytxInline | VerbKind::Pythontexcustomc)
-        && delim.is_ascii_alphabetic()
+    // Same for `\pythontexcustomc{python} After.` after the type brace
+    // and `\pyth After.`.
+    if matches!(
+        kind,
+        VerbKind::PytxInline | VerbKind::Pythontexcustomc | VerbKind::Pyth
+    ) && delim.is_ascii_alphabetic()
     {
         return None;
     }
@@ -768,7 +783,11 @@ pub(crate) fn latex_verb_span_end_with(
 
     let brace_body = matches!(
         kind,
-        VerbKind::Lstinline | VerbKind::Mint | VerbKind::PytxInline | VerbKind::Pythontexcustomc
+        VerbKind::Lstinline
+            | VerbKind::Mint
+            | VerbKind::PytxInline
+            | VerbKind::Pythontexcustomc
+            | VerbKind::Pyth
     ) && delim == '{';
     if brace_body {
         return Some(find_unescaped_brace_close(text, i).unwrap_or_else(|| line_end(text, i)));
@@ -846,6 +865,10 @@ enum VerbKind {
     /// `[begin|end]`, required `{type}`, then delimiter or `{code}`.
     /// An ASCII-letter next token is not a delimiter.
     Pythontexcustomc,
+    /// pythonhighlight leftover `\pyth` (GitHub #450): delimiter or
+    /// `{code}` body like `\lstinline`. No `*` form. An ASCII-letter
+    /// next token is not a delimiter.
+    Pyth,
     /// `\SaveVerb`: optional `[...]`, `{name}`, then delimiter body like `\Verb`.
     SaveVerb,
     /// `\piton`: verb-like delimiter except `{` (GitHub #305).
@@ -884,6 +907,18 @@ pub(crate) fn pythontexcustomc_cs_name(tail: &str) -> Option<&'static str> {
         return None;
     }
     Some("pythontexcustomc")
+}
+
+/// pythonhighlight.sty leftover `\pyth` (GitHub #450). Delimiter or
+/// `{code}` body like `\lstinline`. Longer name first so it is not
+/// `\py` + leftover. No `*` form. `\inputpython` / `\inputpythonfile`
+/// / `\py` stay their own leftovers.
+pub(crate) fn pyth_cs_name(tail: &str) -> Option<&'static str> {
+    let after = tail.strip_prefix("pyth")?;
+    if after.starts_with(|c: char| c.is_ascii_alphabetic() || c == '*') {
+        return None;
+    }
+    Some("pyth")
 }
 
 /// sagetex leftover inline cmds (GitHub #446). Longer names first so
@@ -1103,6 +1138,7 @@ fn match_extra_verb_command<'a>(tail: &'a str, extras: &'a [String]) -> Option<&
             || pytx_inline_cs_name(name).is_some_and(|n| n == name.as_str())
             || sagetex_inline_cs_name(name).is_some_and(|n| n == name.as_str())
             || pythontexcustomc_cs_name(name).is_some_and(|n| n == name.as_str())
+            || pyth_cs_name(name).is_some_and(|n| n == name.as_str())
             || name == "listinginput"
             || name == "sageinput"
             || name == "inputpythonfile"
@@ -3765,6 +3801,101 @@ mod tests {
             latex_verb_span_end_with(r"\inputpy{foo.py}", 0, &[]),
             Some(r"\inputpy{foo.py}".len()),
             "pythontexcustomc leftover must not steal inputpy"
+        );
+    }
+
+    /// Ticket fixture (GitHub #450): pythonhighlight.sty leftover
+    /// `\pyth{code}` / `\pyth|code|` stays one span. Following
+    /// `After.` still splits. Longer name first so it is not `\py` +
+    /// leftover. extras skip so a configured extra does not
+    /// re-tokenize the no-brace form as Delim. `\inputpython` /
+    /// `\inputpythonfile` / `\pythontexcustomc` / `\py` stay their
+    /// own spans.
+    #[test]
+    fn latex_pyth_stays_atomic() {
+        let cmd = r"\pyth{print(1)}";
+        let text = r"See \pyth{print(1)} here. After.";
+        let (_, placeholders) = protect_inline_tokens(text);
+        assert!(
+            placeholders.iter().any(|p| p == cmd),
+            "pyth span must be protected, got {placeholders:?}"
+        );
+        assert_eq!(
+            latex_verb_span_end_with(cmd, 0, &[]),
+            Some(cmd.len()),
+            "pyth brace body must stay one span"
+        );
+        assert_eq!(
+            split(text),
+            vec![
+                r"See \pyth{print(1)} here.".to_string(),
+                "After.".to_string()
+            ]
+        );
+        let delim = r"\pyth|print(1)|";
+        assert_eq!(
+            latex_verb_span_end_with(delim, 0, &[]),
+            Some(delim.len()),
+            "pyth delimiter body must stay one span"
+        );
+        assert_eq!(
+            latex_verb_span_end_with(r"\pyth {print(1)}", 0, &[]),
+            Some(r"\pyth {print(1)}".len()),
+            "pyth may skip space before the body"
+        );
+        assert_eq!(
+            latex_verb_span_end_with(r"\pyth After.", 0, &[]),
+            None,
+            "pyth without a body is not a verb span"
+        );
+        assert_eq!(
+            latex_verb_span_end_with(r"\pyth*{print(1)}", 0, &[]),
+            None,
+            "pyth has no star form"
+        );
+
+        assert_eq!(
+            pyth_cs_name("pyth{print(1)}"),
+            Some("pyth"),
+            "pyth must not be py + leftover"
+        );
+        assert_eq!(
+            pyth_cs_name("py{print(1)}"),
+            None,
+            "py stays the default-family leftover"
+        );
+
+        let extras = ["pyth".to_string()];
+        assert_eq!(
+            latex_verb_span_end_with(r"\pyth After.", 0, &extras),
+            None,
+            "configured extra pyth must not re-tokenize the no-brace form as Delim"
+        );
+        assert_eq!(
+            latex_verb_span_end_with(cmd, 0, &extras),
+            Some(cmd.len()),
+            "configured extra pyth must keep the brace form as leftover"
+        );
+
+        assert_eq!(
+            latex_verb_span_end_with(r"\py{print(1)}", 0, &[]),
+            Some(r"\py{print(1)}".len()),
+            "pyth leftover must not steal py"
+        );
+        assert_eq!(
+            latex_verb_span_end_with(r"\inputpython{foo.py}{1}{20}", 0, &[]),
+            Some(r"\inputpython{foo.py}{1}{20}".len()),
+            "pyth leftover must not steal inputpython"
+        );
+        assert_eq!(
+            latex_verb_span_end_with(r"\inputpythonfile{foo.py}", 0, &[]),
+            Some(r"\inputpythonfile{foo.py}".len()),
+            "pyth leftover must not steal inputpythonfile"
+        );
+        assert_eq!(
+            latex_verb_span_end_with(r"\pythontexcustomc{python}{import numpy}", 0, &[]),
+            Some(r"\pythontexcustomc{python}{import numpy}".len()),
+            "pyth leftover must not steal pythontexcustomc"
         );
     }
 
