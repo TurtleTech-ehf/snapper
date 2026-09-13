@@ -113,6 +113,10 @@
 //! GitHub #451: scontents leftover \\Scontents / \\Scontents* /
 //! \\typestored / \\getstored / \\mergesc / \\meaningsc / \\foreachsc
 //! stay one atomic command; following flush prose does not join.
+//! GitHub #452: leftover inline verb-span \\verb / \\verb* /
+//! \\lstinline / \\mintinline / \\mint / \\SaveVerb / \\spverb /
+//! \\piton stay one atomic Structure command; following flush prose
+//! does not join.
 
 use snapper_fmt::format::Format;
 use snapper_fmt::parser::latex::LatexParser;
@@ -5011,6 +5015,127 @@ fn scontents_leftover_cmds_fixture_does_not_join_following_prose() {
     assert!(
         extras_brace.contains("After.\nNext."),
         "configured extra Scontents brace form must still split following prose, got:\n{extras_brace}"
+    );
+}
+
+/// Ticket fixture (GitHub #452): leftover inline verb-span cmds stay
+/// one Structure span. Following flush `After.` does not join.
+/// `After.` / `Next.` still split. Mid-sentence `See \verb|x| here.`
+/// still splits. Unicode spans stay protected. `\py` / `\sageplot`
+/// stay atomic. extras skip so a configured extra does not
+/// re-tokenize the no-brace mintinline form as Delim.
+#[test]
+fn verb_span_leftover_cmds_fixture_does_not_join_following_prose() {
+    for cmd in [
+        r"\lstinline|print(1)|",
+        r"\verb|print(1)|",
+        r"\verb*|print(1)|",
+        r"\mintinline{python}|print(1)|",
+        r"\mint{python}|print(1)|",
+        r"\SaveVerb{foo}|print(1)|",
+        r"\spverb|print(1)|",
+        r"\piton{print(1)}",
+    ] {
+        let input = format!("Before. Next.\n{cmd}\nAfter. Next.\n");
+        let regions = LatexParser::default().parse(&input);
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Structure(s) if s.contains(cmd)
+            )),
+            "{cmd} must stay one Structure command, got: {regions:?}"
+        );
+        assert!(
+            !regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(p) if p.contains(cmd)
+            )),
+            "{cmd} must not leak into Prose, got: {regions:?}"
+        );
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(p) if p.contains("After.") && p.contains("Next.")
+            )),
+            "After. / Next. must stay Prose after {cmd}, got: {regions:?}"
+        );
+        let out = format_text(&input, &latex_cfg()).unwrap();
+        assert!(
+            out.contains(&format!("{cmd}\n")),
+            "{cmd} must stay one atomic command, got:\n{out}"
+        );
+        assert!(
+            !out.contains(&format!("{cmd} After.")),
+            "following flush prose must not join the {cmd} line, got:\n{out}"
+        );
+        assert!(
+            out.contains("Before.\nNext."),
+            "prose before {cmd} must still split, got:\n{out}"
+        );
+        assert!(
+            out.contains("After.\nNext."),
+            "prose after {cmd} must still split, got:\n{out}"
+        );
+        assert_eq!(format_text(&out, &latex_cfg()).unwrap(), out);
+    }
+
+    let mid = "See \\verb|x| here. After.\n";
+    let mid_out = format_text(mid, &latex_cfg()).unwrap();
+    assert!(
+        mid_out.contains("See \\verb|x| here.\nAfter."),
+        "mid-sentence verb span must stay protected and still split, got:\n{mid_out}"
+    );
+
+    let py = concat!("Before. Next.\n", "\\py{print(1)}\n", "After. Next.\n",);
+    let py_out = format_text(py, &latex_cfg()).unwrap();
+    assert!(
+        py_out.contains("\\py{print(1)}\n"),
+        "py must stay unchanged, got:\n{py_out}"
+    );
+    assert!(
+        !py_out.contains("\\py{print(1)} After."),
+        "py must not join following prose, got:\n{py_out}"
+    );
+
+    let sageplot = concat!(
+        "Before. Next.\n",
+        "\\sageplot{plot(sin(x))}\n",
+        "After. Next.\n",
+    );
+    let sageplot_out = format_text(sageplot, &latex_cfg()).unwrap();
+    assert!(
+        sageplot_out.contains("\\sageplot{plot(sin(x))}\n"),
+        "sageplot must stay unchanged, got:\n{sageplot_out}"
+    );
+    assert!(
+        !sageplot_out.contains("\\sageplot{plot(sin(x))} After."),
+        "sageplot must not join following prose, got:\n{sageplot_out}"
+    );
+
+    let extras_cfg = FormatConfig {
+        format: Format::Latex,
+        latex_verbatim_commands: vec!["lstinline".to_string(), "mintinline".to_string()],
+        ..Default::default()
+    }
+    .without_safety_backstops();
+    let extras_out =
+        format_text("Before. Next.\n\\mintinline After. Next.\n", &extras_cfg).unwrap();
+    assert!(
+        extras_out.contains("After.\nNext."),
+        "configured extra must not re-tokenize the no-brace mintinline form as Delim, got:\n{extras_out}"
+    );
+    let extras_delim = format_text(
+        "Before. Next.\n\\lstinline|print(1)|\nAfter. Next.\n",
+        &extras_cfg,
+    )
+    .unwrap();
+    assert!(
+        extras_delim.contains("\\lstinline|print(1)|\n"),
+        "configured extra lstinline must keep the delim form as leftover, got:\n{extras_delim}"
+    );
+    assert!(
+        extras_delim.contains("After.\nNext."),
+        "configured extra lstinline delim form must still split following prose, got:\n{extras_delim}"
     );
 }
 

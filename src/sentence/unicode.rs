@@ -268,7 +268,10 @@ fn protect_latex_verbatim(
 ///
 /// `\verb` / `\verb*` / `\spverb` / `\spverb*` / `\Verb` / `\Verb*`: next
 /// character is the
-/// delimiter; content runs to the same character. `\lstinline` /
+/// delimiter; content runs to the same character. Leftover walker
+/// (GitHub #452) classifies `\verb` / `\verb*` / `\lstinline` /
+/// `\mintinline` / `\mint` / `\SaveVerb` / `\spverb` / `\piton` as
+/// Structure so following flush prose does not join. `\lstinline` /
 /// `\lstinline*` may take optional `[...]` before a delimiter or a
 /// `{...}` brace body. `\mintinline` / `\mint` (and stars) take optional
 /// `[...]`, a required `{lang}`, then a delimiter or `{...}` body
@@ -976,6 +979,33 @@ pub(crate) fn scontents_leftover_cs_name(tail: &str) -> Option<&'static str> {
         };
         let reject_star = name != "Scontents";
         if after.starts_with(|c: char| c.is_ascii_alphabetic() || (reject_star && c == '*')) {
+            return None;
+        }
+        return Some(name);
+    }
+    None
+}
+
+/// Leftover inline verb-span cmds (GitHub #452). Longer names first so
+/// `\mintinline` is not `\mint` + leftover. `\verbatiminput` /
+/// `\lstinputlisting` / `\inputminted` stay their own leftovers
+/// (alphabetic leftover rejects a longer name). `\Verb` is not this
+/// leftover. `\piton{...}` stays on the generic `\cmd{arg}` path
+/// (GitHub #305). Star forms follow the existing unicode span.
+pub(crate) fn verb_span_leftover_cs_name(tail: &str) -> Option<&'static str> {
+    for name in [
+        "mintinline",
+        "lstinline",
+        "SaveVerb",
+        "spverb",
+        "piton",
+        "mint",
+        "verb",
+    ] {
+        let Some(after) = tail.strip_prefix(name) else {
+            continue;
+        };
+        if after.starts_with(|c: char| c.is_ascii_alphabetic()) {
             return None;
         }
         return Some(name);
