@@ -516,7 +516,7 @@ impl LatexParser {
     /// `\pygment` / `\inputpython` / `\inputpythonfile` /
     /// `\CatchFileBetweenTags` / `\CatchFileBetweenDelims` /
     /// `\ExecuteMetaData` / `\CatchFileDef` / `\CatchFileEdef` /
-    /// `\listinginput` / `\sageinput` /
+    /// `\listinginput` / `\verbatimtabinput` / `\sageinput` /
     /// `\inputsc` / `\Scontents` / `\typestored` / `\getstored` /
     /// `\mergesc` / `\meaningsc` / `\foreachsc` / `\pythontexcustomc` /
     /// `\pyth` / `\UseVerb` / `\UseVerbatim` / `\LUseVerbatim` /
@@ -902,7 +902,7 @@ fn find_tex_cs(line: &str, from: usize, cs: &str) -> Option<usize> {
 /// twins / `\inputpygments` / `\pygment` / `\inputpython` /
 /// `\inputpythonfile` / `\CatchFileBetweenTags` /
 /// `\CatchFileBetweenDelims` / `\ExecuteMetaData` / `\CatchFileDef` /
-/// `\CatchFileEdef` / `\listinginput` /
+/// `\CatchFileEdef` / `\listinginput` / `\verbatimtabinput` /
 /// `\sageinput` / `\inputsc` / `\Scontents` / `\typestored` /
 /// `\getstored` / `\mergesc` / `\meaningsc` / `\foreachsc` /
 /// `\pythontexcustomc` / `\pyth` / `\UseVerb` / `\UseVerbatim` /
@@ -1071,6 +1071,30 @@ fn listinginput_cs_at(line: &str, at: usize) -> bool {
         return false;
     };
     !after.starts_with(|c: char| c.is_ascii_alphabetic() || c == '*')
+}
+
+/// Leftover moreverb `\verbatimtabinput` / `\verbatimtabinput*`
+/// (optional `[tabwidth]`, required `{file}`; GitHub #465). One leftover
+/// walker for both names. Other verb spans are skipped so
+/// `\verb|\verbatimtabinput{x}|` is not stolen. Walk stops at an
+/// unescaped `%` so a comment is not a command tail. `\listinginput` /
+/// `\verbatiminput` stay their own leftovers.
+fn find_verbatimtabinput_at(
+    line: &str,
+    from: usize,
+    extra_cmds: &[String],
+) -> Option<(usize, usize)> {
+    find_leftover_cmd_at(line, from, extra_cmds, verbatimtabinput_cs_at)
+}
+
+fn verbatimtabinput_cs_at(line: &str, at: usize) -> bool {
+    let Some(tail) = line.get(at..).and_then(|s| s.strip_prefix('\\')) else {
+        return false;
+    };
+    let Some(after) = tail.strip_prefix("verbatimtabinput") else {
+        return false;
+    };
+    !after.starts_with(|c: char| c.is_ascii_alphabetic())
 }
 
 /// Leftover sagetex `\sageinput` (optional `[...]`, required `{file}`;
@@ -2217,6 +2241,9 @@ impl<'a> ParseState<'a> {
                     })
                     .or_else(|| find_inputpy_at(code, i, &self.parser.extra_verbatim_commands))
                     .or_else(|| find_listinginput_at(code, i, &self.parser.extra_verbatim_commands))
+                    .or_else(|| {
+                        find_verbatimtabinput_at(code, i, &self.parser.extra_verbatim_commands)
+                    })
                     .or_else(|| find_sageinput_at(code, i, &self.parser.extra_verbatim_commands))
                     .or_else(|| {
                         find_sagetex_inline_at(code, i, &self.parser.extra_verbatim_commands)
@@ -2473,7 +2500,7 @@ mod tests {
     #[test]
     fn multi_sentence_section_title_stays_one_line() {
         use crate::format::Format;
-        use crate::{FormatConfig, format_text};
+        use crate::{format_text, FormatConfig};
 
         let input = "\\begin{document}\n\\section{A long title. With two sentences.}\nBody text here. More body.\n\\end{document}\n";
         let cfg = FormatConfig {
@@ -2530,7 +2557,7 @@ mod tests {
     fn section_optional_short_title_stays_one_line() {
         use crate::format::Format;
         use crate::oracle;
-        use crate::{FormatConfig, format_text};
+        use crate::{format_text, FormatConfig};
 
         let input =
             "\\section[Short. Title.]{A long title. With two sentences.}\nBody. More body.\n";
@@ -2562,7 +2589,7 @@ mod tests {
     #[test]
     fn koma_addsec_addchap_addpart_optional_short_title_is_structure() {
         use crate::format::Format;
-        use crate::{FormatConfig, format_text};
+        use crate::{format_text, FormatConfig};
 
         let cfg = FormatConfig {
             format: Format::Latex,
@@ -2606,7 +2633,7 @@ mod tests {
     #[test]
     fn fragment_without_begin_document_is_prose() {
         use crate::format::Format;
-        use crate::{FormatConfig, format_text};
+        use crate::{format_text, FormatConfig};
 
         let input = "This sentence is a test. This sentence is also a test.\n";
         let cfg = FormatConfig {
@@ -2624,7 +2651,7 @@ mod tests {
     #[test]
     fn no_preamble_pragma_formats_body() {
         use crate::format::Format;
-        use crate::{FormatConfig, format_text};
+        use crate::{format_text, FormatConfig};
 
         let input =
             "% snapper:no-preamble\nThis sentence is a test. This sentence is also a test.\n";
@@ -2647,7 +2674,7 @@ mod tests {
     #[test]
     fn documentclass_without_begin_stays_preamble() {
         use crate::format::Format;
-        use crate::{FormatConfig, format_text};
+        use crate::{format_text, FormatConfig};
 
         let input =
             "\\documentclass{article}\nThis sentence is a test. This sentence is also a test.\n";
@@ -2715,7 +2742,7 @@ Some text.
     #[test]
     fn trailing_percent_is_nospace_join() {
         use crate::format::Format;
-        use crate::{FormatConfig, format_text};
+        use crate::{format_text, FormatConfig};
 
         let input = "\\begin{document}\nfoo%\nbar. Next sentence.\n\\end{document}\n";
         let cfg = FormatConfig {
@@ -2739,7 +2766,7 @@ Some text.
     #[test]
     fn escaped_percent_is_not_a_comment() {
         use crate::format::Format;
-        use crate::{FormatConfig, format_text};
+        use crate::{format_text, FormatConfig};
 
         let input = "\\begin{document}\n50\\% of cases. More text.\n\\end{document}\n";
         let cfg = FormatConfig {
@@ -2758,7 +2785,7 @@ Some text.
     #[test]
     fn mid_line_percent_comment_is_structure() {
         use crate::format::Format;
-        use crate::{FormatConfig, format_text};
+        use crate::{format_text, FormatConfig};
 
         let input = "\\begin{document}\nSee Fig. 1. % TODO cite\nNext sentence.\n\\end{document}\n";
         let cfg = FormatConfig {
@@ -3426,7 +3453,7 @@ Some text.
     /// form as Delim.
     #[test]
     fn pythontexcustomc_does_not_join_following_prose() {
-        use crate::{FormatConfig, format_text};
+        use crate::{format_text, FormatConfig};
 
         let cmd = r"\pythontexcustomc{python}{import numpy}";
         let input = format!("Before. Next.\n{cmd}\nAfter. Next.\n");
@@ -3559,7 +3586,7 @@ Some text.
     /// no-brace form as Delim.
     #[test]
     fn pyth_does_not_join_following_prose() {
-        use crate::{FormatConfig, format_text};
+        use crate::{format_text, FormatConfig};
 
         let cmd = r"\pyth{print(1)}";
         let input = format!("Before. Next.\n{cmd}\nAfter. Next.\n");
@@ -3701,7 +3728,7 @@ Some text.
     /// configured extra does not re-tokenize the no-brace form as Delim.
     #[test]
     fn scontents_leftover_cmds_do_not_join_following_prose() {
-        use crate::{FormatConfig, format_text};
+        use crate::{format_text, FormatConfig};
 
         for cmd in [
             r"\Scontents*{foo bar}",
@@ -3854,7 +3881,7 @@ Some text.
     /// re-tokenize the no-brace mintinline form as Delim.
     #[test]
     fn verb_span_leftover_cmds_do_not_join_following_prose() {
-        use crate::{FormatConfig, format_text};
+        use crate::{format_text, FormatConfig};
 
         for cmd in [
             r"\lstinline|print(1)|",
@@ -4009,7 +4036,7 @@ Some text.
     /// no-brace form as Delim.
     #[test]
     fn fancyvrb_leftover_cmds_do_not_join_following_prose() {
-        use crate::{FormatConfig, format_text};
+        use crate::{format_text, FormatConfig};
 
         for cmd in [
             r"\UseVerb{foo}",
@@ -4325,7 +4352,7 @@ Some text.
     /// the no-brace form as Delim.
     #[test]
     fn catchfile_leftover_cmds_do_not_join_following_prose() {
-        use crate::{FormatConfig, format_text};
+        use crate::{format_text, FormatConfig};
 
         for cmd in [
             r"\CatchFileDef{\foo}{foo.py}{}",
@@ -4434,7 +4461,7 @@ Some text.
     /// a configured extra does not re-tokenize the no-brace form as Delim.
     #[test]
     fn inputpython_does_not_join_following_prose() {
-        use crate::{FormatConfig, format_text};
+        use crate::{format_text, FormatConfig};
 
         let input = concat!(
             "Before. Next.\n",
@@ -4558,7 +4585,7 @@ Some text.
     /// not re-tokenize the no-brace form as Delim.
     #[test]
     fn sagetex_inline_cmds_do_not_join_following_prose() {
-        use crate::{FormatConfig, format_text};
+        use crate::{format_text, FormatConfig};
 
         for (cmd, name) in [
             (r"\sageplot{plot(sin(x))}", "sageplot"),
@@ -4707,7 +4734,7 @@ Some text.
     /// `\inputpygments` / `\pygment` unchanged.
     #[test]
     fn pytx_inline_cmds_do_not_join_following_prose() {
-        use crate::{FormatConfig, format_text};
+        use crate::{format_text, FormatConfig};
 
         for name in [
             "py", "pyc", "pys", "pyb", "pyv", "pycon", "pyconc", "pycons", "pyconv", "sympy",
@@ -4840,7 +4867,7 @@ Some text.
     /// mint envs, not these inlines.
     #[test]
     fn pytx_usefamily_inline_cmds_do_not_join_following_prose() {
-        use crate::{FormatConfig, format_text};
+        use crate::{format_text, FormatConfig};
 
         const FAMILIES: &[&str] = &[
             "ruby",
@@ -8502,7 +8529,7 @@ Some text.
     fn enumerate_item_hangs_next_sentence() {
         use crate::format::Format;
         use crate::oracle;
-        use crate::{FormatConfig, format_text};
+        use crate::{format_text, FormatConfig};
 
         let cfg = FormatConfig {
             format: Format::Latex,
@@ -10649,6 +10676,125 @@ Some text.
         assert!(
             !piton_out.contains("\\PitonInputFile{foo.py} After."),
             "PitonInputFile must not join following prose, got:\n{piton_out}"
+        );
+    }
+
+    /// Ticket fixture (GitHub #465): moreverb `\verbatimtabinput{file}`
+    /// / `\verbatimtabinput*` stay one Structure span. Optional
+    /// `[tabwidth]` stays atomic. Following flush `After.` does not
+    /// join. `After.` / `Next.` still split. listinginput /
+    /// verbatiminput stay atomic. extras skip so a configured extra
+    /// does not re-tokenize the no-brace form as Delim.
+    #[test]
+    fn verbatimtabinput_does_not_join_following_prose() {
+        use crate::{format_text, FormatConfig};
+
+        for cmd in [
+            r"\verbatimtabinput{foo.py}",
+            r"\verbatimtabinput*{foo.py}",
+            r"\verbatimtabinput[8]{foo.py}",
+            r"\verbatimtabinput*[8]{foo.py}",
+        ] {
+            let input = format!("Before. Next.\n{cmd}\nAfter. Next.\n");
+            let regions = LatexParser::default().parse(&input);
+            assert!(
+                regions.iter().any(|r| matches!(
+                    r,
+                    Region::Structure(s) if s.contains(cmd)
+                )),
+                "{cmd} must stay one Structure command, got: {regions:?}"
+            );
+            assert!(
+                !regions.iter().any(|r| matches!(
+                    r,
+                    Region::Prose(p) if p.contains(cmd)
+                )),
+                "{cmd} must not leak into Prose, got: {regions:?}"
+            );
+            assert!(
+                regions.iter().any(|r| matches!(
+                    r,
+                    Region::Prose(p) if p.contains("After.") && p.contains("Next.")
+                )),
+                "After. / Next. must stay Prose after {cmd}, got: {regions:?}"
+            );
+            let out = format_text(&input, &latex_cfg()).unwrap();
+            assert!(
+                out.contains(&format!("{cmd}\n")),
+                "{cmd} must stay one atomic command, got:\n{out}"
+            );
+            assert!(
+                !out.contains(&format!("{cmd} After.")),
+                "following flush prose must not join the {cmd} line, got:\n{out}"
+            );
+            assert!(
+                out.contains("Before.\nNext."),
+                "prose before {cmd} must still split, got:\n{out}"
+            );
+            assert!(
+                out.contains("After.\nNext."),
+                "prose after {cmd} must still split, got:\n{out}"
+            );
+            assert_eq!(format_text(&out, &latex_cfg()).unwrap(), out);
+        }
+
+        let listing = concat!(
+            "Before. Next.\n",
+            "\\listinginput{1}{foo.py}\n",
+            "After. Next.\n",
+        );
+        let listing_out = format_text(listing, &latex_cfg()).unwrap();
+        assert!(
+            listing_out.contains("\\listinginput{1}{foo.py}\n"),
+            "listinginput must stay unchanged, got:\n{listing_out}"
+        );
+        assert!(
+            !listing_out.contains("\\listinginput{1}{foo.py} After."),
+            "listinginput must not join following prose, got:\n{listing_out}"
+        );
+
+        let verb = concat!(
+            "Before. Next.\n",
+            "\\verbatiminput{foo.py}\n",
+            "After. Next.\n",
+        );
+        let verb_out = format_text(verb, &latex_cfg()).unwrap();
+        assert!(
+            verb_out.contains("\\verbatiminput{foo.py}\n"),
+            "verbatiminput must stay unchanged, got:\n{verb_out}"
+        );
+        assert!(
+            !verb_out.contains("\\verbatiminput{foo.py} After."),
+            "verbatiminput must not join following prose, got:\n{verb_out}"
+        );
+
+        let extras_cfg = FormatConfig {
+            format: crate::format::Format::Latex,
+            latex_verbatim_commands: vec!["verbatimtabinput".to_string()],
+            ..Default::default()
+        }
+        .without_safety_backstops();
+        let extras_out = format_text(
+            "Before. Next.\n\\verbatimtabinput After. Next.\n",
+            &extras_cfg,
+        )
+        .unwrap();
+        assert!(
+            extras_out.contains("After.\nNext."),
+            "configured extra verbatimtabinput must not re-tokenize the no-brace form as Delim, got:\n{extras_out}"
+        );
+        let extras_brace = format_text(
+            "Before. Next.\n\\verbatimtabinput{foo.py}\nAfter. Next.\n",
+            &extras_cfg,
+        )
+        .unwrap();
+        assert!(
+            extras_brace.contains("\\verbatimtabinput{foo.py}\n"),
+            "configured extra verbatimtabinput must keep the brace form as leftover, got:\n{extras_brace}"
+        );
+        assert!(
+            extras_brace.contains("After.\nNext."),
+            "configured extra verbatimtabinput brace form must still split following prose, got:\n{extras_brace}"
         );
     }
 
