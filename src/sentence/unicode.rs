@@ -220,6 +220,7 @@ pub fn protect_inline_tokens_with(
 /// `\CatchFileEdef{macro}{file}{setup}` /
 /// `\listinginput[interval]{start}{file}` /
 /// `\verbatimtabinput[...]{file}` / `\verbatimtabinput*{file}` /
+/// `\verbatimwrite{file}` / `\verbatimwrite*{file}` /
 /// `\sageinput[...]{file}` /
 /// `\inputsc[...]{name}` / `\Scontents[...]{body}` /
 /// `\Scontents*[...]{body}` / `\typestored[...]{seq}` /
@@ -270,6 +271,7 @@ fn protect_latex_verbatim(
 /// `\inputpythonfile` / `\CatchFileBetweenTags` /
 /// `\CatchFileBetweenDelims` / `\ExecuteMetaData` / `\CatchFileDef` /
 /// `\CatchFileEdef` / `\listinginput` / `\verbatimtabinput` /
+/// `\verbatimwrite` /
 /// `\sageinput` / `\inputsc` / `\Scontents` / `\typestored` /
 /// `\getstored` / `\mergesc` / `\meaningsc` / `\foreachsc` /
 /// `\pythontexcustomc` / `\pyth` / `\UseVerb` / `\UseVerbatim` /
@@ -348,7 +350,11 @@ fn protect_latex_verbatim(
 /// There is no `*` form. `\verbatimtabinput` / `\verbatimtabinput*`
 /// (moreverb leftover; GitHub #465) take optional `[tabwidth]` then a
 /// required `{filename}`; no brace is not a span. Matched before
-/// `\verbatiminput` so this is not rejected as leftover. `\sageinput` (sagetex leftover; GitHub #428)
+/// `\verbatiminput` so this is not rejected as leftover. `\verbatimwrite` /
+/// `\verbatimwrite*` (moreverb leftover; GitHub #471) take a required
+/// `{filename}`; no brace is not a span. Starred twin is the same walk.
+/// `\verbatimtabinput` / `\listinginput` / `\verbatiminput` stay their
+/// own leftovers. `\sageinput` (sagetex leftover; GitHub #428)
 /// takes optional `[...]` then a required `{filename}`; no brace is
 /// not a span. Alphabetic leftover rejects a longer name. `\sage` is
 /// a different, shorter name and is not this span. `\sageplot` /
@@ -572,6 +578,15 @@ pub(crate) fn latex_verb_span_end_with(
             after_bs + "verbatimtabinput".len(),
             VerbKind::Lstinputlisting,
         )
+    } else if let Some(stripped) = tail.strip_prefix("verbatimwrite") {
+        // moreverb leftover (GitHub #471). Before `verb` so this is not
+        // `\verb` + leftover. Required `{file}`. Starred twin is the
+        // same walk. `\verbatimtabinput` / `\listinginput` /
+        // `\verbatiminput` stay their own leftovers.
+        if stripped.starts_with(|c: char| c.is_ascii_alphabetic()) {
+            return None;
+        }
+        (after_bs + "verbatimwrite".len(), VerbKind::Lstinputlisting)
     } else if let Some(stripped) = tail.strip_prefix("verbatiminput") {
         // Before `verb` so `\verbatiminput` is not `\verb` + leftover.
         if stripped.starts_with(|c: char| c.is_ascii_alphabetic()) {
@@ -1441,6 +1456,7 @@ fn match_extra_verb_command<'a>(tail: &'a str, extras: &'a [String]) -> Option<&
             || fvextra_buffer_leftover_cs_name(name).is_some_and(|n| n == name.as_str())
             || name == "listinginput"
             || name == "verbatimtabinput"
+            || name == "verbatimwrite"
             || name == "sageinput"
             || name == "inputpythonfile"
             || name == "inputpython"
@@ -3912,6 +3928,73 @@ mod tests {
             latex_verb_span_end_with(r"\listinginput{1}{foo.py}", 0, &[]),
             Some(r"\listinginput{1}{foo.py}".len()),
             "verbatimtabinput must not steal listinginput"
+        );
+    }
+
+    /// Ticket fixture (GitHub #471): moreverb `\verbatimwrite{file}`
+    /// / `\verbatimwrite*` stay one leftover file-input command;
+    /// following `After.` still splits. extras skip so a configured
+    /// extra does not re-tokenize the no-brace form as Delim.
+    /// verbatimtabinput / listinginput / verbatiminput unchanged.
+    #[test]
+    fn latex_verbatimwrite_stays_atomic() {
+        let text = r"See \verbatimwrite{foo.py} here. After.";
+        let (_, placeholders) = protect_inline_tokens(text);
+        assert!(
+            placeholders.iter().any(|p| p == r"\verbatimwrite{foo.py}"),
+            "verbatimwrite span must be protected, got {placeholders:?}"
+        );
+        assert_eq!(
+            latex_verb_span_end_with(r"\verbatimwrite{foo.py}", 0, &[]),
+            Some(r"\verbatimwrite{foo.py}".len())
+        );
+        assert_eq!(
+            split(text),
+            vec![
+                r"See \verbatimwrite{foo.py} here.".to_string(),
+                "After.".to_string()
+            ]
+        );
+        assert_eq!(
+            latex_verb_span_end_with(r"\verbatimwrite*{foo.py}", 0, &[]),
+            Some(r"\verbatimwrite*{foo.py}".len()),
+            "verbatimwrite star form must stay a span"
+        );
+        assert_eq!(
+            latex_verb_span_end_with(r"\verbatimwrite {foo.py}", 0, &[]),
+            Some(r"\verbatimwrite {foo.py}".len()),
+            "verbatimwrite may skip space before the file brace"
+        );
+        assert_eq!(
+            latex_verb_span_end_with(r"\verbatimwrite foo.py", 0, &[]),
+            None,
+            "verbatimwrite without a brace file arg is not a verb span"
+        );
+        let extras = ["verbatimwrite".to_string()];
+        assert_eq!(
+            latex_verb_span_end_with(r"\verbatimwrite foo.py", 0, &extras),
+            None,
+            "configured extra verbatimwrite must not re-tokenize the no-brace form as Delim"
+        );
+        assert_eq!(
+            latex_verb_span_end_with(r"\verbatimwrite{foo.py}", 0, &extras),
+            Some(r"\verbatimwrite{foo.py}".len()),
+            "configured extra verbatimwrite must keep the brace form as leftover"
+        );
+        assert_eq!(
+            latex_verb_span_end_with(r"\verbatimtabinput{foo.py}", 0, &[]),
+            Some(r"\verbatimtabinput{foo.py}".len()),
+            "verbatimwrite must not steal verbatimtabinput"
+        );
+        assert_eq!(
+            latex_verb_span_end_with(r"\listinginput{1}{foo.py}", 0, &[]),
+            Some(r"\listinginput{1}{foo.py}".len()),
+            "verbatimwrite must not steal listinginput"
+        );
+        assert_eq!(
+            latex_verb_span_end_with(r"\verbatiminput{foo.py}", 0, &[]),
+            Some(r"\verbatiminput{foo.py}".len()),
+            "verbatimwrite must not steal verbatiminput"
         );
     }
 

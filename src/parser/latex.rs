@@ -516,7 +516,7 @@ impl LatexParser {
     /// `\pygment` / `\inputpython` / `\inputpythonfile` /
     /// `\CatchFileBetweenTags` / `\CatchFileBetweenDelims` /
     /// `\ExecuteMetaData` / `\CatchFileDef` / `\CatchFileEdef` /
-    /// `\listinginput` / `\verbatimtabinput` / `\sageinput` /
+    /// `\listinginput` / `\verbatimtabinput` / `\verbatimwrite` / `\sageinput` /
     /// `\inputsc` / `\Scontents` / `\typestored` / `\getstored` /
     /// `\mergesc` / `\meaningsc` / `\foreachsc` / `\pythontexcustomc` /
     /// `\pyth` / `\UseVerb` / `\UseVerbatim` / `\LUseVerbatim` /
@@ -905,7 +905,8 @@ fn find_tex_cs(line: &str, from: usize, cs: &str) -> Option<usize> {
 /// `\inputpythonfile` / `\CatchFileBetweenTags` /
 /// `\CatchFileBetweenDelims` / `\ExecuteMetaData` / `\CatchFileDef` /
 /// `\CatchFileEdef` / `\listinginput` / `\verbatimtabinput` /
-/// `\sageinput` / `\inputsc` / `\Scontents` / `\typestored` /
+/// `\verbatimwrite` / `\sageinput` / `\inputsc` / `\Scontents` /
+/// `\typestored` /
 /// `\getstored` / `\mergesc` / `\meaningsc` / `\foreachsc` /
 /// `\pythontexcustomc` / `\pyth` / `\UseVerb` / `\UseVerbatim` /
 /// `\LUseVerbatim` / `\BUseVerbatim` / `\EscVerb` /
@@ -1096,6 +1097,26 @@ fn verbatimtabinput_cs_at(line: &str, at: usize) -> bool {
         return false;
     };
     let Some(after) = tail.strip_prefix("verbatimtabinput") else {
+        return false;
+    };
+    !after.starts_with(|c: char| c.is_ascii_alphabetic())
+}
+
+/// Leftover moreverb `\verbatimwrite` / `\verbatimwrite*`
+/// (required `{file}`; GitHub #471). One leftover walker for both
+/// names. Other verb spans are skipped so `\verb|\verbatimwrite{x}|`
+/// is not stolen. Walk stops at an unescaped `%` so a comment is not
+/// a command tail. `\verbatimtabinput` / `\listinginput` /
+/// `\verbatiminput` stay their own leftovers.
+fn find_verbatimwrite_at(line: &str, from: usize, extra_cmds: &[String]) -> Option<(usize, usize)> {
+    find_leftover_cmd_at(line, from, extra_cmds, verbatimwrite_cs_at)
+}
+
+fn verbatimwrite_cs_at(line: &str, at: usize) -> bool {
+    let Some(tail) = line.get(at..).and_then(|s| s.strip_prefix('\\')) else {
+        return false;
+    };
+    let Some(after) = tail.strip_prefix("verbatimwrite") else {
         return false;
     };
     !after.starts_with(|c: char| c.is_ascii_alphabetic())
@@ -2268,6 +2289,9 @@ impl<'a> ParseState<'a> {
                     .or_else(|| find_listinginput_at(code, i, &self.parser.extra_verbatim_commands))
                     .or_else(|| {
                         find_verbatimtabinput_at(code, i, &self.parser.extra_verbatim_commands)
+                    })
+                    .or_else(|| {
+                        find_verbatimwrite_at(code, i, &self.parser.extra_verbatim_commands)
                     })
                     .or_else(|| find_sageinput_at(code, i, &self.parser.extra_verbatim_commands))
                     .or_else(|| {
@@ -10826,6 +10850,116 @@ Some text.
         assert!(
             extras_brace.contains("After.\nNext."),
             "configured extra verbatimtabinput brace form must still split following prose, got:\n{extras_brace}"
+        );
+    }
+
+    /// Ticket fixture (GitHub #471): moreverb `\verbatimwrite{file}`
+    /// / `\verbatimwrite*` stay one Structure span. Following flush
+    /// `After.` does not join. `After.` / `Next.` still split.
+    /// verbatimtabinput / listinginput stay atomic. extras skip so a
+    /// configured extra does not re-tokenize the no-brace form as Delim.
+    #[test]
+    fn verbatimwrite_does_not_join_following_prose() {
+        use crate::{FormatConfig, format_text};
+
+        for cmd in [r"\verbatimwrite{foo.py}", r"\verbatimwrite*{foo.py}"] {
+            let input = format!("Before. Next.\n{cmd}\nAfter. Next.\n");
+            let regions = LatexParser::default().parse(&input);
+            assert!(
+                regions.iter().any(|r| matches!(
+                    r,
+                    Region::Structure(s) if s.contains(cmd)
+                )),
+                "{cmd} must stay one Structure command, got: {regions:?}"
+            );
+            assert!(
+                !regions.iter().any(|r| matches!(
+                    r,
+                    Region::Prose(p) if p.contains(cmd)
+                )),
+                "{cmd} must not leak into Prose, got: {regions:?}"
+            );
+            assert!(
+                regions.iter().any(|r| matches!(
+                    r,
+                    Region::Prose(p) if p.contains("After.") && p.contains("Next.")
+                )),
+                "After. / Next. must stay Prose after {cmd}, got: {regions:?}"
+            );
+            let out = format_text(&input, &latex_cfg()).unwrap();
+            assert!(
+                out.contains(&format!("{cmd}\n")),
+                "{cmd} must stay one atomic command, got:\n{out}"
+            );
+            assert!(
+                !out.contains(&format!("{cmd} After.")),
+                "following flush prose must not join the {cmd} line, got:\n{out}"
+            );
+            assert!(
+                out.contains("Before.\nNext."),
+                "prose before {cmd} must still split, got:\n{out}"
+            );
+            assert!(
+                out.contains("After.\nNext."),
+                "prose after {cmd} must still split, got:\n{out}"
+            );
+            assert_eq!(format_text(&out, &latex_cfg()).unwrap(), out);
+        }
+
+        let tab = concat!(
+            "Before. Next.\n",
+            "\\verbatimtabinput{foo.py}\n",
+            "After. Next.\n",
+        );
+        let tab_out = format_text(tab, &latex_cfg()).unwrap();
+        assert!(
+            tab_out.contains("\\verbatimtabinput{foo.py}\n"),
+            "verbatimtabinput must stay unchanged, got:\n{tab_out}"
+        );
+        assert!(
+            !tab_out.contains("\\verbatimtabinput{foo.py} After."),
+            "verbatimtabinput must not join following prose, got:\n{tab_out}"
+        );
+
+        let listing = concat!(
+            "Before. Next.\n",
+            "\\listinginput{1}{foo.py}\n",
+            "After. Next.\n",
+        );
+        let listing_out = format_text(listing, &latex_cfg()).unwrap();
+        assert!(
+            listing_out.contains("\\listinginput{1}{foo.py}\n"),
+            "listinginput must stay unchanged, got:\n{listing_out}"
+        );
+        assert!(
+            !listing_out.contains("\\listinginput{1}{foo.py} After."),
+            "listinginput must not join following prose, got:\n{listing_out}"
+        );
+
+        let extras_cfg = FormatConfig {
+            format: crate::format::Format::Latex,
+            latex_verbatim_commands: vec!["verbatimwrite".to_string()],
+            ..Default::default()
+        }
+        .without_safety_backstops();
+        let extras_out =
+            format_text("Before. Next.\n\\verbatimwrite After. Next.\n", &extras_cfg).unwrap();
+        assert!(
+            extras_out.contains("After.\nNext."),
+            "configured extra verbatimwrite must not re-tokenize the no-brace form as Delim, got:\n{extras_out}"
+        );
+        let extras_brace = format_text(
+            "Before. Next.\n\\verbatimwrite{foo.py}\nAfter. Next.\n",
+            &extras_cfg,
+        )
+        .unwrap();
+        assert!(
+            extras_brace.contains("\\verbatimwrite{foo.py}\n"),
+            "configured extra verbatimwrite must keep the brace form as leftover, got:\n{extras_brace}"
+        );
+        assert!(
+            extras_brace.contains("After.\nNext."),
+            "configured extra verbatimwrite brace form must still split following prose, got:\n{extras_brace}"
         );
     }
 
