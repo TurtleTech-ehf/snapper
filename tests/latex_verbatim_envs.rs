@@ -127,6 +127,8 @@
 //! GitHub #468: fvextra leftover buffer \\VerbatimInsertBuffer /
 //! \\VerbatimClearBuffer / \\InsertBuffer / \\IterateBuffer stay one
 //! atomic Structure command; following flush prose does not join.
+//! GitHub #473: fancyvrb leftover \\DefineShortVerb / \\UndefineShortVerb
+//! stay one atomic Structure command; following flush prose does not join.
 
 use snapper_fmt::format::Format;
 use snapper_fmt::parser::latex::LatexParser;
@@ -6207,5 +6209,113 @@ fn fvextra_buffer_leftover_cmds_fixture_does_not_join_following_prose() {
     assert!(
         extras_brace.contains("After.\nNext."),
         "configured extra IterateBuffer brace form must still split following prose, got:\n{extras_brace}"
+    );
+}
+
+/// Ticket fixture (GitHub #473): fancyvrb leftover
+/// `\DefineShortVerb{\|}` / `\UndefineShortVerb{\|}` stay one atomic
+/// command. Following flush `After.` does not join. `After.` /
+/// `Next.` still split. `\UseVerb{foo}` stays atomic. extras skip so a
+/// configured extra does not re-tokenize the no-brace form as Delim.
+#[test]
+fn fancyvrb_shortverb_cmds_fixture_does_not_join_following_prose() {
+    for cmd in [
+        r"\DefineShortVerb{\|}",
+        r"\UndefineShortVerb{\|}",
+        r"\DefineShortVerb[commandchars=\\\{\}]{\|}",
+    ] {
+        let input = format!("Before. Next.\n{cmd}\nAfter. Next.\n");
+        let regions = LatexParser::default().parse(&input);
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Structure(s) if s.contains(cmd)
+            )),
+            "{cmd} must stay one Structure command, got: {regions:?}"
+        );
+        assert!(
+            !regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(p) if p.contains(cmd)
+            )),
+            "{cmd} must not leak into Prose, got: {regions:?}"
+        );
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(p) if p.contains("After.") && p.contains("Next.")
+            )),
+            "After. / Next. must stay Prose after {cmd}, got: {regions:?}"
+        );
+        let out = format_text(&input, &latex_cfg()).unwrap();
+        assert!(
+            out.contains(&format!("{cmd}\n")),
+            "{cmd} must stay one atomic command, got:\n{out}"
+        );
+        assert!(
+            !out.contains(&format!("{cmd} After.")),
+            "following flush prose must not join the {cmd} line, got:\n{out}"
+        );
+        assert!(
+            out.contains("Before.\nNext."),
+            "prose before {cmd} must still split, got:\n{out}"
+        );
+        assert!(
+            out.contains("After.\nNext."),
+            "prose after {cmd} must still split, got:\n{out}"
+        );
+        assert_eq!(format_text(&out, &latex_cfg()).unwrap(), out);
+    }
+
+    let useverb = concat!("Before. Next.\n", "\\UseVerb{foo}\n", "After. Next.\n",);
+    let useverb_out = format_text(useverb, &latex_cfg()).unwrap();
+    assert!(
+        useverb_out.contains("\\UseVerb{foo}\n"),
+        "UseVerb must stay unchanged, got:\n{useverb_out}"
+    );
+    assert!(
+        !useverb_out.contains("\\UseVerb{foo} After."),
+        "UseVerb must not join following prose, got:\n{useverb_out}"
+    );
+
+    let extras_cfg = FormatConfig {
+        format: Format::Latex,
+        latex_verbatim_commands: vec![
+            "DefineShortVerb".to_string(),
+            "UndefineShortVerb".to_string(),
+        ],
+        ..Default::default()
+    }
+    .without_safety_backstops();
+    let extras_out = format_text(
+        "Before. Next.\n\\DefineShortVerb After. Next.\n",
+        &extras_cfg,
+    )
+    .unwrap();
+    assert!(
+        extras_out.contains("After.\nNext."),
+        "configured extra DefineShortVerb must not re-tokenize the no-brace form as Delim, got:\n{extras_out}"
+    );
+    let extras_undef = format_text(
+        "Before. Next.\n\\UndefineShortVerb After. Next.\n",
+        &extras_cfg,
+    )
+    .unwrap();
+    assert!(
+        extras_undef.contains("After.\nNext."),
+        "configured extra UndefineShortVerb must not re-tokenize the no-brace form as Delim, got:\n{extras_undef}"
+    );
+    let extras_brace = format_text(
+        "Before. Next.\n\\DefineShortVerb{\\|}\nAfter. Next.\n",
+        &extras_cfg,
+    )
+    .unwrap();
+    assert!(
+        extras_brace.contains("\\DefineShortVerb{\\|}\n"),
+        "configured extra DefineShortVerb must keep the brace form as leftover, got:\n{extras_brace}"
+    );
+    assert!(
+        extras_brace.contains("After.\nNext."),
+        "configured extra DefineShortVerb brace form must still split following prose, got:\n{extras_brace}"
     );
 }
