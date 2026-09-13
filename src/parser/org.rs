@@ -67,7 +67,13 @@ pub(crate) fn org_caption_marker_len(line: &str) -> Option<usize> {
     let lead = line.len() - line.trim_start_matches([' ', '\t']).len();
     let rest = &line[lead..];
     const KEY: &str = "#+CAPTION";
-    if rest.len() < KEY.len() || !rest[..KEY.len()].eq_ignore_ascii_case(KEY) {
+    // `get` not `[..KEY.len()]`: KEY is 9 ASCII bytes. A prose line
+    // whose byte 9 sits inside U+2014 / U+2192 is not a caption;
+    // slicing panics (GitHub #459).
+    if !rest
+        .get(..KEY.len())
+        .is_some_and(|head| head.eq_ignore_ascii_case(KEY))
+    {
         return None;
     }
     let mut i = KEY.len();
@@ -4087,6 +4093,75 @@ mod tests {
         assert_eq!(org_caption_marker_len("#+BEGIN_SRC rust"), None);
         assert_eq!(org_caption_marker_len("See #+CAPTION: x"), None);
         assert_eq!(org_caption_marker_len("#+CAPTION : x"), None);
+        // Byte 9 inside U+2014 (bytes 7..10) or U+2192 (bytes 8..11).
+        assert_eq!(org_caption_marker_len("1234567—x"), None);
+        assert_eq!(org_caption_marker_len("12345678→x"), None);
+        // rgpot wrap lines that start with em-dash / arrow.
+        assert_eq!(
+            org_caption_marker_len("— not dependency pins such as nickel)."),
+            None
+        );
+        assert_eq!(
+            org_caption_marker_len("Hartree → eV and Hartree/bohr"),
+            None
+        );
+        assert_eq!(
+            org_caption_marker_len("itself — the tag workflow does):"),
+            None
+        );
+        assert_eq!(
+            org_caption_marker_len("Hartree → eV and Hartree/bohr → eV/Å"),
+            None
+        );
+        assert_eq!(org_caption_marker_len("#+CAPTION: α β"), Some(11));
+        assert_eq!(org_caption_marker_len("#+caption: α β"), Some(11));
+    }
+
+    #[test]
+    fn format_text_wrap_line_starting_with_emdash_or_arrow_does_not_panic() {
+        use crate::format_text;
+
+        let input = concat!(
+            "rgpot-core Cargo.toml and pixi.toml (workspace key only\n",
+            "— not dependency pins such as nickel).\n",
+            "Hartree → eV at the boundary.\n",
+            "After. Next.\n",
+        );
+        let out = format_text(input, &org_cfg()).unwrap();
+        assert!(
+            out.contains("— not dependency"),
+            "em-dash wrap line must survive, got:\n{out}"
+        );
+        assert!(
+            out.contains("Hartree → eV"),
+            "arrow line must survive, got:\n{out}"
+        );
+        assert_eq!(format_text(&out, &org_cfg()).unwrap(), out);
+
+        let wrap_cfg = crate::FormatConfig {
+            format: crate::format::Format::Org,
+            max_width: 24,
+            ..Default::default()
+        }
+        .without_safety_backstops();
+        let wrapped_em = format_text(
+            "Fill this line then — more words after the dash.\n",
+            &wrap_cfg,
+        )
+        .unwrap();
+        let wrapped_ar = format_text(
+            "Fill this line then → more words after the arrow.\n",
+            &wrap_cfg,
+        )
+        .unwrap();
+        assert!(
+            wrapped_em.contains('—'),
+            "wrapped em-dash must survive, got:\n{wrapped_em}"
+        );
+        assert!(
+            wrapped_ar.contains('→'),
+            "wrapped arrow must survive, got:\n{wrapped_ar}"
+        );
     }
 
     #[test]

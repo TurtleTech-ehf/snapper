@@ -178,3 +178,23 @@ fn name_and_attr_stay_whole_line_structure() {
     );
     assert_eq!(format_text(&out, &org_cfg()).unwrap(), out);
 }
+
+#[test]
+fn format_text_does_not_panic_when_second_line_starts_with_emdash_or_arrow() {
+    let input = concat!(
+        "rgpot-core Cargo.toml and pixi.toml (workspace key only\n",
+        "— not dependency pins such as nickel).\n",
+        "Hartree → eV at the boundary.\n",
+        "After. Next.\n",
+    );
+    let out = format_text(input, &org_cfg()).unwrap();
+    assert!(
+        out.contains("— not dependency"),
+        "em-dash wrap line must survive, got:\n{out}"
+    );
+    assert!(
+        out.contains("Hartree → eV"),
+        "arrow line must survive, got:\n{out}"
+    );
+    assert_eq!(format_text(&out, &org_cfg()).unwrap(), out);
+}
