@@ -84,6 +84,8 @@
 //! is one leftover command; following flush prose does not join.
 //! GitHub #471: moreverb.sty \\verbatimwrite / \\verbatimwrite*
 //! is one leftover command; following flush prose does not join.
+//! GitHub #476: moreverb.sty \\listingcont is one leftover command;
+//! following flush prose does not join.
 //! GitHub #428: sagetex.sty \\sageinput is one leftover command;
 //! following flush prose does not join the command line.
 //! GitHub #437: scontents.sty \\inputsc is one leftover command;
@@ -6313,5 +6315,93 @@ fn fancyvrb_shortverb_leftover_cmds_fixture_does_not_join_following_prose() {
     assert!(
         extras_brace.contains("After.\nNext."),
         "configured extra DefineShortVerb brace form must still split following prose, got:\n{extras_brace}"
+    );
+}
+
+/// Ticket fixture (GitHub #476): moreverb.sty `\listingcont` stays one
+/// atomic command. Following flush `After.` does not join. `After.` /
+/// `Next.` still split. listinginput stays atomic. extras skip so a
+/// configured extra does not re-tokenize the no-brace form as Delim.
+#[test]
+fn listingcont_fixture_does_not_join_following_prose() {
+    let cmd = r"\listingcont";
+    let input = format!("Before. Next.\n{cmd}\nAfter. Next.\n");
+    let regions = LatexParser::default().parse(&input);
+    assert!(
+        regions.iter().any(|r| matches!(
+            r,
+            Region::Structure(s) if s.contains(cmd)
+        )),
+        "{cmd} must stay one Structure command, got: {regions:?}"
+    );
+    assert!(
+        !regions.iter().any(|r| matches!(
+            r,
+            Region::Prose(p) if p.contains(cmd)
+        )),
+        "{cmd} must not leak into Prose, got: {regions:?}"
+    );
+    assert!(
+        regions.iter().any(|r| matches!(
+            r,
+            Region::Prose(p) if p.contains("After.") && p.contains("Next.")
+        )),
+        "After. / Next. must stay Prose after {cmd}, got: {regions:?}"
+    );
+    let out = format_text(&input, &latex_cfg()).unwrap();
+    assert!(
+        out.contains(&format!("{cmd}\n")),
+        "{cmd} must stay one atomic command, got:\n{out}"
+    );
+    assert!(
+        !out.contains(&format!("{cmd} After.")),
+        "following flush prose must not join the {cmd} line, got:\n{out}"
+    );
+    assert!(
+        out.contains("Before.\nNext."),
+        "prose before {cmd} must still split, got:\n{out}"
+    );
+    assert!(
+        out.contains("After.\nNext."),
+        "prose after {cmd} must still split, got:\n{out}"
+    );
+    assert_eq!(format_text(&out, &latex_cfg()).unwrap(), out);
+
+    let listing = concat!(
+        "Before. Next.\n",
+        "\\listinginput{1}{foo.py}\n",
+        "After. Next.\n",
+    );
+    let listing_out = format_text(listing, &latex_cfg()).unwrap();
+    assert!(
+        listing_out.contains("\\listinginput{1}{foo.py}\n"),
+        "listinginput must stay unchanged, got:\n{listing_out}"
+    );
+    assert!(
+        !listing_out.contains("\\listinginput{1}{foo.py} After."),
+        "listinginput must not join following prose, got:\n{listing_out}"
+    );
+
+    let extras_cfg = FormatConfig {
+        format: Format::Latex,
+        latex_verbatim_commands: vec!["listingcont".to_string()],
+        ..Default::default()
+    }
+    .without_safety_backstops();
+    let extras_out =
+        format_text("Before. Next.\n\\listingcont After. Next.\n", &extras_cfg).unwrap();
+    assert!(
+        extras_out.contains("After.\nNext."),
+        "configured extra listingcont must not re-tokenize the no-brace form as Delim, got:\n{extras_out}"
+    );
+    let extras_name =
+        format_text("Before. Next.\n\\listingcont\nAfter. Next.\n", &extras_cfg).unwrap();
+    assert!(
+        extras_name.contains("\\listingcont\n"),
+        "configured extra listingcont must keep the leftover form, got:\n{extras_name}"
+    );
+    assert!(
+        extras_name.contains("After.\nNext."),
+        "configured extra listingcont leftover form must still split following prose, got:\n{extras_name}"
     );
 }
