@@ -229,7 +229,9 @@ pub fn protect_inline_tokens_with(
 /// `\pyth{code}` / `\pyth|code|` /
 /// `\UseVerb[...]{name}` / `\UseVerbatim{name}` /
 /// `\LUseVerbatim{name}` / `\BUseVerbatim{name}` /
-/// `\EscVerb|code|` / `\EscVerb{code}` so inner `.!?%` cannot
+/// `\EscVerb|code|` / `\EscVerb{code}` /
+/// `\VerbatimInsertBuffer[...]` / `\VerbatimClearBuffer` /
+/// `\InsertBuffer[...]` / `\IterateBuffer[...]{cmd}` so inner `.!?%` cannot
 /// split or comment. `\piton{...}` stays on the generic `\cmd{arg}`
 /// path (piton.sty brace syntax is not verbatim; GitHub #305).
 fn protect_latex_verbatim(
@@ -271,7 +273,9 @@ fn protect_latex_verbatim(
 /// `\sageinput` / `\inputsc` / `\Scontents` / `\typestored` /
 /// `\getstored` / `\mergesc` / `\meaningsc` / `\foreachsc` /
 /// `\pythontexcustomc` / `\pyth` / `\UseVerb` / `\UseVerbatim` /
-/// `\LUseVerbatim` / `\BUseVerbatim` / `\EscVerb` / extra-name span
+/// `\LUseVerbatim` / `\BUseVerbatim` / `\EscVerb` /
+/// `\VerbatimInsertBuffer` / `\VerbatimClearBuffer` /
+/// `\InsertBuffer` / `\IterateBuffer` / extra-name span
 /// starting at `at`.
 ///
 /// `\verb` / `\verb*` / `\spverb` / `\spverb*` / `\Verb` / `\Verb*`: next
@@ -383,7 +387,12 @@ fn protect_latex_verbatim(
 /// `{code}`. Longer names first so `\UseVerbatim` is not `\UseVerb` +
 /// leftover. No brace is not a span for the UseVerb family. An
 /// ASCII-letter next token is not an `\EscVerb` delimiter, so
-/// `\EscVerb After.` is not a span. Extra names are tokenized like
+/// `\EscVerb After.` is not a span. fvextra leftover buffer cmds
+/// (GitHub #468): `\VerbatimInsertBuffer` / `\InsertBuffer` take
+/// optional `[...]`; `\VerbatimClearBuffer` takes no args;
+/// `\IterateBuffer` takes optional `[...]` then required `{cmd}`.
+/// No brace is not a span for `\IterateBuffer`. No `*` form.
+/// Extra names are tokenized like
 /// `\verb`. With no closer, the span runs
 /// to end of line so an inner `%` is not a comment.
 pub(crate) fn latex_verb_span_end_with(
@@ -602,6 +611,18 @@ pub(crate) fn latex_verb_span_end_with(
             return None;
         }
         (after_bs + "mint".len(), VerbKind::Mint)
+    } else if let Some(name) = fvextra_buffer_leftover_cs_name(tail) {
+        // fvextra leftover buffer cmds (GitHub #468). Longer names
+        // first so `\VerbatimInsertBuffer` is not `\Verb` + leftover.
+        // `\IterateBuffer` requires `{cmd}`; the others take optional
+        // `[...]` only. No `*` form. `\UseVerb` / `\VerbatimInput`
+        // stay their own leftovers.
+        let kind = if name == "IterateBuffer" {
+            VerbKind::FvextraIterateBuffer
+        } else {
+            VerbKind::FvextraBuffer
+        };
+        (after_bs + name.len(), kind)
     } else if let Some(name) = verbatiminput_cs_name(tail) {
         // Before `Verb`: `\VerbatimInput` is not `\Verb` + leftover.
         (after_bs + name.len(), VerbKind::Lstinputlisting)
@@ -644,6 +665,33 @@ pub(crate) fn latex_verb_span_end_with(
         if next == '{' {
             return None;
         }
+    }
+
+    // fvextra leftover buffer cmds (GitHub #468). Optional `[...]`
+    // for VerbatimInsertBuffer / InsertBuffer / IterateBuffer.
+    // `\VerbatimClearBuffer` takes no args. `\IterateBuffer` then
+    // requires `{cmd}`; no brace is not a span. The others end after
+    // the optional.
+    if matches!(
+        kind,
+        VerbKind::FvextraBuffer | VerbKind::FvextraIterateBuffer
+    ) {
+        let after_name = i;
+        i = skip_ascii_ws(text, i);
+        if text.get(i..).is_some_and(|s| s.starts_with('[')) {
+            match skip_bracket_group(text, i) {
+                Some(end) => i = skip_ascii_ws(text, end),
+                None => return Some(line_end(text, i)),
+            }
+        } else if kind == VerbKind::FvextraBuffer {
+            // No optional: span is the name only. Do not swallow
+            // following flush prose as if it were a delimiter.
+            return Some(after_name);
+        }
+        if kind == VerbKind::FvextraIterateBuffer {
+            return skip_required_brace_groups(text, i, 1);
+        }
+        return Some(i);
     }
 
     if matches!(
@@ -987,6 +1035,14 @@ enum VerbKind {
     /// then a delimiter or `{code}`. An ASCII-letter next token is not
     /// a delimiter.
     EscVerb,
+    /// fvextra leftover `\VerbatimInsertBuffer` / `\InsertBuffer` /
+    /// `\VerbatimClearBuffer` (GitHub #468): optional `[...]`, no
+    /// required brace. No `*` form.
+    FvextraBuffer,
+    /// fvextra leftover `\IterateBuffer` (GitHub #468): optional
+    /// `[...]`, then required `{cmd}`. No brace is not a span. No
+    /// `*` form.
+    FvextraIterateBuffer,
     /// `\SaveVerb`: optional `[...]`, `{name}`, then delimiter body like `\Verb`.
     SaveVerb,
     /// `\piton`: verb-like delimiter except `{` (GitHub #305).
@@ -1131,6 +1187,30 @@ pub(crate) fn fancyvrb_leftover_cs_name(tail: &str) -> Option<&'static str> {
             continue;
         };
         if after.starts_with(|c: char| c.is_ascii_alphabetic()) {
+            return None;
+        }
+        return Some(name);
+    }
+    None
+}
+
+/// fvextra leftover buffer cmds (GitHub #468). Longer names first so
+/// `\VerbatimInsertBuffer` is not `\Verb` + leftover. `\InsertBuffer`
+/// / `\VerbatimInsertBuffer` take optional `[...]`. `\VerbatimClearBuffer`
+/// takes no args. `\IterateBuffer` takes optional `[...]` then
+/// `{cmd}`. No `*` form. `\UseVerb` / `\VerbatimInput` stay their own
+/// leftovers.
+pub(crate) fn fvextra_buffer_leftover_cs_name(tail: &str) -> Option<&'static str> {
+    for name in [
+        "VerbatimInsertBuffer",
+        "VerbatimClearBuffer",
+        "IterateBuffer",
+        "InsertBuffer",
+    ] {
+        let Some(after) = tail.strip_prefix(name) else {
+            continue;
+        };
+        if after.starts_with(|c: char| c.is_ascii_alphabetic() || c == '*') {
             return None;
         }
         return Some(name);
@@ -1358,6 +1438,7 @@ fn match_extra_verb_command<'a>(tail: &'a str, extras: &'a [String]) -> Option<&
             || pyth_cs_name(name).is_some_and(|n| n == name.as_str())
             || scontents_leftover_cs_name(name).is_some_and(|n| n == name.as_str())
             || fancyvrb_leftover_cs_name(name).is_some_and(|n| n == name.as_str())
+            || fvextra_buffer_leftover_cs_name(name).is_some_and(|n| n == name.as_str())
             || name == "listinginput"
             || name == "verbatimtabinput"
             || name == "sageinput"
@@ -3831,6 +3912,108 @@ mod tests {
             latex_verb_span_end_with(r"\listinginput{1}{foo.py}", 0, &[]),
             Some(r"\listinginput{1}{foo.py}".len()),
             "verbatimtabinput must not steal listinginput"
+        );
+    }
+
+    /// Ticket fixture (GitHub #468): fvextra leftover buffer cmds stay
+    /// one span. `\VerbatimInsertBuffer[opt]` / `\InsertBuffer[opt]` /
+    /// `\VerbatimClearBuffer` need no brace. `\IterateBuffer[opt]{cmd}`
+    /// requires the brace. extras skip so a configured extra does not
+    /// re-tokenize the no-brace form as Delim. `\UseVerb` stays its
+    /// own leftover.
+    #[test]
+    fn latex_fvextra_buffer_leftover_cmds_stay_atomic() {
+        assert_eq!(
+            latex_verb_span_end_with(r"\VerbatimInsertBuffer[foo]", 0, &[]),
+            Some(r"\VerbatimInsertBuffer[foo]".len()),
+            "VerbatimInsertBuffer optional is a leftover span"
+        );
+        assert_eq!(
+            latex_verb_span_end_with(r"\VerbatimInsertBuffer", 0, &[]),
+            Some(r"\VerbatimInsertBuffer".len()),
+            "VerbatimInsertBuffer with no optional is a leftover span"
+        );
+        assert_eq!(
+            latex_verb_span_end_with(r"\VerbatimClearBuffer", 0, &[]),
+            Some(r"\VerbatimClearBuffer".len()),
+            "VerbatimClearBuffer is a leftover span"
+        );
+        assert_eq!(
+            latex_verb_span_end_with(r"\InsertBuffer[foo]", 0, &[]),
+            Some(r"\InsertBuffer[foo]".len()),
+            "InsertBuffer optional is a leftover span"
+        );
+        assert_eq!(
+            latex_verb_span_end_with(r"\IterateBuffer[foo]{\do}", 0, &[]),
+            Some(r"\IterateBuffer[foo]{\do}".len()),
+            "IterateBuffer optional then cmd brace is a leftover span"
+        );
+        assert_eq!(
+            latex_verb_span_end_with(r"\IterateBuffer{\do}", 0, &[]),
+            Some(r"\IterateBuffer{\do}".len()),
+            "IterateBuffer cmd brace is a leftover span"
+        );
+        assert_eq!(
+            latex_verb_span_end_with(r"\IterateBuffer After.", 0, &[]),
+            None,
+            "IterateBuffer without a brace cmd is not a verb span"
+        );
+        assert_eq!(
+            split("See \\VerbatimInsertBuffer[foo] here. After."),
+            vec![
+                r"See \VerbatimInsertBuffer[foo] here.".to_string(),
+                "After.".to_string()
+            ]
+        );
+        assert_eq!(
+            fvextra_buffer_leftover_cs_name("VerbatimInsertBuffer[foo]"),
+            Some("VerbatimInsertBuffer"),
+            "VerbatimInsertBuffer is this leftover"
+        );
+        assert_eq!(
+            fvextra_buffer_leftover_cs_name("UseVerb{foo}"),
+            None,
+            "UseVerb stays its own leftover"
+        );
+        assert_eq!(
+            fvextra_buffer_leftover_cs_name("VerbatimInput{foo}"),
+            None,
+            "VerbatimInput stays its own leftover"
+        );
+        assert_eq!(
+            fvextra_buffer_leftover_cs_name("VerbatimInsertBufferX"),
+            None,
+            "alphabetic leftover rejects a longer name"
+        );
+        assert_eq!(
+            latex_verb_span_end_with(r"\VerbatimInsertBuffer*[foo]", 0, &[]),
+            None,
+            "VerbatimInsertBuffer has no star form"
+        );
+
+        let extras = [
+            "VerbatimInsertBuffer".to_string(),
+            "IterateBuffer".to_string(),
+        ];
+        assert_eq!(
+            latex_verb_span_end_with(r"\IterateBuffer After.", 0, &extras),
+            None,
+            "configured extra IterateBuffer must not re-tokenize the no-brace form as Delim"
+        );
+        assert_eq!(
+            latex_verb_span_end_with(r"\VerbatimInsertBuffer After.", 0, &extras),
+            Some(r"\VerbatimInsertBuffer".len()),
+            "configured extra VerbatimInsertBuffer must not re-tokenize the no-brace form as Delim"
+        );
+        assert_eq!(
+            latex_verb_span_end_with(r"\IterateBuffer[foo]{\do}", 0, &extras),
+            Some(r"\IterateBuffer[foo]{\do}".len()),
+            "configured extra IterateBuffer must keep the brace form as leftover"
+        );
+        assert_eq!(
+            latex_verb_span_end_with(r"\UseVerb{foo}", 0, &[]),
+            Some(r"\UseVerb{foo}".len()),
+            "fvextra buffer leftover must not steal UseVerb"
         );
     }
 
