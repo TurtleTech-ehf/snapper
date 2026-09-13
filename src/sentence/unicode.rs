@@ -218,7 +218,11 @@ pub fn protect_inline_tokens_with(
 /// `\ExecuteMetaData[...]{tag}` /
 /// `\listinginput[interval]{start}{file}` /
 /// `\sageinput[...]{file}` /
-/// `\inputsc[...]{name}` / `\pythontexcustomc[...]{type}{code}` /
+/// `\inputsc[...]{name}` / `\Scontents[...]{body}` /
+/// `\Scontents*[...]{body}` / `\typestored[...]{seq}` /
+/// `\getstored[...]{seq}` / `\mergesc[...]{seq}` /
+/// `\meaningsc[...]{seq}` / `\foreachsc[...]{seq}` /
+/// `\pythontexcustomc[...]{type}{code}` /
 /// `\pyth{code}` / `\pyth|code|` so inner `.!?%` cannot
 /// split or comment. `\piton{...}` stays on the generic `\cmd{arg}`
 /// path (piton.sty brace syntax is not verbatim; GitHub #305).
@@ -257,7 +261,9 @@ fn protect_latex_verbatim(
 /// `\inputpygments` / `\pygment` / `\inputpython` /
 /// `\inputpythonfile` / `\CatchFileBetweenTags` /
 /// `\CatchFileBetweenDelims` / `\ExecuteMetaData` / `\listinginput` /
-/// `\sageinput` / `\inputsc` / `\pythontexcustomc` / `\pyth` / extra-name span
+/// `\sageinput` / `\inputsc` / `\Scontents` / `\typestored` /
+/// `\getstored` / `\mergesc` / `\meaningsc` / `\foreachsc` /
+/// `\pythontexcustomc` / `\pyth` / extra-name span
 /// starting at `at`.
 ///
 /// `\verb` / `\verb*` / `\spverb` / `\spverb*` / `\Verb` / `\Verb*`: next
@@ -342,7 +348,14 @@ fn protect_latex_verbatim(
 /// their own leftovers. `\inputsc`
 /// (scontents leftover sequence replay; GitHub #437) takes optional
 /// `[...]` then a required `{name}`; no brace is not a span. There
-/// is no `*` form. `\input` / `\inputpy` are not this name. Extra
+/// is no `*` form. `\input` / `\inputpy` are not this name.
+/// `\Scontents` / `\Scontents*` (scontents leftover; GitHub #451)
+/// take optional `[...]` then a standard or verbatim arg (`!s !O{}`).
+/// `\typestored` / `\getstored` / `\mergesc` / `\meaningsc` /
+/// `\foreachsc` take optional `[...]` then a required `{seq}` (`o m`
+/// / `O{-1} m`). Longer names first. No brace is not a span. Only
+/// `\Scontents` has a `*` form. `\inputsc` stays its own leftover.
+/// `\newenvsc` is a constructor, not this leftover. Extra
 /// names are tokenized like `\verb`. With no closer, the span runs
 /// to end of line so an inner `%` is not a comment.
 pub(crate) fn latex_verb_span_end_with(
@@ -452,6 +465,19 @@ pub(crate) fn latex_verb_span_end_with(
             return None;
         }
         (after_bs + "inputsc".len(), VerbKind::Lstinputlisting)
+    } else if let Some(name) = scontents_leftover_cs_name(tail) {
+        // scontents leftover cmds (GitHub #451). Longer names first.
+        // `\Scontents` / `\Scontents*` take optional `[...]` then a
+        // standard or verbatim arg. `\typestored` / `\getstored` /
+        // `\mergesc` / `\meaningsc` / `\foreachsc` take optional
+        // `[...]` then required `{seq}`. `\inputsc` stays its own
+        // leftover. `\newenvsc` is a constructor, not this leftover.
+        let kind = if name == "Scontents" {
+            VerbKind::Scontents
+        } else {
+            VerbKind::Lstinputlisting
+        };
+        (after_bs + name.len(), kind)
     } else if let Some(stripped) = tail.strip_prefix("CatchFileBetweenDelims") {
         // catchfilebetweentags.sty leftover (GitHub #439). Four
         // required braces, optional trailing `[setup]`. No `*` form.
@@ -574,6 +600,7 @@ pub(crate) fn latex_verb_span_end_with(
             | VerbKind::SaveVerb
             | VerbKind::PytxInline
             | VerbKind::Pythontexcustomc
+            | VerbKind::Scontents
     ) {
         i = skip_ascii_ws(text, i);
         if text.get(i..).is_some_and(|s| s.starts_with('[')) {
@@ -675,6 +702,14 @@ pub(crate) fn latex_verb_span_end_with(
     // pythonhighlight.sty leftover `\pyth` (GitHub #450). Delimiter or
     // `{code}` like `\lstinline`. No optional `[...]`. No `*` form.
     if kind == VerbKind::Pyth {
+        i = skip_ascii_ws(text, i);
+    }
+
+    // scontents leftover `\Scontents` / `\Scontents*` (GitHub #451).
+    // Optional `[...]` already skipped. Standard or verbatim arg:
+    // delimiter or `{body}`. An ASCII-letter next token is not a
+    // delimiter, so `\Scontents After.` is not a span.
+    if kind == VerbKind::Scontents {
         i = skip_ascii_ws(text, i);
     }
 
@@ -780,7 +815,7 @@ pub(crate) fn latex_verb_span_end_with(
     // and for `\pyth After.`.
     if matches!(
         kind,
-        VerbKind::PytxInline | VerbKind::Pythontexcustomc | VerbKind::Pyth
+        VerbKind::PytxInline | VerbKind::Pythontexcustomc | VerbKind::Pyth | VerbKind::Scontents
     ) && delim.is_ascii_alphabetic()
     {
         return None;
@@ -794,6 +829,7 @@ pub(crate) fn latex_verb_span_end_with(
             | VerbKind::PytxInline
             | VerbKind::Pythontexcustomc
             | VerbKind::Pyth
+            | VerbKind::Scontents
     ) && delim == '{';
     if brace_body {
         return Some(find_unescaped_brace_close(text, i).unwrap_or_else(|| line_end(text, i)));
@@ -822,8 +858,9 @@ enum VerbKind {
     /// `\lstinputlisting` / fancyvrb `\VerbatimInput` family /
     /// `\inputpy` / `\inputpycon` / `\inputpylab` / `\inputpylabcon` /
     /// `\inputsympy` / `\inputsympycon` / `\sageinput` / `\inputsc` /
-    /// `\ExecuteMetaData`: optional `[...]` then required `{filename}`
-    /// / `{name}` / `{tag}`.
+    /// `\typestored` / `\getstored` / `\mergesc` / `\meaningsc` /
+    /// `\foreachsc` / `\ExecuteMetaData`: optional `[...]` then
+    /// required `{filename}` / `{name}` / `{tag}` / `{seq}`.
     Lstinputlisting,
     /// `\\verbatiminput`: required `{filename}` (verbatim.sty leftover).
     Verbatiminput,
@@ -875,6 +912,10 @@ enum VerbKind {
     /// `{code}` like `\lstinline`. No optional `[...]`. No `*` form.
     /// An ASCII-letter next token is not a delimiter.
     Pyth,
+    /// scontents leftover `\Scontents` / `\Scontents*` (GitHub #451):
+    /// optional `[...]`, then a standard or verbatim arg (delimiter or
+    /// `{body}`). An ASCII-letter next token is not a delimiter.
+    Scontents,
     /// `\SaveVerb`: optional `[...]`, `{name}`, then delimiter body like `\Verb`.
     SaveVerb,
     /// `\piton`: verb-like delimiter except `{` (GitHub #305).
@@ -925,6 +966,35 @@ pub(crate) fn pyth_cs_name(tail: &str) -> Option<&'static str> {
         return None;
     }
     Some("pyth")
+}
+
+/// scontents leftover cmds (GitHub #451). Longer names first so
+/// `\typestored` is not a shorter name + leftover. `\Scontents` /
+/// `\Scontents*` take optional `[...]` then a standard or verbatim
+/// arg (`!s !O{}`). `\typestored` / `\getstored` / `\mergesc` /
+/// `\meaningsc` / `\foreachsc` take optional `[...]` then `{seq}`
+/// (`o m` / `O{-1} m`). Only `\Scontents` has a `*` form.
+/// `\inputsc` stays its own leftover. `\newenvsc` is a constructor,
+/// not this leftover.
+pub(crate) fn scontents_leftover_cs_name(tail: &str) -> Option<&'static str> {
+    for name in [
+        "typestored",
+        "getstored",
+        "meaningsc",
+        "foreachsc",
+        "Scontents",
+        "mergesc",
+    ] {
+        let Some(after) = tail.strip_prefix(name) else {
+            continue;
+        };
+        let reject_star = name != "Scontents";
+        if after.starts_with(|c: char| c.is_ascii_alphabetic() || (reject_star && c == '*')) {
+            return None;
+        }
+        return Some(name);
+    }
+    None
 }
 
 /// sagetex leftover inline cmds (GitHub #446). Longer names first so
@@ -1145,6 +1215,7 @@ fn match_extra_verb_command<'a>(tail: &'a str, extras: &'a [String]) -> Option<&
             || sagetex_inline_cs_name(name).is_some_and(|n| n == name.as_str())
             || pythontexcustomc_cs_name(name).is_some_and(|n| n == name.as_str())
             || pyth_cs_name(name).is_some_and(|n| n == name.as_str())
+            || scontents_leftover_cs_name(name).is_some_and(|n| n == name.as_str())
             || name == "listinginput"
             || name == "sageinput"
             || name == "inputpythonfile"
@@ -3902,6 +3973,144 @@ mod tests {
             latex_verb_span_end_with(r"\pythontexcustomc{python}{import numpy}", 0, &[]),
             Some(r"\pythontexcustomc{python}{import numpy}".len()),
             "pyth leftover must not steal pythontexcustomc"
+        );
+    }
+
+    /// Ticket fixture (GitHub #451): scontents leftover cmds stay one
+    /// span. Following `After.` still splits. Longer names first.
+    /// extras skip so a configured extra does not re-tokenize the
+    /// no-brace form as Delim. `\inputsc` stays its own leftover.
+    #[test]
+    fn latex_scontents_leftover_cmds_stay_atomic() {
+        let cmd = r"\Scontents*{foo bar}";
+        let text = r"See \Scontents*{foo bar} here. After.";
+        let (_, placeholders) = protect_inline_tokens(text);
+        assert!(
+            placeholders.iter().any(|p| p == cmd),
+            "Scontents* span must be protected, got {placeholders:?}"
+        );
+        assert_eq!(latex_verb_span_end_with(cmd, 0, &[]), Some(cmd.len()));
+        assert_eq!(
+            split(text),
+            vec![
+                r"See \Scontents*{foo bar} here.".to_string(),
+                "After.".to_string()
+            ]
+        );
+
+        for cmd in [
+            r"\Scontents{foo bar}",
+            r"\typestored{foo}",
+            r"\getstored{foo}",
+            r"\mergesc{foo}",
+            r"\meaningsc{foo}",
+            r"\foreachsc{foo}",
+        ] {
+            assert_eq!(
+                latex_verb_span_end_with(cmd, 0, &[]),
+                Some(cmd.len()),
+                "{cmd} must stay one span"
+            );
+            let text = format!("See {cmd} here. After.");
+            assert_eq!(
+                split(&text),
+                vec![format!("See {cmd} here."), "After.".to_string()]
+            );
+        }
+
+        assert_eq!(
+            latex_verb_span_end_with(r"\Scontents[print-cmd=true]{foo bar}", 0, &[]),
+            Some(r"\Scontents[print-cmd=true]{foo bar}".len()),
+            "Scontents optional keys must stay in the span"
+        );
+        assert_eq!(
+            latex_verb_span_end_with(r"\typestored[1]{foo}", 0, &[]),
+            Some(r"\typestored[1]{foo}".len()),
+            "typestored optional index must stay in the span"
+        );
+        assert_eq!(
+            latex_verb_span_end_with(r"\getstored[1]{foo}", 0, &[]),
+            Some(r"\getstored[1]{foo}".len()),
+            "getstored optional index must stay in the span"
+        );
+        assert_eq!(
+            latex_verb_span_end_with(r"\Scontents*|foo bar|", 0, &[]),
+            Some(r"\Scontents*|foo bar|".len()),
+            "Scontents* verbatim delimiter must stay in the span"
+        );
+        assert_eq!(
+            latex_verb_span_end_with(r"\Scontents {foo bar}", 0, &[]),
+            Some(r"\Scontents {foo bar}".len()),
+            "Scontents may skip space before the body brace"
+        );
+        assert_eq!(
+            latex_verb_span_end_with(r"\Scontents After.", 0, &[]),
+            None,
+            "Scontents without a body is not a verb span"
+        );
+        assert_eq!(
+            latex_verb_span_end_with(r"\typestored foo", 0, &[]),
+            None,
+            "typestored without a brace seq arg is not a verb span"
+        );
+        assert_eq!(
+            latex_verb_span_end_with(r"\typestored*{foo}", 0, &[]),
+            None,
+            "typestored has no star form"
+        );
+        assert_eq!(
+            latex_verb_span_end_with(r"\newenvsc{foo}", 0, &[]),
+            None,
+            "newenvsc is a constructor, not this leftover"
+        );
+        assert_eq!(
+            scontents_leftover_cs_name("typestored{foo}"),
+            Some("typestored"),
+            "typestored is the longest leftover name"
+        );
+        assert_eq!(
+            scontents_leftover_cs_name("Scontents*{foo bar}"),
+            Some("Scontents"),
+            "Scontents star form is this leftover"
+        );
+        assert_eq!(
+            scontents_leftover_cs_name("inputsc{foo}"),
+            None,
+            "inputsc stays its own leftover"
+        );
+        assert_eq!(
+            scontents_leftover_cs_name("newenvsc{foo}"),
+            None,
+            "newenvsc is not this leftover"
+        );
+        assert_eq!(
+            scontents_leftover_cs_name("ScontentsFileDate"),
+            None,
+            "alphabetic leftover rejects a longer name"
+        );
+
+        let extras = ["Scontents".to_string()];
+        assert_eq!(
+            latex_verb_span_end_with(r"\Scontents After.", 0, &extras),
+            None,
+            "configured extra Scontents must not re-tokenize the no-brace form as Delim"
+        );
+        assert_eq!(
+            latex_verb_span_end_with(r"\Scontents{foo bar}", 0, &extras),
+            Some(r"\Scontents{foo bar}".len()),
+            "configured extra Scontents must keep the brace form as leftover"
+        );
+        let type_extras = ["typestored".to_string()];
+        assert_eq!(
+            latex_verb_span_end_with(r"\typestored foo", 0, &type_extras),
+            None,
+            "configured extra typestored must not re-tokenize the no-brace form as Delim"
+        );
+
+        assert_eq!(
+            latex_verb_span_end_with(r"\inputsc{foo}", 0, &[]),
+            Some(r"\inputsc{foo}".len()),
+            "scontents leftover must not steal inputsc"
         );
     }
 
