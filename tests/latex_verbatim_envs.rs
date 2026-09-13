@@ -5086,6 +5086,23 @@ fn verb_span_leftover_cmds_fixture_does_not_join_following_prose() {
         "mid-sentence verb span must stay protected and still split, got:\n{mid_out}"
     );
 
+    let after_other = concat!("\\py{print(1)} \\lstinline|print(1)|\n",);
+    let after_other_regions = LatexParser::default().parse(after_other);
+    assert!(
+        after_other_regions.iter().any(|r| matches!(
+            r,
+            Region::Prose(p) if p.contains(r"\lstinline|print(1)|")
+        )),
+        "mid-line lstinline after another leftover must stay Prose, got: {after_other_regions:?}"
+    );
+    assert!(
+        !after_other_regions.iter().any(|r| matches!(
+            r,
+            Region::Structure(s) if s.contains(r"\lstinline|print(1)|")
+        )),
+        "mid-line lstinline after another leftover must not be leftover Structure, got: {after_other_regions:?}"
+    );
+
     let py = concat!("Before. Next.\n", "\\py{print(1)}\n", "After. Next.\n",);
     let py_out = format_text(py, &latex_cfg()).unwrap();
     assert!(

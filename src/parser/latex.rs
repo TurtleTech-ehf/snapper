@@ -1247,12 +1247,14 @@ fn find_verb_span_leftover_at(
                 if let Some(end) = latex_verb_span_end_with(line, i, extra_cmds)
                     .or_else(|| piton_brace_leftover_end(line, i))
                 {
-                    // Own-line leftover only. Mid-sentence unicode spans
-                    // stay Prose so splice does not break `See \verb|x| here.`
-                    if line[from..i].trim().is_empty() && line[end..].trim().is_empty() {
+                    // Own-line leftover only. Whole-line prefix (`line[..i]`,
+                    // not the leftover-scan `from`) so a mid-line leftover
+                    // after earlier tokens stays Prose. Mid-sentence unicode
+                    // spans stay Prose so splice does not break
+                    // `See \verb|x| here.`
+                    if line[..i].trim().is_empty() && line[end..].trim().is_empty() {
                         return Some((i, end));
                     }
-                    return None;
                 }
             }
             if let Some(end) = latex_verb_span_end_with(line, i, extra_cmds) {
@@ -4903,6 +4905,26 @@ Some text.
         assert!(
             mid_out.contains("See \\verb|x| here.\nAfter."),
             "mid-sentence verb span must stay protected and still split, got:\n{mid_out}"
+        );
+
+        // Whole-line prefix: leftover scan `from` can sit after another
+        // leftover on the same line. `\lstinline` must stay Prose so
+        // `See \verb|x| here.` is not the only mid-line case.
+        let after_other = concat!("\\py{print(1)} \\lstinline|print(1)|\n",);
+        let after_other_regions = LatexParser::default().parse(after_other);
+        assert!(
+            after_other_regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(p) if p.contains(r"\lstinline|print(1)|")
+            )),
+            "mid-line lstinline after another leftover must stay Prose, got: {after_other_regions:?}"
+        );
+        assert!(
+            !after_other_regions.iter().any(|r| matches!(
+                r,
+                Region::Structure(s) if s.contains(r"\lstinline|print(1)|")
+            )),
+            "mid-line lstinline after another leftover must not be leftover Structure, got: {after_other_regions:?}"
         );
 
         let piton_pipe = concat!("Before. Next.\n", "\\piton|print(1)|\n", "After. Next.\n",);
