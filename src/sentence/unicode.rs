@@ -256,7 +256,8 @@ fn protect_latex_verbatim(
 /// `\inputpygments` / `\pygment` / `\inputpython` /
 /// `\inputpythonfile` / `\CatchFileBetweenTags` /
 /// `\CatchFileBetweenDelims` / `\ExecuteMetaData` / `\listinginput` /
-/// `\sageinput` / `\inputsc` / extra-name span starting at `at`.
+/// `\sageinput` / `\inputsc` / `\pythontexcustomc` / extra-name span
+/// starting at `at`.
 ///
 /// `\verb` / `\verb*` / `\spverb` / `\spverb*` / `\Verb` / `\Verb*`: next
 /// character is the
@@ -325,7 +326,13 @@ fn protect_latex_verbatim(
 /// `[ltx opts][fmt]` then required `{graphics}`, or required `{code}`.
 /// Longer names first so they are not `\sage` + leftover. No brace is
 /// not a span. There is no `*` form. `\sage` stays the pythontex
-/// usefamily leftover (GitHub #445). `\inputsc`
+/// usefamily leftover (GitHub #445). `\pythontexcustomc`
+/// (pythontex.sty leftover; GitHub #449) takes optional `[begin|end]`,
+/// required `{type}`, then a delimiter or `{code}` body (`omv` /
+/// `\pytx@Inline[none]`). Longer name first so it is not `\py` +
+/// leftover. No brace is not a span. There is no `*` form
+/// (`newrobustcmd`). `\py` / `\inputpy` stay their own leftovers.
+/// `\setpythontexcustomcode` is preamble-only. `\inputsc`
 /// (scontents leftover sequence replay; GitHub #437) takes optional
 /// `[...]` then a required `{name}`; no brace is not a span. There
 /// is no `*` form. `\input` / `\inputpy` are not this name. Extra
@@ -399,6 +406,11 @@ pub(crate) fn latex_verb_span_end_with(
         // `\sageplot` / `\sagestr` are not `\sage` + leftover. Optional
         // `[ltx opts][fmt]` then required `{graphics}` / `{code}`.
         (after_bs + name.len(), VerbKind::SagetexInline)
+    } else if let Some(name) = pythontexcustomc_cs_name(tail) {
+        // pythontex.sty leftover (GitHub #449). Longer name first so
+        // `\pythontexcustomc` is not `\py` + leftover. Optional
+        // `[begin|end]`, required `{type}`, then delimiter or `{code}`.
+        (after_bs + name.len(), VerbKind::Pythontexcustomc)
     } else if let Some(name) = pytx_inline_cs_name(tail) {
         // pythontex.sty leftover default-family and usefamily inline
         // (GitHub #441 / #445). Longer names first so `\pycon` /
@@ -549,6 +561,7 @@ pub(crate) fn latex_verb_span_end_with(
             | VerbKind::Mint
             | VerbKind::SaveVerb
             | VerbKind::PytxInline
+            | VerbKind::Pythontexcustomc
     ) {
         i = skip_ascii_ws(text, i);
         if text.get(i..).is_some_and(|s| s.starts_with('[')) {
@@ -636,6 +649,15 @@ pub(crate) fn latex_verb_span_end_with(
             _ => 0,
         };
         return skip_required_brace_groups(text, i, 1 + extra);
+    }
+
+    // pythontex.sty leftover `\pythontexcustomc` (GitHub #449). Optional
+    // `[begin|end]` already skipped. Required `{type}`, then delimiter
+    // or `{code}` (`omv` / `\pytx@Inline[none]`). No type brace is not
+    // a span. There is no `*` form.
+    if kind == VerbKind::Pythontexcustomc {
+        let end = skip_required_brace_groups(text, i, 1)?;
+        i = skip_ascii_ws(text, end);
     }
 
     // sagetex leftover inline (GitHub #446). `\sageplot` takes optional
@@ -736,14 +758,17 @@ pub(crate) fn latex_verb_span_end_with(
         return None;
     }
     // pythontex `\py After.` is leftover prose, not `A` as a delimiter.
-    if kind == VerbKind::PytxInline && delim.is_ascii_alphabetic() {
+    // Same for `\pythontexcustomc{python} After.` after the type brace.
+    if matches!(kind, VerbKind::PytxInline | VerbKind::Pythontexcustomc)
+        && delim.is_ascii_alphabetic()
+    {
         return None;
     }
     i += delim.len_utf8();
 
     let brace_body = matches!(
         kind,
-        VerbKind::Lstinline | VerbKind::Mint | VerbKind::PytxInline
+        VerbKind::Lstinline | VerbKind::Mint | VerbKind::PytxInline | VerbKind::Pythontexcustomc
     ) && delim == '{';
     if brace_body {
         return Some(find_unescaped_brace_close(text, i).unwrap_or_else(|| line_end(text, i)));
@@ -817,6 +842,10 @@ enum VerbKind {
     /// sagetex leftover inline (`\sageplot` / `\sagestr`; GitHub #446):
     /// optional `[ltx opts][fmt]`, then required `{graphics}` / `{code}`.
     SagetexInline,
+    /// pythontex leftover `\pythontexcustomc` (GitHub #449): optional
+    /// `[begin|end]`, required `{type}`, then delimiter or `{code}`.
+    /// An ASCII-letter next token is not a delimiter.
+    Pythontexcustomc,
     /// `\SaveVerb`: optional `[...]`, `{name}`, then delimiter body like `\Verb`.
     SaveVerb,
     /// `\piton`: verb-like delimiter except `{` (GitHub #305).
@@ -842,6 +871,19 @@ fn verbatiminput_cs_name(tail: &str) -> Option<&'static str> {
         }
     }
     None
+}
+
+/// pythontex.sty leftover `\pythontexcustomc` (GitHub #449). Optional
+/// `[begin|end]`, required `{type}`, then delimiter or `{code}` body
+/// (`omv` / `\pytx@Inline[none]`). Longer name first so it is not
+/// `\py` + leftover. No `*` form (`newrobustcmd`). `\py` / `\inputpy`
+/// stay their own leftovers. `\setpythontexcustomcode` is preamble-only.
+pub(crate) fn pythontexcustomc_cs_name(tail: &str) -> Option<&'static str> {
+    let after = tail.strip_prefix("pythontexcustomc")?;
+    if after.starts_with(|c: char| c.is_ascii_alphabetic() || c == '*') {
+        return None;
+    }
+    Some("pythontexcustomc")
 }
 
 /// sagetex leftover inline cmds (GitHub #446). Longer names first so
@@ -1060,6 +1102,7 @@ fn match_extra_verb_command<'a>(tail: &'a str, extras: &'a [String]) -> Option<&
             || name == "tcbinputlisting"
             || pytx_inline_cs_name(name).is_some_and(|n| n == name.as_str())
             || sagetex_inline_cs_name(name).is_some_and(|n| n == name.as_str())
+            || pythontexcustomc_cs_name(name).is_some_and(|n| n == name.as_str())
             || name == "listinginput"
             || name == "sageinput"
             || name == "inputpythonfile"
@@ -3621,6 +3664,107 @@ mod tests {
             latex_verb_span_end_with(r"\sages{puts 1}", 0, &[]),
             Some(r"\sages{puts 1}".len()),
             "sagestr must not steal usefamily sages"
+        );
+    }
+
+    /// Ticket fixture (GitHub #449): pythontex.sty leftover
+    /// `\pythontexcustomc[begin|end]{type}{code}` stays one span
+    /// (brace or `|delim|` body). Following `After.` still splits.
+    /// Longer name first so it is not `\py` + leftover. extras skip
+    /// so a configured extra does not re-tokenize the no-brace form
+    /// as Delim. `\py` / `\inputpy` stay their own spans.
+    #[test]
+    fn latex_pythontexcustomc_stays_atomic() {
+        let cmd = r"\pythontexcustomc{python}{import numpy}";
+        let text = r"See \pythontexcustomc{python}{import numpy} here. After.";
+        let (_, placeholders) = protect_inline_tokens(text);
+        assert!(
+            placeholders.iter().any(|p| p == cmd),
+            "pythontexcustomc span must be protected, got {placeholders:?}"
+        );
+        assert_eq!(
+            latex_verb_span_end_with(cmd, 0, &[]),
+            Some(cmd.len()),
+            "pythontexcustomc brace body must stay one span"
+        );
+        assert_eq!(
+            split(text),
+            vec![
+                r"See \pythontexcustomc{python}{import numpy} here.".to_string(),
+                "After.".to_string()
+            ]
+        );
+        let opts = r"\pythontexcustomc[begin]{python}{import numpy}";
+        assert_eq!(
+            latex_verb_span_end_with(opts, 0, &[]),
+            Some(opts.len()),
+            "pythontexcustomc optional begin must stay in the span"
+        );
+        let end_opts = r"\pythontexcustomc[end]{python}{import numpy}";
+        assert_eq!(
+            latex_verb_span_end_with(end_opts, 0, &[]),
+            Some(end_opts.len()),
+            "pythontexcustomc optional end must stay in the span"
+        );
+        let delim = r"\pythontexcustomc{python}|import numpy|";
+        assert_eq!(
+            latex_verb_span_end_with(delim, 0, &[]),
+            Some(delim.len()),
+            "pythontexcustomc delimiter body must stay one span"
+        );
+        assert_eq!(
+            latex_verb_span_end_with(r"\pythontexcustomc {python}{import numpy}", 0, &[]),
+            Some(r"\pythontexcustomc {python}{import numpy}".len()),
+            "pythontexcustomc may skip space before the type brace"
+        );
+        assert_eq!(
+            latex_verb_span_end_with(r"\pythontexcustomc After.", 0, &[]),
+            None,
+            "pythontexcustomc without a type brace is not a verb span"
+        );
+        assert_eq!(
+            latex_verb_span_end_with(r"\pythontexcustomc{python} After.", 0, &[]),
+            None,
+            "pythontexcustomc letter after type is not a delimiter"
+        );
+        assert_eq!(
+            latex_verb_span_end_with(r"\pythontexcustomc*{python}{import numpy}", 0, &[]),
+            None,
+            "pythontexcustomc has no star form"
+        );
+
+        assert_eq!(
+            pythontexcustomc_cs_name("pythontexcustomc{python}{import numpy}"),
+            Some("pythontexcustomc"),
+            "pythontexcustomc must not be py + leftover"
+        );
+        assert_eq!(
+            pythontexcustomc_cs_name("py{print(1)}"),
+            None,
+            "py stays the default-family leftover"
+        );
+
+        let extras = ["pythontexcustomc".to_string()];
+        assert_eq!(
+            latex_verb_span_end_with(r"\pythontexcustomc After.", 0, &extras),
+            None,
+            "configured extra pythontexcustomc must not re-tokenize the no-brace form as Delim"
+        );
+        assert_eq!(
+            latex_verb_span_end_with(cmd, 0, &extras),
+            Some(cmd.len()),
+            "configured extra pythontexcustomc must keep the brace form as leftover"
+        );
+
+        assert_eq!(
+            latex_verb_span_end_with(r"\py{print(1)}", 0, &[]),
+            Some(r"\py{print(1)}".len()),
+            "pythontexcustomc leftover must not steal py"
+        );
+        assert_eq!(
+            latex_verb_span_end_with(r"\inputpy{foo.py}", 0, &[]),
+            Some(r"\inputpy{foo.py}".len()),
+            "pythontexcustomc leftover must not steal inputpy"
         );
     }
 
