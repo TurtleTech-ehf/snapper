@@ -196,7 +196,8 @@ pub fn protect_inline_tokens_with(
         let m = caps.get(0).expect("regex match");
         let token = m.as_str();
         // org-element leftover: `$…$` closer must be followed by
-        // whitespace / `.` `-` `(` `)` `"` `'` / EOL. A letter is prose.
+        // whitespace / punctuation / open-close paren / `"` `'` / EOL.
+        // A letter is leftover prose.
         if token.starts_with('$')
             && !token.starts_with("$$")
             && !dollar_closer_post_context(
@@ -216,7 +217,8 @@ fn dollar_closer_post_context(next: Option<char>) -> bool {
     match next {
         None => true,
         Some(c) if c.is_whitespace() => true,
-        Some('.' | '-' | '(' | ')' | '"' | '\'') => true,
+        // org-element `looking-at-p` of `\s.` / `\s(` / `\s)` / `\s"` / `'`.
+        Some('.' | '-' | ',' | ';' | ':' | '!' | '?' | '(' | ')' | '[' | ']' | '"' | '\'') => true,
         _ => false,
     }
 }
@@ -674,8 +676,11 @@ pub(crate) fn latex_verb_span_end_with(
         // `\lstinputlisting` / `\lstinline` stay their own leftovers.
         let kind = match name {
             "lstnewenvironment" => VerbKind::LstNewenvironment,
-            "lstdefinestyle" | "lstdefinelanguage" | "lstalias" => VerbKind::Listinginput,
+            "lstdefinestyle" | "lstdefinelanguage" | "lstdefineformat" | "lstalias" => {
+                VerbKind::Listinginput
+            }
             "lstset" | "lstloadlanguages" => VerbKind::Tcbinputlisting,
+            "lstlistoflistings" => VerbKind::Listingcont,
             _ => VerbKind::LstMakeShortInline,
         };
         (after_bs + name.len(), kind)
@@ -898,9 +903,18 @@ pub(crate) fn latex_verb_span_end_with(
                 None => return Some(line_end(text, i)),
             }
         }
-        for _ in 0..2 {
+        for n in 0..2 {
             match skip_nested_brace_group(text, i) {
-                Some(end) => i = skip_ascii_ws(text, end),
+                Some(end) => {
+                    // Skip space between groups, not after the last
+                    // brace, so mid-line leftover does not swallow
+                    // the following prose space.
+                    i = if n + 1 < 2 {
+                        skip_ascii_ws(text, end)
+                    } else {
+                        end
+                    };
+                }
                 None => return None,
             }
         }
@@ -1356,6 +1370,8 @@ pub(crate) fn verb_span_leftover_cs_name(tail: &str) -> Option<&'static str> {
 pub(crate) fn listings_leftover_cs_name(tail: &str) -> Option<&'static str> {
     for name in [
         "lstnewenvironment",
+        "lstlistoflistings",
+        "lstdefineformat",
         "lstdefinelanguage",
         "lstdefinestyle",
         "lstloadlanguages",
@@ -1382,15 +1398,53 @@ pub(crate) fn listings_leftover_cs_name(tail: &str) -> Option<&'static str> {
 /// `\tcbinputlisting` / `\lstset` stay their own leftovers.
 pub(crate) fn leftover_keyval_cs_name(tail: &str) -> Option<&'static str> {
     for name in [
+        "RecustomVerbatimEnvironment",
+        "CustomVerbatimEnvironment",
+        "DefineVerbatimEnvironment",
+        "RecustomVerbatimCommand",
+        "CustomVerbatimCommand",
+        "DefineVerbatimCommand",
+        "MintedRegisterTempFileExtension",
+        "DeclareTCBInputListing",
+        "NewTCBInputListing",
+        "newtcbinputlisting",
+        "DeclareTCBListing",
+        "ProvideTCBListing",
+        "RenewTCBListing",
+        "NewTCBListing",
+        "renewmintedfile",
+        "renewmintinline",
+        "ProvidePitonEnvironment",
+        "DeclarePitonEnvironment",
+        "RenewPitonEnvironment",
+        "NewPitonEnvironment",
         "tcbuselistinglisting",
         "tcbuselistingtext",
         "tcbusetemplisting",
+        "PitonClearUserFunctions",
+        "renewtcblisting",
+        "newtcblisting",
+        "newmintedfile",
+        "newmintinline",
+        "renewminted",
+        "renewmint",
+        "savestdoutpythontex",
+        "savestderrpythontex",
+        "saveprintpythontex",
+        "usestdoutpythontex",
+        "usestderrpythontex",
+        "useprintpythontex",
+        "setpythontexpyglexer",
         "setpythontexautostdout",
         "setpythontexautoprint",
+        "setpythontexpygopt",
+        "setpygmentspygopt",
         "SetPitonIdentifier",
         "NewPitonLanguage",
         "setmintedinline",
+        "newminted",
         "setpythontexfv",
+        "setpygmentsfv",
         "stdoutpythontex",
         "stderrpythontex",
         "printpythontex",
@@ -1398,10 +1452,14 @@ pub(crate) fn leftover_keyval_cs_name(tail: &str) -> Option<&'static str> {
         "SetPitonStyle",
         "PitonOptions",
         "fvinlineset",
+        "tcbusetemp",
         "setminted",
+        "newmint",
         "pysession",
         "pyoptions",
+        "listoflistings",
         "pyoption",
+        "pyif",
         "fvset",
     ] {
         let Some(after) = tail.strip_prefix(name) else {
@@ -1417,12 +1475,55 @@ pub(crate) fn leftover_keyval_cs_name(tail: &str) -> Option<&'static str> {
 
 fn leftover_keyval_kind(name: &str) -> VerbKind {
     match name {
-        "printpythontex" | "stdoutpythontex" | "stderrpythontex" => VerbKind::FvextraBuffer,
-        "tcbuselistinglisting" | "tcbuselistingtext" | "tcbusetemplisting" => VerbKind::Listingcont,
+        "printpythontex" | "stdoutpythontex" | "stderrpythontex" | "PitonClearUserFunctions" => {
+            VerbKind::FvextraBuffer
+        }
+        "tcbuselistinglisting"
+        | "tcbuselistingtext"
+        | "tcbusetemplisting"
+        | "tcbusetemp"
+        | "lstlistoflistings"
+        | "listoflistings" => VerbKind::Listingcont,
         "setmintedinline" | "usemintedstyle" | "setminted" | "SetPitonStyle" => {
             VerbKind::Lstinputlisting
         }
-        "pyoption" | "SetPitonIdentifier" | "NewPitonLanguage" => VerbKind::Listinginput,
+        "pyoption"
+        | "SetPitonIdentifier"
+        | "NewPitonLanguage"
+        | "setpythontexpyglexer"
+        | "setpythontexpygopt"
+        | "setpygmentspygopt"
+        | "newmintedfile"
+        | "newmintinline"
+        | "newminted"
+        | "newmint"
+        | "renewmintedfile"
+        | "renewmintinline"
+        | "renewminted"
+        | "renewmint"
+        | "renewtcblisting"
+        | "newtcblisting"
+        | "newtcbinputlisting"
+        | "NewTCBInputListing"
+        | "DeclareTCBInputListing" => VerbKind::Listinginput,
+        "RecustomVerbatimEnvironment"
+        | "CustomVerbatimEnvironment"
+        | "DefineVerbatimEnvironment"
+        | "RecustomVerbatimCommand"
+        | "CustomVerbatimCommand"
+        | "DefineVerbatimCommand" => VerbKind::LstNewenvironment,
+        "NewTCBListing"
+        | "DeclareTCBListing"
+        | "RenewTCBListing"
+        | "ProvideTCBListing"
+        | "pyif" => VerbKind::LstNewenvironment,
+        "ProvidePitonEnvironment"
+        | "DeclarePitonEnvironment"
+        | "RenewPitonEnvironment"
+        | "NewPitonEnvironment" => VerbKind::CatchFileBetweenDelims,
+        "useprintpythontex" | "usestdoutpythontex" | "usestderrpythontex" => {
+            VerbKind::Lstinputlisting
+        }
         _ => VerbKind::Tcbinputlisting,
     }
 }
@@ -7378,7 +7479,7 @@ mod tests {
     #[test]
     fn plaintext_format_keeps_dialogue_quote_together() {
         use crate::format::Format;
-        use crate::{FormatConfig, format_text};
+        use crate::{format_text, FormatConfig};
 
         let input = "He said \"Hello world. How are you?\" Then he left.\n";
         let cfg = FormatConfig {
@@ -7495,7 +7596,7 @@ mod tests {
     #[test]
     fn newlines_invariant_holds_on_dialogue_output() {
         use crate::format::Format;
-        use crate::{FormatConfig, format_text};
+        use crate::{format_text, FormatConfig};
 
         let samples = [
             "He said \"Hello world. How are you?\" Then he left.\n",
@@ -7776,7 +7877,7 @@ mod tests {
     #[test]
     fn markdown_period_inside_closers_survives_format_roundtrip() {
         use crate::format::Format;
-        use crate::{FormatConfig, format_text};
+        use crate::{format_text, FormatConfig};
 
         let cfg = FormatConfig {
             format: Format::Markdown,
@@ -7790,7 +7891,7 @@ mod tests {
     #[test]
     fn org_markdown_style_bold_period_splits_without_headline() {
         use crate::format::Format;
-        use crate::{FormatConfig, format_text};
+        use crate::{format_text, FormatConfig};
 
         let cfg = FormatConfig {
             format: Format::Org,
@@ -7851,7 +7952,7 @@ mod tests {
     #[test]
     fn markdown_emphasis_format_text_does_not_break_inside_span() {
         use crate::format::Format;
-        use crate::{FormatConfig, format_text};
+        use crate::{format_text, FormatConfig};
 
         let cfg = FormatConfig {
             format: Format::Markdown,
@@ -7899,7 +8000,7 @@ mod tests {
     #[test]
     fn plaintext_bang_inside_code_span_stays_atomic_after_keep_break() {
         use crate::format::Format;
-        use crate::{FormatConfig, format_text};
+        use crate::{format_text, FormatConfig};
 
         let input = "?=\"`=!a`\n";
         let cfg = FormatConfig {
@@ -7919,7 +8020,7 @@ mod tests {
     #[test]
     fn keeps_break_before_lowercase_proper_noun() {
         use crate::format::Format;
-        use crate::{FormatConfig, format_text};
+        use crate::{format_text, FormatConfig};
 
         let input = "First sentence.\niCloud starts the second sentence.\n";
         for format in [
@@ -7946,7 +8047,7 @@ mod tests {
     #[test]
     fn splits_same_line_lowercase_proper_noun() {
         use crate::format::Format;
-        use crate::{FormatConfig, format_text};
+        use crate::{format_text, FormatConfig};
 
         assert_eq!(
             split("First sentence. iCloud starts the second sentence."),

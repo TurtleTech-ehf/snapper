@@ -4,7 +4,7 @@
 use snapper_fmt::format::Format;
 use snapper_fmt::parser::latex::LatexParser;
 use snapper_fmt::parser::{FormatParser, Region};
-use snapper_fmt::{FormatConfig, format_text};
+use snapper_fmt::{format_text, FormatConfig};
 
 fn latex_cfg() -> FormatConfig {
     FormatConfig {
@@ -211,6 +211,57 @@ fn tcolorbox_use_listing_leftover_cmds_do_not_join_following_prose() {
     leftover_cmd_stays_atomic(r"\tcbuselistinglisting");
     leftover_cmd_stays_atomic(r"\tcbusetemplisting");
     extras_skip_no_brace("tcbuselistingtext");
+}
+
+#[test]
+fn leftover_constructors_do_not_join() {
+    leftover_cmd_stays_atomic(r"\newminted{python}{linenos}");
+    leftover_cmd_stays_atomic(r"\newmint[py]{python}{linenos}");
+    leftover_cmd_stays_atomic(r"\newmintinline{python}{linenos}");
+    leftover_cmd_stays_atomic(r"\newmintedfile{python}{linenos}");
+    leftover_cmd_stays_atomic(r"\DefineVerbatimEnvironment{code}{Verbatim}{fontsize=\small}");
+    leftover_cmd_stays_atomic(r"\RecustomVerbatimEnvironment{Verbatim}{Verbatim}{fontsize=\small}");
+    leftover_cmd_stays_atomic(r"\DefineVerbatimCommand{myverb}{Verb}{fontsize=\small}");
+    leftover_cmd_stays_atomic(r"\NewPitonEnvironment{py}{}{}{}");
+    leftover_cmd_stays_atomic(r"\DeclarePitonEnvironment{py}{}{}{}");
+    leftover_cmd_stays_atomic(r"\renewminted{python}{linenos}");
+    leftover_cmd_stays_atomic(r"\renewmint{python}{linenos}");
+    leftover_cmd_stays_atomic(r"\CustomVerbatimEnvironment{code}{Verbatim}{fontsize=\small}");
+    leftover_cmd_stays_atomic(r"\newtcblisting{mylst}{listing options}");
+    leftover_cmd_stays_atomic(r"\CustomVerbatimCommand{myverb}{Verb}{fontsize=\small}");
+    leftover_cmd_stays_atomic(r"\setpygmentsfv{gobble=2}");
+    leftover_cmd_stays_atomic(r"\listoflistings");
+    leftover_cmd_stays_atomic(r"\MintedRegisterTempFileExtension{.listing}");
+    leftover_cmd_stays_atomic(r"\pyif{a == 1}{$a = 1$}{$a \\neq 1$}");
+    leftover_cmd_stays_atomic(r"\lstdefineformat{C}{;=}");
+    leftover_cmd_stays_atomic(r"\NewTCBListing{code}{O{}}{listing only}");
+    leftover_cmd_stays_atomic(r"\newtcbinputlisting{\mylisting}{listing file={foo.py}}");
+    extras_skip_no_brace("newminted");
+    extras_skip_no_brace("newmint");
+    extras_skip_no_brace("renewminted");
+    extras_skip_no_brace("DefineVerbatimEnvironment");
+    extras_skip_no_brace("NewPitonEnvironment");
+    extras_skip_no_brace("newtcblisting");
+    extras_skip_no_brace("listoflistings");
+    extras_skip_no_brace("pyif");
+    extras_skip_no_brace("lstdefineformat");
+}
+
+#[test]
+fn leftover_saveprint_and_replay_cmds_do_not_join() {
+    leftover_cmd_stays_atomic(r"\saveprintpythontex{out}");
+    leftover_cmd_stays_atomic(r"\savestdoutpythontex{out}");
+    leftover_cmd_stays_atomic(r"\useprintpythontex{out}");
+    leftover_cmd_stays_atomic(r"\usestdoutpythontex[verb]{out}");
+    leftover_cmd_stays_atomic(r"\PitonClearUserFunctions");
+    leftover_cmd_stays_atomic(r"\PitonClearUserFunctions[Python]");
+    leftover_cmd_stays_atomic(r"\lstlistoflistings");
+    leftover_cmd_stays_atomic(r"\tcbusetemp");
+    leftover_cmd_stays_atomic(r"\setpythontexpyglexer{py}{python}");
+    extras_skip_no_brace("saveprintpythontex");
+    extras_skip_no_brace("PitonClearUserFunctions");
+    extras_skip_no_brace("lstlistoflistings");
+    extras_skip_no_brace("tcbusetemp");
 }
 
 #[test]
