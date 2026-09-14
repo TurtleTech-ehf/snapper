@@ -993,10 +993,8 @@ fn dest_and_optional_title(line: &str) -> Option<bool> {
 }
 
 /// Optional title on the line after `[label]: dest` (`"title"` / `'title'` / `(title)`).
+/// Indent is LRD whitespace, not indented code (CM 0.31.2 ex. 193).
 fn is_link_title_continuation(line: &str) -> bool {
-    if is_indented_code_line(line) {
-        return false;
-    }
     rest_is_md_link_title(line.trim_start_matches([' ', '\t']))
 }
 
@@ -1224,6 +1222,34 @@ fn list_item_captures<'a>(
         }
     }
     None
+}
+
+/// True when a same-depth quoted `: ` / `~ ` marker appears after
+/// zero or more compact term lines. Blank, code, or a dropped quote
+/// ends the look-ahead. Extra terms stay titles like unquoted
+/// `flush_prose_as_structure`.
+fn quoted_upcoming_dl_marker(lines: &[Line<'_>], start: usize, depth: usize) -> bool {
+    let mut j = start + 1;
+    while j < lines.len() {
+        let Some(inner) = strip_quote_markers(lines[j].text, depth) else {
+            return false;
+        };
+        if inner.trim().is_empty() {
+            return false;
+        }
+        if md_definition_list_marker_len(inner).is_some() {
+            return true;
+        }
+        if is_indented_code_line(inner)
+            || HEADING_RE.is_match(inner)
+            || is_thematic_break(inner)
+            || FENCED_CODE_RE.is_match(inner.trim_start())
+        {
+            return false;
+        }
+        j += 1;
+    }
+    false
 }
 
 /// Quoted GFM table (leading pipe optional) at a matching `>` depth.
@@ -2463,20 +2489,18 @@ impl FormatParser for MarkdownParser {
                     continue;
                 }
                 // Quoted compact definition list (same rules as unquoted).
-                if i + 1 < total {
-                    if let Some(next_inner) = strip_quote_markers(lines[i + 1].text, quote_depth) {
-                        if md_definition_list_marker_len(next_inner).is_some()
-                            && md_definition_list_marker_len(text).is_none()
-                            && !text.trim().is_empty()
-                            && !is_indented_code_line(text)
-                        {
-                            regions.push(SpannedRegion::structure(input, line.span()));
-                            last_was_def_term = true;
-                            in_definition_list = true;
-                            i += 1;
-                            continue;
-                        }
-                    }
+                // Look ahead across extra compact terms, not just i+1,
+                // so `> Alpha` / `> Bravo` / `> : def` keeps both terms.
+                if quoted_upcoming_dl_marker(&lines, i, quote_depth)
+                    && md_definition_list_marker_len(text).is_none()
+                    && !text.trim().is_empty()
+                    && !is_indented_code_line(text)
+                {
+                    regions.push(SpannedRegion::structure(input, line.span()));
+                    last_was_def_term = true;
+                    in_definition_list = true;
+                    i += 1;
+                    continue;
                 }
                 if let Some(inner_marker_len) = md_definition_list_marker_len(text) {
                     if last_was_def_term || was_in_definition_list {
@@ -5966,6 +5990,13 @@ mod tests {
         assert!(is_link_dest_continuation("      /url"));
         assert!(is_link_dest_continuation("/url \"title\""));
         assert!(!is_link_dest_continuation("After. More."));
+        assert!(is_link_title_continuation(
+            "\"Title with a period. Still title.\""
+        ));
+        assert!(is_link_title_continuation("           'the title'"));
+        assert!(!is_link_title_continuation(
+            "           code looks like this"
+        ));
         assert!(!is_link_reference_definition("See [foo]: not-a-def"));
         assert!(!is_link_reference_definition(
             "[^1]: Footnote text. Second sentence."

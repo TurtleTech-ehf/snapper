@@ -71,3 +71,71 @@ fn dest_title_stay_and_following_prose_splits() {
     );
     assert_eq!(format_text(&out, &md_cfg()).unwrap(), out);
 }
+
+fn indented_title_fixture() -> &'static str {
+    concat!(
+        "See [foo]. Next sentence.\n",
+        "\n",
+        "   [foo]:\n",
+        "      /url\n",
+        "           'Title with a period. Still title.'\n",
+        "\n",
+        "After the definition. More.\n",
+    )
+}
+
+#[test]
+fn indented_lrd_title_is_structure_not_code() {
+    let regions = MarkdownParser.parse(indented_title_fixture());
+    assert!(
+        regions.iter().any(|r| matches!(
+            r,
+            Region::Structure(s) if s.contains("[foo]:")
+        )),
+        "label-only LRD must be Structure, got {regions:?}"
+    );
+    assert!(
+        regions.iter().any(|r| matches!(
+            r,
+            Region::Structure(s) if s.contains("/url")
+        )),
+        "indented dest must be Structure, got {regions:?}"
+    );
+    assert!(
+        regions.iter().any(|r| matches!(
+            r,
+            Region::Structure(s) if s.contains("Title with a period. Still title.")
+        )),
+        "indented title must be Structure, got {regions:?}"
+    );
+    assert!(
+        !regions.iter().any(|r| matches!(r, Region::Code { .. })),
+        "indented LRD title must not be indented code, got {regions:?}"
+    );
+    assert!(
+        !regions.iter().any(|r| matches!(
+            r,
+            Region::Prose(p) if p.contains("Still title") || p.contains("/url")
+        )),
+        "dest and title must not be Prose, got {regions:?}"
+    );
+}
+
+#[test]
+fn indented_lrd_title_does_not_split_and_following_does() {
+    let input = indented_title_fixture();
+    let out = format_text(input, &md_cfg()).unwrap();
+    assert!(
+        out.contains("           'Title with a period. Still title.'"),
+        "indented title must stay one Structure line, got:\n{out}"
+    );
+    assert!(
+        !out.contains("Title with a period.\n"),
+        "must not sentence-split the indented title, got:\n{out}"
+    );
+    assert!(
+        out.contains("After the definition.\nMore."),
+        "following prose must still split, got:\n{out}"
+    );
+    assert_eq!(format_text(&out, &md_cfg()).unwrap(), out);
+}
