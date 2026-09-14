@@ -312,13 +312,37 @@ impl OrgParser {
         rest.trim_matches([' ', '\t']).is_empty()
     }
 
-    /// Check if a line is a keyword/directive (#+KEYWORD:)
+    /// org-element-keyword-re: `#+KEY` optional `[dual]` then `:`.
+    /// `#+notakeyword Hello` and `#+ TITLE:` (space after `#+`) are
+    /// paragraphs, not keywords.
     fn is_keyword(line: &str) -> bool {
-        let trimmed = line.trim_start();
-        trimmed.starts_with("#+")
-            && !Self::is_block_begin(line)
-            && !Self::is_block_end(line)
-            && !Self::is_dynamic_block_begin(line)
+        if Self::is_block_begin(line)
+            || Self::is_block_end(line)
+            || Self::is_dynamic_block_begin(line)
+        {
+            return false;
+        }
+        let trimmed = line.trim_start_matches([' ', '\t']);
+        let Some(rest) = trimmed.strip_prefix("#+") else {
+            return false;
+        };
+        let key_len = rest
+            .bytes()
+            .take_while(|&b| !b.is_ascii_whitespace() && b != b'[' && b != b':')
+            .count();
+        if key_len == 0 {
+            return false;
+        }
+        let after_key = &rest[key_len..];
+        let after_dual = if let Some(inner) = after_key.strip_prefix('[') {
+            let Some(close) = inner.find(']') else {
+                return false;
+            };
+            &inner[close + 1..]
+        } else {
+            after_key
+        };
+        after_dual.starts_with(':')
     }
 
     /// org.el `org-comment-regexp`: `^[ \t]*#(?: |$)`.
