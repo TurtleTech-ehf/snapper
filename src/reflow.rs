@@ -683,6 +683,9 @@ fn org_opens_block(line: &str) -> bool {
     if t.starts_with("file:") || t.starts_with("http://") || t.starts_with("https://") {
         return true;
     }
+    if t.starts_with("\\begin{") {
+        return true;
+    }
     if crate::parser::org::is_org_drawer_begin(t) || org_fixed_width(t) || org_horizontal_rule(t) {
         return true;
     }

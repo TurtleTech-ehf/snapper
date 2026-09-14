@@ -55,6 +55,38 @@ fn assert_unmatched_opaque_is_paragraph(input: &str, opener: &str) {
 }
 
 #[test]
+fn end_src_trailing_tokens_are_not_a_closer() {
+    let input = concat!(
+        "#+BEGIN_SRC python\n",
+        "print(1)\n",
+        "#+END_SRC leftover. Next.\n",
+        "After the env. Next.\n",
+    );
+    let regions = OrgParser.parse(input);
+    assert!(
+        !regions.iter().any(|r| matches!(r, Region::Code { .. })),
+        "END_SRC leftover must not close the src block, got {regions:?}"
+    );
+    assert!(
+        regions.iter().any(|r| matches!(
+            r,
+            Region::Prose(p) if p.contains("leftover.") && p.contains("Next.")
+        )),
+        "trailing leftover after END_SRC must stay Prose, got {regions:?}"
+    );
+    let out = format_text(input, &org_cfg()).unwrap();
+    assert!(
+        out.contains("leftover.") && out.contains("Next."),
+        "END_SRC leftover must still split, got:\n{out}"
+    );
+    assert!(
+        out.contains("After the env.\nNext."),
+        "following prose must still split, got:\n{out}"
+    );
+    assert_eq!(format_text(&out, &org_cfg()).unwrap(), out);
+}
+
+#[test]
 fn unmatched_verse_is_paragraph() {
     assert_unmatched_opaque_is_paragraph(verse_fixture(), "#+BEGIN_VERSE");
 }

@@ -267,7 +267,17 @@ impl OrgParser {
     }
 
     fn block_end_name(line: &str) -> Option<String> {
-        Self::block_directive_name(line, "#+END_")
+        let trimmed = line.trim_start();
+        let upper = trimmed.to_ascii_uppercase();
+        if !upper.starts_with("#+END_") {
+            return None;
+        }
+        let after = &trimmed["#+END_".len()..];
+        let name = after.split_whitespace().next()?;
+        if name.is_empty() || !after[name.len()..].trim().is_empty() {
+            return None;
+        }
+        Some(name.to_ascii_uppercase())
     }
 
     /// Check if a line starts a block (#+BEGIN_NAME).

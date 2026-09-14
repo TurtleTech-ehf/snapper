@@ -35,6 +35,18 @@ fn wrap_does_not_park_file_colon_at_column_zero() {
 }
 
 #[test]
+fn wrap_does_not_park_begin_env_at_column_zero() {
+    let input =
+        "See the display \\begin{equation} x = 1. 2 \\end{equation} extra words here after.\n";
+    let out = format_text(input, &wrap_cfg(24)).unwrap();
+    assert!(
+        !out.lines().any(|l| l.starts_with("\\begin{")),
+        "wrap must not park \\\\begin{{ at column 0, got:\n{out}"
+    );
+    assert_eq!(format_text(&out, &wrap_cfg(24)).unwrap(), out);
+}
+
+#[test]
 fn wrap_does_not_park_http_at_column_zero() {
     let input = "See the site http://example.com/a extra words here.\n";
     let out = format_text(input, &wrap_cfg(24)).unwrap();
