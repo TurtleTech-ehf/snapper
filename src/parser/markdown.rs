@@ -2864,8 +2864,15 @@ impl FormatParser for MarkdownParser {
             // pulldown ENABLE_DEFINITION_LIST: a `: ` marker on the next
             // line turns this paragraph into a definition title. The
             // title stays Structure so interior periods do not split.
-            if upcoming_dl_marker(&lines, i, list_hang.filter(|_| in_list_item))
-                && md_definition_list_marker_len(line_text).is_none()
+            if upcoming_dl_marker(
+                &lines,
+                i,
+                if in_definition_list {
+                    None
+                } else {
+                    list_hang.filter(|_| in_list_item)
+                },
+            ) && md_definition_list_marker_len(line_text).is_none()
                 && !line_text.trim().is_empty()
                 && !is_indented_code_line(line_text)
             {

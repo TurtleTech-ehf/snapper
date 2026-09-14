@@ -4,7 +4,7 @@
 use snapper_fmt::format::Format;
 use snapper_fmt::parser::markdown::MarkdownParser;
 use snapper_fmt::parser::{FormatParser, Region};
-use snapper_fmt::{FormatConfig, format_text};
+use snapper_fmt::{format_text, FormatConfig};
 
 fn md_cfg() -> FormatConfig {
     FormatConfig {
@@ -103,6 +103,66 @@ fn extra_compact_terms_do_not_split_and_following_does() {
         out.contains(": First definition sentence.\n  Second sentence."),
         "definition body must still hang and split, got:\n{out}"
     );
+    assert!(
+        out.contains("After the list.\nNext."),
+        "following prose must still split, got:\n{out}"
+    );
+    assert_eq!(format_text(&out, &md_cfg()).unwrap(), out);
+}
+
+#[test]
+fn leftover_second_compact_dl_term_after_definition() {
+    let input = concat!(
+        "Alpha term. Still alpha.\n",
+        ": First definition sentence. Second sentence.\n",
+        "Bravo term. Still bravo.\n",
+        ": Other definition sentence. More.\n",
+        "\n",
+        "After the list. Next.\n",
+    );
+    let regions = MarkdownParser.parse(input);
+    assert!(
+        regions.iter().any(|r| matches!(
+            r,
+            Region::Structure(s) if s.contains("Bravo term. Still bravo.")
+        )),
+        "second compact term after a definition must be Structure, got {regions:?}"
+    );
+    assert!(
+        !regions.iter().any(|r| matches!(
+            r,
+            Region::Prose(p) if p.contains("Bravo term")
+        )),
+        "second term must not lazy-join the first definition, got {regions:?}"
+    );
+    let out = format_text(input, &md_cfg()).unwrap();
+    assert!(
+        out.contains("After the list.\nNext."),
+        "following prose must still split, got:\n{out}"
+    );
+    assert_eq!(format_text(&out, &md_cfg()).unwrap(), out);
+}
+
+#[test]
+fn leftover_loose_second_dl_term_after_blank() {
+    let input = concat!(
+        "Alpha term. Still alpha.\n",
+        ": First definition sentence. Second sentence.\n",
+        "\n",
+        "Bravo term. Still bravo.\n",
+        ": Other definition sentence. More.\n",
+        "\n",
+        "After the list. Next.\n",
+    );
+    let regions = MarkdownParser.parse(input);
+    assert!(
+        regions.iter().any(|r| matches!(
+            r,
+            Region::Structure(s) if s.contains("Bravo term. Still bravo.")
+        )),
+        "loose second term must be Structure, got {regions:?}"
+    );
+    let out = format_text(input, &md_cfg()).unwrap();
     assert!(
         out.contains("After the list.\nNext."),
         "following prose must still split, got:\n{out}"
