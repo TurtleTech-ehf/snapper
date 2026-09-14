@@ -85,7 +85,8 @@ vale/
 site/                 -- Landing page (static HTML)
 docs/
   orgmode/            -- Documentation source (org-mode)
-  source/             -- Sphinx config + templates
+  source/             -- Sphinx config + templates (exported RST is gitignored)
+  locale/is, locale/pl -- Gettext catalogs (commit the =.po= files)
   export.el           -- Batch org -> RST exporter
 #+end_example
 
@@ -112,10 +113,16 @@ Commits follow conventional commits, managed by =cocogitto= (=cog=):
 pixi run -e docs docbld
 #+end_src
 
+That exports org to RST, refreshes the Icelandic and Polish gettext catalogs, and builds HTML for =en=, =is=, and =pl=.
+RST, =.pot=, =.mo=, and =docs/build/= are gitignored.
+When org reference text changes (especially =formats.org=), commit the updated =docs/locale/**/*.po= files so the next Pages build does not keep v0.11 msgids.
+
 Or manually:
 
 #+begin_src bash
 emacs --batch -l docs/export.el
+sphinx-build -b gettext docs/source docs/locale/pot
+sphinx-intl update -p docs/locale/pot -l is -l pl -d docs/locale
 sphinx-build docs/source docs/build -b html
 #+end_src
 
