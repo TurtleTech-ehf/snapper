@@ -37,6 +37,12 @@ static LIST_ITEM_RE: LazyLock<Regex> =
 static LIST_LOOKING_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"^[\t ]*(?:[-*+]|\d{1,9}[.)])(?:[ \t]|$)").unwrap());
 
+/// List item at any indent. LIST_ITEM_RE is 0–3 only so a 4-space dash is
+/// document-level indented code. Inside a parent item, hang ≤ indent < hang+4
+/// is a nested list (pulldown / CM 5.2), not code.
+static LIST_ITEM_ANY_INDENT_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"^([\t ]*(?:[-*+]|\d{1,9}[.)])(?:[ \t]|$))(.*)$").unwrap());
+
 /// Match a markdown table row: line whose trimmed form starts and ends with `|`.
 /// Also matches separator rows like `|---|---|`.
 /// GFM 4.10 makes leading/trailing pipes optional; those rows are
@@ -149,6 +155,7 @@ fn close_list_item(
     current_prose: &mut String,
     prose_span: &mut Option<ByteSpan>,
     list_term: &mut Option<ByteSpan>,
+    in_definition_list: &mut bool,
     input: &str,
     regions: &mut Vec<SpannedRegion>,
 ) {
@@ -162,6 +169,7 @@ fn close_list_item(
         *in_list_item = false;
         *list_hang = None;
     }
+    *in_definition_list = false;
 }
 
 /// Indent of the next non-blank line after `start`, if any.
@@ -173,7 +181,9 @@ fn next_nonblank_indent(lines: &[Line<'_>], start: usize) -> Option<usize> {
 }
 
 fn starts_html_comment(line: &str) -> bool {
-    line.trim_start().starts_with("<!--")
+    // CM 4.6 type 2: at most three spaces. Four-space `<!--` is indented
+    // code (or lazy title text), not an HTML block.
+    html_block_rest(line).starts_with("<!--")
 }
 
 fn html_comment_closed(text: &str) -> bool {
@@ -785,7 +795,15 @@ fn md_leaf_rest(line: &str) -> Option<&str> {
 pub(crate) fn md_definition_list_marker_len(line: &str) -> Option<usize> {
     let rest = md_leaf_rest(line)?;
     let indent = line.len() - rest.len();
-    let after = rest.strip_prefix(':')?;
+    // pulldown `:` plus compact leftover `~` (Pandoc / extra DL marker).
+    // `~~` is GFM strike, not a definition.
+    let after = if let Some(a) = rest.strip_prefix(':') {
+        a
+    } else if rest.starts_with("~~") {
+        return None;
+    } else {
+        rest.strip_prefix('~')?
+    };
     let spaces = after.bytes().take_while(|&b| b == b' ').count();
     let consumed = if spaces >= 5 { 1 } else { spaces };
     Some(indent + 1 + consumed)
@@ -1166,16 +1184,125 @@ fn list_opener_hang(line: &str) -> Option<usize> {
     Some(list_marker_hang(marker))
 }
 
+/// Hang of any non-empty list opener, including start != 1. Used for
+/// setext-in-list pairing at a block boundary (CM 4.3).
+fn list_item_hang(line: &str) -> Option<usize> {
+    let depth = quote_marker_depth(line);
+    let body = strip_quote_markers(line, depth)?;
+    let caps = LIST_ITEM_RE.captures(body)?;
+    let marker = caps.get(1).unwrap().as_str();
+    if caps
+        .get(2)
+        .is_none_or(|m| list_item_rest_is_empty(m.as_str()))
+    {
+        return None;
+    }
+    Some(list_marker_hang(marker))
+}
+
 /// Bullet, or ordered start 1, can interrupt an open paragraph.
 fn list_interrupts_paragraph(line: &str) -> bool {
     list_opener_hang(line).is_some()
+}
+
+/// List-item captures: 0–3 spaces at a block boundary, or hang ≤ indent < hang+4
+/// inside a parent item (nested list, not hang+4 indented code).
+fn list_item_captures<'a>(
+    line: &'a str,
+    in_list_item: bool,
+    list_hang: Option<usize>,
+) -> Option<regex::Captures<'a>> {
+    if let Some(caps) = LIST_ITEM_RE.captures(line) {
+        return Some(caps);
+    }
+    if in_list_item {
+        if let Some(hang) = list_hang {
+            let ind = line_indent(line);
+            if ind >= hang && ind < hang + 4 && LIST_LOOKING_RE.is_match(line) {
+                return LIST_ITEM_ANY_INDENT_RE.captures(line);
+            }
+        }
+    }
+    None
+}
+
+/// Quoted GFM table (leading pipe optional) at a matching `>` depth.
+fn quoted_gfm_table_end(lines: &[Line<'_>], start: usize, depth: usize) -> Option<usize> {
+    let header_inner = strip_quote_markers(lines[start].text, depth)?;
+    let header = gfm_table_cells(header_inner)?;
+    let delim_inner = strip_quote_markers(lines.get(start + 1)?.text, depth)?;
+    let dcells = gfm_table_cells(delim_inner)?;
+    if header.len() != dcells.len() || !dcells.iter().all(|c| is_gfm_delimiter_cell(c)) {
+        return None;
+    }
+    let mut end = start + 1;
+    for (j, line) in lines.iter().enumerate().skip(start + 2) {
+        let Some(inner) = strip_quote_markers(line.text, depth) else {
+            break;
+        };
+        if !is_gfm_table_row(inner) {
+            break;
+        }
+        end = j;
+    }
+    Some(end)
+}
+
+/// Indented code may open inside a quote only when no quote paragraph is open
+/// (BOF, blank, empty `>`, or already-open quoted code).
+fn quote_can_open_indented_code(prev: Option<&str>, depth: usize) -> bool {
+    match prev {
+        None => true,
+        Some(p) if p.trim().is_empty() => true,
+        Some(p) => match strip_quote_markers(p, depth) {
+            Some(inner) if inner.trim().is_empty() || is_indented_code_line(inner) => true,
+            Some(_) => false,
+            None => true,
+        },
+    }
+}
+
+/// Last quoted indented-code line starting at `start` (same `>` depth).
+fn quoted_indented_code_end(lines: &[Line<'_>], start: usize, depth: usize) -> usize {
+    let mut end = start;
+    let mut i = start + 1;
+    while i < lines.len() {
+        let Some(inner) = strip_quote_markers(lines[i].text, depth) else {
+            break;
+        };
+        if is_indented_code_line(inner) {
+            end = i;
+            i += 1;
+            continue;
+        }
+        if inner.trim().is_empty() {
+            let mut j = i + 1;
+            while j < lines.len() {
+                match strip_quote_markers(lines[j].text, depth) {
+                    Some(t) if t.trim().is_empty() => j += 1,
+                    Some(t) if is_indented_code_line(t) => {
+                        end = i;
+                        i += 1;
+                        break;
+                    }
+                    _ => return end,
+                }
+            }
+            if j >= lines.len() {
+                return end;
+            }
+            continue;
+        }
+        break;
+    }
+    end
 }
 
 /// List-item last title line plus underline at or past the item hang.
 /// Indent below hang is not a heading. Quote depth must match so a lazy
 /// unquoted underline after a quote stays CM 4.3 ex. 93.
 fn is_list_setext_pair(title: &str, underline: &str) -> bool {
-    let Some(hang) = list_opener_hang(title) else {
+    let Some(hang) = list_item_hang(title) else {
         return false;
     };
     let depth = quote_marker_depth(title);
@@ -1525,6 +1652,7 @@ impl FormatParser for MarkdownParser {
         let mut list_after_blank = false;
         let mut list_term: Option<ByteSpan> = None;
         let mut last_was_def_term = false;
+        let mut in_definition_list = false;
         let mut in_display_math = false;
         let mut pragma_off = false;
 
@@ -1549,6 +1677,7 @@ impl FormatParser for MarkdownParser {
                         &mut current_prose,
                         &mut prose_span,
                         &mut list_term,
+                        &mut in_definition_list,
                         input,
                         &mut regions,
                     );
@@ -1566,6 +1695,7 @@ impl FormatParser for MarkdownParser {
                         &mut current_prose,
                         &mut prose_span,
                         &mut list_term,
+                        &mut in_definition_list,
                         input,
                         &mut regions,
                     );
@@ -1597,6 +1727,7 @@ impl FormatParser for MarkdownParser {
                     &mut current_prose,
                     &mut prose_span,
                     &mut list_term,
+                    &mut in_definition_list,
                     input,
                     &mut regions,
                 );
@@ -1628,6 +1759,7 @@ impl FormatParser for MarkdownParser {
                     &mut current_prose,
                     &mut prose_span,
                     &mut list_term,
+                    &mut in_definition_list,
                     input,
                     &mut regions,
                 );
@@ -1652,6 +1784,7 @@ impl FormatParser for MarkdownParser {
                     &mut current_prose,
                     &mut prose_span,
                     &mut list_term,
+                    &mut in_definition_list,
                     input,
                     &mut regions,
                 );
@@ -1682,13 +1815,16 @@ impl FormatParser for MarkdownParser {
             if list_after_blank && is_indented_code_line(line_text) {
                 if let Some(hang) = list_hang {
                     let leading = line_indent(line_text);
-                    if LIST_LOOKING_RE.is_match(line_text) || leading >= hang + 4 {
+                    // hang+4 is indented code. List-looking at indent < hang+4
+                    // is a nested list and stays in the parent item.
+                    if leading >= hang + 4 {
                         close_list_item(
                             &mut in_list_item,
                             &mut list_hang,
                             &mut current_prose,
                             &mut prose_span,
                             &mut list_term,
+                            &mut in_definition_list,
                             input,
                             &mut regions,
                         );
@@ -1703,6 +1839,7 @@ impl FormatParser for MarkdownParser {
                     &mut current_prose,
                     &mut prose_span,
                     &mut list_term,
+                    &mut in_definition_list,
                     input,
                     &mut regions,
                 );
@@ -1755,6 +1892,7 @@ impl FormatParser for MarkdownParser {
                     &mut current_prose,
                     &mut prose_span,
                     &mut list_term,
+                    &mut in_definition_list,
                     input,
                     &mut regions,
                 );
@@ -1793,6 +1931,7 @@ impl FormatParser for MarkdownParser {
                     &mut current_prose,
                     &mut prose_span,
                     &mut list_term,
+                    &mut in_definition_list,
                     input,
                     &mut regions,
                 );
@@ -1818,6 +1957,7 @@ impl FormatParser for MarkdownParser {
                     &mut current_prose,
                     &mut prose_span,
                     &mut list_term,
+                    &mut in_definition_list,
                     input,
                     &mut regions,
                 );
@@ -1834,7 +1974,13 @@ impl FormatParser for MarkdownParser {
             // Start from current_prose, not a title-line walk-back: HTML
             // comments and indented code are already emitted.
             if i + 1 < total
-                && ((is_setext_title_line(line_text) && is_setext_underline(lines[i + 1].text))
+                && (((is_setext_title_line(line_text) && is_setext_underline(lines[i + 1].text))
+                    // CM 4.3: after blank/BOF a list opener is not a
+                    // setext title. At-hang underlines still pair via
+                    // is_list_setext_pair (`- Foo` / `  =======`).
+                    && !(current_prose.is_empty()
+                        && !in_list_item
+                        && LIST_ITEM_RE.is_match(line_text)))
                     || is_list_setext_pair(line_text, lines[i + 1].text)
                     || quoted_setext_ok(
                         line_text,
@@ -1964,6 +2110,7 @@ impl FormatParser for MarkdownParser {
                     &mut current_prose,
                     &mut prose_span,
                     &mut list_term,
+                    &mut in_definition_list,
                     input,
                     &mut regions,
                 );
@@ -1991,6 +2138,7 @@ impl FormatParser for MarkdownParser {
                     &mut current_prose,
                     &mut prose_span,
                     &mut list_term,
+                    &mut in_definition_list,
                     input,
                     &mut regions,
                 );
@@ -2010,6 +2158,7 @@ impl FormatParser for MarkdownParser {
                     &mut current_prose,
                     &mut prose_span,
                     &mut list_term,
+                    &mut in_definition_list,
                     input,
                     &mut regions,
                 );
@@ -2069,6 +2218,7 @@ impl FormatParser for MarkdownParser {
                     &mut current_prose,
                     &mut prose_span,
                     &mut list_term,
+                    &mut in_definition_list,
                     input,
                     &mut regions,
                 );
@@ -2092,6 +2242,7 @@ impl FormatParser for MarkdownParser {
                     &mut current_prose,
                     &mut prose_span,
                     &mut list_term,
+                    &mut in_definition_list,
                     input,
                     &mut regions,
                 );
@@ -2117,6 +2268,7 @@ impl FormatParser for MarkdownParser {
                         &mut current_prose,
                         &mut prose_span,
                         &mut list_term,
+                        &mut in_definition_list,
                         input,
                         &mut regions,
                     );
@@ -2137,6 +2289,7 @@ impl FormatParser for MarkdownParser {
                     &mut current_prose,
                     &mut prose_span,
                     &mut list_term,
+                    &mut in_definition_list,
                     input,
                     &mut regions,
                 );
@@ -2154,6 +2307,7 @@ impl FormatParser for MarkdownParser {
                     &mut current_prose,
                     &mut prose_span,
                     &mut list_term,
+                    &mut in_definition_list,
                     input,
                     &mut regions,
                 );
@@ -2195,6 +2349,7 @@ impl FormatParser for MarkdownParser {
                         &mut current_prose,
                         &mut prose_span,
                         &mut list_term,
+                        &mut in_definition_list,
                         input,
                         &mut regions,
                     );
@@ -2233,6 +2388,7 @@ impl FormatParser for MarkdownParser {
                             &mut current_prose,
                             &mut prose_span,
                             &mut list_term,
+                            &mut in_definition_list,
                             input,
                             &mut regions,
                         );
@@ -2248,12 +2404,14 @@ impl FormatParser for MarkdownParser {
                         continue;
                     }
                 }
+                let was_in_definition_list = in_definition_list;
                 close_list_item(
                     &mut in_list_item,
                     &mut list_hang,
                     &mut current_prose,
                     &mut prose_span,
                     &mut list_term,
+                    &mut in_definition_list,
                     input,
                     &mut regions,
                 );
@@ -2270,6 +2428,80 @@ impl FormatParser for MarkdownParser {
                     regions.push(SpannedRegion::structure(input, line.span()));
                     i += 1;
                     continue;
+                }
+                // Quoted indented code: `>` then 4-space inner (CM 4.4 + 5.1).
+                // Cannot interrupt an open quote paragraph.
+                if is_indented_code_line(text)
+                    && quote_can_open_indented_code(
+                        if i > 0 { Some(lines[i - 1].text) } else { None },
+                        quote_depth,
+                    )
+                {
+                    let end = quoted_indented_code_end(&lines, i, quote_depth);
+                    let header = ByteSpan::new(line.start, line.start);
+                    let body_end = lines[end].end;
+                    let footer = ByteSpan::new(body_end, body_end);
+                    regions.push(SpannedRegion::code(
+                        input,
+                        None,
+                        header,
+                        ByteSpan::new(line.start, body_end),
+                        footer,
+                    ));
+                    i = end + 1;
+                    continue;
+                }
+                // Quoted GFM table; leading/trailing pipes optional.
+                if let Some(end) = quoted_gfm_table_end(&lines, i, quote_depth) {
+                    for row in &lines[i..=end] {
+                        regions.push(SpannedRegion::structure(input, row.span()));
+                    }
+                    i = end + 1;
+                    continue;
+                }
+                // Quoted compact definition list (same rules as unquoted).
+                if i + 1 < total {
+                    if let Some(next_inner) = strip_quote_markers(lines[i + 1].text, quote_depth) {
+                        if md_definition_list_marker_len(next_inner).is_some()
+                            && md_definition_list_marker_len(text).is_none()
+                            && !text.trim().is_empty()
+                            && !is_indented_code_line(text)
+                        {
+                            regions.push(SpannedRegion::structure(input, line.span()));
+                            last_was_def_term = true;
+                            in_definition_list = true;
+                            i += 1;
+                            continue;
+                        }
+                    }
+                }
+                if let Some(inner_marker_len) = md_definition_list_marker_len(text) {
+                    if last_was_def_term || was_in_definition_list {
+                        last_was_def_term = false;
+                        in_definition_list = true;
+                        let quote_len = line_text.len() - text.len();
+                        let marker_span =
+                            ByteSpan::new(line.start, line.start + quote_len + inner_marker_len);
+                        regions.push(SpannedRegion::structure(input, marker_span));
+                        in_list_item = true;
+                        list_hang = Some(quote_len + inner_marker_len);
+                        list_after_blank = false;
+                        append_piece(
+                            &mut ProseAcc {
+                                text: &mut current_prose,
+                                span: &mut prose_span,
+                                term: &mut list_term,
+                            },
+                            line,
+                            quote_len + inner_marker_len,
+                            false,
+                            false,
+                            input,
+                            &mut regions,
+                        );
+                        i += 1;
+                        continue;
+                    }
                 }
                 if HEADING_RE.is_match(text)
                     || TABLE_ROW_RE.is_match(text)
@@ -2306,7 +2538,8 @@ impl FormatParser for MarkdownParser {
             // List item: emit marker as Structure, start accumulating text as prose.
             // Continuation lines are appended until a block boundary.
             // Start != 1 does not interrupt an open paragraph (CM 5.2).
-            if let Some(caps) = LIST_ITEM_RE.captures(line_text) {
+            // Nested items: hang ≤ indent < hang+4 (4-space child after `- `).
+            if let Some(caps) = list_item_captures(line_text, in_list_item, list_hang) {
                 let open_para = !current_prose.is_empty() && !in_list_item;
                 if open_para && !list_interrupts_paragraph(line_text) {
                     // Fall through: `2. Bar` stays title/prose text.
@@ -2317,6 +2550,7 @@ impl FormatParser for MarkdownParser {
                         &mut current_prose,
                         &mut prose_span,
                         &mut list_term,
+                        &mut in_definition_list,
                         input,
                         &mut regions,
                     );
@@ -2332,6 +2566,7 @@ impl FormatParser for MarkdownParser {
                     in_list_item = true;
                     list_hang = Some(list_marker_hang(marker));
                     list_after_blank = false;
+                    in_definition_list = false;
                     append_piece(
                         &mut ProseAcc {
                             text: &mut current_prose,
@@ -2368,6 +2603,7 @@ impl FormatParser for MarkdownParser {
                         &mut current_prose,
                         &mut prose_span,
                         &mut list_term,
+                        &mut in_definition_list,
                         input,
                         &mut regions,
                     );
@@ -2379,6 +2615,7 @@ impl FormatParser for MarkdownParser {
                     );
                     regions.push(SpannedRegion::structure(input, line.span()));
                     last_was_def_term = true;
+                    in_definition_list = true;
                     i += 1;
                     continue;
                 }
@@ -2387,7 +2624,7 @@ impl FormatParser for MarkdownParser {
             // pulldown scan_definition_list_definition_marker_with_indent:
             // `: ` (0–3 space indent) is the definition marker. Body hangs.
             if let Some(marker_len) = md_definition_list_marker_len(line_text) {
-                if last_was_def_term {
+                if last_was_def_term || in_definition_list {
                     last_was_def_term = false;
                     close_list_item(
                         &mut in_list_item,
@@ -2395,6 +2632,7 @@ impl FormatParser for MarkdownParser {
                         &mut current_prose,
                         &mut prose_span,
                         &mut list_term,
+                        &mut in_definition_list,
                         input,
                         &mut regions,
                     );
@@ -2404,6 +2642,7 @@ impl FormatParser for MarkdownParser {
                     in_list_item = true;
                     list_hang = Some(marker_len);
                     list_after_blank = false;
+                    in_definition_list = true;
                     append_piece(
                         &mut ProseAcc {
                             text: &mut current_prose,
@@ -2423,6 +2662,61 @@ impl FormatParser for MarkdownParser {
             }
             last_was_def_term = false;
 
+            // hang+4 indented code inside a list item, with or without a
+            // blank. CM 5.2: indent ≥ hang+4 is code, not lazy paragraph.
+            if in_list_item {
+                if let Some(hang) = list_hang {
+                    if is_indented_code_line(line_text) && line_indent(line_text) >= hang + 4 {
+                        flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
+                        if let Some(span) = list_term.take() {
+                            if !span.is_empty() {
+                                regions.push(SpannedRegion::structure(input, span));
+                            }
+                        }
+                        let header = ByteSpan::new(line.start, line.start);
+                        let body_start = line.start;
+                        let mut body_end = line.end;
+                        let mut footer = ByteSpan::new(line.end, line.end);
+                        i += 1;
+                        while i < total {
+                            let nxt = &lines[i];
+                            if is_indented_code_line(nxt.text) && line_indent(nxt.text) >= hang + 4
+                            {
+                                body_end = nxt.end;
+                                footer = ByteSpan::new(nxt.end, nxt.end);
+                                i += 1;
+                                continue;
+                            }
+                            if nxt.text.trim().is_empty() {
+                                let mut j = i + 1;
+                                while j < total && lines[j].text.trim().is_empty() {
+                                    j += 1;
+                                }
+                                if j < total
+                                    && is_indented_code_line(lines[j].text)
+                                    && line_indent(lines[j].text) >= hang + 4
+                                {
+                                    body_end = nxt.end;
+                                    footer = ByteSpan::new(nxt.end, nxt.end);
+                                    i += 1;
+                                    continue;
+                                }
+                                break;
+                            }
+                            break;
+                        }
+                        regions.push(SpannedRegion::code(
+                            input,
+                            None,
+                            header,
+                            ByteSpan::new(body_start, body_end),
+                            footer,
+                        ));
+                        continue;
+                    }
+                }
+            }
+
             // Regular prose (also serves as list-item continuation when in_list_item)
             // Empty item: an unindented line is a new paragraph, not lazy
             // continuation (CM 5.2: only an open paragraph is lazy).
@@ -2436,6 +2730,7 @@ impl FormatParser for MarkdownParser {
                     &mut current_prose,
                     &mut prose_span,
                     &mut list_term,
+                    &mut in_definition_list,
                     input,
                     &mut regions,
                 );
@@ -2504,6 +2799,7 @@ impl FormatParser for MarkdownParser {
             &mut current_prose,
             &mut prose_span,
             &mut list_term,
+            &mut in_definition_list,
             input,
             &mut regions,
         );
@@ -6038,6 +6334,10 @@ mod tests {
         assert_eq!(md_definition_list_marker_len(":    def"), Some(5));
         assert_eq!(md_definition_list_marker_len(":     def"), Some(2));
         assert_eq!(md_definition_list_marker_len(":"), Some(1));
+        assert_eq!(md_definition_list_marker_len("~ This is"), Some(2));
+        assert_eq!(md_definition_list_marker_len("  ~ def"), Some(4));
+        assert_eq!(md_definition_list_marker_len("~"), Some(1));
+        assert_eq!(md_definition_list_marker_len("~~strike"), None);
         assert_eq!(md_definition_list_marker_len("    : def"), None);
         assert_eq!(md_definition_list_marker_len("Term"), None);
         assert_eq!(md_definition_list_marker_len("[foo]: /url"), None);
