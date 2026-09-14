@@ -1344,13 +1344,16 @@ fn is_quote_continuation_setext_pair(last_title: &str, underline: &str, prev: &s
 }
 
 /// Quoted setext that still respects list hang (GitHub #261 / #262).
+/// Use `list_item_hang` so start != 1 (`> 2. Foo` / `> =======`) is a
+/// quoted list item, not a heading. `list_opener_hang` is start-1 only
+/// and would treat that pair as setext.
 fn quoted_setext_ok(title: &str, underline: &str, prev: Option<&str>) -> bool {
     if !is_quoted_setext_pair(title, underline) {
         return false;
     }
     let hang = prev
-        .and_then(list_opener_hang)
-        .or_else(|| list_opener_hang(title));
+        .and_then(list_item_hang)
+        .or_else(|| list_item_hang(title));
     let Some(hang) = hang else {
         return true;
     };

@@ -138,3 +138,52 @@ fn start_not_one_fixtures_reflow_and_do_not_regress_start_one() {
         );
     }
 }
+
+fn quoted_equals_fixture() -> &'static str {
+    concat!(
+        "> 2. Foo is an item. Still item.\n",
+        "> =======\n",
+        "\n",
+        "After the list. Next.\n",
+    )
+}
+
+#[test]
+fn quoted_start_not_one_equals_is_list_not_setext() {
+    let regions = MarkdownParser.parse(quoted_equals_fixture());
+    assert!(
+        regions.iter().any(|r| matches!(
+            r,
+            Region::Prose(p) if p.contains("Foo is an item.") && p.contains("Still item.")
+        )),
+        "quoted item text must stay Prose, got {regions:?}"
+    );
+    assert!(
+        !regions.iter().any(|r| matches!(
+            r,
+            Region::Structure(s) if s.contains("Foo is an item.")
+        )),
+        "quoted 2. Foo must not be a setext title, got {regions:?}"
+    );
+    assert!(
+        regions.iter().any(|r| matches!(
+            r,
+            Region::Prose(p) if p.contains("=======")
+        )),
+        "quoted ======= must be lazy item text, got {regions:?}"
+    );
+    let out = format_text(quoted_equals_fixture(), &md_cfg()).unwrap();
+    assert!(
+        out.contains("Foo is an item.") && !out.contains("Foo is an item. Still item."),
+        "quoted 2. item must still split, got:\n{out}"
+    );
+    assert!(
+        !out.contains("Foo is an item. Still item."),
+        "must not keep a quoted setext title, got:\n{out}"
+    );
+    assert!(
+        out.contains("After the list.\nNext."),
+        "following prose must still split, got:\n{out}"
+    );
+    assert_eq!(format_text(&out, &md_cfg()).unwrap(), out);
+}
