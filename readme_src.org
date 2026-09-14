@@ -150,7 +150,7 @@ Configuration guide (org source in-tree): =docs/orgmode/howto/mcp-integration.or
 | LaTeX     | =.tex=, =.latex=       | Preamble, math; minted and lstlisting comment reflow; Piton / =\piton= |
 | Markdown  | =.md=, =.markdown=     | Front matter, HTML; fenced blocks comment reflow when configured |
 | RST       | =.rst=                 | Directives, literals; =.. code-block::= comment reflow         |
-| Plaintext | everything else        | (none; all text treated as prose)                              |
+| Plaintext | =.txt=                 | (none; all text treated as prose). Unknown extensions are refused unless =--format= is set |
 ** Pre-commit hook
 :PROPERTIES:
 :CUSTOM_ID: pre-commit-hook

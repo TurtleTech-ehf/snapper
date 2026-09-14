@@ -17,7 +17,7 @@ This makes semantic line breaks transparent to collaborators who do not use snap
 Configure the filter in your local git config:
 
 #+begin_src bash
-git config filter.snapper.clean "snapper --format org"
+git config filter.snapper.clean "snapper --native --format org"
 git config filter.snapper.smudge cat
 #+end_src
 
@@ -48,10 +48,10 @@ The filter only activates for people who have configured it locally.
 If you need different settings per format:
 
 #+begin_src bash
-git config filter.snapper-org.clean "snapper --format org"
+git config filter.snapper-org.clean "snapper --native --format org"
 git config filter.snapper-org.smudge cat
 
-git config filter.snapper-tex.clean "snapper --format latex"
+git config filter.snapper-tex.clean "snapper --native --format latex"
 git config filter.snapper-tex.smudge cat
 #+end_src
 

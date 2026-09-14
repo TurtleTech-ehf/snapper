@@ -70,6 +70,11 @@ Semantic line break formatter
 * `--format-code` — Pipe each code block's body through the per-language formatter configured under `[code.<lang>.formatter]` in `.snapperrc.toml`. The formatter runs after the in-block comment reflow. Missing binaries, non-zero exits, and timeouts surface as stderr diagnostics; snapper still exits 0
 
   Default value: `false`
+* `--color <WHEN>` — When to color `--diff` / `sdiff` / `git-diff` output: `auto` (default), `always`, or `never`. Global. `sdiff` and `git-diff` also accept `--no-color` as an alias for `--color never`
+
+  Default value: `auto`
+
+  Possible values: `auto`, `always`, `never`
 
 
 

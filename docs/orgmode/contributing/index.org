@@ -45,7 +45,8 @@ pixi run -e dev dogfood
 src/
   main.rs             -- Entry point, CLI dispatch, subcommand routing
   lib.rs              -- Public API: format_text(), FormatConfig, build_splitter()
-  cli.rs              -- Clap derive CLI + subcommands (init, sdiff, git-diff, watch, lsp)
+  cli.rs              -- Clap derive CLI + subcommands (init, sdiff, git-diff, watch, lsp, mcp)
+  mcp.rs              -- MCP stdio server (format_text, detect_format, check_formatting, split_sentences)
   config.rs           -- .snapperrc.toml serde-based config with per-format sections
   format.rs           -- Format enum + auto-detection from extension
   diff.rs             -- Unified diff output for --diff mode

@@ -226,8 +226,8 @@ Configuration guide (org source in-tree): `docs/orgmode/howto/mcp-integration.or
 
 <tr>
 <td class="org-left">Plaintext</td>
-<td class="org-left">everything else</td>
-<td class="org-left">(none; all text treated as prose)</td>
+<td class="org-left"><code>.txt</code></td>
+<td class="org-left">(none; all text treated as prose). Unknown extensions are refused unless <code>--format</code> is set</td>
 </tr>
 </tbody>
 </table>
