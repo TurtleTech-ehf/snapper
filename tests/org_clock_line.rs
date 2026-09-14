@@ -48,11 +48,54 @@ fn bare_clock_prefix_is_paragraph() {
 }
 
 #[test]
-fn valid_clock_timestamp_stays_structure() {
+fn clock_timestamp_leftover_is_paragraph() {
     let input = concat!(
-        "CLOCK: [2026-01-01 Thu 10:00]\n",
+        "CLOCK: [2026-01-01 Thu 10:00] hello. World after that.\n",
         "After the line. Next.\n",
     );
+    let regions = OrgParser.parse(input);
+    assert!(
+        regions.iter().any(|r| matches!(
+            r,
+            Region::Prose(p) if p.contains("CLOCK:") && p.contains("hello.")
+        )),
+        "CLOCK: stamp plus leftover must stay Prose, got {regions:?}"
+    );
+    assert!(
+        !regions.iter().any(|r| matches!(
+            r,
+            Region::Structure(s) if s.contains("hello.")
+        )),
+        "CLOCK leftover must not be Structure, got {regions:?}"
+    );
+    let out = format_text(input, &org_cfg()).unwrap();
+    assert!(
+        out.contains("hello.\nWorld after that."),
+        "CLOCK leftover must still split, got:\n{out}"
+    );
+    assert!(
+        out.contains("After the line.\nNext."),
+        "following prose must still split, got:\n{out}"
+    );
+    assert_eq!(format_text(&out, &org_cfg()).unwrap(), out);
+}
+
+#[test]
+fn clock_arrow_leftover_is_paragraph() {
+    let input = "CLOCK: => hello. World after that.\nAfter the line. Next.\n";
+    let regions = OrgParser.parse(input);
+    assert!(
+        regions.iter().any(|r| matches!(
+            r,
+            Region::Prose(p) if p.contains("CLOCK: => hello.")
+        )),
+        "CLOCK: => leftover must stay Prose, got {regions:?}"
+    );
+}
+
+#[test]
+fn valid_clock_timestamp_stays_structure() {
+    let input = concat!("CLOCK: [2026-01-01 Thu 10:00]\n", "After the line. Next.\n",);
     let regions = OrgParser.parse(input);
     assert!(
         regions.iter().any(|r| matches!(

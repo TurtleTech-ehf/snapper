@@ -705,16 +705,7 @@ fn org_planning_or_clock(line: &str) -> bool {
     }) {
         return true;
     }
-    const CLOCK: &str = "CLOCK:";
-    if !t
-        .as_bytes()
-        .get(..CLOCK.len())
-        .is_some_and(|head| head.eq_ignore_ascii_case(CLOCK.as_bytes()))
-    {
-        return false;
-    }
-    let rest = t[CLOCK.len()..].trim_start_matches([' ', '\t']);
-    rest.starts_with('[') || rest.starts_with("=>")
+    crate::parser::org::org_clock_line(t)
 }
 
 /// org-element fixed-width: colon then a space, or a lone colon.

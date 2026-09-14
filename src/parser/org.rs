@@ -166,6 +166,55 @@ struct OpenGreater {
 
 /// org-element-drawer-re NAME: `(any ?- ?_ word)` — hyphen, underscore,
 /// or Unicode word characters (letters and digits). `:END:` is the closer.
+/// org-element-clock-line-re: `CLOCK:` plus an inactive stamp
+/// (optional `--[stamp]`) and/or `=> H+:MM`, then only `[ \t]*$`.
+/// Extra tokens after a stamp are leftover paragraph.
+pub(crate) fn org_clock_line(line: &str) -> bool {
+    let t = line.trim_start_matches([' ', '\t']);
+    const KEY: &str = "CLOCK:";
+    if !t
+        .as_bytes()
+        .get(..KEY.len())
+        .is_some_and(|head| head.eq_ignore_ascii_case(KEY.as_bytes()))
+    {
+        return false;
+    }
+    let rest = t[KEY.len()..].trim_start_matches([' ', '\t']);
+    if let Some(after_open) = rest.strip_prefix('[') {
+        let Some(close) = after_open.find(']') else {
+            return false;
+        };
+        let mut after = &after_open[close + 1..];
+        if let Some(range) = after.strip_prefix("--[") {
+            let Some(close2) = range.find(']') else {
+                return false;
+            };
+            after = &range[close2 + 1..];
+        }
+        let after = after.trim_start_matches([' ', '\t']);
+        if after.is_empty() {
+            return true;
+        }
+        return org_clock_duration_rest(after);
+    }
+    org_clock_duration_rest(rest)
+}
+
+fn org_clock_duration_rest(rest: &str) -> bool {
+    let Some(after_arrow) = rest.strip_prefix("=>") else {
+        return false;
+    };
+    let after = after_arrow.trim_start_matches([' ', '\t']);
+    let trimmed = after.trim_end_matches([' ', '\t']);
+    let Some((h, m)) = trimmed.split_once(':') else {
+        return false;
+    };
+    !h.is_empty()
+        && h.bytes().all(|b| b.is_ascii_digit())
+        && m.len() == 2
+        && m.bytes().all(|b| b.is_ascii_digit())
+}
+
 pub(crate) fn is_org_drawer_begin(line: &str) -> bool {
     let trimmed = line.trim();
     let Some(name) = trimmed.strip_prefix(':').and_then(|s| s.strip_suffix(':')) else {
@@ -285,17 +334,7 @@ impl OrgParser {
     }
 
     fn is_clock_line(line: &str) -> bool {
-        let t = line.trim_start_matches([' ', '\t']);
-        const KEY: &str = "CLOCK:";
-        if !t
-            .as_bytes()
-            .get(..KEY.len())
-            .is_some_and(|head| head.eq_ignore_ascii_case(KEY.as_bytes()))
-        {
-            return false;
-        }
-        let rest = t[KEY.len()..].trim_start_matches([' ', '\t']);
-        rest.starts_with('[') || rest.starts_with("=>")
+        org_clock_line(line)
     }
 
     /// org-element-diary-sexp-parser / org-element-paragraph-separate:

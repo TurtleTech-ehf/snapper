@@ -28,6 +28,21 @@ fn dollar_space_after_opener_is_prose_and_splits() {
 }
 
 #[test]
+fn dollar_closer_then_letter_is_not_a_fragment() {
+    let input = "See $a. B$today. After.\n";
+    let out = format_text(input, &org_cfg()).unwrap();
+    assert!(
+        out.contains("See $a.\nB$today."),
+        "closer then letter must not be a fragment, got:\n{out}"
+    );
+    assert!(
+        out.contains("After."),
+        "After. must still split, got:\n{out}"
+    );
+    assert_eq!(format_text(&out, &org_cfg()).unwrap(), out);
+}
+
+#[test]
 fn tight_dollar_fragment_stays_atomic() {
     let input = "See $a. b$ today. After.\n";
     let out = format_text(input, &org_cfg()).unwrap();

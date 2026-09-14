@@ -193,11 +193,32 @@ pub fn protect_inline_tokens_with(
     let after_org = protect_org_inline_src_and_call(&after_rst, &mut placeholders);
     let after_spans = protect_paired_spans(&after_org, &mut placeholders);
     let protected = INLINE_TOKEN_RE.replace_all(&after_spans, |caps: &regex::Captures| {
+        let m = caps.get(0).expect("regex match");
+        let token = m.as_str();
+        // org-element leftover: `$…$` closer must be followed by
+        // whitespace / `.` `-` `(` `)` `"` `'` / EOL. A letter is prose.
+        if token.starts_with('$')
+            && !token.starts_with("$$")
+            && !dollar_closer_post_context(
+                after_spans.get(m.end()..).and_then(|s| s.chars().next()),
+            )
+        {
+            return token.to_string();
+        }
         let idx = placeholders.len();
-        placeholders.push(caps[0].to_string());
+        placeholders.push(token.to_string());
         format!("\x00PH{idx}\x00")
     });
     (protected.into_owned(), placeholders)
+}
+
+fn dollar_closer_post_context(next: Option<char>) -> bool {
+    match next {
+        None => true,
+        Some(c) if c.is_whitespace() => true,
+        Some('.' | '-' | '(' | ')' | '"' | '\'') => true,
+        _ => false,
+    }
 }
 
 /// `\verb|...|` / `\lstinline[...]!...!` / `\spverb|...|` /

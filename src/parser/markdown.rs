@@ -2366,24 +2366,29 @@ impl FormatParser for MarkdownParser {
 
             // GFM table: header + delimiter (leading/trailing pipes optional).
             // Pipe-less rows are Structure only when a separator is present.
+            // pulldown scan_paragraph_interrupt: only a heavy table
+            // (header starts with `|`) interrupts a paragraph.
             if i + 1 < total {
                 if let Some(end) = gfm_table_end(&lines, i) {
-                    close_list_item(
-                        &mut in_list_item,
-                        &mut list_hang,
-                        &mut current_prose,
-                        &mut prose_span,
-                        &mut list_term,
-                        &mut in_definition_list,
-                        input,
-                        &mut regions,
-                    );
-                    flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
-                    for row in &lines[i..=end] {
-                        regions.push(SpannedRegion::structure(input, row.span()));
+                    let heavy = lines[i].text.trim_start().starts_with('|');
+                    if heavy || current_prose.is_empty() {
+                        close_list_item(
+                            &mut in_list_item,
+                            &mut list_hang,
+                            &mut current_prose,
+                            &mut prose_span,
+                            &mut list_term,
+                            &mut in_definition_list,
+                            input,
+                            &mut regions,
+                        );
+                        flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
+                        for row in &lines[i..=end] {
+                            regions.push(SpannedRegion::structure(input, row.span()));
+                        }
+                        i = end + 1;
+                        continue;
                     }
-                    i = end + 1;
-                    continue;
                 }
             }
 
@@ -2558,12 +2563,21 @@ impl FormatParser for MarkdownParser {
                     continue;
                 }
                 // Quoted GFM table; leading/trailing pipes optional.
+                // Only a heavy table (inner header starts with `|`)
+                // interrupts a quote paragraph.
                 if let Some(end) = quoted_gfm_table_end(&lines, i, quote_depth) {
-                    for row in &lines[i..=end] {
-                        regions.push(SpannedRegion::structure(input, row.span()));
+                    let heavy = text.trim_start().starts_with('|');
+                    let quote_para_open = i > 0
+                        && quote_marker_depth(lines[i - 1].text) == quote_depth
+                        && strip_quote_markers(lines[i - 1].text, quote_depth)
+                            .is_some_and(|t| !t.trim().is_empty());
+                    if heavy || !quote_para_open {
+                        for row in &lines[i..=end] {
+                            regions.push(SpannedRegion::structure(input, row.span()));
+                        }
+                        i = end + 1;
+                        continue;
                     }
-                    i = end + 1;
-                    continue;
                 }
                 // Quoted compact definition list (same rules as unquoted).
                 // Look ahead across extra compact terms, not just i+1,
