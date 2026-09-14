@@ -236,6 +236,10 @@ fn leftover_constructors_do_not_join() {
     leftover_cmd_stays_atomic(r"\lstdefineformat{C}{;=}");
     leftover_cmd_stays_atomic(r"\NewTCBListing{code}{O{}}{listing only}");
     leftover_cmd_stays_atomic(r"\newtcbinputlisting{\mylisting}{listing file={foo.py}}");
+    leftover_cmd_stays_atomic(r"\newtcolorbox{mybox}{colback=red}");
+    leftover_cmd_stays_atomic(r"\NewTColorBox{mybox}{O{}}{colback=red}");
+    leftover_cmd_stays_atomic(r"\tcbset{colback=red}");
+    leftover_cmd_stays_atomic(r"\tcbuselibrary{listings}");
     extras_skip_no_brace("newminted");
     extras_skip_no_brace("newmint");
     extras_skip_no_brace("renewminted");
@@ -245,6 +249,9 @@ fn leftover_constructors_do_not_join() {
     extras_skip_no_brace("listoflistings");
     extras_skip_no_brace("pyif");
     extras_skip_no_brace("lstdefineformat");
+    extras_skip_no_brace("newtcolorbox");
+    extras_skip_no_brace("tcbset");
+    extras_skip_no_brace("tcbuselibrary");
 }
 
 #[test]

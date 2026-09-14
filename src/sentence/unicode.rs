@@ -1415,6 +1415,13 @@ pub(crate) fn leftover_keyval_cs_name(tail: &str) -> Option<&'static str> {
         "ProvideTCBListing",
         "RenewTCBListing",
         "NewTCBListing",
+        "DeclareTColorBox",
+        "ProvideTColorBox",
+        "RenewTColorBox",
+        "NewTColorBox",
+        "renewtcolorbox",
+        "newtcolorbox",
+        "tcbuselibrary",
         "renewmintedfile",
         "renewmintinline",
         "ProvidePitonEnvironment",
@@ -1456,6 +1463,7 @@ pub(crate) fn leftover_keyval_cs_name(tail: &str) -> Option<&'static str> {
         "PitonOptions",
         "fvinlineset",
         "tcbusetemp",
+        "tcbset",
         "setminted",
         "newmint",
         "pysession",
@@ -1508,7 +1516,9 @@ fn leftover_keyval_kind(name: &str) -> VerbKind {
         | "newtcblisting"
         | "newtcbinputlisting"
         | "NewTCBInputListing"
-        | "DeclareTCBInputListing" => VerbKind::Listinginput,
+        | "DeclareTCBInputListing"
+        | "renewtcolorbox"
+        | "newtcolorbox" => VerbKind::Listinginput,
         "RecustomVerbatimEnvironment"
         | "CustomVerbatimEnvironment"
         | "DefineVerbatimEnvironment"
@@ -1516,7 +1526,9 @@ fn leftover_keyval_kind(name: &str) -> VerbKind {
         | "CustomVerbatimCommand"
         | "DefineVerbatimCommand" => VerbKind::LstNewenvironment,
         "NewTCBListing" | "DeclareTCBListing" | "RenewTCBListing" | "ProvideTCBListing"
-        | "pyif" => VerbKind::LstNewenvironment,
+        | "DeclareTColorBox" | "ProvideTColorBox" | "RenewTColorBox" | "NewTColorBox" | "pyif" => {
+            VerbKind::LstNewenvironment
+        }
         "ProvidePitonEnvironment"
         | "DeclarePitonEnvironment"
         | "RenewPitonEnvironment"
