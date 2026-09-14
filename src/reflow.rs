@@ -696,16 +696,7 @@ fn org_opens_block(line: &str) -> bool {
 /// `org-element--current-element` binds `case-fold-search` t, so prefixes
 /// compare ignore ASCII case (GitHub #319).
 fn org_planning_or_clock(line: &str) -> bool {
-    let t = line.trim_start_matches([' ', '\t']);
-    const PLAN: [&str; 3] = ["DEADLINE:", "SCHEDULED:", "CLOSED:"];
-    if PLAN.iter().any(|k| {
-        t.as_bytes()
-            .get(..k.len())
-            .is_some_and(|head| head.eq_ignore_ascii_case(k.as_bytes()))
-    }) {
-        return true;
-    }
-    crate::parser::org::org_clock_line(t)
+    crate::parser::org::org_planning_line(line) || crate::parser::org::org_clock_line(line)
 }
 
 /// org-element fixed-width: colon then a space, or a lone colon.

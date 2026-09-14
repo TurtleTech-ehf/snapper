@@ -166,6 +166,24 @@ struct OpenGreater {
 
 /// org-element-drawer-re NAME: `(any ?- ?_ word)` — hyphen, underscore,
 /// or Unicode word characters (letters and digits). `:END:` is the closer.
+/// org-element-planning-line-re leftover: `DEADLINE:` / `SCHEDULED:` /
+/// `CLOSED:` plus a timestamp (`<...>` or `[...]`). Bare
+/// `DEADLINE: hello.` is a paragraph.
+pub(crate) fn org_planning_line(line: &str) -> bool {
+    let t = line.trim_start_matches([' ', '\t']);
+    const KEYS: [&str; 3] = ["DEADLINE:", "SCHEDULED:", "CLOSED:"];
+    for k in KEYS {
+        if t.as_bytes()
+            .get(..k.len())
+            .is_some_and(|head| head.eq_ignore_ascii_case(k.as_bytes()))
+        {
+            let rest = t[k.len()..].trim_start_matches([' ', '\t']);
+            return rest.starts_with('<') || rest.starts_with('[');
+        }
+    }
+    false
+}
+
 /// org-element-clock-line-re: `CLOCK:` plus an inactive stamp
 /// (optional `--[stamp]`) and/or `=> H+:MM`, then only `[ \t]*$`.
 /// Extra tokens after a stamp are leftover paragraph.
@@ -324,13 +342,7 @@ impl OrgParser {
     }
 
     fn is_planning_line(line: &str) -> bool {
-        let t = line.trim_start_matches([' ', '\t']);
-        const KEYS: [&str; 3] = ["DEADLINE:", "SCHEDULED:", "CLOSED:"];
-        KEYS.iter().any(|k| {
-            t.as_bytes()
-                .get(..k.len())
-                .is_some_and(|head| head.eq_ignore_ascii_case(k.as_bytes()))
-        })
+        org_planning_line(line)
     }
 
     fn is_clock_line(line: &str) -> bool {

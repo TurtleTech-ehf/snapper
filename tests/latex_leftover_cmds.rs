@@ -214,6 +214,19 @@ fn tcolorbox_use_listing_leftover_cmds_do_not_join_following_prose() {
 }
 
 #[test]
+fn leftover_keyval_siblings_do_not_join_following_prose() {
+    leftover_cmd_stays_atomic(r"\pyoptions{verbose}");
+    leftover_cmd_stays_atomic(r"\setpythontexautoprint{true}");
+    leftover_cmd_stays_atomic(r"\setpythontexautostdout{false}");
+    leftover_cmd_stays_atomic(r"\NewPitonLanguage{HTML}{morekeywords={div}}");
+    leftover_cmd_stays_atomic(r"\SetPitonIdentifier{print}{\bfseries}");
+    leftover_cmd_stays_atomic(r"\lstalias{shell}{bash}");
+    extras_skip_no_brace("pyoptions");
+    extras_skip_no_brace("lstalias");
+    extras_skip_no_brace("NewPitonLanguage");
+}
+
+#[test]
 fn listings_load_language_leftover_cmds_do_not_join_following_prose() {
     leftover_cmd_stays_atomic(r"\lstloadlanguages{Python}");
     leftover_cmd_stays_atomic(r"\lstdefinelanguage{MyLang}{morekeywords={foo}}");

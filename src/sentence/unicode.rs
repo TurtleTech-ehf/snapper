@@ -674,7 +674,7 @@ pub(crate) fn latex_verb_span_end_with(
         // `\lstinputlisting` / `\lstinline` stay their own leftovers.
         let kind = match name {
             "lstnewenvironment" => VerbKind::LstNewenvironment,
-            "lstdefinestyle" | "lstdefinelanguage" => VerbKind::Listinginput,
+            "lstdefinestyle" | "lstdefinelanguage" | "lstalias" => VerbKind::Listinginput,
             "lstset" | "lstloadlanguages" => VerbKind::Tcbinputlisting,
             _ => VerbKind::LstMakeShortInline,
         };
@@ -1359,6 +1359,7 @@ pub(crate) fn listings_leftover_cs_name(tail: &str) -> Option<&'static str> {
         "lstdefinelanguage",
         "lstdefinestyle",
         "lstloadlanguages",
+        "lstalias",
         "lstDeleteShortInline",
         "lstMakeShortInline",
         "lstset",
@@ -1384,6 +1385,10 @@ pub(crate) fn leftover_keyval_cs_name(tail: &str) -> Option<&'static str> {
         "tcbuselistinglisting",
         "tcbuselistingtext",
         "tcbusetemplisting",
+        "setpythontexautostdout",
+        "setpythontexautoprint",
+        "SetPitonIdentifier",
+        "NewPitonLanguage",
         "setmintedinline",
         "setpythontexfv",
         "stdoutpythontex",
@@ -1395,6 +1400,7 @@ pub(crate) fn leftover_keyval_cs_name(tail: &str) -> Option<&'static str> {
         "fvinlineset",
         "setminted",
         "pysession",
+        "pyoptions",
         "pyoption",
         "fvset",
     ] {
@@ -1416,7 +1422,7 @@ fn leftover_keyval_kind(name: &str) -> VerbKind {
         "setmintedinline" | "usemintedstyle" | "setminted" | "SetPitonStyle" => {
             VerbKind::Lstinputlisting
         }
-        "pyoption" => VerbKind::Listinginput,
+        "pyoption" | "SetPitonIdentifier" | "NewPitonLanguage" => VerbKind::Listinginput,
         _ => VerbKind::Tcbinputlisting,
     }
 }
