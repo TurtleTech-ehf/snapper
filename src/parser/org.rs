@@ -2,8 +2,8 @@ use regex::Regex;
 use std::sync::LazyLock;
 
 use crate::parser::{
-    ByteSpan, FormatParser, Line, Region, RegionOrigin, SpannedRegion, flush_prose_spanned,
-    iter_lines, join_prose_gap, push_prose_line,
+    flush_prose_spanned, iter_lines, join_prose_gap, push_prose_line, ByteSpan, FormatParser, Line,
+    Region, RegionOrigin, SpannedRegion,
 };
 
 static HEADLINE_RE: LazyLock<Regex> =
@@ -822,6 +822,11 @@ impl FormatParser for OrgParser {
         // Track list item context: indent level of the marker text.
         // Continuation lines indented at or beyond this level belong to the item.
         let mut list_item_indent: Option<usize> = None;
+        // org-element footnote-separator is headline / next `[fn:]` /
+        // two consecutive blanks. One blank plus an indented
+        // continuation stays in the definition.
+        let mut in_footnote_def = false;
+        let mut footnote_saw_blank = false;
 
         for line in iter_lines(input) {
             let line_text = line.text;
@@ -1047,7 +1052,13 @@ impl FormatParser for OrgParser {
             // Blank line
             if line_text.trim().is_empty() {
                 flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
-                list_item_indent = None;
+                if in_footnote_def && !footnote_saw_blank {
+                    footnote_saw_blank = true;
+                } else {
+                    in_footnote_def = false;
+                    footnote_saw_blank = false;
+                    list_item_indent = None;
+                }
                 regions.push(SpannedRegion::blank(input, line.span()));
                 continue;
             }
@@ -1125,6 +1136,8 @@ impl FormatParser for OrgParser {
             // Org headlines are single-line; do not reflow them.
             if HEADLINE_RE.is_match(line_text) {
                 flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
+                in_footnote_def = false;
+                footnote_saw_blank = false;
                 regions.push(SpannedRegion::structure(input, line.span()));
                 continue;
             }
@@ -1149,10 +1162,30 @@ impl FormatParser for OrgParser {
             if let Some(marker_len) = org_footnote_definition_marker_len(line_text) {
                 flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
                 list_item_indent = Some(marker_len);
+                in_footnote_def = true;
+                footnote_saw_blank = false;
                 let marker_span = ByteSpan::new(line.start, line.start + marker_len);
                 regions.push(SpannedRegion::structure(input, marker_span));
                 Self::emit_hung_text(input, &line, marker_len, &mut regions);
                 continue;
+            }
+
+            // Indented leftover after one blank stays in the footnote.
+            if in_footnote_def && footnote_saw_blank {
+                let leading = line_text.len() - line_text.trim_start().len();
+                if leading > 0 {
+                    flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
+                    list_item_indent = Some(leading);
+                    footnote_saw_blank = false;
+                    regions.push(SpannedRegion::structure(
+                        input,
+                        ByteSpan::new(line.start, line.start + leading),
+                    ));
+                    Self::emit_hung_text(input, &line, leading, &mut regions);
+                    continue;
+                }
+                in_footnote_def = false;
+                footnote_saw_blank = false;
             }
 
             // List item: marker is structure, rest is prose
@@ -1161,6 +1194,8 @@ impl FormatParser for OrgParser {
                 let marker = caps.get(1).unwrap().as_str();
                 // Track indent for continuation detection: text starts at marker length
                 list_item_indent = Some(marker.len());
+                in_footnote_def = false;
+                footnote_saw_blank = false;
                 let marker_span = ByteSpan::new(line.start, line.start + marker.len());
                 regions.push(SpannedRegion::structure(input, marker_span));
                 Self::emit_hung_text(input, &line, marker.len(), &mut regions);
@@ -1344,7 +1379,7 @@ mod tests {
     #[test]
     fn multi_sentence_headline_stays_one_line() {
         use crate::format::Format;
-        use crate::{FormatConfig, format_text};
+        use crate::{format_text, FormatConfig};
 
         let input = "** Multi sentence. Second sentence in title\nbody prose. Second body.\n";
         let cfg = FormatConfig {
@@ -1368,7 +1403,7 @@ mod tests {
     #[test]
     fn headline_trailing_angle_bracket_round_trips() {
         use crate::format::Format;
-        use crate::{FormatConfig, format_text};
+        use crate::{format_text, FormatConfig};
 
         let input = "* TODO R4 :: snapshot field is Box[T], not Vec[T]\nbody\n";
         let cfg = FormatConfig {
@@ -1387,7 +1422,7 @@ mod tests {
     #[test]
     fn verbatim_inner_equals_does_not_orphan_closer() {
         use crate::format::Format;
-        use crate::{FormatConfig, format_text};
+        use crate::{format_text, FormatConfig};
 
         // The period after `note.` is inside the first span. Closing on the
         // inner `=` would emit a line that starts with `=` and leave the
@@ -1413,7 +1448,7 @@ mod tests {
     #[test]
     fn bold_emphasis_with_period_does_not_become_headline() {
         use crate::format::Format;
-        use crate::{FormatConfig, format_text};
+        use crate::{format_text, FormatConfig};
 
         let input = "End of first. *Bold spans period. Continues* after.\n";
         let cfg = FormatConfig {
@@ -1638,7 +1673,7 @@ mod tests {
     #[test]
     fn dollar_dollar_display_math_does_not_reflow_as_prose() {
         use crate::format::Format;
-        use crate::{FormatConfig, format_text};
+        use crate::{format_text, FormatConfig};
 
         let input = "$$\nThis is a long sentence that must stay inside display math and must not reflow as prose.\n$$\n";
         let cfg = FormatConfig {
@@ -1812,7 +1847,7 @@ mod tests {
     #[test]
     fn list_multi_sentence_hangs_and_rejoins() {
         use crate::format::Format;
-        use crate::{FormatConfig, format_text};
+        use crate::{format_text, FormatConfig};
 
         let input = "- One. Two.\n";
         let cfg = FormatConfig {
@@ -1834,7 +1869,7 @@ mod tests {
     #[test]
     fn nested_list_stays_two_items_after_reflow() {
         use crate::format::Format;
-        use crate::{FormatConfig, format_text};
+        use crate::{format_text, FormatConfig};
 
         let input = "1. Parent one. Parent two.\n   - Child one. Child two.\n";
         let cfg = FormatConfig {
@@ -1899,7 +1934,7 @@ mod tests {
     #[test]
     fn indented_star_list_hangs_and_rejoins() {
         use crate::format::Format;
-        use crate::{FormatConfig, format_text};
+        use crate::{format_text, FormatConfig};
 
         let input = wci8_indented_star_list_fixture();
         let cfg = FormatConfig {
@@ -2051,7 +2086,7 @@ mod tests {
     #[test]
     fn nested_example_in_quote_closes_by_name_only() {
         use crate::format::Format;
-        use crate::{FormatConfig, format_text};
+        use crate::{format_text, FormatConfig};
 
         let input = quote_with_nested_example();
         let cfg = FormatConfig {
@@ -2310,7 +2345,7 @@ mod tests {
     #[test]
     fn example_export_comment_do_not_reflow() {
         use crate::format::Format;
-        use crate::{FormatConfig, format_text};
+        use crate::{format_text, FormatConfig};
 
         let cfg = FormatConfig {
             format: Format::Org,
