@@ -218,7 +218,10 @@ fn dollar_closer_post_context(next: Option<char>) -> bool {
         None => true,
         Some(c) if c.is_whitespace() => true,
         // org-element `looking-at-p` of `\s.` / `\s(` / `\s)` / `\s"` / `'`.
-        Some('.' | '-' | ',' | ';' | ':' | '!' | '?' | '(' | ')' | '[' | ']' | '"' | '\'') => true,
+        Some(
+            '.' | '-' | ',' | ';' | ':' | '!' | '?' | '(' | ')' | '[' | ']' | '{' | '}' | '"'
+            | '\'',
+        ) => true,
         _ => false,
     }
 }
@@ -1512,10 +1515,7 @@ fn leftover_keyval_kind(name: &str) -> VerbKind {
         | "RecustomVerbatimCommand"
         | "CustomVerbatimCommand"
         | "DefineVerbatimCommand" => VerbKind::LstNewenvironment,
-        "NewTCBListing"
-        | "DeclareTCBListing"
-        | "RenewTCBListing"
-        | "ProvideTCBListing"
+        "NewTCBListing" | "DeclareTCBListing" | "RenewTCBListing" | "ProvideTCBListing"
         | "pyif" => VerbKind::LstNewenvironment,
         "ProvidePitonEnvironment"
         | "DeclarePitonEnvironment"

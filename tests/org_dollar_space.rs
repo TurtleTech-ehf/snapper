@@ -62,6 +62,25 @@ fn dollar_closer_then_comma_is_a_fragment() {
 }
 
 #[test]
+fn dollar_closer_then_brace_is_a_fragment() {
+    let input = "See $a. b${x} today. After.\n";
+    let out = format_text(input, &org_cfg()).unwrap();
+    assert!(
+        out.contains("$a. b$"),
+        "$a. b$ must stay one token before brace, got:\n{out}"
+    );
+    assert!(
+        !out.contains("$a.\n"),
+        "must not split inside $a. b$, got:\n{out}"
+    );
+    assert!(
+        out.contains("today.\nAfter."),
+        "following sentence must still split, got:\n{out}"
+    );
+    assert_eq!(format_text(&out, &org_cfg()).unwrap(), out);
+}
+
+#[test]
 fn dollar_closer_then_bracket_is_a_fragment() {
     let input = "See $a. b$[1]. After.\n";
     let out = format_text(input, &org_cfg()).unwrap();
