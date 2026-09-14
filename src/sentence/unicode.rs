@@ -50,7 +50,11 @@ static INLINE_TOKEN_RE: LazyLock<Regex> = LazyLock::new(|| {
             r"!\[[^\]]*\]\[[^\]]*\]", // Markdown reference images: ![alt][ref]
             r"\[[^\]]+\]\[[^\]]*\]",  // Markdown reference links: [text][ref]
             r"\$\$[^$\n]+\$\$", // Display math: $$...$$
-            r"\$[^$\n]+\$",     // Inline math: $...$
+            // org-element-latex-fragment-parser: after `$` the next char
+            // is not space/tab/newline/`,`/`.`/`;`; the char before the
+            // closer is not space/tab/newline/`,`/`.`. `$ x. Next $` is
+            // leftover prose. `$a. b$` stays a fragment.
+            r"\$[^\s,.;$\n](?:[^$\n]*[^\s,.$\n])?\$",
             // org-element-latex-fragment-parser: \(...\) / \[...\] search
             // to the closer. `[^\\\n]` dropped interior `\alpha` / `\beta`.
             r"\\\([^\n]+?\\\)", // LaTeX inline math: \(...\)

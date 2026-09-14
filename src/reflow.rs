@@ -680,6 +680,9 @@ fn org_opens_block(line: &str) -> bool {
     if t.starts_with("[[") {
         return true;
     }
+    if t.starts_with("file:") || t.starts_with("http://") || t.starts_with("https://") {
+        return true;
+    }
     if crate::parser::org::is_org_drawer_begin(t) || org_fixed_width(t) || org_horizontal_rule(t) {
         return true;
     }
@@ -694,12 +697,24 @@ fn org_opens_block(line: &str) -> bool {
 /// compare ignore ASCII case (GitHub #319).
 fn org_planning_or_clock(line: &str) -> bool {
     let t = line.trim_start_matches([' ', '\t']);
-    const KEYS: [&str; 4] = ["DEADLINE:", "SCHEDULED:", "CLOSED:", "CLOCK:"];
-    KEYS.iter().any(|k| {
+    const PLAN: [&str; 3] = ["DEADLINE:", "SCHEDULED:", "CLOSED:"];
+    if PLAN.iter().any(|k| {
         t.as_bytes()
             .get(..k.len())
             .is_some_and(|head| head.eq_ignore_ascii_case(k.as_bytes()))
-    })
+    }) {
+        return true;
+    }
+    const CLOCK: &str = "CLOCK:";
+    if !t
+        .as_bytes()
+        .get(..CLOCK.len())
+        .is_some_and(|head| head.eq_ignore_ascii_case(CLOCK.as_bytes()))
+    {
+        return false;
+    }
+    let rest = t[CLOCK.len()..].trim_start_matches([' ', '\t']);
+    rest.starts_with('[') || rest.starts_with("=>")
 }
 
 /// org-element fixed-width: colon then a space, or a lone colon.

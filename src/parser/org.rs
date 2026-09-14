@@ -268,14 +268,34 @@ impl OrgParser {
     /// Leading space/tab is allowed. `org-element--current-element` binds
     /// `case-fold-search` t before `org-element-planning-line-re` and
     /// `org-element-clock-line-re`, so prefixes compare ignore ASCII case.
+    /// Clock leftover is `CLOCK:` plus a timestamp and/or `=> HH:MM`.
+    /// Bare `CLOCK: hello.` is a paragraph.
     fn is_planning_or_clock(line: &str) -> bool {
+        Self::is_planning_line(line) || Self::is_clock_line(line)
+    }
+
+    fn is_planning_line(line: &str) -> bool {
         let t = line.trim_start_matches([' ', '\t']);
-        const KEYS: [&str; 4] = ["DEADLINE:", "SCHEDULED:", "CLOSED:", "CLOCK:"];
+        const KEYS: [&str; 3] = ["DEADLINE:", "SCHEDULED:", "CLOSED:"];
         KEYS.iter().any(|k| {
             t.as_bytes()
                 .get(..k.len())
                 .is_some_and(|head| head.eq_ignore_ascii_case(k.as_bytes()))
         })
+    }
+
+    fn is_clock_line(line: &str) -> bool {
+        let t = line.trim_start_matches([' ', '\t']);
+        const KEY: &str = "CLOCK:";
+        if !t
+            .as_bytes()
+            .get(..KEY.len())
+            .is_some_and(|head| head.eq_ignore_ascii_case(KEY.as_bytes()))
+        {
+            return false;
+        }
+        let rest = t[KEY.len()..].trim_start_matches([' ', '\t']);
+        rest.starts_with('[') || rest.starts_with("=>")
     }
 
     /// org-element-diary-sexp-parser / org-element-paragraph-separate:
