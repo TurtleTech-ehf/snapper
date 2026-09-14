@@ -64,9 +64,9 @@ vim-plug:
 ==============================================================================
 USAGE                                         *snapper-usage*
 
-After installation and setup, snapper will automatically format supported
-filetypes when you open them. You can use the provided commands or keymaps
-to format manually.
+After installation and setup, the snapper LSP starts on supported
+filetypes. Format-on-save is off by default (`format_on_save = false`).
+Use the provided commands or keymaps to format manually.
 
 ==============================================================================
 CONFIGURATION                                *snapper-config*

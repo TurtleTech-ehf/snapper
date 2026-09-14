@@ -96,15 +96,21 @@ require("conform").setup({
 })
 ```
 
-### With nvim-lspconfig
+### Manual LSP (no nvim-lspconfig snapper config)
 
-The snapper LSP server can also be configured manually with nvim-lspconfig:
+nvim-lspconfig does not ship a `snapper` server.
+Start it with `vim.lsp.start`:
 
 ```lua
-require("lspconfig").snapper.setup({
-  cmd = { "snapper", "lsp" },
-  filetypes = { "org", "tex", "markdown", "rst" },
-  root_dir = require("lspconfig").util.root_pattern(".snapperrc.toml", ".git"),
+vim.api.nvim_create_autocmd("FileType", {
+  pattern = { "org", "tex", "markdown", "rst" },
+  callback = function()
+    vim.lsp.start({
+      name = "snapper",
+      cmd = { "snapper", "lsp" },
+      root_dir = vim.fs.root(0, { ".snapperrc.toml", ".git" }),
+    })
+  end,
 })
 ```
 
