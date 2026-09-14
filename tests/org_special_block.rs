@@ -3,7 +3,9 @@
 //! still reflows.
 
 use snapper_fmt::format::Format;
-use snapper_fmt::{FormatConfig, format_text};
+use snapper_fmt::parser::org::OrgParser;
+use snapper_fmt::parser::{FormatParser, Region};
+use snapper_fmt::{format_text, FormatConfig};
 
 fn org_cfg() -> FormatConfig {
     FormatConfig {
@@ -39,6 +41,40 @@ fn note_special_block_inner_prose_splits() {
             "More.\n",
         ),
         "NOTE fences stay; inner and following prose must split, got:\n{out}"
+    );
+    assert_eq!(format_text(&out, &org_cfg()).unwrap(), out);
+}
+
+#[test]
+fn leftover_begin_quote_same_line_hangs_and_splits() {
+    let input = concat!(
+        "#+BEGIN_QUOTE leftover. Next.\n",
+        "Quoted one. Quoted two.\n",
+        "#+END_QUOTE\n",
+        "After. Next.\n",
+    );
+    let regions = OrgParser.parse(input);
+    assert!(
+        regions
+            .iter()
+            .any(|r| matches!(r, Region::Structure(s) if s.contains("#+BEGIN_QUOTE"))),
+        "quote opener must stay Structure, got {regions:?}"
+    );
+    assert!(
+        regions.iter().any(|r| matches!(
+            r,
+            Region::Prose(p) if p.contains("leftover.") && p.contains("Next.")
+        )),
+        "same-line leftover after BEGIN_QUOTE must be Prose, got {regions:?}"
+    );
+    let out = format_text(input, &org_cfg()).unwrap();
+    assert!(
+        !out.contains("#+BEGIN_QUOTE leftover. Next."),
+        "same-line leftover must still split, got:\n{out}"
+    );
+    assert!(
+        out.contains("After.\nNext."),
+        "following prose must still split, got:\n{out}"
     );
     assert_eq!(format_text(&out, &org_cfg()).unwrap(), out);
 }

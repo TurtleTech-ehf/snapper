@@ -257,6 +257,9 @@ fn leftover_constructors_do_not_join() {
     leftover_cmd_stays_atomic(r"\NewTotalTCBox{\foo}{v}{colback=red}{done. Next}");
     leftover_cmd_stays_atomic(r"\RenewTotalTCBox{\foo}{v}{colback=red}{done. Next}");
     leftover_cmd_stays_atomic(r"\tcbsetforeverylayer{colback=red}");
+    leftover_cmd_stays_atomic(r"\newtcbtheorem{theo}{Theorem}{colback=red}{th}");
+    leftover_cmd_stays_atomic(r"\tcblistof{fig}{List of theorems}");
+    leftover_cmd_stays_atomic(r"\tcboxmath{x = 1. 2}");
     extras_skip_no_brace("newminted");
     extras_skip_no_brace("newmint");
     extras_skip_no_brace("renewminted");
@@ -276,6 +279,9 @@ fn leftover_constructors_do_not_join() {
     extras_skip_no_brace("newenvsc");
     extras_skip_no_brace("newtcbox");
     extras_skip_no_brace("tcbsetforeverylayer");
+    extras_skip_no_brace("newtcbtheorem");
+    extras_skip_no_brace("tcblistof");
+    extras_skip_no_brace("tcboxmath");
 }
 
 #[test]

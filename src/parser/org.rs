@@ -297,6 +297,25 @@ impl OrgParser {
         Self::block_directive_name(line, "#+BEGIN_")
     }
 
+    /// `#+BEGIN_NAME` plus following whitespace. Same-line leftover is
+    /// hung Prose for container blocks.
+    fn block_begin_marker_len(line: &str) -> Option<usize> {
+        let indent = line.len() - line.trim_start().len();
+        let t = &line[indent..];
+        if !t.to_ascii_uppercase().starts_with("#+BEGIN_") {
+            return None;
+        }
+        let after = &t["#+BEGIN_".len()..];
+        let name = after.split_whitespace().next()?;
+        if name.is_empty() {
+            return None;
+        }
+        let name_end = indent + "#+BEGIN_".len() + name.len();
+        let rest = &line[name_end..];
+        let pad = rest.len() - rest.trim_start().len();
+        Some(name_end + pad)
+    }
+
     fn block_end_name(line: &str) -> Option<String> {
         let trimmed = line.trim_start();
         let upper = trimmed.to_ascii_uppercase();
@@ -974,7 +993,20 @@ impl FormatParser for OrgParser {
                     && !Self::remaining_has_named_block_end(&input[line.end..], &name);
                 if !unmatched {
                     flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
+                    let container = Self::is_container_block_name(&name);
                     Self::push_greater(&mut block_stack, name);
+                    if container {
+                        if let Some(marker_len) = Self::block_begin_marker_len(line_text) {
+                            if !line_text[marker_len..].trim().is_empty() {
+                                regions.push(SpannedRegion::structure(
+                                    input,
+                                    ByteSpan::new(line.start, line.start + marker_len),
+                                ));
+                                Self::emit_hung_text(input, &line, marker_len, &mut regions);
+                                continue;
+                            }
+                        }
+                    }
                     regions.push(SpannedRegion::structure(input, line.span()));
                     continue;
                 }

@@ -1432,12 +1432,20 @@ pub(crate) fn leftover_keyval_cs_name(tail: &str) -> Option<&'static str> {
         "NewTCBox",
         "renewtcolorbox",
         "newtcolorbox",
+        "newtcbtheorem",
+        "NewTcbTheorem",
+        "RenewTcbTheorem",
+        "ProvideTcbTheorem",
+        "DeclareTcbTheorem",
         "renewtcbox",
         "newtcbox",
         "provideenvsc",
         "renewenvsc",
         "newenvsc",
         "tcbuselibrary",
+        "tcbhighmath",
+        "tcboxmath",
+        "tcblistof",
         "renewmintedfile",
         "renewmintinline",
         "ProvidePitonEnvironment",
@@ -1547,7 +1555,8 @@ fn leftover_keyval_kind(name: &str) -> VerbKind {
         | "renewtcolorbox"
         | "newtcolorbox"
         | "renewtcbox"
-        | "newtcbox" => VerbKind::Listinginput,
+        | "newtcbox"
+        | "tcblistof" => VerbKind::Listinginput,
         "RecustomVerbatimEnvironment"
         | "CustomVerbatimEnvironment"
         | "DefineVerbatimEnvironment"
@@ -1580,7 +1589,12 @@ fn leftover_keyval_kind(name: &str) -> VerbKind {
         | "NewTotalTCBox"
         | "RenewTotalTCBox"
         | "ProvideTotalTCBox"
-        | "DeclareTotalTCBox" => VerbKind::CatchFileBetweenDelims,
+        | "DeclareTotalTCBox"
+        | "newtcbtheorem"
+        | "NewTcbTheorem"
+        | "RenewTcbTheorem"
+        | "ProvideTcbTheorem"
+        | "DeclareTcbTheorem" => VerbKind::CatchFileBetweenDelims,
         "useprintpythontex" | "usestdoutpythontex" | "usestderrpythontex" => {
             VerbKind::Lstinputlisting
         }
