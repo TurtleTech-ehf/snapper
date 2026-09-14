@@ -92,6 +92,7 @@ fn parse_line_based(input: &str) -> Vec<SpannedRegion> {
     // Line-block hang (`| `): first flush line that is not `| ` and not
     // a hang is a new paragraph, not more line-block (GitHub #409).
     let mut in_line_block = false;
+    let mut allow_rfc2822 = true;
     let mut pragma_off = false;
 
     // Code-block directive bookkeeping. Mutually exclusive with `in_directive`.
@@ -427,6 +428,27 @@ fn parse_line_based(input: &str) -> Vec<SpannedRegion> {
             regions.push(SpannedRegion::structure(input, line.span()));
             i += 1;
             continue;
+        }
+
+        // Docutils RFC2822Body: `[!-9;-~]+:( +|$)` only as the first
+        // construct. Marker Structure; same-line value leftover Prose.
+        if allow_rfc2822 {
+            if let Some(marker_len) = rst_rfc2822_marker_len(line_text) {
+                flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
+                let body = &line_text[marker_len..];
+                regions.push(SpannedRegion::structure(
+                    input,
+                    ByteSpan::new(line.start, line.start + marker_len),
+                ));
+                if !body.trim().is_empty() {
+                    list_hang = Some(marker_len);
+                    current_prose.push_str(body.trim());
+                    prose_span = Some(ByteSpan::new(line.start + marker_len, line.end));
+                }
+                i += 1;
+                continue;
+            }
+            allow_rfc2822 = false;
         }
 
         // Field list. Docutils field_marker is
@@ -844,13 +866,7 @@ fn is_rst_container_directive(name: &str) -> bool {
     is_rst_specific_admonition(name)
         || matches!(
             name,
-            "admonition"
-                | "figure"
-                | "topic"
-                | "sidebar"
-                | "container"
-                | "class"
-                | "list-table"
+            "admonition" | "figure" | "topic" | "sidebar" | "container" | "class" | "list-table"
         )
 }
 
@@ -990,6 +1006,36 @@ pub(crate) fn is_rst_field_list_line(trimmed: &str) -> bool {
 
 /// Byte length of a Docutils field marker on `line`, including leading
 /// indent and the spaces after the closing colon.
+/// Docutils RFC2822Body `Name:( +|$)`. Printable 7-bit except space
+/// and `:`. Not `..` / `:field:`.
+fn rst_rfc2822_marker_len(line: &str) -> Option<usize> {
+    let trimmed = line.trim_start();
+    if trimmed.starts_with("..") || trimmed.starts_with(':') {
+        return None;
+    }
+    let colon = trimmed.find(':')?;
+    let name = &trimmed[..colon];
+    if name.is_empty() {
+        return None;
+    }
+    if !name
+        .bytes()
+        .all(|b| (b'!'..=b'9').contains(&b) || (b';'..=b'~').contains(&b))
+    {
+        return None;
+    }
+    let after = &trimmed[colon + 1..];
+    if !after.is_empty() && !after.starts_with([' ', '\t']) {
+        return None;
+    }
+    let lead = line.len() - trimmed.len();
+    let spaces = after
+        .bytes()
+        .take_while(|&b| b == b' ' || b == b'\t')
+        .count();
+    Some(lead + colon + 1 + spaces)
+}
+
 pub(crate) fn rst_field_marker_len(line: &str) -> Option<usize> {
     let indent = line.len() - line.trim_start().len();
     rst_field_marker_end(&line[indent..]).map(|n| indent + n)

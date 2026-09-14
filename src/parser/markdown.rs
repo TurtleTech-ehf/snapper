@@ -1785,6 +1785,7 @@ impl FormatParser for MarkdownParser {
         let mut list_term: Option<ByteSpan> = None;
         let mut last_was_def_term = false;
         let mut in_definition_list = false;
+        let mut in_quoted_footnote = false;
         let mut in_display_math = false;
         let mut pragma_off = false;
 
@@ -2520,6 +2521,42 @@ impl FormatParser for MarkdownParser {
             let quote_depth = quote_marker_depth(line_text);
             if quote_depth > 0 {
                 let text = strip_quote_markers(line_text, quote_depth).unwrap_or(line_text);
+                // pulldown footnote leftover: empty `>` then `>` + four
+                // inner spaces continues the quoted footnote as Prose,
+                // not quoted indented Code.
+                if in_quoted_footnote {
+                    if text.trim().is_empty() {
+                        flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
+                        regions.push(SpannedRegion::structure(input, line.span()));
+                        i += 1;
+                        continue;
+                    }
+                    if is_indented_code_line(text) {
+                        flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
+                        let quote_len = line_text.len() - text.len();
+                        let hang = line_indent(text);
+                        regions.push(SpannedRegion::structure(
+                            input,
+                            ByteSpan::new(line.start, line.start + quote_len + hang),
+                        ));
+                        append_piece(
+                            &mut ProseAcc {
+                                text: &mut current_prose,
+                                span: &mut prose_span,
+                                term: &mut list_term,
+                            },
+                            line,
+                            quote_len + hang,
+                            false,
+                            false,
+                            input,
+                            &mut regions,
+                        );
+                        i += 1;
+                        continue;
+                    }
+                    in_quoted_footnote = false;
+                }
                 // Quoted HTML block (CM 4.6 + 5.1 / GitHub #340). Types 1-7
                 // may start after `>`. Lazy continuation does not apply, so
                 // the next unquoted line is a new paragraph.
@@ -2666,6 +2703,7 @@ impl FormatParser for MarkdownParser {
                     in_list_item = true;
                     list_hang = Some(quote_len + inner_fn);
                     list_after_blank = false;
+                    in_quoted_footnote = true;
                     append_piece(
                         &mut ProseAcc {
                             text: &mut current_prose,

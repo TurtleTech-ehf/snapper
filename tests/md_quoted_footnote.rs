@@ -43,6 +43,41 @@ fn quoted_footnote_marker_is_structure_body_is_prose() {
 }
 
 #[test]
+fn quoted_footnote_continuation_after_blank_is_prose_not_code() {
+    let input = concat!(
+        "> [^1]: First sentence. Second sentence.\n",
+        ">\n",
+        ">     Continuation sentence. More.\n",
+        ">\n",
+        "> After the note. Next.\n",
+    );
+    let regions = MarkdownParser.parse(input);
+    assert!(
+        !regions.iter().any(|r| matches!(
+            r,
+            Region::Code { body, .. } if body.contains("Continuation sentence.")
+        )),
+        "quoted footnote continuation must not be Code, got {regions:?}"
+    );
+    assert!(
+        regions.iter().any(|r| matches!(
+            r,
+            Region::Prose(p) if p.contains("Continuation sentence.")
+        )),
+        "quoted footnote continuation must be leftover Prose, got {regions:?}"
+    );
+    let out = format_text(input, &md_cfg()).unwrap();
+    assert!(
+        out.contains("Continuation sentence."),
+        "continuation must remain, got:\n{out}"
+    );
+    assert!(
+        out.contains("After the note.") && out.contains("Next."),
+        "following quote prose must still split, got:\n{out}"
+    );
+}
+
+#[test]
 fn quoted_footnote_body_splits_and_following_does() {
     let input = ticket_fixture();
     let out = format_text(input, &md_cfg()).unwrap();
