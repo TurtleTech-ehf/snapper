@@ -1423,8 +1423,17 @@ pub(crate) fn leftover_keyval_cs_name(tail: &str) -> Option<&'static str> {
         "ProvideTColorBox",
         "RenewTColorBox",
         "NewTColorBox",
+        "NewTotalTCBox",
+        "DeclareTCBox",
+        "RenewTCBox",
+        "NewTCBox",
         "renewtcolorbox",
         "newtcolorbox",
+        "renewtcbox",
+        "newtcbox",
+        "provideenvsc",
+        "renewenvsc",
+        "newenvsc",
         "tcbuselibrary",
         "renewmintedfile",
         "renewmintinline",
@@ -1532,18 +1541,29 @@ fn leftover_keyval_kind(name: &str) -> VerbKind {
         | "newtcbinputlisting"
         | "renewtcbinputlisting"
         | "renewtcolorbox"
-        | "newtcolorbox" => VerbKind::Listinginput,
+        | "newtcolorbox"
+        | "renewtcbox"
+        | "newtcbox" => VerbKind::Listinginput,
         "RecustomVerbatimEnvironment"
         | "CustomVerbatimEnvironment"
         | "DefineVerbatimEnvironment"
         | "RecustomVerbatimCommand"
         | "CustomVerbatimCommand"
         | "DefineVerbatimCommand" => VerbKind::LstNewenvironment,
-        "NewTCBListing" | "DeclareTCBListing" | "RenewTCBListing" | "ProvideTCBListing"
+        "NewTCBListing"
+        | "DeclareTCBListing"
+        | "RenewTCBListing"
+        | "ProvideTCBListing"
         | "DeclareTColorBox"
         | "ProvideTColorBox"
         | "RenewTColorBox"
         | "NewTColorBox"
+        | "DeclareTCBox"
+        | "RenewTCBox"
+        | "NewTCBox"
+        | "newenvsc"
+        | "renewenvsc"
+        | "provideenvsc"
         | "NewTCBInputListing"
         | "RenewTCBInputListing"
         | "ProvideTCBInputListing"
@@ -1552,7 +1572,8 @@ fn leftover_keyval_kind(name: &str) -> VerbKind {
         "ProvidePitonEnvironment"
         | "DeclarePitonEnvironment"
         | "RenewPitonEnvironment"
-        | "NewPitonEnvironment" => VerbKind::CatchFileBetweenDelims,
+        | "NewPitonEnvironment"
+        | "NewTotalTCBox" => VerbKind::CatchFileBetweenDelims,
         "useprintpythontex" | "usestdoutpythontex" | "usestderrpythontex" => {
             VerbKind::Lstinputlisting
         }

@@ -252,6 +252,9 @@ fn leftover_constructors_do_not_join() {
     leftover_cmd_stays_atomic(r"\BufferMdfivesum[foo]");
     leftover_cmd_stays_atomic(r"\sagetexpause");
     leftover_cmd_stays_atomic(r"\sagetexunpause");
+    leftover_cmd_stays_atomic(r"\newenvsc{foo}{beg. end}{end. more}");
+    leftover_cmd_stays_atomic(r"\newtcbox{\mybox}{colback=red}");
+    leftover_cmd_stays_atomic(r"\NewTotalTCBox{\foo}{v}{colback=red}{done. Next}");
     extras_skip_no_brace("newminted");
     extras_skip_no_brace("newmint");
     extras_skip_no_brace("renewminted");
@@ -268,6 +271,8 @@ fn leftover_constructors_do_not_join() {
     extras_skip_no_brace("lstloadaspects");
     extras_skip_no_brace("BufferMdfivesum");
     extras_skip_no_brace("sagetexpause");
+    extras_skip_no_brace("newenvsc");
+    extras_skip_no_brace("newtcbox");
 }
 
 #[test]
