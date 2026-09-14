@@ -17,8 +17,8 @@ License                       |snapper-license|
 INTRODUCTION                                    *snapper-intro*
 
 snapper.nvim provides integration with snapper, a semantic line break formatter
-for prose documents. It supports Org mode, LaTeX, Markdown, reStructuredText,
-and plain text files.
+for prose documents. It supports Org mode, LaTeX, Markdown, and
+reStructuredText (Neovim filetypes org, tex, markdown, rst).
 
 Features:
 - Full LSP integration for formatting, diagnostics, and code actions
@@ -41,7 +41,7 @@ lazy.nvim:
     dependencies = {
       "stevearc/conform.nvim",  -- optional
     },
-    ft = { "org", "tex", "markdown", "rst", "plaintex" },
+    ft = { "org", "tex", "markdown", "rst" },
     config = function()
       vim.opt.runtimepath:append(
         vim.fn.stdpath("data") .. "/lazy/snapper/editors/nvim"
@@ -82,7 +82,7 @@ To configure snapper, call the setup function with options:
       timeout_ms = 1000,
       async = false,
     },
-    filetypes = { "org", "tex", "markdown", "rst", "plaintext" },
+    filetypes = { "org", "tex", "markdown", "rst" },
     keymaps = {
       format = "<leader>sf",     -- Format buffer
       format_range = "<leader>sF", -- Format selection

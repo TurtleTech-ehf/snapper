@@ -33,9 +33,10 @@ Add to your repository's =.gitattributes=:
 
 #+begin_src text
 *.org filter=snapper
-*.tex filter=snapper
-*.md  filter=snapper
 #+end_src
+
+Do not attach this =--format org= filter to =*.tex= or =*.md=.
+Those extensions need their own clean command (see per-format filters below).
 
 Commit =.gitattributes= to share with collaborators.
 The filter only activates for people who have configured it locally.

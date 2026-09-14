@@ -26,7 +26,7 @@ Neovim plugin for [snapper](https://github.com/TurtleTech-ehf/snapper) - the sem
   dependencies = {
     "stevearc/conform.nvim",  -- Optional: for conform integration
   },
-  ft = { "org", "tex", "markdown", "rst", "plaintex" },
+  ft = { "org", "tex", "markdown", "rst" },
   config = function()
     vim.opt.runtimepath:append(
       vim.fn.stdpath("data") .. "/lazy/snapper/editors/nvim"
@@ -61,7 +61,7 @@ require("snapper").setup({
     timeout_ms = 1000,
     async = false,
   },
-  filetypes = { "org", "tex", "markdown", "rst", "plaintext" },  -- Supported filetypes
+  filetypes = { "org", "tex", "markdown", "rst" },  -- Neovim filetypes the LSP starts on
   keymaps = {  -- Set to nil to disable keymaps
     format = "<leader>sf",     -- Format buffer
     format_range = "<leader>sF", -- Format selection
