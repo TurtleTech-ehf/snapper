@@ -13,6 +13,45 @@ fn md_cfg() -> FormatConfig {
     .without_safety_backstops()
 }
 
+#[test]
+fn footnote_continuation_after_blank_is_prose_not_code() {
+    let input = concat!(
+        "[^1]: First sentence. Second sentence.\n",
+        "\n",
+        "    Continuation sentence. More.\n",
+        "\n",
+        "After the note. Next.\n",
+    );
+    let regions = MarkdownParser.parse(input);
+    assert!(
+        !regions.iter().any(|r| matches!(
+            r,
+            Region::Code { body, .. } if body.contains("Continuation sentence.")
+        )),
+        "footnote continuation after a blank must not be Code, got {regions:?}"
+    );
+    assert!(
+        regions.iter().any(|r| matches!(
+            r,
+            Region::Prose(p) if p.contains("Continuation sentence.") && p.contains("More.")
+        )),
+        "footnote continuation must be leftover Prose, got {regions:?}"
+    );
+    let out = format_text(input, &md_cfg()).unwrap();
+    assert!(
+        out.contains("Continuation sentence."),
+        "continuation must remain Prose, got:\n{out}"
+    );
+    assert!(
+        !out.contains("    Continuation sentence. More.\n"),
+        "continuation must not stay one Code line, got:\n{out}"
+    );
+    assert!(
+        out.contains("After the note.\nNext."),
+        "following prose must still split, got:\n{out}"
+    );
+}
+
 fn ticket_fixture() -> &'static str {
     concat!(
         "See [foo]. Next sentence.\n",

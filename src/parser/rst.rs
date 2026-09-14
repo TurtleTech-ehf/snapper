@@ -446,7 +446,9 @@ fn parse_line_based(input: &str) -> Vec<SpannedRegion> {
                 .strip_prefix(':')
                 .and_then(|s| s.strip_suffix(':'))
                 .is_some_and(|inner| inner.contains(':'));
-            if (interior_colon || in_meta) && !body.trim().is_empty() {
+            if (interior_colon || in_meta || rst_bibliographic_body_field(name))
+                && !body.trim().is_empty()
+            {
                 list_hang = Some(marker_len);
                 regions.push(SpannedRegion::structure(
                     input,
@@ -683,7 +685,8 @@ fn parse_line_based(input: &str) -> Vec<SpannedRegion> {
             // flush so After markup stays column-0 Prose (GitHub #344).
             // Same close for line-block: first flush line that is not
             // `| ` and not a hang is a new paragraph (GitHub #409).
-            if (in_container_body || in_line_block) && leading == 0 {
+            // Bibliographic leftover fields use the same hang close.
+            if leading == 0 {
                 flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
                 in_container_body = false;
                 in_meta = false;
@@ -841,12 +844,31 @@ fn is_rst_container_directive(name: &str) -> bool {
     is_rst_specific_admonition(name)
         || matches!(
             name,
-            "admonition" | "figure" | "topic" | "sidebar" | "container" | "class"
+            "admonition"
+                | "figure"
+                | "topic"
+                | "sidebar"
+                | "container"
+                | "class"
+                | "list-table"
         )
 }
 
 /// Docutils `meta` directive. Takes no argument; the body is a field
 /// list whose values are paragraphs (GitHub #434).
+/// Docutils bibliographic fields whose same-line value is leftover
+/// nested-parsed body (`Abstract` / `Dedication`).
+fn rst_bibliographic_body_field(name: &str) -> bool {
+    let inner = name
+        .strip_prefix(':')
+        .and_then(|s| s.strip_suffix(':'))
+        .unwrap_or(name);
+    matches!(
+        inner.to_ascii_lowercase().as_str(),
+        "abstract" | "dedication"
+    )
+}
+
 fn is_rst_meta_directive(name: &str) -> bool {
     name == "meta"
 }

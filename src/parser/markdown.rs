@@ -1101,11 +1101,25 @@ fn is_footnote_continuation(line: &str) -> bool {
 /// following unindented paragraph stays Prose.
 fn footnote_def_end(lines: &[Line<'_>], start: usize) -> usize {
     let mut end = start;
-    for (j, line) in lines.iter().enumerate().skip(start + 1) {
-        if !is_footnote_continuation(line.text) {
+    let mut j = start + 1;
+    while j < lines.len() {
+        if lines[j].text.trim().is_empty() {
+            let mut k = j + 1;
+            while k < lines.len() && lines[k].text.trim().is_empty() {
+                k += 1;
+            }
+            if k < lines.len() && line_indent(lines[k].text) >= 4 {
+                end = k;
+                j = k + 1;
+                continue;
+            }
+            break;
+        }
+        if !is_footnote_continuation(lines[j].text) {
             break;
         }
         end = j;
+        j += 1;
     }
     end
 }
@@ -1295,6 +1309,28 @@ fn list_item_captures<'a>(
 /// zero or more compact term lines. Blank, code, or a dropped quote
 /// ends the look-ahead. Extra terms stay titles like unquoted
 /// `flush_prose_as_structure`.
+fn upcoming_dl_marker(lines: &[Line<'_>], start: usize, min_indent: Option<usize>) -> bool {
+    let mut j = start + 1;
+    while j < lines.len() {
+        let t = lines[j].text;
+        if t.trim().is_empty() {
+            return false;
+        }
+        if min_indent.is_some_and(|h| line_indent(t) < h) {
+            return false;
+        }
+        if md_definition_list_marker_len(t).is_some() {
+            return true;
+        }
+        if HEADING_RE.is_match(t) || is_thematic_break(t) || FENCED_CODE_RE.is_match(t.trim_start())
+        {
+            return false;
+        }
+        j += 1;
+    }
+    false
+}
+
 fn quoted_upcoming_dl_marker(lines: &[Line<'_>], start: usize, depth: usize) -> bool {
     let mut j = start + 1;
     while j < lines.len() {
@@ -2765,44 +2801,44 @@ impl FormatParser for MarkdownParser {
             // pulldown ENABLE_DEFINITION_LIST: a `: ` marker on the next
             // line turns this paragraph into a definition title. The
             // title stays Structure so interior periods do not split.
-            if i + 1 < total
-                && md_definition_list_marker_len(lines[i + 1].text).is_some()
+            if upcoming_dl_marker(&lines, i, list_hang.filter(|_| in_list_item))
                 && md_definition_list_marker_len(line_text).is_none()
                 && !line_text.trim().is_empty()
                 && !is_indented_code_line(line_text)
             {
-                let hang_cont =
-                    in_list_item && list_hang.is_some_and(|hang| line_indent(line_text) >= hang);
-                if !hang_cont {
-                    close_list_item(
-                        &mut in_list_item,
-                        &mut list_hang,
-                        &mut current_prose,
-                        &mut prose_span,
-                        &mut list_term,
-                        &mut in_definition_list,
-                        input,
-                        &mut regions,
-                    );
+                flush_prose_as_structure(&mut current_prose, &mut prose_span, input, &mut regions);
+                close_list_item(
+                    &mut in_list_item,
+                    &mut list_hang,
+                    &mut current_prose,
+                    &mut prose_span,
+                    &mut list_term,
+                    &mut in_definition_list,
+                    input,
+                    &mut regions,
+                );
+                regions.push(SpannedRegion::structure(input, line.span()));
+                last_was_def_term = true;
+                in_definition_list = true;
+                i += 1;
+                continue;
+            }
+
+            // pulldown scan_definition_list_definition_marker_with_indent:
+            // `: ` (0–3 space indent) is the definition marker. Body hangs.
+            if let Some(marker_len) = md_definition_list_marker_len(line_text) {
+                if last_was_def_term
+                    || in_definition_list
+                    || (in_list_item
+                        && list_hang.is_some_and(|hang| line_indent(line_text) >= hang))
+                {
+                    last_was_def_term = false;
                     flush_prose_as_structure(
                         &mut current_prose,
                         &mut prose_span,
                         input,
                         &mut regions,
                     );
-                    regions.push(SpannedRegion::structure(input, line.span()));
-                    last_was_def_term = true;
-                    in_definition_list = true;
-                    i += 1;
-                    continue;
-                }
-            }
-
-            // pulldown scan_definition_list_definition_marker_with_indent:
-            // `: ` (0–3 space indent) is the definition marker. Body hangs.
-            if let Some(marker_len) = md_definition_list_marker_len(line_text) {
-                if last_was_def_term || in_definition_list {
-                    last_was_def_term = false;
                     close_list_item(
                         &mut in_list_item,
                         &mut list_hang,
@@ -2813,7 +2849,6 @@ impl FormatParser for MarkdownParser {
                         input,
                         &mut regions,
                     );
-                    flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
                     let marker_span = ByteSpan::new(line.start, line.start + marker_len);
                     regions.push(SpannedRegion::structure(input, marker_span));
                     in_list_item = true;

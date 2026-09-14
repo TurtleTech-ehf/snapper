@@ -52,6 +52,42 @@ fn extra_compact_terms_are_structure() {
 }
 
 #[test]
+fn list_item_compact_dl_terms_are_structure() {
+    let input = concat!(
+        "- Alpha term. Still alpha.\n",
+        "  Bravo term. Still bravo.\n",
+        "  : First definition sentence. Second sentence.\n",
+        "\n",
+        "After the list. Next.\n",
+    );
+    let regions = MarkdownParser.parse(input);
+    assert!(
+        regions.iter().any(|r| matches!(
+            r,
+            Region::Structure(s) if s.contains("Alpha term. Still alpha.")
+        )),
+        "list-item compact term must be Structure, got {regions:?}"
+    );
+    assert!(
+        regions.iter().any(|r| matches!(
+            r,
+            Region::Prose(p) if p.contains("First definition sentence.")
+        )),
+        "definition body must be leftover Prose, got {regions:?}"
+    );
+    let out = format_text(input, &md_cfg()).unwrap();
+    assert!(
+        !out.contains("Alpha term.\n"),
+        "must not sentence-split a compact term, got:\n{out}"
+    );
+    assert!(
+        out.contains("After the list.\nNext."),
+        "following prose must still split, got:\n{out}"
+    );
+    assert_eq!(format_text(&out, &md_cfg()).unwrap(), out);
+}
+
+#[test]
 fn extra_compact_terms_do_not_split_and_following_does() {
     let input = ticket_fixture();
     let out = format_text(input, &md_cfg()).unwrap();
