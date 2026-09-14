@@ -16,18 +16,11 @@ static HEADLINE_RE: LazyLock<Regex> =
 static LIST_ITEM_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"^(\s*(?:[-+]|\d+[.)])(?: |$)|[ \t]+\*(?: |$))(.*)$").unwrap());
 
-/// Matches LaTeX \begin{env} lines embedded in org prose.
-static LATEX_BEGIN_RE: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"^\s*\\begin\{([^}]+)\}").unwrap());
-
-/// Matches LaTeX \end{env} lines.
-static LATEX_END_RE: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"^\s*\\end\{([^}]+)\}").unwrap());
-
 /// org-element-export-snippet-parser prefix: `@@BACKEND:VALUE@@`.
-/// Backend is `[-A-Za-z0-9]+`. Value may contain spaces (GitHub #354).
+/// Backend is `[-A-Za-z0-9]+`. Value runs to the next `@@` (may contain
+/// a single `@`; GitHub #354).
 static EXPORT_SNIPPET_RE: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"^@@[-A-Za-z0-9]+:[^@]*@@").unwrap());
+    LazyLock::new(|| Regex::new(r"^@@[-A-Za-z0-9]+:.*?@@").unwrap());
 
 /// True when the trimmed line is exactly one export snippet.
 pub(crate) fn org_export_snippet_line(line: &str) -> bool {
@@ -361,18 +354,55 @@ impl OrgParser {
         }
     }
 
-    /// Check if a line starts a LaTeX environment (\begin{...})
-    fn is_latex_begin(line: &str) -> Option<String> {
-        LATEX_BEGIN_RE
-            .captures(line)
-            .map(|caps| caps.get(1).unwrap().as_str().to_string())
+    /// org-element latex-environment begin: `^[ \t]*\\begin{[A-Za-z0-9*]+}`
+    /// (`case-fold-search` t). Returns the name and the byte after `}`.
+    fn latex_begin_name(line: &str) -> Option<(String, usize)> {
+        let lead = line.len() - line.trim_start_matches([' ', '\t']).len();
+        let rest = &line[lead..];
+        const PREFIX: &str = "\\begin{";
+        let prefix_len = PREFIX.len();
+        if rest.len() < prefix_len
+            || !rest.as_bytes()[..prefix_len].eq_ignore_ascii_case(PREFIX.as_bytes())
+        {
+            return None;
+        }
+        let name_at = lead + prefix_len;
+        let close = line[name_at..].find('}')?;
+        let name = &line[name_at..name_at + close];
+        if name.is_empty() || !name.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'*') {
+            return None;
+        }
+        Some((name.to_string(), name_at + close + 1))
     }
 
-    /// Check if a line ends a LaTeX environment (\end{...})
+    /// org-element latex-environment closer: `\\end{NAME}[ \t]*$`
+    /// (`case-fold-search` t). Mid-line is allowed; trailing non-ws is not.
+    fn latex_end_eol_at(s: &str, env: &str, from: usize) -> Option<usize> {
+        let bytes = s.as_bytes();
+        let needle = b"\\end{";
+        let mut i = from;
+        while i + needle.len() <= bytes.len() {
+            if bytes[i..i + needle.len()].eq_ignore_ascii_case(needle) {
+                let name_at = i + needle.len();
+                if let Some(close) = s[name_at..].find('}') {
+                    let name = &s[name_at..name_at + close];
+                    if name.eq_ignore_ascii_case(env) {
+                        let after = name_at + close + 1;
+                        if s[after..].bytes().all(|b| b == b' ' || b == b'\t') {
+                            return Some(i);
+                        }
+                    }
+                    i = name_at + close + 1;
+                    continue;
+                }
+            }
+            i += 1;
+        }
+        None
+    }
+
     fn is_latex_end(line: &str, env: &str) -> bool {
-        LATEX_END_RE
-            .captures(line)
-            .is_some_and(|caps| caps.get(1).unwrap().as_str() == env)
+        Self::latex_end_eol_at(line, env, 0).is_some()
     }
 
     /// org-element latex-environment / src-block / export-block: no closer
@@ -389,20 +419,46 @@ impl OrgParser {
             .any(|line| Self::is_src_end(line.text))
     }
 
-    fn remaining_has_export_end(rest: &str) -> bool {
+    fn remaining_has_named_block_end(rest: &str, name: &str) -> bool {
         iter_lines(rest)
             .iter()
-            .any(|line| Self::block_end_name(line.text).as_deref() == Some("EXPORT"))
+            .any(|line| Self::block_end_name(line.text).as_deref() == Some(name))
     }
 
-    /// First `\end{env}` at or after `from` (same-line close; not leftover-start).
-    fn latex_end_at(s: &str, env: &str, from: usize) -> Option<usize> {
-        let needle = format!("\\end{{{env}}}");
-        s.get(from..)?.find(&needle).map(|rel| from + rel)
+    fn remaining_has_drawer_end(rest: &str) -> bool {
+        iter_lines(rest)
+            .iter()
+            .any(|line| Self::is_drawer_end(line.text))
+    }
+
+    fn remaining_has_dynamic_block_end(rest: &str) -> bool {
+        iter_lines(rest)
+            .iter()
+            .any(|line| Self::is_dynamic_block_end(line.text))
+    }
+
+    fn remaining_has_bracket_close(rest: &str) -> bool {
+        iter_lines(rest)
+            .iter()
+            .any(|line| Self::find_unescaped_display_bracket(line.text, 0, b']').is_some())
+    }
+
+    fn remaining_has_dollar_close(rest: &str) -> bool {
+        iter_lines(rest)
+            .iter()
+            .any(|line| line.text.trim_end().ends_with("$$"))
     }
 
     fn latex_end_len(env: &str) -> usize {
         "\\end{".len() + env.len() + 1
+    }
+
+    /// Greater-block names whose unmatched opener is a paragraph
+    /// (org-element; GitHub #355). Quote/center/special-block stay
+    /// containers when closed; unmatched opaque names must not
+    /// swallow to EOF.
+    fn unmatched_greater_is_paragraph(name: &str) -> bool {
+        matches!(name, "EXPORT" | "SRC" | "VERSE" | "EXAMPLE" | "COMMENT")
     }
 
     /// org-syntax 5.2 `\[CONTENTS\]`: unescaped `\[` / `\]`.
@@ -783,15 +839,12 @@ impl FormatParser for OrgParser {
             }
 
             // #+BEGIN_NAME: container open (quote/center) or opaque.
-            // Unmatched #+BEGIN_EXPORT is a paragraph (org-element
-            // export-block-parser / GitHub #355). Unmatched #+BEGIN_SRC
-            // falls through the src-begin look-ahead above.
+            // Unmatched EXPORT/SRC/VERSE/EXAMPLE/COMMENT is a paragraph
+            // (org-element / GitHub #355).
             if let Some(name) = Self::block_begin_name(line_text) {
-                let unmatched_export =
-                    name == "EXPORT" && !Self::remaining_has_export_end(&input[line.end..]);
-                let unmatched_src =
-                    name == "SRC" && !Self::remaining_has_src_end(&input[line.end..]);
-                if !unmatched_export && !unmatched_src {
+                let unmatched = Self::unmatched_greater_is_paragraph(&name)
+                    && !Self::remaining_has_named_block_end(&input[line.end..], &name);
+                if !unmatched {
                     flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
                     Self::push_greater(&mut block_stack, name);
                     regions.push(SpannedRegion::structure(input, line.span()));
@@ -807,12 +860,15 @@ impl FormatParser for OrgParser {
                 continue;
             }
 
-            // Drawer begin (`:NAME:` only; `:See also:` is not a name)
+            // Drawer begin (`:NAME:` only; `:See also:` is not a name).
+            // Unmatched `:NAME:` without `:END:` is a paragraph.
             if Self::is_drawer_begin(line_text) {
-                flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
-                in_drawer = true;
-                regions.push(SpannedRegion::structure(input, line.span()));
-                continue;
+                if Self::remaining_has_drawer_end(&input[line.end..]) {
+                    flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
+                    in_drawer = true;
+                    regions.push(SpannedRegion::structure(input, line.span()));
+                    continue;
+                }
             }
 
             // Fixed-width (`: text`) is Structure, not a drawer.
@@ -831,10 +887,10 @@ impl FormatParser for OrgParser {
 
             // LaTeX environment begin (\begin{equation} etc.).
             // Unmatched \begin{env} is a paragraph (org-element
-            // latex-environment-parser / GitHub #355).
-            if let Some(env) = Self::is_latex_begin(line_text) {
-                let begin_at = LATEX_BEGIN_RE.find(line_text).map(|m| m.end()).unwrap_or(0);
-                if let Some(end_at) = Self::latex_end_at(line_text, &env, begin_at) {
+            // latex-environment-parser / GitHub #355). Closer is
+            // `\\end{NAME}[ \t]*$` (EOL), not leftover-start.
+            if let Some((env, begin_at)) = Self::latex_begin_name(line_text) {
+                if let Some(end_at) = Self::latex_end_eol_at(line_text, &env, begin_at) {
                     flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
                     let cmd_end = end_at + Self::latex_end_len(&env);
                     if line_text[cmd_end..].trim().is_empty() {
@@ -861,14 +917,19 @@ impl FormatParser for OrgParser {
                 }
             }
 
-            // Display math: leftover-start $$ (2le9). `\[CONTENTS\]` may be mid-line.
+            // Display math: leftover-start $$ (2le9). Unmatched $$ is
+            // not a fragment. `\[CONTENTS\]` may be mid-line.
             if let Some(DisplayMathDelim::Dollars) = Self::display_math_open(line_text) {
-                flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
-                if !Self::display_math_is_single_line(line_text, DisplayMathDelim::Dollars) {
-                    in_display_math = Some(DisplayMathDelim::Dollars);
+                let single =
+                    Self::display_math_is_single_line(line_text, DisplayMathDelim::Dollars);
+                if single || Self::remaining_has_dollar_close(&input[line.end..]) {
+                    flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
+                    if !single {
+                        in_display_math = Some(DisplayMathDelim::Dollars);
+                    }
+                    regions.push(SpannedRegion::structure(input, line.span()));
+                    continue;
                 }
-                regions.push(SpannedRegion::structure(input, line.span()));
-                continue;
             }
 
             // Export snippet line (@@latex:...@@)
@@ -897,12 +958,15 @@ impl FormatParser for OrgParser {
             }
 
             // #+BEGIN: NAME -- org-element dynamic block. Body stays Structure
-            // through #+END: / #+END (GitHub #178).
+            // through #+END: / #+END (GitHub #178). Unmatched opener is a
+            // paragraph.
             if Self::is_dynamic_block_begin(line_text) {
-                flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
-                in_dynamic_block = true;
-                regions.push(SpannedRegion::structure(input, line.span()));
-                continue;
+                if Self::remaining_has_dynamic_block_end(&input[line.end..]) {
+                    flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
+                    in_dynamic_block = true;
+                    regions.push(SpannedRegion::structure(input, line.span()));
+                    continue;
+                }
             }
 
             // Affiliated CAPTION: org-element-parsed-keywords is CAPTION
@@ -1074,18 +1138,23 @@ impl FormatParser for OrgParser {
             }
 
             // org-syntax 5.2: `\[CONTENTS\]` may be mid-line (Kang: Structure).
-            if Self::find_unescaped_display_bracket(line_text, 0, b'[').is_some() {
-                flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
-                Self::emit_bracket_math_text(
-                    input,
-                    line.start,
-                    line_text,
-                    line.end,
-                    Some(line.terminator_span()),
-                    &mut regions,
-                    &mut in_display_math,
-                );
-                continue;
+            // Unmatched leftover-start `\[` is not a fragment.
+            if let Some(open) = Self::find_unescaped_display_bracket(line_text, 0, b'[') {
+                let same_line =
+                    Self::find_unescaped_display_bracket(line_text, open + 2, b']').is_some();
+                if same_line || Self::remaining_has_bracket_close(&input[line.end..]) {
+                    flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
+                    Self::emit_bracket_math_text(
+                        input,
+                        line.start,
+                        line_text,
+                        line.end,
+                        Some(line.terminator_span()),
+                        &mut regions,
+                        &mut in_display_math,
+                    );
+                    continue;
+                }
             }
 
             // Regular prose line -- accumulate.

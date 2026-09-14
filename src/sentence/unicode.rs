@@ -85,7 +85,7 @@ static INLINE_TOKEN_RE: LazyLock<Regex> = LazyLock::new(|| {
             r#"file:\S+[^.\s!?,;:)\]'""]"#, // Org file: links (don't swallow trailing punctuation)
             // org-element-export-snippet-parser. Backend is [-A-Za-z0-9]+
             // so html5 and hyphen names stay one token (GitHub #354).
-            r"@@[-A-Za-z0-9]+:[^@]*@@",
+            r"@@[-A-Za-z0-9]+:.*?@@",
         ]
         .join("|"),
     )

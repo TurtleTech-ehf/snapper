@@ -674,6 +674,12 @@ fn org_opens_block(line: &str) -> bool {
     if crate::parser::org::org_export_snippet_starts(t) {
         return true;
     }
+    if crate::parser::org::org_footnote_definition_marker_len(t).is_some() {
+        return true;
+    }
+    if t.starts_with("[[") {
+        return true;
+    }
     if crate::parser::org::is_org_drawer_begin(t) || org_fixed_width(t) || org_horizontal_rule(t) {
         return true;
     }
