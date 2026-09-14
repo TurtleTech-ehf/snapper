@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: snapper \n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-09-09 10:12-0500\n"
+"POT-Creation-Date: 2026-09-14 02:13-0500\n"
 "PO-Revision-Date: 2026-03-27 23:00+0100\n"
 "Last-Translator: Rohit Goswami <rgoswami@ieee.org>\n"
 "Language-Team: is <LL@li.org>\n"
@@ -203,25 +203,54 @@ msgid "Org links: ``[[https://example.com][Ex. Site]]``"
 msgstr "Org tenglar: ``[[https://example.com][Ex. Site]]``"
 
 #: ../../source/reference/abbreviations.rst:131
-msgid "LaTeX math: ``$x = 3.14$``"
-msgstr "LaTeX stærðfræði: ``$x = 3.14$``"
+msgid "Org macros: ``{{{cite(Smith. 2020)}}}``, ``{{{title}}}``"
+msgstr ""
 
 #: ../../source/reference/abbreviations.rst:133
-msgid "LaTeX commands: ``\\cite{smith.2024}``"
-msgstr "LaTeX skipanir: ``\\cite{smith.2024}``"
+msgid ""
+"Org radio / angle targets: ``<<<the Fourier. transform>>>``, ``<<sec. "
+"intro>>``"
+msgstr ""
 
 #: ../../source/reference/abbreviations.rst:135
-msgid "Markdown links: ``[Example Inc.](url)``"
-msgstr "Markdown tenglar: ``[Example Inc.](url)``"
+msgid ""
+"Org inline footnotes: ``[fn:: the Fourier. transform]``, ``[fn:note: the "
+"Fourier. transform]``"
+msgstr ""
 
 #: ../../source/reference/abbreviations.rst:137
+msgid ""
+"RST substitution references: ``|fig. 1|``, ``|version|``, ``|name|_``, ``|"
+"name|__``"
+msgstr ""
+
+#: ../../source/reference/abbreviations.rst:139
+msgid ""
+"LaTeX math: ``$x = 3.14$``, ``\\( x = 1. \\)``, ``\\(\\alpha. \\beta\\)``"
+msgstr ""
+
+#: ../../source/reference/abbreviations.rst:141
+#, fuzzy
+msgid "LaTeX commands: ``\\cite{smith.2024}``, ``\\sqrt[2]{a. b}``"
+msgstr "LaTeX skipanir: ``\\cite{smith.2024}``"
+
+#: ../../source/reference/abbreviations.rst:143
+#, fuzzy
+msgid ""
+"Markdown links: ``[Example Inc.](url)``, ``[the Fourier. transform][wiki]``"
+msgstr "Markdown tenglar: ``[Example Inc.](url)``"
+
+#: ../../source/reference/abbreviations.rst:145
 msgid "Inline code: ``~std.io.Read~``,"
 msgstr "Innleiður kóði: ``~std.io.Read~``,"
 
-#: ../../source/reference/abbreviations.rst:139
+#: ../../source/reference/abbreviations.rst:147
 msgid ""
 "These tokens get replaced with safe placeholders before sentence detection "
 "and restored afterward."
 msgstr ""
 "Þessi tákn eru skipt út fyrir örugg staðhaldstákn áður en setningargreining "
 "fer fram og endurheimast síðan."
+
+#~ msgid "LaTeX math: ``$x = 3.14$``"
+#~ msgstr "LaTeX stærðfræði: ``$x = 3.14$``"
