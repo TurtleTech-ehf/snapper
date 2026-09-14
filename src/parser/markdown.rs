@@ -904,6 +904,15 @@ fn scan_md_link_dest(s: &str) -> Option<usize> {
 /// True when `s` is a complete link title (`"..."` / `'...'` / `(...)`)
 /// plus optional trailing spaces or tabs.
 fn rest_is_md_link_title(s: &str) -> bool {
+    rest_is_md_link_title_inner(s, false)
+}
+
+/// CM 0.31.2 §4.7 ex. 196: a title may span physical lines.
+fn rest_is_md_link_title_allowing_newlines(s: &str) -> bool {
+    rest_is_md_link_title_inner(s, true)
+}
+
+fn rest_is_md_link_title_inner(s: &str, allow_newline: bool) -> bool {
     let t = s.trim_end_matches([' ', '\t']);
     if t.len() < 2 {
         return false;
@@ -920,7 +929,7 @@ fn rest_is_md_link_title(s: &str) -> bool {
         match bytes[i] {
             b'\\' if i + 1 < bytes.len() => i += 2,
             b if b == close => return i + 1 == bytes.len(),
-            b'\n' | b'\r' => return false,
+            b'\n' | b'\r' if !allow_newline => return false,
             _ => i += 1,
         }
     }
@@ -996,6 +1005,64 @@ fn dest_and_optional_title(line: &str) -> Option<bool> {
 /// Indent is LRD whitespace, not indented code (CM 0.31.2 ex. 193).
 fn is_link_title_continuation(line: &str) -> bool {
     rest_is_md_link_title(line.trim_start_matches([' ', '\t']))
+}
+
+fn is_link_title_opener(line: &str) -> bool {
+    matches!(
+        line.trim_start_matches([' ', '\t']).as_bytes().first(),
+        Some(b'"' | b'\'' | b'(')
+    )
+}
+
+/// Last line index of a complete (possibly spanning) LRD title starting at
+/// `start`. CM 0.31.2 §4.7 ex. 196.
+fn lrd_title_span_end(lines: &[Line<'_>], start: usize) -> Option<usize> {
+    lrd_title_span_end_inner(lines, start, None)
+}
+
+fn quoted_lrd_title_span_end(lines: &[Line<'_>], start: usize, depth: usize) -> Option<usize> {
+    lrd_title_span_end_inner(lines, start, Some(depth))
+}
+
+fn lrd_title_line_inner<'a>(line: &'a str, depth: Option<usize>) -> Option<&'a str> {
+    match depth {
+        Some(d) => strip_quote_markers(line, d),
+        None => Some(line),
+    }
+}
+
+fn lrd_title_span_end_inner(
+    lines: &[Line<'_>],
+    start: usize,
+    depth: Option<usize>,
+) -> Option<usize> {
+    let first = lrd_title_line_inner(lines.get(start)?.text, depth)?;
+    let first_t = first.trim_start_matches([' ', '\t']);
+    if is_link_title_continuation(first) {
+        return Some(start);
+    }
+    if !is_link_title_opener(first_t) {
+        return None;
+    }
+    let mut acc = first_t.to_string();
+    for j in start + 1..lines.len() {
+        let Some(inner) = lrd_title_line_inner(lines[j].text, depth) else {
+            return None;
+        };
+        if inner.trim().is_empty() {
+            return None;
+        }
+        acc.push('\n');
+        acc.push_str(inner.trim_start_matches([' ', '\t']));
+        if rest_is_md_link_title_allowing_newlines(&acc) {
+            return Some(j);
+        }
+    }
+    None
+}
+
+fn lrd_stays_in_list(in_list_item: bool, list_hang: Option<usize>, line: &str) -> bool {
+    in_list_item && list_hang.is_some_and(|hang| line_indent(line) >= hang)
 }
 
 /// Byte length of a pulldown `ENABLE_FOOTNOTES` opener: 0–3 spaces,
@@ -2241,22 +2308,26 @@ impl FormatParser for MarkdownParser {
             // interrupt a paragraph (CM 0.31.2 §4.7 / GitHub #357): after
             // prose, the line stays in the open paragraph.
             if current_prose.is_empty() && is_link_reference_definition(line_text) {
-                close_list_item(
-                    &mut in_list_item,
-                    &mut list_hang,
-                    &mut current_prose,
-                    &mut prose_span,
-                    &mut list_term,
-                    &mut in_definition_list,
-                    input,
-                    &mut regions,
-                );
-                flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
+                if !lrd_stays_in_list(in_list_item, list_hang, line_text) {
+                    close_list_item(
+                        &mut in_list_item,
+                        &mut list_hang,
+                        &mut current_prose,
+                        &mut prose_span,
+                        &mut list_term,
+                        &mut in_definition_list,
+                        input,
+                        &mut regions,
+                    );
+                    flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
+                }
                 regions.push(SpannedRegion::structure(input, line.span()));
                 i += 1;
-                if i < total && is_link_title_continuation(lines[i].text) {
-                    regions.push(SpannedRegion::structure(input, lines[i].span()));
-                    i += 1;
+                if let Some(end) = lrd_title_span_end(&lines, i) {
+                    for row in &lines[i..=end] {
+                        regions.push(SpannedRegion::structure(input, row.span()));
+                    }
+                    i = end + 1;
                 }
                 continue;
             }
@@ -2265,24 +2336,30 @@ impl FormatParser for MarkdownParser {
                 && i + 1 < total
                 && is_link_dest_continuation(lines[i + 1].text)
             {
-                close_list_item(
-                    &mut in_list_item,
-                    &mut list_hang,
-                    &mut current_prose,
-                    &mut prose_span,
-                    &mut list_term,
-                    &mut in_definition_list,
-                    input,
-                    &mut regions,
-                );
-                flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
+                if !lrd_stays_in_list(in_list_item, list_hang, line_text) {
+                    close_list_item(
+                        &mut in_list_item,
+                        &mut list_hang,
+                        &mut current_prose,
+                        &mut prose_span,
+                        &mut list_term,
+                        &mut in_definition_list,
+                        input,
+                        &mut regions,
+                    );
+                    flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
+                }
                 regions.push(SpannedRegion::structure(input, line.span()));
                 regions.push(SpannedRegion::structure(input, lines[i + 1].span()));
                 let dest_has_title = dest_line_has_title(lines[i + 1].text);
                 i += 2;
-                if !dest_has_title && i < total && is_link_title_continuation(lines[i].text) {
-                    regions.push(SpannedRegion::structure(input, lines[i].span()));
-                    i += 1;
+                if !dest_has_title {
+                    if let Some(end) = lrd_title_span_end(&lines, i) {
+                        for row in &lines[i..=end] {
+                            regions.push(SpannedRegion::structure(input, row.span()));
+                        }
+                        i = end + 1;
+                    }
                 }
                 continue;
             }
@@ -2530,12 +2607,71 @@ impl FormatParser for MarkdownParser {
                         continue;
                     }
                 }
+                // Quoted footnotes interrupt. Marker is Structure; same-line
+                // body is leftover Prose like unquoted GitHub #410.
+                if let Some(inner_fn) = md_footnote_definition_marker_len(text) {
+                    let quote_len = line_text.len() - text.len();
+                    let marker_span = ByteSpan::new(line.start, line.start + quote_len + inner_fn);
+                    regions.push(SpannedRegion::structure(input, marker_span));
+                    in_list_item = true;
+                    list_hang = Some(quote_len + inner_fn);
+                    list_after_blank = false;
+                    append_piece(
+                        &mut ProseAcc {
+                            text: &mut current_prose,
+                            span: &mut prose_span,
+                            term: &mut list_term,
+                        },
+                        line,
+                        quote_len + inner_fn,
+                        false,
+                        false,
+                        input,
+                        &mut regions,
+                    );
+                    i += 1;
+                    continue;
+                }
+                // Quoted LRD does not interrupt a quote paragraph (CM 4.7).
+                let quote_para_open = i > 0
+                    && quote_marker_depth(lines[i - 1].text) == quote_depth
+                    && strip_quote_markers(lines[i - 1].text, quote_depth)
+                        .is_some_and(|t| !t.trim().is_empty());
+                if !quote_para_open && is_link_reference_definition(text) {
+                    regions.push(SpannedRegion::structure(input, line.span()));
+                    i += 1;
+                    if let Some(end) = quoted_lrd_title_span_end(&lines, i, quote_depth) {
+                        for row in &lines[i..=end] {
+                            regions.push(SpannedRegion::structure(input, row.span()));
+                        }
+                        i = end + 1;
+                    }
+                    continue;
+                }
+                if !quote_para_open && is_link_reference_label_only(text) && i + 1 < total {
+                    if let Some(next_inner) = strip_quote_markers(lines[i + 1].text, quote_depth) {
+                        if is_link_dest_continuation(next_inner) {
+                            regions.push(SpannedRegion::structure(input, line.span()));
+                            regions.push(SpannedRegion::structure(input, lines[i + 1].span()));
+                            let dest_has_title = dest_line_has_title(next_inner);
+                            i += 2;
+                            if !dest_has_title {
+                                if let Some(end) = quoted_lrd_title_span_end(&lines, i, quote_depth)
+                                {
+                                    for row in &lines[i..=end] {
+                                        regions.push(SpannedRegion::structure(input, row.span()));
+                                    }
+                                    i = end + 1;
+                                }
+                            }
+                            continue;
+                        }
+                    }
+                }
                 if HEADING_RE.is_match(text)
                     || TABLE_ROW_RE.is_match(text)
                     || FENCED_CODE_RE.is_match(text.trim_start())
                     || is_thematic_break(text)
-                    || is_footnote_definition(text)
-                    || is_link_reference_definition(text)
                     || is_empty_list_item(text)
                 {
                     regions.push(SpannedRegion::structure(input, line.span()));

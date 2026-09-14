@@ -1,0 +1,78 @@
+//! CM 0.31.2 §4.7 ex. 196: an LRD title may span physical lines.
+
+use snapper_fmt::format::Format;
+use snapper_fmt::parser::markdown::MarkdownParser;
+use snapper_fmt::parser::{FormatParser, Region};
+use snapper_fmt::{FormatConfig, format_text};
+
+fn md_cfg() -> FormatConfig {
+    FormatConfig {
+        format: Format::Markdown,
+        max_width: 0,
+        ..Default::default()
+    }
+    .without_safety_backstops()
+}
+
+fn ticket_fixture() -> &'static str {
+    concat!(
+        "[foo]: /url\n",
+        "\"Title with a period.\n",
+        "Still title.\"\n",
+        "\n",
+        "After the definition. Next.\n",
+    )
+}
+
+#[test]
+fn spanning_lrd_title_is_structure() {
+    let regions = MarkdownParser.parse(ticket_fixture());
+    assert!(
+        regions.iter().any(|r| matches!(
+            r,
+            Region::Structure(s) if s.contains("[foo]: /url")
+        )),
+        "dest must be Structure, got {regions:?}"
+    );
+    assert!(
+        regions.iter().any(|r| matches!(
+            r,
+            Region::Structure(s) if s.contains("Title with a period.")
+        )),
+        "title opener must be Structure, got {regions:?}"
+    );
+    assert!(
+        regions.iter().any(|r| matches!(
+            r,
+            Region::Structure(s) if s.contains("Still title.")
+        )),
+        "title closer must be Structure, got {regions:?}"
+    );
+    assert!(
+        !regions.iter().any(|r| matches!(
+            r,
+            Region::Prose(p) if p.contains("Still title") || p.contains("Title with a period")
+        )),
+        "spanning title must not be Prose, got {regions:?}"
+    );
+}
+
+#[test]
+fn spanning_lrd_title_does_not_split_and_following_does() {
+    let input = ticket_fixture();
+    let out = format_text(input, &md_cfg()).unwrap();
+    assert!(
+        out.contains("\"Title with a period.\nStill title.\""),
+        "spanning title must stay one definition, got:\n{out}"
+    );
+    assert!(
+        !out.contains("Title with a period.\nStill title.\"\nAfter")
+            || out.contains("After the definition.\nNext."),
+        "following prose must still split, got:\n{out}"
+    );
+    assert!(
+        out.contains("After the definition.\nNext."),
+        "following prose must still split, got:\n{out}"
+    );
+    assert_eq!(format_text(&out, &md_cfg()).unwrap(), out);
+}
