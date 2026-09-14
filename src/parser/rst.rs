@@ -852,6 +852,7 @@ fn is_rst_specific_admonition(name: &str) -> bool {
             | "footer"
             | "parsed-literal"
             | "line-block"
+            | "rubric"
     )
 }
 

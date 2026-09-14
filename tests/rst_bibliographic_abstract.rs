@@ -44,6 +44,23 @@ fn leftover_rfc2822_author_at_bos_hangs_and_splits() {
 }
 
 #[test]
+fn leftover_dedication_same_line_hangs_and_splits() {
+    let input = concat!(
+        ":Dedication: fig. 1 is here. After.\n",
+        "After. Next.\n",
+    );
+    let out = format_text(input, &rst_cfg()).unwrap();
+    assert!(
+        !out.contains(":Dedication: fig. 1 is here. After."),
+        "Dedication value must still split, got:\n{out}"
+    );
+    assert!(
+        out.contains("After.\nNext."),
+        "following prose must still split, got:\n{out}"
+    );
+}
+
+#[test]
 fn leftover_abstract_same_line_hangs_and_splits() {
     let input = concat!(
         ":Abstract: fig. 1 is here. After.\n",

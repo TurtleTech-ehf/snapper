@@ -30,6 +30,38 @@ fn note_container_fixture() -> &'static str {
 }
 
 #[test]
+fn leftover_rubric_same_line_hangs_and_splits() {
+    let input = concat!(
+        ".. rubric:: fig. 1 is here. After.\n",
+        "After. Next.\n",
+    );
+    let regions = RstParser.parse(input);
+    assert!(
+        regions
+            .iter()
+            .any(|r| matches!(r, Region::Structure(s) if s.contains(".. rubric::"))),
+        "rubric opener must stay Structure, got {regions:?}"
+    );
+    assert!(
+        regions.iter().any(|r| matches!(
+            r,
+            Region::Prose(p) if p.contains("fig. 1 is here.") && p.contains("After.")
+        )),
+        "rubric argument must be leftover Prose, got {regions:?}"
+    );
+    let out = format_text(input, &rst_cfg()).unwrap();
+    assert!(
+        !out.contains(".. rubric:: fig. 1 is here. After."),
+        "rubric argument must still split, got:\n{out}"
+    );
+    assert!(
+        out.contains("After.\nNext."),
+        "following prose must still split, got:\n{out}"
+    );
+    assert_eq!(format_text(&out, &rst_cfg()).unwrap(), out);
+}
+
+#[test]
 fn leftover_list_table_cells_hang_and_split() {
     let input = concat!(
         ".. list-table:: Title\n",
