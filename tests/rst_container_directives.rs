@@ -30,6 +30,48 @@ fn note_container_fixture() -> &'static str {
 }
 
 #[test]
+fn leftover_class_directive_body_hangs_and_splits() {
+    let input = concat!(
+        ".. class:: special\n",
+        "\n",
+        "   First sentence. Second sentence.\n",
+        "\n",
+        "After the class. Next.\n",
+    );
+    let regions = RstParser.parse(input);
+    assert!(
+        regions
+            .iter()
+            .any(|r| matches!(r, Region::Structure(s) if s.contains(".. class::"))),
+        "class opener must stay Structure, got {regions:?}"
+    );
+    assert!(
+        regions.iter().any(|r| matches!(
+            r,
+            Region::Prose(p) if p.contains("First sentence.") && p.contains("Second sentence.")
+        )),
+        "class body must be hung Prose, got {regions:?}"
+    );
+    assert!(
+        !regions.iter().any(|r| matches!(
+            r,
+            Region::Structure(s) if s.contains("First sentence.")
+        )),
+        "class body must not freeze as Structure, got {regions:?}"
+    );
+    let out = format_text(input, &rst_cfg()).unwrap();
+    assert!(
+        out.contains("First sentence.") && out.contains("Second sentence."),
+        "class body must still split, got:\n{out}"
+    );
+    assert!(
+        out.contains("After the class.\nNext."),
+        "following prose must still split, got:\n{out}"
+    );
+    assert_eq!(format_text(&out, &rst_cfg()).unwrap(), out);
+}
+
+#[test]
 fn note_container_body_hangs_and_splits() {
     let input = note_container_fixture();
     let regions = RstParser.parse(input);

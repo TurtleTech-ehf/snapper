@@ -841,7 +841,7 @@ fn is_rst_container_directive(name: &str) -> bool {
     is_rst_specific_admonition(name)
         || matches!(
             name,
-            "admonition" | "figure" | "topic" | "sidebar" | "container"
+            "admonition" | "figure" | "topic" | "sidebar" | "container" | "class"
         )
 }
 
