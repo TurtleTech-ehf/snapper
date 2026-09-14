@@ -1052,9 +1052,15 @@ fn lrd_title_span_end_inner(
         if inner.trim().is_empty() {
             return None;
         }
-        // pulldown `scan_refdef_title` aborts on a paragraph interrupt
-        // (setext underline, ATX, thematic break).
-        if is_setext_underline(inner) || HEADING_RE.is_match(inner) || is_thematic_break(inner) {
+        // pulldown `scan_refdef_title` aborts on a paragraph interrupt.
+        if is_setext_underline(inner)
+            || HEADING_RE.is_match(inner)
+            || is_thematic_break(inner)
+            || FENCED_CODE_RE.is_match(inner.trim_start())
+            || quote_marker_depth(inner) > 0
+            || list_interrupts_paragraph(inner)
+            || html_block_kind(inner).is_some_and(|k| k.can_interrupt())
+        {
             return None;
         }
         acc.push('\n');
@@ -1099,7 +1105,12 @@ fn is_footnote_definition(line: &str) -> bool {
 /// Indented footnote body line (pulldown GFM continuation).
 /// pulldown `scan_containers` continues only on 4 spaces (or a tab).
 fn is_footnote_continuation(line: &str) -> bool {
-    !line.trim().is_empty() && line_indent(line) >= 4
+    let trimmed = line.trim_start();
+    if trimmed.is_empty() {
+        return false;
+    }
+    let prefix = &line[..line.len() - trimmed.len()];
+    prefix.contains('\t') || prefix.len() >= 4
 }
 
 /// Last line of a footnote definition starting at `start` (opener plus

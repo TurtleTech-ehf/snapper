@@ -64,6 +64,30 @@ fn ticket_fixture() -> &'static str {
 }
 
 #[test]
+fn leftover_footnote_tab_is_continuation() {
+    let input = concat!(
+        "[^1]: First sentence. Second sentence.\n",
+        "\tContinuation sentence. More.\n",
+        "\n",
+        "After the note. Next.\n",
+    );
+    let regions = MarkdownParser.parse(input);
+    assert!(
+        regions.iter().any(|r| matches!(
+            r,
+            Region::Prose(p) if p.contains("Continuation sentence.")
+        )),
+        "tab continuation must stay leftover Prose, got {regions:?}"
+    );
+    let out = format_text(input, &md_cfg()).unwrap();
+    assert!(
+        out.contains("After the note.\nNext."),
+        "following prose must still split, got:\n{out}"
+    );
+    assert_eq!(format_text(&out, &md_cfg()).unwrap(), out);
+}
+
+#[test]
 fn leftover_footnote_two_space_is_not_continuation() {
     let input = concat!(
         "[^1]: First sentence. Second sentence.\n",

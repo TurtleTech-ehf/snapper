@@ -372,20 +372,9 @@ impl OrgParser {
         org_table_rule_line(line)
     }
 
-    /// org-element planning (`DEADLINE:`/`SCHEDULED:`/`CLOSED:`) or clock (`CLOCK:`).
-    /// Leading space/tab is allowed. `org-element--current-element` binds
-    /// `case-fold-search` t before `org-element-planning-line-re` and
-    /// `org-element-clock-line-re`, so prefixes compare ignore ASCII case.
     /// Clock leftover is `CLOCK:` plus a timestamp and/or `=> HH:MM`.
-    /// Bare `CLOCK: hello.` is a paragraph.
-    fn is_planning_or_clock(line: &str) -> bool {
-        Self::is_planning_line(line) || Self::is_clock_line(line)
-    }
-
-    fn is_planning_line(line: &str) -> bool {
-        org_planning_line(line)
-    }
-
+    /// Bare `CLOCK: hello.` is a paragraph. Planning leftover uses
+    /// `org_planning_marker_len`.
     fn is_clock_line(line: &str) -> bool {
         org_clock_line(line)
     }

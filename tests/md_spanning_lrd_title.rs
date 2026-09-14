@@ -58,6 +58,66 @@ fn spanning_lrd_title_is_structure() {
 }
 
 #[test]
+fn leftover_lrd_title_yields_to_fence() {
+    let input = concat!(
+        "[foo]: /url\n",
+        "\"Title with a period.\n",
+        "```\n",
+        "code. yes\n",
+        "```\n",
+        "Still title.\"\n",
+        "\n",
+        "After the definition. Next.\n",
+    );
+    let regions = MarkdownParser.parse(input);
+    assert!(
+        regions.iter().any(|r| matches!(
+            r,
+            Region::Code { body, .. } if body.contains("code. yes")
+        )),
+        "fence inside a broken LRD title must be Code, got {regions:?}"
+    );
+    assert!(
+        !regions.iter().any(|r| matches!(
+            r,
+            Region::Structure(s) if s.contains("Still title")
+        )),
+        "interrupted title closer must not stay Structure, got {regions:?}"
+    );
+    let out = format_text(input, &md_cfg()).unwrap();
+    assert!(
+        out.contains("After the definition.\nNext."),
+        "following prose must still split, got:\n{out}"
+    );
+    assert_eq!(format_text(&out, &md_cfg()).unwrap(), out);
+}
+
+#[test]
+fn leftover_lrd_title_yields_to_blockquote() {
+    let input = concat!(
+        "[foo]: /url\n",
+        "\"Title with a period.\n",
+        "> Still title. More.\n",
+        "\n",
+        "After the definition. Next.\n",
+    );
+    let regions = MarkdownParser.parse(input);
+    assert!(
+        !regions.iter().any(|r| matches!(
+            r,
+            Region::Structure(s) if s.contains("Still title")
+        )),
+        "blockquote must not stay LRD title Structure, got {regions:?}"
+    );
+    let out = format_text(input, &md_cfg()).unwrap();
+    assert!(
+        out.contains("After the definition.\nNext."),
+        "following prose must still split, got:\n{out}"
+    );
+    assert_eq!(format_text(&out, &md_cfg()).unwrap(), out);
+}
+
+#[test]
 fn leftover_lrd_title_yields_to_setext_underline() {
     let input = concat!(
         "[foo]: /url\n",
