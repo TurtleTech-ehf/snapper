@@ -73,6 +73,25 @@ be reformatted.
 More prose that gets reformatted.
 #+end_src
 
+** reStructuredText
+:PROPERTIES:
+:CUSTOM_ID: syntax-rst
+:END:
+
+A bare line (the same payload as plaintext).
+A =..= comment is /not/ stripped, so =.. snapper:off= is not a pragma.
+
+#+begin_src rst
+Some prose that gets reformatted normally.
+
+snapper:off
+This text will not
+be reformatted.
+snapper:on
+
+More prose that gets reformatted.
+#+end_src
+
 ** Plaintext
 :PROPERTIES:
 :CUSTOM_ID: syntax-plaintext

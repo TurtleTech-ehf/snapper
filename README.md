@@ -120,7 +120,7 @@ Format in place:
 
 Pipe through stdin (for editor integration):
 
-    cat draft.org | snapper --format org
+    cat draft.org | snapper --native --format org
 
 The CLI uses pandoc (auto FFI, then CLI) when an FFI writer or `pandoc` on `PATH` is available.
 Otherwise it keeps the native line parsers (no error).
@@ -226,8 +226,8 @@ Configuration guide (org source in-tree): `docs/orgmode/howto/mcp-integration.or
 
 <tr>
 <td class="org-left">Plaintext</td>
-<td class="org-left">everything else</td>
-<td class="org-left">(none; all text treated as prose)</td>
+<td class="org-left"><code>.txt</code></td>
+<td class="org-left">(none; all text treated as prose). Unknown extensions are refused unless <code>--format</code> is set</td>
 </tr>
 </tbody>
 </table>
@@ -313,7 +313,7 @@ The WebAssembly add-in source and sideloading instructions live in `editors/word
 
 Auto-format on commit, transparent to collaborators:
 
-    git config filter.snapper.clean "snapper --format org"
+    git config filter.snapper.clean "snapper --native --format org"
     git config filter.snapper.smudge cat
 
 Then add to `.gitattributes`:

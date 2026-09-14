@@ -70,7 +70,8 @@ The plugin automatically sets formatprg for supported filetypes:
 - tex: snapper --native --format latex
 - markdown: snapper --native --format markdown
 - rst: snapper --native --format rst
-- plaintex: snapper --native --format plaintex
+- plaintex: snapper --native --format latex
+- text: snapper --native --format plaintext
 
 This enables formatting with gq operator in normal mode.
 
