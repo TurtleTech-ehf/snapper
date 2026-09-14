@@ -350,7 +350,11 @@ fn parse_line_based(input: &str) -> Vec<SpannedRegion> {
                         flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
                         let leading = line_text.len() - trimmed.len();
                         directive_indent = leading + 2;
-                        in_directive = true;
+                        // Docutils arg_block continues until a blank or
+                        // option field. Stay in title hang so the next
+                        // indented line is leftover Prose, not opaque.
+                        in_table_title = true;
+                        list_hang = Some(marker_len);
                         in_container_body = false;
                     } else {
                         list_hang = Some(marker_len);

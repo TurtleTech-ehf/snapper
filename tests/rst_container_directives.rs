@@ -30,6 +30,37 @@ fn note_container_fixture() -> &'static str {
 }
 
 #[test]
+fn leftover_table_title_continuation_splits_body_stays_opaque() {
+    let input = concat!(
+        ".. table:: fig. 1 is here. After.\n",
+        "   Still title. More.\n",
+        "\n",
+        "   =====  =====\n",
+        "   A. B   C. D\n",
+        "   =====  =====\n",
+        "After. Next.\n",
+    );
+    let out = format_text(input, &rst_cfg()).unwrap();
+    assert!(
+        !out.contains("fig. 1 is here. After."),
+        "same-line table title must still split, got:\n{out}"
+    );
+    assert!(
+        !out.contains("Still title. More."),
+        "continued table title must still split, got:\n{out}"
+    );
+    assert!(
+        out.contains("A. B") && !out.contains("A.\n"),
+        "table body must stay opaque, got:\n{out}"
+    );
+    assert!(
+        out.contains("After.\nNext."),
+        "following prose must still split, got:\n{out}"
+    );
+    assert_eq!(format_text(&out, &rst_cfg()).unwrap(), out);
+}
+
+#[test]
 fn leftover_table_next_line_title_splits_body_stays_opaque() {
     let input = concat!(
         ".. table::\n",
