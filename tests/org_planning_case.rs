@@ -7,7 +7,7 @@
 use snapper_fmt::format::Format;
 use snapper_fmt::parser::org::OrgParser;
 use snapper_fmt::parser::{FormatParser, Region};
-use snapper_fmt::{FormatConfig, format_text};
+use snapper_fmt::{format_text, FormatConfig};
 
 fn org_cfg() -> FormatConfig {
     FormatConfig {
