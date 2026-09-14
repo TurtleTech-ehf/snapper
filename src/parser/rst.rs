@@ -290,10 +290,9 @@ fn parse_line_based(input: &str) -> Vec<SpannedRegion> {
             flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
             if let Some(marker_len) = rst_admonition_marker_len(line_text)
                 .or_else(|| rst_substitution_replace_marker_len(line_text))
+                .or_else(|| rst_table_marker_len(line_text))
             {
                 if line_text.len() > marker_len && !line_text[marker_len..].trim().is_empty() {
-                    list_hang = Some(marker_len);
-                    in_container_body = true;
                     in_meta = false;
                     regions.push(SpannedRegion::structure(
                         input,
@@ -301,12 +300,31 @@ fn parse_line_based(input: &str) -> Vec<SpannedRegion> {
                     ));
                     current_prose.push_str(line_text[marker_len..].trim());
                     prose_span = Some(ByteSpan::new(line.start + marker_len, line.end));
+                    if rst_table_marker_len(line_text).is_some() {
+                        flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
+                        let leading = line_text.len() - trimmed.len();
+                        directive_indent = leading + 2;
+                        in_directive = true;
+                        in_container_body = false;
+                    } else {
+                        list_hang = Some(marker_len);
+                        in_container_body = true;
+                    }
                     i += 1;
                     continue;
                 }
             }
             regions.push(SpannedRegion::structure(input, line.span()));
             let dir_name = rst_directive_name(trimmed);
+            if dir_name.as_deref().is_some_and(|n| n == "table") {
+                in_container_body = false;
+                in_meta = false;
+                let leading = line_text.len() - trimmed.len();
+                directive_indent = leading + 2;
+                in_directive = true;
+                i += 1;
+                continue;
+            }
             if dir_name
                 .as_deref()
                 .is_some_and(|n| is_rst_container_directive(n) || is_rst_meta_directive(n))
@@ -853,6 +871,11 @@ fn is_rst_specific_admonition(name: &str) -> bool {
             | "parsed-literal"
             | "line-block"
             | "rubric"
+            | "topic"
+            | "sidebar"
+            | "admonition"
+            | "list-table"
+            | "contents"
     )
 }
 
@@ -874,7 +897,9 @@ fn is_rst_container_directive(name: &str) -> bool {
 /// Docutils `meta` directive. Takes no argument; the body is a field
 /// list whose values are paragraphs (GitHub #434).
 /// Docutils bibliographic fields whose same-line value is leftover
-/// nested-parsed body (`Abstract` / `Dedication`).
+/// nested-parsed body (`Abstract` / `Dedication` / compound `Authors`
+/// / `Address`). Singular `:Author:` stays whole-line Structure
+/// (GitHub #330).
 fn rst_bibliographic_body_field(name: &str) -> bool {
     let inner = name
         .strip_prefix(':')
@@ -882,7 +907,7 @@ fn rst_bibliographic_body_field(name: &str) -> bool {
         .unwrap_or(name);
     matches!(
         inner.to_ascii_lowercase().as_str(),
-        "abstract" | "dedication"
+        "abstract" | "dedication" | "authors" | "address" | "subtitle" | "copyright"
     )
 }
 
@@ -895,6 +920,27 @@ fn is_rst_meta_directive(name: &str) -> bool {
 /// line is not a no-argument admonition. Body text after the marker
 /// is not included, so `Some(s.len())` is the Structure prefix used
 /// for hang (GitHub #349).
+/// Docutils `table` title leftover: `.. table::` plus pad. Same-line
+/// title is hung Prose; the table body stays opaque.
+fn rst_table_marker_len(line: &str) -> Option<usize> {
+    let indent = line.len() - line.trim_start().len();
+    let trimmed = &line[indent..];
+    let rest = trimmed.strip_prefix("..")?;
+    if !rest.starts_with([' ', '\t']) {
+        return None;
+    }
+    let name_off = rest.len() - rest.trim_start().len();
+    let after_ws = &rest[name_off..];
+    let name_end = after_ws.find("::")?;
+    if after_ws[..name_end].trim().to_ascii_lowercase() != "table" {
+        return None;
+    }
+    let colons_at = indent + 2 + name_off + name_end;
+    let after_colons = &line[colons_at + 2..];
+    let pad = after_colons.len() - after_colons.trim_start().len();
+    Some(colons_at + 2 + pad)
+}
+
 pub(crate) fn rst_admonition_marker_len(line: &str) -> Option<usize> {
     let indent = line.len() - line.trim_start().len();
     let trimmed = &line[indent..];

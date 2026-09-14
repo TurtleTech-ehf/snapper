@@ -7,7 +7,7 @@
 use snapper_fmt::format::Format;
 use snapper_fmt::parser::rst::RstParser;
 use snapper_fmt::parser::{FormatParser, Region};
-use snapper_fmt::{FormatConfig, format_text};
+use snapper_fmt::{format_text, FormatConfig};
 
 fn rst_cfg() -> FormatConfig {
     FormatConfig {
@@ -30,11 +30,132 @@ fn note_container_fixture() -> &'static str {
 }
 
 #[test]
-fn leftover_rubric_same_line_hangs_and_splits() {
+fn leftover_table_title_splits_body_stays_opaque() {
     let input = concat!(
-        ".. rubric:: fig. 1 is here. After.\n",
+        ".. table:: fig. 1 is here. After.\n",
+        "\n",
+        "   =====  =====\n",
+        "   A. B   C. D\n",
+        "   =====  =====\n",
         "After. Next.\n",
     );
+    let regions = RstParser.parse(input);
+    assert!(
+        regions
+            .iter()
+            .any(|r| matches!(r, Region::Structure(s) if s.contains(".. table::"))),
+        "table opener must stay Structure, got {regions:?}"
+    );
+    assert!(
+        regions.iter().any(|r| matches!(
+            r,
+            Region::Prose(p) if p.contains("fig. 1 is here.") && p.contains("After.")
+        )),
+        "table title leftover must be Prose, got {regions:?}"
+    );
+    let out = format_text(input, &rst_cfg()).unwrap();
+    assert!(
+        !out.contains(".. table:: fig. 1 is here. After."),
+        "table title must still split, got:\n{out}"
+    );
+    assert!(
+        out.contains("A. B") && !out.contains("A.\n"),
+        "table body must stay opaque, got:\n{out}"
+    );
+    assert!(
+        out.contains("After.\nNext."),
+        "following prose must still split, got:\n{out}"
+    );
+    assert_eq!(format_text(&out, &rst_cfg()).unwrap(), out);
+}
+
+#[test]
+fn leftover_list_table_title_hangs_cells_still_split() {
+    let input = concat!(
+        ".. list-table:: fig. 1 is here. After.\n",
+        "\n",
+        "   * - cell\n",
+        "     - other\n",
+        "After. Next.\n",
+    );
+    let out = format_text(input, &rst_cfg()).unwrap();
+    assert!(
+        !out.contains(".. list-table:: fig. 1 is here. After."),
+        "list-table title must still split, got:\n{out}"
+    );
+    assert!(
+        out.contains("After.\nNext."),
+        "following prose must still split, got:\n{out}"
+    );
+    assert_eq!(format_text(&out, &rst_cfg()).unwrap(), out);
+}
+
+#[test]
+fn leftover_contents_same_line_title_hangs_and_splits() {
+    let input = concat!(".. contents:: fig. 1 is here. After.\n", "After. Next.\n",);
+    let out = format_text(input, &rst_cfg()).unwrap();
+    assert!(
+        !out.contains(".. contents:: fig. 1 is here. After."),
+        "contents title must still split, got:\n{out}"
+    );
+    assert!(
+        out.contains("After.\nNext."),
+        "following prose must still split, got:\n{out}"
+    );
+    assert_eq!(format_text(&out, &rst_cfg()).unwrap(), out);
+}
+
+#[test]
+fn leftover_sidebar_subtitle_hangs_and_splits() {
+    let input = concat!(
+        ".. sidebar:: Title\n",
+        "   :subtitle: fig. 1 is here. After.\n",
+        "After. Next.\n",
+    );
+    let out = format_text(input, &rst_cfg()).unwrap();
+    assert!(
+        !out.contains(":subtitle: fig. 1 is here. After."),
+        "sidebar subtitle must still split, got:\n{out}"
+    );
+    assert!(
+        out.contains("After.\nNext."),
+        "following prose must still split, got:\n{out}"
+    );
+    assert_eq!(format_text(&out, &rst_cfg()).unwrap(), out);
+}
+
+#[test]
+fn leftover_topic_same_line_title_hangs_and_splits() {
+    let input = concat!(".. topic:: fig. 1 is here. After.\n", "After. Next.\n",);
+    let regions = RstParser.parse(input);
+    assert!(
+        regions
+            .iter()
+            .any(|r| matches!(r, Region::Structure(s) if s.contains(".. topic::"))),
+        "topic opener must stay Structure, got {regions:?}"
+    );
+    assert!(
+        regions.iter().any(|r| matches!(
+            r,
+            Region::Prose(p) if p.contains("fig. 1 is here.") && p.contains("After.")
+        )),
+        "topic title leftover must be Prose, got {regions:?}"
+    );
+    let out = format_text(input, &rst_cfg()).unwrap();
+    assert!(
+        !out.contains(".. topic:: fig. 1 is here. After."),
+        "topic title must still split, got:\n{out}"
+    );
+    assert!(
+        out.contains("After.\nNext."),
+        "following prose must still split, got:\n{out}"
+    );
+    assert_eq!(format_text(&out, &rst_cfg()).unwrap(), out);
+}
+
+#[test]
+fn leftover_rubric_same_line_hangs_and_splits() {
+    let input = concat!(".. rubric:: fig. 1 is here. After.\n", "After. Next.\n",);
     let regions = RstParser.parse(input);
     assert!(
         regions
