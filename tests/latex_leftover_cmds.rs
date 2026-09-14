@@ -255,6 +255,8 @@ fn leftover_constructors_do_not_join() {
     leftover_cmd_stays_atomic(r"\newenvsc{foo}{beg. end}{end. more}");
     leftover_cmd_stays_atomic(r"\newtcbox{\mybox}{colback=red}");
     leftover_cmd_stays_atomic(r"\NewTotalTCBox{\foo}{v}{colback=red}{done. Next}");
+    leftover_cmd_stays_atomic(r"\RenewTotalTCBox{\foo}{v}{colback=red}{done. Next}");
+    leftover_cmd_stays_atomic(r"\tcbsetforeverylayer{colback=red}");
     extras_skip_no_brace("newminted");
     extras_skip_no_brace("newmint");
     extras_skip_no_brace("renewminted");
@@ -273,6 +275,7 @@ fn leftover_constructors_do_not_join() {
     extras_skip_no_brace("sagetexpause");
     extras_skip_no_brace("newenvsc");
     extras_skip_no_brace("newtcbox");
+    extras_skip_no_brace("tcbsetforeverylayer");
 }
 
 #[test]

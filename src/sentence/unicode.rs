@@ -1423,6 +1423,9 @@ pub(crate) fn leftover_keyval_cs_name(tail: &str) -> Option<&'static str> {
         "ProvideTColorBox",
         "RenewTColorBox",
         "NewTColorBox",
+        "DeclareTotalTCBox",
+        "ProvideTotalTCBox",
+        "RenewTotalTCBox",
         "NewTotalTCBox",
         "DeclareTCBox",
         "RenewTCBox",
@@ -1480,6 +1483,7 @@ pub(crate) fn leftover_keyval_cs_name(tail: &str) -> Option<&'static str> {
         "PitonOptions",
         "fvinlineset",
         "tcbusetemp",
+        "tcbsetforeverylayer",
         "tcbset",
         "setminted",
         "newmint",
@@ -1573,7 +1577,10 @@ fn leftover_keyval_kind(name: &str) -> VerbKind {
         | "DeclarePitonEnvironment"
         | "RenewPitonEnvironment"
         | "NewPitonEnvironment"
-        | "NewTotalTCBox" => VerbKind::CatchFileBetweenDelims,
+        | "NewTotalTCBox"
+        | "RenewTotalTCBox"
+        | "ProvideTotalTCBox"
+        | "DeclareTotalTCBox" => VerbKind::CatchFileBetweenDelims,
         "useprintpythontex" | "usestdoutpythontex" | "usestderrpythontex" => {
             VerbKind::Lstinputlisting
         }

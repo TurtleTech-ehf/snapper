@@ -169,3 +169,36 @@ fn leftover_loose_second_dl_term_after_blank() {
     );
     assert_eq!(format_text(&out, &md_cfg()).unwrap(), out);
 }
+
+#[test]
+fn leftover_list_item_second_compact_dl_term_after_definition() {
+    let input = concat!(
+        "- Alpha term. Still alpha.\n",
+        "  : First definition sentence. Second sentence.\n",
+        "  Bravo term. Still bravo.\n",
+        "  : Other definition sentence. More.\n",
+        "\n",
+        "After the list. Next.\n",
+    );
+    let regions = MarkdownParser.parse(input);
+    assert!(
+        regions.iter().any(|r| matches!(
+            r,
+            Region::Structure(s) if s.contains("Bravo term. Still bravo.")
+        )),
+        "list-item second compact term must be Structure, got {regions:?}"
+    );
+    assert!(
+        !regions.iter().any(|r| matches!(
+            r,
+            Region::Prose(p) if p.contains("Bravo term")
+        )),
+        "list-item second term must not lazy-join the first definition, got {regions:?}"
+    );
+    let out = format_text(input, &md_cfg()).unwrap();
+    assert!(
+        out.contains("After the list.\nNext."),
+        "following prose must still split, got:\n{out}"
+    );
+    assert_eq!(format_text(&out, &md_cfg()).unwrap(), out);
+}
