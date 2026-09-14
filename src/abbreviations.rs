@@ -7,9 +7,10 @@ pub static EN_ABBREVIATIONS: &[&str] = &[
     "Trans", "Dept", "Thm", "Lem", "Prop", "Def", "Cor", "Rem", "Ex",
     // Latin abbreviations
     "al", "approx", "ca", "cf", "etc", "et", "ibid", "viz", // Common
-    "vs", "misc", "est", "govt", "dept", "univ", "inc", "corp", "ltd", "Ave", "Blvd", "Rd", "Jan",
-    "Feb", "Mar", "Apr", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec", "Mon", "Tue", "Wed",
-    "Thu", "Fri", "Sat", "Sun", "pp", "pg", "pt", "pts", // Single letters (initials)
+    "vs", "misc", "est", "govt", "dept", "univ", "inc", "Inc", "corp", "Corp", "ltd", "Ltd", "Ave",
+    "Blvd", "Rd", "Jan", "Feb", "Mar", "Apr", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+    "Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun", "pp", "pg", "pt",
+    "pts", // Single letters (initials)
     "A", "B", "C", "D", "E", "F", "G", "H", "I", "J", "K", "L", "M", "N", "O", "P", "Q", "R", "S",
     "T", "U", "V", "W", "X", "Y", "Z",
 ];

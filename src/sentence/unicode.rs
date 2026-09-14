@@ -4,7 +4,7 @@ use std::sync::LazyLock;
 /// Matches segments ending with sentence punctuation followed by closing quotes/parens,
 /// where the punctuation is not a true sentence boundary (e.g., `"wow!" and`, `(emphasis!) loudly`).
 static QUOTED_PUNCT_END_RE: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r##"[.!?]["')\]]+\s*$"##).expect("valid quoted-punct regex"));
+    LazyLock::new(|| Regex::new(r##"[.!?]["')\]}”’»›]+\s*$"##).expect("valid quoted-punct regex"));
 
 use crate::abbreviations;
 use crate::sentence::SentenceSplitter;
@@ -56,8 +56,8 @@ static INLINE_TOKEN_RE: LazyLock<Regex> = LazyLock::new(|| {
             r"\\\([^\n]+?\\\)", // LaTeX inline math: \(...\)
             r"\\\[[^\n]+?\\\]", // Org / LaTeX display math fragment: \[...\]
             // org-element-latex-fragment-parser macro:
-            // \\[a-zA-Z]+\*? then optional [arg] and one or more {arg}.
-            r"\\[a-zA-Z]+\*?(?:\[[^\]\[\n{}]*\])?(?:\{[^{}\n]*\})+",
+            // \\[a-zA-Z]+\*? then ([arg]|{arg})* (zero braces is a fragment).
+            r"\\[a-zA-Z]+\*?(?:\[[^\]\[\n{}]*\]|\{[^{}\n]*\})+",
             // Org emphasis must be protected before sentence splits so a line
             // cannot begin with `*rest` (false headline) or leave markers open.
             // Org requires a non-space immediately after the opener and before
@@ -606,6 +606,21 @@ pub(crate) fn latex_verb_span_end_with(
             return None;
         }
         (after_bs + "verbatimwrite".len(), VerbKind::Lstinputlisting)
+    } else if let Some(stripped) = tail.strip_prefix("verbinput") {
+        // sverb leftover file-input. Before `verb` so this is not
+        // `\verb` + leftover. Required `{file}`. No `*` form.
+        if stripped.starts_with(|c: char| c.is_ascii_alphabetic() || c == '*') {
+            return None;
+        }
+        (after_bs + "verbinput".len(), VerbKind::Tcbinputlisting)
+    } else if let Some(stripped) = tail.strip_prefix("verbwrite") {
+        // sverb leftover write cmd. Before `verb` so this is not
+        // `\verb` + leftover. Required `{file}` like `\verbatimwrite`.
+        // The `verbwrite` / `verbwrite*` envs stay Code.
+        if stripped.starts_with(|c: char| c.is_ascii_alphabetic()) {
+            return None;
+        }
+        (after_bs + "verbwrite".len(), VerbKind::Lstinputlisting)
     } else if let Some(stripped) = tail.strip_prefix("verbatiminput") {
         // Before `verb` so `\verbatiminput` is not `\verb` + leftover.
         if stripped.starts_with(|c: char| c.is_ascii_alphabetic()) {
@@ -620,6 +635,25 @@ pub(crate) fn latex_verb_span_end_with(
             after_bs + "tcbinputlisting".len(),
             VerbKind::Tcbinputlisting,
         )
+    } else if let Some(stripped) = tail.strip_prefix("tcboxverb") {
+        // tcolorbox leftover `\tcboxverb`: optional `[...]` then a
+        // v-type delimiter or `{body}` like `\lstinline`.
+        if stripped.starts_with(|c: char| c.is_ascii_alphabetic() || c == '*') {
+            return None;
+        }
+        (after_bs + "tcboxverb".len(), VerbKind::EscVerb)
+    } else if let Some(name) = listings_leftover_cs_name(tail) {
+        // listings leftover `\lstset` / `\lstdefinestyle` /
+        // `\lstnewenvironment` / `\lstMakeShortInline` /
+        // `\lstDeleteShortInline`. Longer names first.
+        // `\lstinputlisting` / `\lstinline` stay their own leftovers.
+        let kind = match name {
+            "lstnewenvironment" => VerbKind::LstNewenvironment,
+            "lstdefinestyle" => VerbKind::Listinginput,
+            "lstset" => VerbKind::Tcbinputlisting,
+            _ => VerbKind::LstMakeShortInline,
+        };
+        (after_bs + name.len(), kind)
     } else if let Some((name, kind)) = pitoninputfile_cs_name(tail) {
         // Longer leftover name, case-distinct from `\piton` (GitHub
         // #406). T / F / TF siblings (GitHub #439) before the base
@@ -740,6 +774,32 @@ pub(crate) fn latex_verb_span_end_with(
         return Some(i);
     }
 
+    // listings leftover `\lstnewenvironment{name}[n][default]{beg}{end}`.
+    // Required name brace first. Begin/end groups nest so
+    // `{\lstset{...}}` is one group. Missing a required brace is not
+    // a span.
+    if kind == VerbKind::LstNewenvironment {
+        let after_name = skip_required_brace_groups(text, i, 1)?;
+        i = skip_ascii_ws(text, after_name);
+        for _ in 0..2 {
+            if text.get(i..).is_some_and(|s| s.starts_with('[')) {
+                match skip_bracket_group(text, i) {
+                    Some(end) => i = skip_ascii_ws(text, end),
+                    None => return Some(line_end(text, i)),
+                }
+            } else {
+                break;
+            }
+        }
+        for _ in 0..2 {
+            match skip_nested_brace_group(text, i) {
+                Some(end) => i = skip_ascii_ws(text, end),
+                None => return None,
+            }
+        }
+        return Some(i);
+    }
+
     if matches!(
         kind,
         VerbKind::Lstinline
@@ -750,6 +810,7 @@ pub(crate) fn latex_verb_span_end_with(
             | VerbKind::Pythontexcustomc
             | VerbKind::Scontents
             | VerbKind::EscVerb
+            | VerbKind::LstMakeShortInline
     ) {
         i = skip_ascii_ws(text, i);
         if text.get(i..).is_some_and(|s| s.starts_with('[')) {
@@ -758,6 +819,18 @@ pub(crate) fn latex_verb_span_end_with(
                 None => return Some(line_end(text, i)),
             }
         }
+    }
+
+    // listings leftover `\lstMakeShortInline[opt]CHAR` /
+    // `\lstDeleteShortInlineCHAR`. Optional already skipped. One
+    // non-letter short-inline character. An ASCII-letter next token
+    // is leftover prose, not a delimiter.
+    if kind == VerbKind::LstMakeShortInline {
+        let delim = text.get(i..).and_then(|s| s.chars().next())?;
+        if delim == '\n' || delim.is_ascii_alphabetic() {
+            return None;
+        }
+        return Some(i + delim.len_utf8());
     }
 
     // listings.sty `\lstinputlisting[opts]{file}` and fancyvrb
@@ -1093,6 +1166,14 @@ enum VerbKind {
     /// `[...]`, then required `{cmd}`. No brace is not a span. No
     /// `*` form.
     FvextraIterateBuffer,
+    /// listings leftover `\lstnewenvironment`: required `{name}`,
+    /// optional `[n][default]`, then `{begin}{end}`. No `*` form.
+    /// Do not invent env names from the constructor.
+    LstNewenvironment,
+    /// listings leftover `\lstMakeShortInline` / `\lstDeleteShortInline`:
+    /// optional `[...]`, then one non-letter short-inline character.
+    /// An ASCII-letter next token is not a delimiter. No `*` form.
+    LstMakeShortInline,
     /// `\SaveVerb`: optional `[...]`, `{name}`, then delimiter body like `\Verb`.
     SaveVerb,
     /// `\piton`: verb-like delimiter except `{` (GitHub #305).
@@ -1169,14 +1250,18 @@ pub(crate) fn pyth_cs_name(tail: &str) -> Option<&'static str> {
 /// `\meaningsc` / `\foreachsc` take optional `[...]` then `{seq}`
 /// (`o m` / `O{-1} m`). Only `\Scontents` has a `*` form.
 /// `\inputsc` stays its own leftover. `\newenvsc` is a constructor,
-/// not this leftover.
+/// not this leftover. `\setupsc` / `\countsc` / `\cleanseqsc` take
+/// optional `[...]` then a required `{seq}` like `\typestored`.
 pub(crate) fn scontents_leftover_cs_name(tail: &str) -> Option<&'static str> {
     for name in [
+        "cleanseqsc",
         "typestored",
         "getstored",
         "meaningsc",
         "foreachsc",
         "Scontents",
+        "countsc",
+        "setupsc",
         "mergesc",
     ] {
         let Some(after) = tail.strip_prefix(name) else {
@@ -1217,6 +1302,7 @@ pub(crate) fn fancyvrb_shortverb_leftover_cs_name(tail: &str) -> Option<&'static
 pub(crate) fn verb_span_leftover_cs_name(tail: &str) -> Option<&'static str> {
     for name in [
         "mintinline",
+        "tcboxverb",
         "lstinline",
         "SaveVerb",
         "spverb",
@@ -1228,6 +1314,33 @@ pub(crate) fn verb_span_leftover_cs_name(tail: &str) -> Option<&'static str> {
             continue;
         };
         if after.starts_with(|c: char| c.is_ascii_alphabetic()) {
+            return None;
+        }
+        return Some(name);
+    }
+    None
+}
+
+/// listings leftover cmds. Longer names first so `\lstnewenvironment`
+/// is not `\lstset` + leftover. `\lstinputlisting` / `\lstinline` stay
+/// their own leftovers (alphabetic leftover rejects a longer name).
+/// `\lstset` takes one required `{keyvals}`. `\lstdefinestyle` takes
+/// `{name}{keyvals}`. `\lstnewenvironment` takes `{name}` then optional
+/// `[n][default]` then `{begin}{end}`. `\lstMakeShortInline` /
+/// `\lstDeleteShortInline` take optional `[...]` then one short-inline
+/// character. No `*` form. Do not invent env names from the constructor.
+pub(crate) fn listings_leftover_cs_name(tail: &str) -> Option<&'static str> {
+    for name in [
+        "lstnewenvironment",
+        "lstdefinestyle",
+        "lstDeleteShortInline",
+        "lstMakeShortInline",
+        "lstset",
+    ] {
+        let Some(after) = tail.strip_prefix(name) else {
+            continue;
+        };
+        if after.starts_with(|c: char| c.is_ascii_alphabetic() || c == '*') {
             return None;
         }
         return Some(name);
@@ -1265,14 +1378,17 @@ pub(crate) fn fancyvrb_leftover_cs_name(tail: &str) -> Option<&'static str> {
 /// `\VerbatimInsertBuffer` is not `\Verb` + leftover. `\InsertBuffer`
 /// / `\VerbatimInsertBuffer` take optional `[...]`. `\VerbatimClearBuffer`
 /// takes no args. `\IterateBuffer` takes optional `[...]` then
-/// `{cmd}`. No `*` form. `\UseVerb` / `\VerbatimInput` stay their own
-/// leftovers.
+/// `{cmd}`. `\ClearBuffer` / `\WriteBuffer` take optional `[...]`
+/// like `\InsertBuffer`. No `*` form. `\UseVerb` / `\VerbatimInput`
+/// stay their own leftovers.
 pub(crate) fn fvextra_buffer_leftover_cs_name(tail: &str) -> Option<&'static str> {
     for name in [
         "VerbatimInsertBuffer",
         "VerbatimClearBuffer",
         "IterateBuffer",
         "InsertBuffer",
+        "WriteBuffer",
+        "ClearBuffer",
     ] {
         let Some(after) = tail.strip_prefix(name) else {
             continue;
@@ -1318,6 +1434,7 @@ pub(crate) fn pytx_inline_cs_name(tail: &str) -> Option<&'static str> {
         "javascripts",
         "javascriptv",
         "javascript",
+        "pyfilerepl",
         "pylabconc",
         "pylabcons",
         "pylabconv",
@@ -1329,6 +1446,7 @@ pub(crate) fn pytx_inline_cs_name(tail: &str) -> Option<&'static str> {
         "perlsixs",
         "perlsixv",
         "pylabcon",
+        "pyfileq",
         "sympycon",
         "matlabb",
         "matlabc",
@@ -1369,6 +1487,7 @@ pub(crate) fn pytx_inline_cs_name(tail: &str) -> Option<&'static str> {
         "psixc",
         "psixs",
         "psixv",
+        "pyfile",
         "pycon",
         "pylab",
         "rubyb",
@@ -1402,10 +1521,12 @@ pub(crate) fn pytx_inline_cs_name(tail: &str) -> Option<&'static str> {
         "plc",
         "pls",
         "plv",
+        "pycq",
         "pyb",
         "pyc",
         "pys",
         "pyv",
+        "pyq",
         "rbb",
         "rbc",
         "rbs",
@@ -1507,6 +1628,10 @@ fn match_extra_verb_command<'a>(tail: &'a str, extras: &'a [String]) -> Option<&
             || fancyvrb_leftover_cs_name(name).is_some_and(|n| n == name.as_str())
             || fancyvrb_shortverb_leftover_cs_name(name).is_some_and(|n| n == name.as_str())
             || fvextra_buffer_leftover_cs_name(name).is_some_and(|n| n == name.as_str())
+            || listings_leftover_cs_name(name).is_some_and(|n| n == name.as_str())
+            || name == "tcboxverb"
+            || name == "verbinput"
+            || name == "verbwrite"
             || name == "listinginput"
             || name == "listingcont"
             || name == "verbatimtabinput"
@@ -1550,6 +1675,37 @@ fn skip_ascii_ws(text: &str, mut i: usize) -> usize {
         i += 1;
     }
     i
+}
+
+/// One `{...}` group with nested braces. Missing `{` is not a span.
+/// An unclosed group runs to end of line.
+fn skip_nested_brace_group(text: &str, mut i: usize) -> Option<usize> {
+    i = skip_ascii_ws(text, i);
+    if !text.get(i..).is_some_and(|s| s.starts_with('{')) {
+        return None;
+    }
+    i += 1;
+    let bytes = text.as_bytes();
+    let mut depth = 1usize;
+    while i < bytes.len() {
+        if bytes[i] == b'\n' {
+            return Some(i);
+        }
+        if bytes[i] == b'\\' && i + 1 < bytes.len() {
+            i += 2;
+            continue;
+        }
+        if bytes[i] == b'{' {
+            depth += 1;
+        } else if bytes[i] == b'}' {
+            depth -= 1;
+            if depth == 0 {
+                return Some(i + 1);
+            }
+        }
+        i += 1;
+    }
+    Some(text.len())
 }
 
 /// `n` required `{...}` groups. Missing a group is not a span.
@@ -1796,12 +1952,12 @@ fn org_inline_object_start(text: &str, at: usize) -> bool {
     }
     let mut prevs = text[..at].chars().rev();
     let prev = prevs.next().expect("at > 0");
-    if prev.is_ascii_alphanumeric() {
+    if prev.is_alphanumeric() {
         return false;
     }
     if prev == '_' {
         if let Some(before) = prevs.next() {
-            if before.is_ascii_alphanumeric() {
+            if before.is_alphanumeric() {
                 return false;
             }
         }
@@ -2540,8 +2696,9 @@ fn push_markup_sentence_splits(out: &mut Vec<String>, seg: &str) {
 
 fn take_markup_terminal_sentence(seg: &str) -> Option<(String, String)> {
     // Terminal `.!?` immediately before `**` / `*` / `_` / backticks /
-    // `~~` / `](url)`, or an RST interpreted-text closer then `.!?`,
-    // then whitespace, then a new sentence (uppercase or opening quote).
+    // `~~` / Org `/` `=` `+` / `](url)`, or an RST interpreted-text
+    // closer then `.!?`, then whitespace, then a new sentence
+    // (uppercase or opening quote).
     // Prefix closer is `:role:`text`. / `:domain:role:`text`. Suffix
     // closer is `text`:role:. / `text`:domain:role:. (the closer is
     // `:role:`, not the backtick). Opening ```` is not a closer. Role
@@ -2550,7 +2707,7 @@ fn take_markup_terminal_sentence(seg: &str) -> Option<(String, String)> {
     // stays one sentence.
     static CAP: LazyLock<Regex> = LazyLock::new(|| {
         Regex::new(
-            r#"(?s)^(.*?(?:[.!?](?:\*{1,3}|_{1,3}|`+|~{1,2}|\]\([^)]*\))+|:[A-Za-z][A-Za-z0-9_-]*(?::[A-Za-z][A-Za-z0-9_-]*)*:`[^`\n]+`[.!?]|`[^`\n]+`:[A-Za-z][A-Za-z0-9_-]*(?::[A-Za-z][A-Za-z0-9_-]*)*:[.!?]))\s+([A-Z][\s\S]*|["'][A-Z][\s\S]*)$"#,
+            r#"(?s)^(.*?(?:[.!?](?:\*{1,3}|_{1,3}|`+|~{1,2}|[/=+]|\]\([^)]*\))+|:[A-Za-z][A-Za-z0-9_-]*(?::[A-Za-z][A-Za-z0-9_-]*)*:`[^`\n]+`[.!?]|`[^`\n]+`:[A-Za-z][A-Za-z0-9_-]*(?::[A-Za-z][A-Za-z0-9_-]*)*:[.!?]))\s+([A-Z][\s\S]*|["'][A-Z][\s\S]*)$"#,
         )
         .expect("valid markup-terminal sentence regex")
     });
@@ -4279,6 +4436,90 @@ mod tests {
             latex_verb_span_end_with(r"\UseVerb{foo}", 0, &[]),
             Some(r"\UseVerb{foo}".len()),
             "fvextra buffer leftover must not steal UseVerb"
+        );
+        assert_eq!(
+            latex_verb_span_end_with(r"\ClearBuffer", 0, &[]),
+            Some(r"\ClearBuffer".len()),
+            "ClearBuffer is a leftover span"
+        );
+        assert_eq!(
+            latex_verb_span_end_with(r"\WriteBuffer[foo]", 0, &[]),
+            Some(r"\WriteBuffer[foo]".len()),
+            "WriteBuffer optional is a leftover span"
+        );
+    }
+
+    #[test]
+    fn latex_listings_leftover_cmds_stay_atomic() {
+        assert_eq!(
+            latex_verb_span_end_with(r"\lstset{language=Python}", 0, &[]),
+            Some(r"\lstset{language=Python}".len()),
+            "lstset keyvals stay one span"
+        );
+        assert_eq!(
+            latex_verb_span_end_with(r"\lstdefinestyle{mystyle}{language=Python}", 0, &[]),
+            Some(r"\lstdefinestyle{mystyle}{language=Python}".len()),
+            "lstdefinestyle two braces stay one span"
+        );
+        assert_eq!(
+            latex_verb_span_end_with(r"\lstMakeShortInline|", 0, &[]),
+            Some(r"\lstMakeShortInline|".len()),
+            "lstMakeShortInline short char stays a span"
+        );
+        assert_eq!(
+            latex_verb_span_end_with(r"\lstMakeShortInline After.", 0, &[]),
+            None,
+            "lstMakeShortInline letter is not a delimiter"
+        );
+        assert_eq!(
+            latex_verb_span_end_with(
+                r"\lstnewenvironment{mylst}{\lstset{language=Python}}{}",
+                0,
+                &[]
+            ),
+            Some(r"\lstnewenvironment{mylst}{\lstset{language=Python}}{}".len()),
+            "lstnewenvironment constructor stays one span"
+        );
+        assert_eq!(
+            latex_verb_span_end_with(r"\lstinputlisting{foo.py}", 0, &[]),
+            Some(r"\lstinputlisting{foo.py}".len()),
+            "listings leftover must not steal lstinputlisting"
+        );
+        assert_eq!(
+            latex_verb_span_end_with(r"\tcboxverb{First. Second.}", 0, &[]),
+            Some(r"\tcboxverb{First. Second.}".len()),
+            "tcboxverb brace body stays one span"
+        );
+        assert_eq!(
+            latex_verb_span_end_with(r"\verbinput{foo.py}", 0, &[]),
+            Some(r"\verbinput{foo.py}".len()),
+            "verbinput file stays one span"
+        );
+        assert_eq!(
+            latex_verb_span_end_with(r"\verbwrite{foo.py}", 0, &[]),
+            Some(r"\verbwrite{foo.py}".len()),
+            "verbwrite file stays one span"
+        );
+        assert_eq!(
+            latex_verb_span_end_with(r"\pyfile{foo.py}", 0, &[]),
+            Some(r"\pyfile{foo.py}".len()),
+            "pyfile stays one span"
+        );
+        assert_eq!(
+            latex_verb_span_end_with(r"\setupsc{print-cmd=true}", 0, &[]),
+            Some(r"\setupsc{print-cmd=true}".len()),
+            "setupsc stays one span"
+        );
+        let extras = vec!["lstset".to_string(), "verbwrite".to_string()];
+        assert_eq!(
+            latex_verb_span_end_with(r"\lstset After.", 0, &extras),
+            None,
+            "configured extra lstset must not re-tokenize the no-brace form as Delim"
+        );
+        assert_eq!(
+            latex_verb_span_end_with(r"\verbwrite After.", 0, &extras),
+            None,
+            "configured extra verbwrite must not re-tokenize the no-brace form as Delim"
         );
     }
 
@@ -7193,6 +7434,27 @@ mod tests {
             split(r#"He said "wow!" and left. She agreed."#),
             vec![r#"He said "wow!" and left."#, "She agreed."]
         );
+        assert_eq!(
+            split("He said “wow!” and left. She agreed."),
+            vec![
+                "He said “wow!” and left.".to_string(),
+                "She agreed.".to_string()
+            ]
+        );
+        assert_eq!(
+            split("He said «wow!» and left. She agreed."),
+            vec![
+                "He said «wow!» and left.".to_string(),
+                "She agreed.".to_string()
+            ]
+        );
+        assert_eq!(
+            split("He said {wow!} and left. She agreed."),
+            vec![
+                "He said {wow!} and left.".to_string(),
+                "She agreed.".to_string()
+            ]
+        );
     }
 
     #[test]
@@ -7324,6 +7586,18 @@ mod tests {
         assert_eq!(
             split("*Italic sentence.* Next one."),
             vec!["*Italic sentence.*".to_string(), "Next one.".to_string()]
+        );
+        assert_eq!(
+            split("/Italic sentence./ Next one."),
+            vec!["/Italic sentence./".to_string(), "Next one.".to_string()]
+        );
+        assert_eq!(
+            split("=Verbatim sentence.= Next one."),
+            vec!["=Verbatim sentence.=".to_string(), "Next one.".to_string()]
+        );
+        assert_eq!(
+            split("+Strike sentence.+ Next one."),
+            vec!["+Strike sentence.+".to_string(), "Next one.".to_string()]
         );
         assert_eq!(
             split("`Code sentence.` Next one."),
