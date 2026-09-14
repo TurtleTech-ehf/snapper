@@ -118,7 +118,10 @@ Source blocks are code regions: fences stay fixed and configured language commen
 - =.org= -- Org-mode
 - =.tex=, =.latex= -- LaTeX
 - =.md=, =.markdown= -- Markdown
-- Everything else -- plaintext
+- =.rst=, =.rest= -- reStructuredText
+- =.txt= -- plaintext
+
+Unknown extensions (=.rs=, =.py=, no extension) are refused unless =--format= is explicit.
 
 Override with =--format=:
 

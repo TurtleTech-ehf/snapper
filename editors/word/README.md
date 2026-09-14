@@ -34,7 +34,7 @@ CI builds the Word add-in in `.github/workflows/wasm.yml` (`build-word` job).
 
 ## Relationship to the CLI
 
-Word uses the **plaintext** format path in WASM. For Org/LaTeX fidelity, prefer the CLI or VS Code extension (LSP). Delimiter-span and abbreviation behavior matches snapper **0.8.1** as exposed by the WASM API.
+Word uses the **plaintext** format path in WASM. For Org/LaTeX fidelity, prefer the CLI or VS Code extension (LSP). Delimiter-span and abbreviation behavior matches the current WASM API (requires snapper **0.11.4+**).
 
 ## License
 

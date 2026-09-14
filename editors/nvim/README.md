@@ -26,7 +26,7 @@ Neovim plugin for [snapper](https://github.com/TurtleTech-ehf/snapper) - the sem
   dependencies = {
     "stevearc/conform.nvim",  -- Optional: for conform integration
   },
-  ft = { "org", "tex", "markdown", "rst", "plaintex" },
+  ft = { "org", "tex", "markdown", "rst" },
   config = function()
     vim.opt.runtimepath:append(
       vim.fn.stdpath("data") .. "/lazy/snapper/editors/nvim"
@@ -61,7 +61,7 @@ require("snapper").setup({
     timeout_ms = 1000,
     async = false,
   },
-  filetypes = { "org", "tex", "markdown", "rst", "plaintext" },  -- Supported filetypes
+  filetypes = { "org", "tex", "markdown", "rst" },  -- Neovim filetypes the LSP starts on
   keymaps = {  -- Set to nil to disable keymaps
     format = "<leader>sf",     -- Format buffer
     format_range = "<leader>sF", -- Format selection
@@ -96,15 +96,21 @@ require("conform").setup({
 })
 ```
 
-### With nvim-lspconfig
+### Manual LSP (no nvim-lspconfig snapper config)
 
-The snapper LSP server can also be configured manually with nvim-lspconfig:
+nvim-lspconfig does not ship a `snapper` server.
+Start it with `vim.lsp.start`:
 
 ```lua
-require("lspconfig").snapper.setup({
-  cmd = { "snapper", "lsp" },
-  filetypes = { "org", "tex", "markdown", "rst" },
-  root_dir = require("lspconfig").util.root_pattern(".snapperrc.toml", ".git"),
+vim.api.nvim_create_autocmd("FileType", {
+  pattern = { "org", "tex", "markdown", "rst" },
+  callback = function()
+    vim.lsp.start({
+      name = "snapper",
+      cmd = { "snapper", "lsp" },
+      root_dir = vim.fs.root(0, { ".snapperrc.toml", ".git" }),
+    })
+  end,
 })
 ```
 

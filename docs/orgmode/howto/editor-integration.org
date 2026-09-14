@@ -10,14 +10,16 @@
 
 #+begin_src elisp
 (with-eval-after-load 'apheleia
-  (push '(snapper . ("snapper" "--native" "--format" "org")) apheleia-formatters)
-  (push '(org-mode . snapper) apheleia-mode-alist)
-  ;; Add for other formats:
-  (push '(latex-mode . snapper) apheleia-mode-alist)
-  (push '(markdown-mode . snapper) apheleia-mode-alist))
+  (push '(snapper-org . ("snapper" "--native" "--format" "org")) apheleia-formatters)
+  (push '(snapper-latex . ("snapper" "--native" "--format" "latex")) apheleia-formatters)
+  (push '(snapper-md . ("snapper" "--native" "--format" "markdown")) apheleia-formatters)
+  (push '(org-mode . snapper-org) apheleia-mode-alist)
+  (push '(latex-mode . snapper-latex) apheleia-mode-alist)
+  (push '(markdown-mode . snapper-md) apheleia-mode-alist))
 #+end_src
 
-The =--format= flag auto-detects from the file extension, so you can omit it if your files have standard extensions.
+=--format= does not auto-detect from the buffer name.
+Each mode must pass the matching format token (=org=, =latex=, =markdown=, =rst=, =plaintext=).
 
 * Vim / Neovim
 :PROPERTIES:
@@ -41,7 +43,7 @@ require("conform").setup({
   formatters = {
     snapper = {
       command = "snapper",
-      args = { "--native", "--format", "$FILETYPE" },
+      args = { "--native", "--stdin-filepath", "$FILENAME" },
       stdin = true,
     },
   },
@@ -49,6 +51,7 @@ require("conform").setup({
     org = { "snapper" },
     tex = { "snapper" },
     markdown = { "snapper" },
+    rst = { "snapper" },
   },
 })
 #+end_src

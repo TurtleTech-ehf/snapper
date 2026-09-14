@@ -231,6 +231,15 @@ Print help message.
 
 Print version.
 
+*** =--color <WHEN>=
+:PROPERTIES:
+:CUSTOM_ID: opt-color
+:END:
+
+When to color =--diff= / =sdiff= / =git-diff= output: =auto= (default), =always=, or =never=.
+Global.
+=sdiff= and =git-diff= also accept =--no-color= as an alias for =--color never=.
+
 ** Subcommands
 :PROPERTIES:
 :CUSTOM_ID: subcommands
@@ -269,7 +278,7 @@ Exits with code 1 if differences found.
 
 Sentence-level diff against a git ref.
 Default ref: =HEAD=.
-If no files specified, diffs all changed prose files (=.org=, =.tex=, =.md=).
+If no files specified, diffs all changed recognized prose files (=.org=, =.tex=, =.latex=, =.md=, =.markdown=, =.rst=, =.rest=, =.txt=).
 Uses =git show REF:path= to retrieve the old version.
 
 *** =snapper watch <PATTERNS...>=
@@ -289,6 +298,15 @@ Press Ctrl+C to stop.
 Start the Language Server Protocol server on stdin/stdout.
 Provides document formatting, range formatting, and diagnostics (flags lines with multiple sentences).
 Works with any LSP-compatible editor (Neovim, Emacs eglot, VS Code, Helix).
+
+*** =snapper mcp=
+:PROPERTIES:
+:CUSTOM_ID: cmd-mcp
+:END:
+
+Start the MCP server on stdin/stdout.
+Tools: =format_text=, =detect_format=, =check_formatting=, =split_sentences=.
+Published binaries include this server (=mcp= is a default Cargo feature).
 
 ** Exit codes
 :PROPERTIES:

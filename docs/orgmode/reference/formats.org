@@ -186,13 +186,19 @@ These tokens within prose are not split across lines:
 :END:
 - Front matter (=---= or =+++=  delimited at file start)
 - Full ATX heading lines (=#= … =######= including title text)
+- Empty ATX headings (a mark line with no title text) stay Structure
 - Setext headings (title line plus ====== or ------ underline)
 - List item markers (=-=, =*=, =+=, =1.=); continuation sentences hang at the marker width
+- Empty list markers (including quoted) stay Structure
 - Definition-list terms and =: = markers (pulldown =ENABLE_DEFINITION_LIST=); the body hangs at the marker width
 - Blockquote markers (=>= / nested => > =); continuation sentences repeat the quote prefix
 - GFM alert type markers (=[!NOTE]= / =[!TIP]= / =[!WARNING]= / =[!CAUTION]= / =[!IMPORTANT]=); the body hangs and splits like a quote
+- Link-reference definitions (=[label]: dest=); the destination may sit on the next line.
+  A definition that sits inside a paragraph stays Prose
+- GFM footnote definitions (=[^label]:=); the marker is Structure and the body hangs
 - Hard line breaks (two trailing spaces, or a trailing backslash)
 - HTML comments (=<!-- ... -->=, including multiline); =<!-- snapper:off -->= / =<!-- snapper:on -->= remain pragmas
+- Closed type-6 and type-7 HTML blocks end at the matching close tag; following prose stays Prose
 - Pipe tables
 
 *** Code regions (fenced =```= / =~~~=)
@@ -210,6 +216,7 @@ These tokens within prose are not split across lines:
 - Paragraph text
 - List item text (after the marker); continuation sentences hang at the marker width
 - Definition-list body (after the =: = marker); continuation sentences hang at the marker width
+- GFM footnote-definition body (after =[^label]:=); continuation sentences hang at the marker width
 - Blockquote inner text (after the =>= marker); continuation sentences repeat the quote prefix
 
 *** Inline tokens (kept atomic)
@@ -232,10 +239,13 @@ These tokens within prose are not split across lines:
 :CUSTOM_ID: rst-structure
 :END:
 - Non-code opaque directives (=.. math::=, =.. image::=, =.. raw::=, =.. include::=, =.. csv-table::=) and their indented bodies
-- Container directive openers (=.. note::=, =.. warning::=, =.. figure::=, =.. topic::=, =.. sidebar::=, =.. container::=, leftover =.. parsed-literal::=, =.. epigraph::=, =.. highlights::=, =.. pull-quote::=, =.. compound::=) and their =:option:= fields; the indented body is prose
+- Container directive openers (=.. note::=, =.. warning::=, =.. figure::=, =.. topic::=, =.. sidebar::=, =.. container::=, leftover =.. parsed-literal::=, =.. epigraph::=, =.. highlights::=, =.. pull-quote::=, =.. compound::=, =.. header::=, =.. footer::=) and their =:option:= fields; the indented body is prose
+- Same-line body after =::= on those containers, leftover =.. parsed-literal::=, =.. header::=, =.. footer::=, =.. |name| replace::=, and =.. meta::= fields hangs and splits.
+  Flush bibliographic fields close a meta leftover
 - Literal blocks (text after =::= with indented or line-prefix-quoted content)
 - Section titles and underlines (=====, =-----=, etc.)
 - Field lists (=:Author:=, =:Date:=, etc.)
+- Empty list items, empty doctest openers, and empty field-list markers at EOL stay Structure
 - Comments (=..= without a directive)
 - Grid and simple tables (lines starting with =|= or =+=)
 
@@ -286,11 +296,11 @@ Blank lines are preserved as paragraph separators.
 :PROPERTIES:
 :CUSTOM_ID: delimiter-span-policy
 :END:
-- Balanced ASCII/curly/guillemet quotes, LaTeX =``…''=, and =()[]{}= must not gain a semantic line break mid-span (see =tests/sentence_delim_props.rs=).
+- Balanced ASCII/curly/guillemet quotes, LaTeX double-backtick quotes, and =()[]{}= must not gain a semantic line break mid-span (see =tests/sentence_delim_props.rs=).
 - Unclosed ="= (or open =‘= without =’=) glues the rest of the paragraph; snapper does not invent closers.
 - Nested semantic ASCII quotes (=say "hi" now= with an inner pair) remain toggle-ambiguous; prefer typographic quotes or escapes in source.
 - Apostrophes in contractions (=don't=, =it's=) are not treated as dialogue openers.
-- Markdown fences (=```=) are not treated as LaTeX =``= openers.
+- Markdown fences (three backticks) are not treated as LaTeX double-backtick openers.
 - =--neural= runs the same abbreviation + span post-pipeline after the model proposes cuts (English papers can still prefer the rules path for fully offline, deterministic CI).
 
 ~snapper~ merges false splits caused by known abbreviations:

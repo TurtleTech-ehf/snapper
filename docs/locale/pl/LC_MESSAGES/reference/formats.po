@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: snapper \n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-09-09 10:12-0500\n"
+"POT-Creation-Date: 2026-09-14 02:18-0500\n"
 "PO-Revision-Date: 2026-03-27 23:00+0100\n"
 "Last-Translator: Rohit Goswami <rgoswami@ieee.org>\n"
 "Language-Team: pl <LL@li.org>\n"
@@ -38,9 +38,9 @@ msgstr ""
 msgid "Org-mode (``--format org``)"
 msgstr "Org-mode (``--format org``)"
 
-#: ../../source/reference/formats.rst:20 ../../source/reference/formats.rst:97
-#: ../../source/reference/formats.rst:141
-#: ../../source/reference/formats.rst:204
+#: ../../source/reference/formats.rst:20 ../../source/reference/formats.rst:136
+#: ../../source/reference/formats.rst:273
+#: ../../source/reference/formats.rst:355
 msgid "Structure regions (preserved)"
 msgstr "Regiony strukturalne (zachowane)"
 
@@ -50,384 +50,902 @@ msgid "Non-source ``#+BEGIN_*`` ..."
 msgstr "``#+BEGIN_*`` ..."
 
 #: ../../source/reference/formats.rst:24
-#, fuzzy
-msgid "``#+END_*`` blocks (example, quote, etc.)"
-msgstr "bloki ``#+END_*`` (source, example, quote itp.)"
+msgid ""
+"``#+END_*`` fences, and the bodies of literal blocks (example, export, "
+"comment, verse). An unmatched ``#+BEGIN_EXPORT`` is a paragraph (org-element "
+"export-block-parser)"
+msgstr ""
 
 #: ../../source/reference/formats.rst:26
+msgid ""
+"Dynamic blocks (``#+BEGIN: NAME`` ... ``#+END:``), including the generated "
+"body"
+msgstr ""
+
+#: ../../source/reference/formats.rst:28
+msgid ""
+"Quote, center, and special-block (NOTE and other unknown NAME) open/close "
+"lines"
+msgstr ""
+
+#: ../../source/reference/formats.rst:30
+msgid ""
+"Verse-block body (org-element verse-lines; leftover opaque walker, GitHub "
+"#395)"
+msgstr ""
+
+#: ../../source/reference/formats.rst:32
+msgid "Special-block interiors (NOTE, ABSTRACT, WARNING, ...) reflow as prose"
+msgstr ""
+
+#: ../../source/reference/formats.rst:34
 msgid "``:PROPERTIES:`` ..."
 msgstr "``:PROPERTIES:`` ..."
 
-#: ../../source/reference/formats.rst:28
+#: ../../source/reference/formats.rst:36
 msgid "``:END:`` drawers"
 msgstr "szuflady ``:END:``"
 
-#: ../../source/reference/formats.rst:30
-msgid "``#+KEYWORD:`` directives (TITLE, AUTHOR, DATE, OPTIONS, etc.)"
+#: ../../source/reference/formats.rst:38
+#, fuzzy
+msgid ""
+"``#+KEYWORD:`` directives (TITLE, AUTHOR, DATE, OPTIONS, NAME, "
+"ATTR\\ :sub:`\\*`\\, etc.); ``#+CAPTION:`` / ``#+CAPTION[short]:`` opener "
+"only"
 msgstr "dyrektywy ``#+KEYWORD:`` (TITLE, AUTHOR, DATE, OPTIONS itp.)"
 
-#: ../../source/reference/formats.rst:32
+#: ../../source/reference/formats.rst:40
+msgid "Standalone bracket-link lines (``[[file:plot.png]]``)"
+msgstr ""
+
+#: ../../source/reference/formats.rst:42
 msgid "Table rows (lines starting with ``|``)"
 msgstr "Wiersze tabeli (linie zaczynające się od ``|``)"
 
-#: ../../source/reference/formats.rst:34
+#: ../../source/reference/formats.rst:44
 msgid "Comment lines (starting with ``#`` but not ``#+`` )"
 msgstr "Linie komentarzy (zaczynające się od ``#``, ale nie ``#+``)"
 
-#: ../../source/reference/formats.rst:36
+#: ../../source/reference/formats.rst:46
+msgid "Column-0 diary-sexp lines (``%%(...)``; org-element-diary-sexp-parser)"
+msgstr ""
+
+#: ../../source/reference/formats.rst:48
 msgid "Full headline lines (stars, optional TODO keyword, and title text)"
 msgstr ""
 
-#: ../../source/reference/formats.rst:38
+#: ../../source/reference/formats.rst:50
 #, fuzzy
 msgid ""
 "List item markers (``-``, ``+``, ``1.``); continuation sentences hang at the "
 "marker width"
 msgstr "Znaczniki elementów listy (``-``, ``+``, ``1.``)"
 
-#: ../../source/reference/formats.rst:40
+#: ../../source/reference/formats.rst:52
 msgid ""
 "LaTeX environments (``\\begin{equation}`` ... ``\\end{equation}``, "
-"``\\begin{align}``, etc.)"
+"``\\begin{align}``, etc.). An unmatched ``\\begin{env}`` is a paragraph (org-"
+"element latex-environment-parser)"
 msgstr ""
 
-#: ../../source/reference/formats.rst:42
+#: ../../source/reference/formats.rst:54
 #, fuzzy
 msgid "Display math (``\\[`` ... ``\\]``)"
 msgstr "Wzory wyświetlane: ``\\[...\\]``"
 
-#: ../../source/reference/formats.rst:44
-msgid "Inline export snippets (``@@latex:\\newpage@@``, ``@@html:<br>@@``)"
+#: ../../source/reference/formats.rst:56
+msgid ""
+"Line breaks (org-element-line-break-parser: ``\\\\`` plus optional spaces or "
+"tabs at end of line)"
 msgstr ""
 
-#: ../../source/reference/formats.rst:49
+#: ../../source/reference/formats.rst:58
+msgid ""
+"A line that is only an export snippet (``@@latex:\\newpage@@``). Trailing "
+"prose after the closer stays Prose."
+msgstr ""
+
+#: ../../source/reference/formats.rst:63
 msgid "Code regions (``#+BEGIN_SRC`` ... ``#+END_SRC``)"
 msgstr ""
 
-#: ../../source/reference/formats.rst:51
+#: ../../source/reference/formats.rst:65
+msgid ""
+"An unmatched ``#+BEGIN_SRC`` is a paragraph (org-element src-block-parser)"
+msgstr ""
+
+#: ../../source/reference/formats.rst:67
 msgid "Header and footer lines are structure"
 msgstr ""
 
-#: ../../source/reference/formats.rst:53
+#: ../../source/reference/formats.rst:69
 msgid "Body non-comment lines pass through verbatim"
 msgstr ""
 
-#: ../../source/reference/formats.rst:55
+#: ../../source/reference/formats.rst:71
 msgid ""
 "Body comment lines reflow at sentence boundaries when the language has "
 "``line_comment`` and/or ``block_comment`` under ``[code.<lang>]``"
 msgstr ""
 
-#: ../../source/reference/formats.rst:57
+#: ../../source/reference/formats.rst:73
 msgid ""
 "With ``--format-code``, optional ``formatter`` argv runs on the body "
 "(graceful fallback on failure)"
 msgstr ""
 
-#: ../../source/reference/formats.rst:62 ../../source/reference/formats.rst:129
-#: ../../source/reference/formats.rst:173
-#: ../../source/reference/formats.rst:230
+#: ../../source/reference/formats.rst:78 ../../source/reference/formats.rst:259
+#: ../../source/reference/formats.rst:320
+#: ../../source/reference/formats.rst:388
 msgid "Prose regions (reflowed)"
 msgstr "Regiony prozy (przeformatowywane)"
 
-#: ../../source/reference/formats.rst:64 ../../source/reference/formats.rst:175
+#: ../../source/reference/formats.rst:80 ../../source/reference/formats.rst:322
 msgid "Paragraph text"
 msgstr "Tekst akapitowy"
 
-#: ../../source/reference/formats.rst:66
+#: ../../source/reference/formats.rst:82
 msgid ""
 "List item text (after the marker); continuation sentences hang at the marker "
 "width so Org rejoins the item"
 msgstr ""
 
-#: ../../source/reference/formats.rst:71 ../../source/reference/formats.rst:184
+#: ../../source/reference/formats.rst:84
+msgid "Quote, center, and special-block inner text"
+msgstr ""
+
+#: ../../source/reference/formats.rst:86
+msgid ""
+"``#+CAPTION:`` value (org-element-parsed-keywords); continuation sentences "
+"hang at the opener width. Dual ``#+CAPTION[short]:`` keeps the short title "
+"on the opener"
+msgstr ""
+
+#: ../../source/reference/formats.rst:92 ../../source/reference/formats.rst:335
+#: ../../source/reference/formats.rst:397
 msgid "Inline tokens (kept atomic)"
 msgstr "Tokeny inline (zachowane jako niepodzielne)"
 
-#: ../../source/reference/formats.rst:73
+#: ../../source/reference/formats.rst:94
 msgid "These tokens within prose are not split across lines:"
 msgstr "Te tokeny wewnątrz prozy nie są dzielone między liniami:"
 
-#: ../../source/reference/formats.rst:75
+#: ../../source/reference/formats.rst:96
 msgid "Links: ``[[url][description]]``"
 msgstr "Linki: ``[[url][opis]]``"
 
-#: ../../source/reference/formats.rst:77
+#: ../../source/reference/formats.rst:98
+msgid ""
+"Angular links: ``<file:fig. 1.png>`` (org-link-angle-re; spaces allowed)"
+msgstr ""
+
+#: ../../source/reference/formats.rst:100
 msgid "Emphasis: ``\\*bold*``, ``/italic/``, ``_underline_``, ``+strike+``"
 msgstr ""
 
-#: ../../source/reference/formats.rst:79
+#: ../../source/reference/formats.rst:102
 msgid "Inline code: ``~code~``, ``==verbatim==``"
 msgstr "Kod inline: ``~code~``, ``==verbatim==``"
 
-#: ../../source/reference/formats.rst:81
+#: ../../source/reference/formats.rst:104
 msgid ""
 "A ``~code~`` or ``==verbatim==`` span may contain the marker character; "
 "pairing matches pandoc's org reader, so ``x = 1`` stays one span"
 msgstr ""
 
-#: ../../source/reference/formats.rst:83
+#: ../../source/reference/formats.rst:106
 msgid ""
 "Markdown inline code: a run of ``n`` backticks closes on the next run of the "
 "same length (CommonMark / pandoc), so a double span can hold a single "
 "backtick"
 msgstr ""
 
-#: ../../source/reference/formats.rst:85
-msgid "Inline export snippets: ``@@backend:value@@``"
+#: ../../source/reference/formats.rst:108
+msgid ""
+"Inline export snippets: ``@@backend:value@@`` (org-element-export-snippet-"
+"parser; backend ``[-A-Za-z0-9]+`` so ``html5`` and hyphen names stay one "
+"token)"
 msgstr ""
 
-#: ../../source/reference/formats.rst:87
+#: ../../source/reference/formats.rst:110
+msgid "Radio targets: ``<<<contents>>>`` (org-element-radio-target-parser)"
+msgstr ""
+
+#: ../../source/reference/formats.rst:112
+msgid "Angle targets: ``<<contents>>`` (org-element-target-parser)"
+msgstr ""
+
+#: ../../source/reference/formats.rst:114
+msgid ""
+"Macros: ``{{{name}}}`` / ``{{{name(args)}}}`` (org-element-macro-parser)"
+msgstr ""
+
+#: ../../source/reference/formats.rst:116
+msgid ""
+"Inline source: ``src_lang{...}`` / ``src_lang[headers]{...}`` (org-element-"
+"inline-src-block-parser; ``\\<src_`` is word-start. After a word, ``_src_`` "
+"is a subscript, so ``foo_src_python{...}`` is not an object; "
+"``_src_python{...}`` after space is)"
+msgstr ""
+
+#: ../../source/reference/formats.rst:118
+msgid ""
+"Inline babel call: ``call_name(...)`` / ``call_name[inside](...)[end]`` (org-"
+"element-inline-babel-call-parser; same ``\\<call_`` / subscript rule)"
+msgstr ""
+
+#: ../../source/reference/formats.rst:120
+msgid ""
+"Inline footnotes: ``[fn:: def]`` / ``[fn:name: def]`` (org-element-footnote-"
+"reference-parser)"
+msgstr ""
+
+#: ../../source/reference/formats.rst:122
+msgid ""
+"LaTeX fragments: ``\\(...\\)``, ``$...$``, ``\\cmd{arg}``, ``\\cmd[opt]{arg}"
+"`` (org-element-latex-fragment-parser; interior backslash and optional "
+"``[arg]`` stay one token). Same-line ``\\[...\\]`` is Structure"
+msgstr ""
+
+#: ../../source/reference/formats.rst:124
+msgid ""
+"Brace sub/superscripts: ``H_{2. 0}`` / ``x^{n. 1}`` (org-match-substring-"
+"regexp brace arm; interior punct stays one wrap token). Bare ``H_2`` / "
+"``x^n`` and no-space ``H_{2.0}`` are unchanged. Distinct from latex-fragment."
+msgstr ""
+
+#: ../../source/reference/formats.rst:126
 msgid "URLs: ``https://...`` (trailing sentence punctuation not swallowed)"
 msgstr ""
 
-#: ../../source/reference/formats.rst:92
+#: ../../source/reference/formats.rst:131
 msgid "LaTeX (``--format latex``)"
 msgstr "LaTeX (``--format latex``)"
 
-#: ../../source/reference/formats.rst:99
+#: ../../source/reference/formats.rst:138
 msgid "Preamble (everything before ``\\begin{document}``)"
 msgstr "Preambuła (wszystko przed ``\\begin{document}``)"
 
-#: ../../source/reference/formats.rst:101
+#: ../../source/reference/formats.rst:140
 #, fuzzy
 msgid ""
-"Non-prose environments: equation, align, figure, table, tabular, "
-"tikzpicture, and their starred variants (plus other non-code envs)"
+"Non-prose environments: equation, align, tabular, tikzpicture, and their "
+"starred variants (plus other non-code envs)"
 msgstr ""
 "Środowiska nie-prozatorskie: equation, align, figure, table, tabular, "
 "lstlisting, verbatim, minted, tikzpicture oraz ich warianty z gwiazdką"
 
-#: ../../source/reference/formats.rst:103
+#: ../../source/reference/formats.rst:142
 msgid ""
-"Extra names from ``[latex].structure_envs`` in ``.snapperrc.toml`` (for "
-"example ``algorithm``, ``comment``)"
+"Float chrome (``\\begin{figure}`` / ``\\centering`` / ``\\end{figure}``, and "
+"``table`` / starred variants): Structure. The ``\\caption`` long argument is "
+"Prose."
 msgstr ""
 
-#: ../../source/reference/formats.rst:105
+#: ../../source/reference/formats.rst:145
+msgid ""
+"Extra names from ``[latex].structure_envs`` in ``.snapperrc.toml`` (for "
+"example ``algorithm``)"
+msgstr ""
+
+#: ../../source/reference/formats.rst:147
 msgid "Display math: ``\\[...\\]``"
 msgstr "Wzory wyświetlane: ``\\[...\\]``"
 
-#: ../../source/reference/formats.rst:107
+#: ../../source/reference/formats.rst:149
+msgid "``\\iffalse`` through ``\\fi`` (tree-sitter ``block_comment``)"
+msgstr ""
+
+#: ../../source/reference/formats.rst:151
 msgid "Comment lines (starting with ``%``)"
 msgstr "Linie komentarzy (zaczynające się od ``%``)"
 
-#: ../../source/reference/formats.rst:109
+#: ../../source/reference/formats.rst:153
 msgid "``\\end{document}``"
 msgstr "``\\end{document}``"
 
-#: ../../source/reference/formats.rst:111
+#: ../../source/reference/formats.rst:155
 msgid ""
 "Full sectioning command lines (``\\section{...}``, ``\\subsection{...}``, "
 "and friends, including title text)"
 msgstr ""
 
-#: ../../source/reference/formats.rst:116
-msgid "Code regions (``minted``, ``lstlisting``, ``verbatim``)"
+#: ../../source/reference/formats.rst:160
+msgid ""
+"Code regions (``minted``, ``lstlisting``, ``verbatim``, ``comment``, "
+"``Piton``)"
 msgstr ""
 
-#: ../../source/reference/formats.rst:118
+#: ../../source/reference/formats.rst:162
 msgid "``\\\\begin{...}`` / ``\\\\end{...}`` lines are structure"
 msgstr ""
 
-#: ../../source/reference/formats.rst:120
+#: ../../source/reference/formats.rst:164
 msgid ""
-"Extra names from ``[latex].verbatim_envs`` (for example fancyvrb "
-"``Verbatim``) are code regions too"
+"fancyvrb ``Verbatim`` / ``Verbatim*`` / ``BVerbatim`` / ``BVerbatim*`` / "
+"``LVerbatim`` / ``LVerbatim*`` / ``SaveVerbatim`` / ``VerbatimOut`` / "
+"fvextra ``VerbatimWrite`` / ``VerbatimBuffer`` are built-in code regions "
+"(same FV@Scan class)"
 msgstr ""
 
-#: ../../source/reference/formats.rst:122
+#: ../../source/reference/formats.rst:166
+msgid ""
+"verbments.sty ``pyglist`` wraps fancyvrb ``VerbatimOut`` (raw listing body)"
+msgstr ""
+
+#: ../../source/reference/formats.rst:168
+msgid ""
+"texments.sty / pygmentex.sty ``pygmented`` is ``VerbatimEnvironment`` plus "
+"``VerbatimOut`` (raw listing body)"
+msgstr ""
+
+#: ../../source/reference/formats.rst:170
+msgid ""
+"fvextra ``VerbEnv`` is the environment form of ``\\Verb`` (raw body through "
+"matching ``\\end{VerbEnv}``)"
+msgstr ""
+
+#: ../../source/reference/formats.rst:172
+msgid ""
+"moreverb ``verbatimtab`` is a built-in code region (tab-expanding verbatim; "
+"same raw class as ``boxedverbatim``)"
+msgstr ""
+
+#: ../../source/reference/formats.rst:174
+msgid ""
+"moreverb ``verbatimwrite`` writes the env body raw via ``verbatim@start`` "
+"(same class as ``VerbatimOut`` / ``tcbverbatimwrite``)"
+msgstr ""
+
+#: ../../source/reference/formats.rst:176
+msgid ""
+"leftover sverb.sty ``verbwrite`` / ``ignore`` / ``demo`` / ``demo*`` are the "
+"same ``sv@readenv`` raw grab"
+msgstr ""
+
+#: ../../source/reference/formats.rst:178
+msgid ""
+"moreverb ``listing`` / ``listingcont`` / ``listing*`` / ``listingcont*`` are "
+"built-in code regions (``verbatim@start`` raw body; starred twins do not "
+"expand tabs)"
+msgstr ""
+
+#: ../../source/reference/formats.rst:180
+msgid ""
+"``alltt`` (standard ``alltt.sty``) is a built-in code region (raw line "
+"breaks)"
+msgstr ""
+
+#: ../../source/reference/formats.rst:182
+msgid ""
+"listings.sty ``lstlisting*`` is the same raw body scan as ``lstlisting``"
+msgstr ""
+
+#: ../../source/reference/formats.rst:184
+msgid ""
+"pythonhighlight.sty ``python`` (\\`lstnewenvironment{python}\\`) is the same "
+"listings raw scan as ``lstlisting``"
+msgstr ""
+
+#: ../../source/reference/formats.rst:186
+msgid ""
+"pyluatex.sty ``pythonq`` / ``pythonrepl`` are verbatim python / REPL bodies "
+"(landed ``python`` stays Code)"
+msgstr ""
+
+#: ../../source/reference/formats.rst:188
+msgid ""
+"showexpl.sty ``LTXexample`` (\\`lstnewenvironment{LTXexample}\\`) is the "
+"same listings raw scan as ``lstlisting``"
+msgstr ""
+
+#: ../../source/reference/formats.rst:190
+msgid "luamplib.dtx ``mplibcode`` is the same raw grab class as ``luacode``"
+msgstr ""
+
+#: ../../source/reference/formats.rst:192
+msgid ""
+"luacode.sty leftover ``luaexec`` is the same raw grab class as ``luacode``"
+msgstr ""
+
+#: ../../source/reference/formats.rst:194
+msgid ""
+"codehigh.sty ``codehigh`` / ``demohigh`` / ``codehigh*`` / ``demohigh*`` "
+"(\\`NewCodeHighEnv\\`) are leftover listing envs"
+msgstr ""
+
+#: ../../source/reference/formats.rst:196
+msgid ""
+"minted.sty ``minted*`` is the starred twin of ``minted`` (same raw minted "
+"body)"
+msgstr ""
+
+#: ../../source/reference/formats.rst:198
+msgid ""
+"tcolorbox listings ``tcblisting*`` is the starred twin of ``tcblisting`` "
+"(same raw listing body)"
+msgstr ""
+
+#: ../../source/reference/formats.rst:200
+msgid ""
+"tcolorbox ``tcbverbatimwrite`` / ``tcbwritetemp`` write the env body raw to "
+"a file (same class as ``VerbatimOut``)"
+msgstr ""
+
+#: ../../source/reference/formats.rst:202
+msgid ""
+"tcolorbox leftover write/listing envs ``tcboutputlisting`` / "
+"``tcbexternal`` / ``dispExample`` / ``dispExample*`` / ``dispListing`` / "
+"``dispListing*`` are the same raw grab (tcblistingscore / tcbexternal / "
+"tcbdocumentation)"
+msgstr ""
+
+#: ../../source/reference/formats.rst:204
+msgid ""
+"latexindent ``filecontents`` / ``filecontents*`` write the env body raw to a "
+"file"
+msgstr ""
+
+#: ../../source/reference/formats.rst:206
+msgid ""
+"filecontentsdef.sty ``filecontentsdef`` writes the env body verbatim into a "
+"macro (same raw grab as ``filecontents``)"
+msgstr ""
+
+#: ../../source/reference/formats.rst:208
+msgid ""
+"filecontentsdef.sty leftover siblings ``filecontentsgdef`` / "
+"``filecontentsdefmacro`` / ``filecontentsgdefmacro`` / ``filecontentshere`` "
+"and starred twins ``filecontentsdef*`` / ``filecontentsgdef*`` / "
+"``filecontentshere*`` are the same raw grab"
+msgstr ""
+
+#: ../../source/reference/formats.rst:210
+msgid ""
+"scontents.sty ``scontents`` stores the env body verbatim into a sequence; "
+"``verbatimsc`` is the package verbatim display env"
+msgstr ""
+
+#: ../../source/reference/formats.rst:212
+msgid ""
+"spverbatim.sty ``spverbatim`` is a built-in code region (raw line breaks)"
+msgstr ""
+
+#: ../../source/reference/formats.rst:214
+msgid ""
+"pythontex.sty ``pyblock`` / ``pyverbatim`` / ``pyconsole`` / ``pycode*`` / "
+"``pyblock*`` / ``pyverbatim*`` / ``pyconsole*`` / ``pygments`` / "
+"``sympycode`` / ``sympyblock`` / ``sympyverbatim`` / ``sympyconsole`` / "
+"``pylabcode`` / ``pylabblock`` / ``pylabverbatim`` / ``pylabconsole`` and "
+"starred twins, plus leftover default-family ``pyconcode`` / "
+"``pyconverbatim`` / ``pysub`` / ``pyconsub`` / ``sympyconcode`` / "
+"``sympyconverbatim`` / ``sympysub`` / ``sympyconsub`` / ``pylabconcode`` / "
+"``pylabconverbatim`` / ``pylabsub`` / ``pylabconsub`` / "
+"``pythontexcustomcode``, plus option-family ``usefamily`` leftovers "
+"(``rubycode`` representative; ruby / rb / julia / juliacon / jl / matlab / "
+"octave / bash / sage / rust / rs / R / Rcon / perl / pl / perlsix / psix / "
+"javascript / js), are the same ``VerbatimEnvironment`` class as ``pycode``"
+msgstr ""
+
+#: ../../source/reference/formats.rst:216
+msgid ""
+"sagetex.sty ``sageverbatim`` / ``sageexample`` / ``sagecommandline`` are the "
+"same ``verbatim@start`` class as tree-sitter-latex ``sagesilent`` / "
+"``sageblock``"
+msgstr ""
+
+#: ../../source/reference/formats.rst:218
+msgid "piton.sty ``Piton`` is a built-in code region (verbatim listing env)"
+msgstr ""
+
+#: ../../source/reference/formats.rst:220
+msgid "Extra names from ``[latex].verbatim_envs`` are code regions too"
+msgstr ""
+
+#: ../../source/reference/formats.rst:222
 msgid ""
 "Body follows the same comment-reflow and optional ``--format-code`` rules as "
-"other formats when language is known (``minted`` language arg, "
-"``lstlisting`` ``language=`` option)"
+"other formats when language is known (``minted`` / ``minted*`` language arg, "
+"``lstlisting`` / ``lstlisting*`` ``language=`` option)"
 msgstr ""
 
-#: ../../source/reference/formats.rst:124
+#: ../../source/reference/formats.rst:224
 msgid ""
-"Inline ``\\verb`` / ``\\lstinline`` (and extra "
-"``[latex].verbatim_commands``, for example ``\\Verb``) stay atomic; inner "
-"``.!?%`` do not split or comment"
+"Inline leftover ``\\verb`` / ``\\verb*`` / leftover ``\\lstinline`` / "
+"leftover ``\\spverb`` / leftover ``\\mintinline`` / leftover ``\\mint`` / "
+"leftover fancyvrb ``\\Verb`` / ``\\Verb*`` / leftover ``\\SaveVerb`` / "
+"leftover ``\\UseVerb`` / leftover ``\\UseVerbatim`` / leftover "
+"``\\LUseVerbatim`` / leftover ``\\BUseVerbatim`` / leftover fvextra "
+"``\\EscVerb`` / leftover fvextra ``\\VerbatimInsertBuffer`` / "
+"``\\VerbatimClearBuffer`` / ``\\InsertBuffer`` / ``\\IterateBuffer`` / "
+"leftover fancyvrb ``\\DefineShortVerb`` / ``\\UndefineShortVerb`` / "
+"``\\VerbatimInput`` / ``\\BVerbatimInput`` / ``\\LVerbatimInput`` / "
+"piton.sty leftover ``\\piton`` / ``\\PitonInputFile`` / "
+"``\\PitonInputFileT`` / ``\\PitonInputFileF`` / ``\\PitonInputFileTF`` / "
+"listings.sty ``\\lstinputlisting`` / minted.sty ``\\inputminted`` / tools/"
+"verbatim.sty ``\\verbatiminput`` / tcolorbox ``\\tcbinputlisting`` / "
+"pythontex.sty ``\\inputpy`` / ``\\inputpycon`` / leftover inline ``\\py`` / "
+"``\\pyc`` / ``\\pys`` / ``\\pyb`` / ``\\pyv`` / ``\\pycon`` and twins / "
+"``\\sympy`` / ``\\pylab`` and twins / leftover usefamily ``\\ruby`` / "
+"``\\rb`` / ``\\julia`` / ``\\jl`` / ``\\matlab`` / ``\\octave`` / "
+"``\\bash`` / ``\\sage`` / ``\\rust`` / ``\\rs`` / ``\\R`` / ``\\perl`` / "
+"``\\pl`` / ``\\perlsix`` / ``\\psix`` / ``\\javascript`` / ``\\js`` and "
+"twins / ``\\inputpygments`` / ``\\pygment`` / leftover "
+"``\\pythontexcustomc`` / pythonhighlight.sty ``\\inputpython`` / "
+"``\\inputpythonfile`` / leftover ``\\pyth`` / catchfilebetweentags.sty "
+"``\\CatchFileBetweenTags`` / ``\\CatchFileBetweenDelims`` / "
+"``\\ExecuteMetaData`` / catchfile.sty leftover ``\\CatchFileDef`` / "
+"``\\CatchFileEdef`` / moreverb ``\\listinginput`` / leftover "
+"``\\listingcont`` / leftover ``\\verbatimtabinput`` / "
+"``\\verbatimtabinput*`` / leftover ``\\verbatimwrite`` / "
+"``\\verbatimwrite*`` / sagetex ``\\sageinput`` / leftover inline "
+"``\\sageplot`` / ``\\sagestr`` / scontents leftover ``\\Scontents`` / "
+"``\\Scontents*`` / ``\\typestored`` / ``\\getstored`` / ``\\mergesc`` / "
+"``\\meaningsc`` / ``\\foreachsc`` (and extra ``[latex].verbatim_commands``) "
+"stay atomic; inner ``.!?%`` do not split or comment. leftover ``\\verb`` / "
+"``\\verb*`` / ``\\lstinline`` / ``\\spverb`` take a delimiter or, for "
+"``\\lstinline``, optional ``[...]`` then a delimiter or ``{...}``; a flush "
+"following sentence stays on its own line leftover ``\\mintinline`` / "
+"``\\mint`` take optional ``[...]``, ``{lang}``, then a delimiter or ``{...}"
+"`` body; a flush following sentence stays on its own line leftover "
+"``\\SaveVerb`` takes optional ``[...]``, a ``{name}``, then the same "
+"delimiter body as ``\\Verb``; a flush following sentence stays on its own "
+"line leftover ``\\UseVerb`` / ``\\UseVerb*`` take optional ``[...]`` then a "
+"``{name}``; leftover ``\\UseVerbatim`` / ``\\LUseVerbatim`` / "
+"``\\BUseVerbatim`` take optional ``[...]`` then a ``{name}``; a flush "
+"following sentence stays on its own line leftover ``\\DefineShortVerb`` "
+"takes optional ``[...]`` then a ``{char}``; leftover ``\\UndefineShortVerb`` "
+"takes a ``{char}``; a flush following sentence stays on its own line "
+"leftover ``\\Verb`` takes a delimiter like ``\\verb``; leftover "
+"``\\EscVerb`` takes a delimiter or ``{code}``; a flush following sentence "
+"stays on its own line leftover ``\\VerbatimInsertBuffer`` / "
+"``\\InsertBuffer`` take optional ``[...]``; leftover "
+"``\\VerbatimClearBuffer`` takes no args; leftover ``\\IterateBuffer`` takes "
+"optional ``[...]`` then a ``{cmd}``; a flush following sentence stays on its "
+"own line leftover ``\\piton|...|`` is verb-like; leftover ``\\piton{...}`` "
+"stays one token via the generic command argument; a flush following sentence "
+"stays on its own line ``\\lstinputlisting`` / ``\\lstinputlisting*`` take "
+"optional ``[...]`` then a ``{filename}``; a flush following sentence stays "
+"on its own line ``\\inputminted`` / ``\\inputminted*`` take optional "
+"``[...]``, ``{lang}``, then a ``{filename}``; a flush following sentence "
+"stays on its own line ``\\VerbatimInput`` / ``\\BVerbatimInput`` / "
+"``\\LVerbatimInput`` take optional ``[...]`` then a ``{filename}``; a flush "
+"following sentence stays on its own line ``\\verbatiminput`` / "
+"``\\verbatiminput*`` take a ``{filename}``; a flush following sentence stays "
+"on its own line ``\\PitonInputFile`` takes optional ``<...>``, optional "
+"``[...]``, then a ``{filename}``; a flush following sentence stays on its "
+"own line ``\\PitonInputFileT`` / ``\\PitonInputFileF`` take the same "
+"optional args then ``{file}`` and one extra required brace; "
+"``\\PitonInputFileTF`` takes two extra braces; a flush following sentence "
+"stays on its own line ``\\tcbinputlisting`` takes one required ``{keyval}`` "
+"group; a flush following sentence stays on its own line ``\\inputpy`` / "
+"``\\inputpycon`` take optional ``[...]`` then a ``{filename}``; a flush "
+"following sentence stays on its own line ``\\py`` / ``\\pyc`` / ``\\pys`` / "
+"``\\pyb`` / ``\\pyv`` / ``\\pycon`` and twins / ``\\sympy`` / ``\\pylab`` "
+"and twins take optional ``[...]`` then a delimiter or ``{body}``; a flush "
+"following sentence stays on its own line ``\\inputpygments`` takes optional "
+"``[...]``, ``{lang}``, then a ``{filename}``; ``\\pygment`` takes ``{lang}`` "
+"then a delimiter or ``{code}`` body; a flush following sentence stays on its "
+"own line ``\\inputpython`` takes ``{file}`` ``{first}`` ``{last}``; "
+"``\\inputpythonfile`` takes ``{file}`` then optional ``[first]`` ``[last]``; "
+"a flush following sentence stays on its own line ``\\pyth`` takes a "
+"delimiter or ``{code}`` body; a flush following sentence stays on its own "
+"line ``\\CatchFileBetweenTags`` takes ``{macro}`` ``{file}`` ``{tag}``; "
+"``\\CatchFileBetweenDelims`` takes ``{macro}`` ``{file}`` ``{start}`` ``{end}"
+"``; ``\\ExecuteMetaData`` takes optional ``[file]`` then ``{tag}``; a flush "
+"following sentence stays on its own line leftover ``\\CatchFileDef`` / "
+"``\\CatchFileEdef`` take ``{macro}`` ``{file}`` ``{setup}``; a flush "
+"following sentence stays on its own line ``\\listinginput`` takes optional "
+"``[interval]`` then ``{start}`` and ``{filename}``; a flush following "
+"sentence stays on its own line leftover ``\\listingcont`` takes no args; a "
+"flush following sentence stays on its own line leftover "
+"``\\verbatimtabinput`` / ``\\verbatimtabinput*`` take optional "
+"``[tabwidth]`` then a ``{filename}``; a flush following sentence stays on "
+"its own line leftover ``\\verbatimwrite`` / ``\\verbatimwrite*`` take a "
+"``{filename}``; a flush following sentence stays on its own line "
+"``\\sageinput`` takes optional ``[...]`` then a ``{filename}``; a flush "
+"following sentence stays on its own line ``\\sageplot`` takes optional "
+"``[ltx opts]`` ``[fmt]`` then a ``{graphics}``; ``\\sagestr`` takes a "
+"``{code}``; a flush following sentence stays on its own line "
+"``\\pythontexcustomc`` takes optional ``[begin|end]``, a required ``{type}"
+"``, then a delimiter or ``{code}`` body; a flush following sentence stays on "
+"its own line ``\\Scontents`` / ``\\Scontents*`` take optional ``[...]`` then "
+"a standard or verbatim arg; ``\\typestored`` / ``\\getstored`` / "
+"``\\mergesc`` / ``\\meaningsc`` / ``\\foreachsc`` take optional ``[...]`` "
+"then a ``{seq}``; a flush following sentence stays on its own line"
 msgstr ""
 
-#: ../../source/reference/formats.rst:131
+#: ../../source/reference/formats.rst:261
 msgid "Body text between structural elements"
 msgstr "Tekst główny pomiędzy elementami strukturalnymi"
 
-#: ../../source/reference/formats.rst:136
+#: ../../source/reference/formats.rst:263
+msgid ""
+"``\\caption{...}`` long argument inside figure/table (tree-sitter caption "
+"curly\\ :sub:`group`\\)"
+msgstr ""
+
+#: ../../source/reference/formats.rst:268
 msgid "Markdown (``--format markdown``)"
 msgstr "Markdown (``--format markdown``)"
 
-#: ../../source/reference/formats.rst:143
+#: ../../source/reference/formats.rst:275
 msgid "Front matter (``---`` or ``+++``  delimited at file start)"
 msgstr "Front matter (``---`` lub ``+++`` na początku pliku)"
 
-#: ../../source/reference/formats.rst:145
+#: ../../source/reference/formats.rst:277
 msgid "Full ATX heading lines (``#`` … ``######`` including title text)"
 msgstr ""
 
-#: ../../source/reference/formats.rst:147
+#: ../../source/reference/formats.rst:279
+msgid "Empty ATX headings (a mark line with no title text) stay Structure"
+msgstr ""
+"Puste nagłówki ATX (linia znacznika bez tekstu tytułu) pozostają "
+"Structure"
+
+#: ../../source/reference/formats.rst:281
 msgid "Setext headings (title line plus ``====`` or ------ underline)"
 msgstr ""
 
-#: ../../source/reference/formats.rst:149
+#: ../../source/reference/formats.rst:283
 #, fuzzy
 msgid ""
 "List item markers (``-``, ``\\*``, ``+``, ``1.``); continuation sentences "
 "hang at the marker width"
 msgstr "Znaczniki elementów listy (``-``, ``\\*``, ``+``, ``1.``)"
 
-#: ../../source/reference/formats.rst:151
+#: ../../source/reference/formats.rst:285
+msgid "Empty list markers (including quoted) stay Structure"
+msgstr "Puste znaczniki listy (także w cytacie) pozostają Structure"
+
+#: ../../source/reference/formats.rst:287
+msgid ""
+"Definition-list terms and ``: = markers (pulldown "
+"=ENABLE_DEFINITION_LIST``); the body hangs at the marker width"
+msgstr ""
+
+#: ../../source/reference/formats.rst:289
 msgid ""
 "Blockquote markers (``>`` / nested => > =); continuation sentences repeat "
 "the quote prefix"
 msgstr ""
 
-#: ../../source/reference/formats.rst:153
+#: ../../source/reference/formats.rst:291
+msgid ""
+"GFM alert type markers (``[!NOTE]`` / ``[!TIP]`` / ``[!WARNING]`` / ``[!"
+"CAUTION]`` / ``[!IMPORTANT]``); the body hangs and splits like a quote"
+msgstr ""
+
+#: ../../source/reference/formats.rst:293
+msgid ""
+"Link-reference definitions (``[label]: dest``); the destination may sit on "
+"the next line. A definition that sits inside a paragraph stays Prose"
+msgstr ""
+"Definicje odwołań do łączy (``[label]: dest``); cel może być w "
+"następnej linii. Definicja wewnątrz akapitu pozostaje Prose"
+
+#: ../../source/reference/formats.rst:296
+msgid ""
+"GFM footnote definitions (``[^label]:``); the marker is Structure and the "
+"body hangs"
+msgstr ""
+"Definicje przypisów GFM (``[^label]:``); znacznik jest Structure, a "
+"treść wisi"
+
+#: ../../source/reference/formats.rst:298
 msgid "Hard line breaks (two trailing spaces, or a trailing backslash)"
 msgstr ""
 
-#: ../../source/reference/formats.rst:155
+#: ../../source/reference/formats.rst:300
 msgid ""
 "HTML comments (``<!-- ... -->``, including multiline); ``<!-- snapper:off --"
 ">`` / ``<!-- snapper:on -->`` remain pragmas"
 msgstr ""
 
-#: ../../source/reference/formats.rst:157
+#: ../../source/reference/formats.rst:302
+msgid ""
+"Closed type-6 and type-7 HTML blocks end at the matching close tag; "
+"following prose stays Prose"
+msgstr ""
+"Zamknięte bloki HTML typu 6 i 7 kończą się na pasującym tagu "
+"zamykającym; następująca proza pozostaje Prose"
+
+#: ../../source/reference/formats.rst:304
 msgid "Pipe tables"
 msgstr ""
 
-#: ../../source/reference/formats.rst:162
+#: ../../source/reference/formats.rst:309
 #, fuzzy
 msgid "Code regions (fenced ``````` / ``~~~``)"
 msgstr "Ogrodzone bloki kodu (``````` lub ``~~~``)"
 
-#: ../../source/reference/formats.rst:164
+#: ../../source/reference/formats.rst:311
 msgid "Opening and closing fence lines are structure"
 msgstr ""
 
-#: ../../source/reference/formats.rst:166
+#: ../../source/reference/formats.rst:313
 msgid "Indented fence bodies preserve indentation on reflowed comment lines"
 msgstr ""
 
-#: ../../source/reference/formats.rst:168
+#: ../../source/reference/formats.rst:315
 msgid ""
 "Language from the fence info string selects ``[code.<lang>]``; unknown or "
 "missing lang passes the body through unchanged (unless ``--format-code`` is "
 "not applicable without a formatter entry)"
 msgstr ""
 
-#: ../../source/reference/formats.rst:177
+#: ../../source/reference/formats.rst:324
 msgid ""
 "List item text (after the marker); continuation sentences hang at the marker "
 "width"
 msgstr ""
 
-#: ../../source/reference/formats.rst:179
+#: ../../source/reference/formats.rst:326
+#, fuzzy
+msgid ""
+"Definition-list body (after the =: = marker); continuation sentences hang at "
+"the marker width"
+msgstr "Znaczniki elementów listy (``-``, ``+``, ``1.``)"
+
+#: ../../source/reference/formats.rst:328
+msgid ""
+"GFM footnote-definition body (after ``[^label]:``); continuation sentences "
+"hang at the marker width"
+msgstr ""
+"Treść definicji przypisu GFM (po ``[^label]:``); kolejne zdania wiszą "
+"na szerokości znacznika"
+
+#: ../../source/reference/formats.rst:330
 msgid ""
 "Blockquote inner text (after the ``>`` marker); continuation sentences "
 "repeat the quote prefix"
 msgstr ""
 
-#: ../../source/reference/formats.rst:186
+#: ../../source/reference/formats.rst:337
 msgid ""
 "Emphasis: ``\\*em*``, ``\\*\\*strong**`` (CommonMark flanking; a period "
 "inside the span does not split)"
 msgstr ""
 
-#: ../../source/reference/formats.rst:188
+#: ../../source/reference/formats.rst:339
 msgid "Strikethrough: ``~~strike~~`` (GFM)"
 msgstr ""
 
-#: ../../source/reference/formats.rst:190
+#: ../../source/reference/formats.rst:341
 msgid ""
 "Inline code: a run of ``n`` backticks closes on the next run of the same "
 "length"
 msgstr ""
 
-#: ../../source/reference/formats.rst:192
+#: ../../source/reference/formats.rst:343
 msgid "Links and images: ``[text](url)``, ``![alt](url)``"
 msgstr ""
 
-#: ../../source/reference/formats.rst:194
+#: ../../source/reference/formats.rst:345
 msgid "Inline math: ``$...$`` / ``$$...$$``"
 msgstr ""
 
-#: ../../source/reference/formats.rst:199
+#: ../../source/reference/formats.rst:350
 #, fuzzy
 msgid "reStructuredText (``--format rst``)"
 msgstr "LaTeX (``--format latex``)"
 
-#: ../../source/reference/formats.rst:206
+#: ../../source/reference/formats.rst:357
 msgid ""
-"Non-code directives (``.. math::``, ``.. image::``, etc.) and their indented "
-"bodies"
+"Non-code opaque directives (``.. math::``, ``.. image::``, ``.. raw::``, "
+"``.. include::``, ``.. csv-table::``) and their indented bodies"
 msgstr ""
 
-#: ../../source/reference/formats.rst:208
-msgid "Literal blocks (text after ``::`` with indented content)"
+#: ../../source/reference/formats.rst:359
+msgid ""
+"Container directive openers (``.. note::``, ``.. warning::``, ``.. "
+"figure::``, ``.. topic::``, ``.. sidebar::``, ``.. container::``, leftover "
+"``.. parsed-literal::``, ``.. epigraph::``, ``.. highlights::``, ``.. pull-"
+"quote::``, ``.. compound::``, ``.. header::``, ``.. footer::``) and their "
+"``:option:`` fields; the indented body is prose"
 msgstr ""
 
-#: ../../source/reference/formats.rst:210
+#: ../../source/reference/formats.rst:361
+msgid ""
+"Same-line body after ``::`` on those containers, leftover ``.. parsed-"
+"literal::``, ``.. header::``, ``.. footer::``, ``.. |name| replace::``, and "
+"``.. meta::`` fields hangs and splits. Flush bibliographic fields close a "
+"meta leftover"
+msgstr ""
+"Treść w tej samej linii po ``::`` na tych kontenerach, leftover ``.. "
+"parsed-literal::``, ``.. header::``, ``.. footer::``, ``.. |name| "
+"replace::`` oraz pola ``.. meta::`` wisi i dzieli się. Wyrównane pola "
+"bibliograficzne zamykają leftover meta"
+
+#: ../../source/reference/formats.rst:364
+msgid ""
+"Literal blocks (text after ``::`` with indented or line-prefix-quoted "
+"content)"
+msgstr ""
+
+#: ../../source/reference/formats.rst:366
 msgid "Section titles and underlines (``===``, ``-----``, etc.)"
 msgstr ""
 
-#: ../../source/reference/formats.rst:212
+#: ../../source/reference/formats.rst:368
 msgid "Field lists (``:Author:``, ``:Date:``, etc.)"
 msgstr ""
 
-#: ../../source/reference/formats.rst:214
+#: ../../source/reference/formats.rst:370
+msgid ""
+"Empty list items, empty doctest openers, and empty field-list markers at EOL "
+"stay Structure"
+msgstr ""
+"Puste elementy listy, puste otwarcia doctest i puste znaczniki "
+"field-list na EOL pozostają Structure"
+
+#: ../../source/reference/formats.rst:372
 msgid "Comments (``..`` without a directive)"
 msgstr ""
 
-#: ../../source/reference/formats.rst:216
+#: ../../source/reference/formats.rst:374
 #, fuzzy
 msgid "Grid and simple tables (lines starting with ``|`` or ``+``)"
 msgstr "Wiersze tabeli (linie zaczynające się od ``|``)"
 
-#: ../../source/reference/formats.rst:221
+#: ../../source/reference/formats.rst:379
 msgid "Code regions (``.. code-block:: LANG``)"
 msgstr ""
 
-#: ../../source/reference/formats.rst:223
+#: ../../source/reference/formats.rst:381
 msgid "Directive line and trailing blank handling stay structure"
 msgstr ""
 
-#: ../../source/reference/formats.rst:225
+#: ../../source/reference/formats.rst:383
 msgid ""
 "Indented body uses the language token for ``[code.<lang>]`` comment reflow "
 "and optional ``--format-code``"
 msgstr ""
 
-#: ../../source/reference/formats.rst:232
+#: ../../source/reference/formats.rst:390
 #, fuzzy
 msgid "Paragraph text between structural elements"
 msgstr "Tekst główny pomiędzy elementami strukturalnymi"
 
-#: ../../source/reference/formats.rst:237
+#: ../../source/reference/formats.rst:392
+msgid ""
+"Indented bodies of container directives (admonitions, figure captions, "
+"topic, sidebar, container, leftover parsed-literal, epigraph, highlights, "
+"pull-quote, compound, header, footer); hang spaces stay structure"
+msgstr ""
+
+#: ../../source/reference/formats.rst:399
+msgid ""
+"Substitution references: ``|fig. 1|`` / ``|version|`` / ``|name|_`` / ``|"
+"name|__`` (Docutils Inliner.substitution\\ :sub:`ref`\\). Interior "
+"punctuation is not a sentence or wrap boundary. The use stays Prose, not "
+"Structure (line-block is ``|`` plus space or EOL)"
+msgstr ""
+
+#: ../../source/reference/formats.rst:406
 #, fuzzy
 msgid "Auto-detection"
 msgstr "Wykrywanie zdań"
 
-#: ../../source/reference/formats.rst:239
+#: ../../source/reference/formats.rst:408
 msgid "Extensions: ``.rst``, ``.rest``"
 msgstr ""
 
-#: ../../source/reference/formats.rst:244
+#: ../../source/reference/formats.rst:413
 msgid "Plaintext (``--format plaintext``)"
 msgstr "Zwykły tekst (``--format plaintext``)"
 
-#: ../../source/reference/formats.rst:246
+#: ../../source/reference/formats.rst:415
 msgid "Everything is prose. Blank lines are preserved as paragraph separators."
 msgstr ""
 "Całość traktowana jako proza. Puste linie są zachowane jako separatory "
 "akapitów."
 
-#: ../../source/reference/formats.rst:252
+#: ../../source/reference/formats.rst:421
 msgid "Sentence Detection"
 msgstr "Wykrywanie zdań"
 
-#: ../../source/reference/formats.rst:254
+#: ../../source/reference/formats.rst:423
 msgid ""
 "``snapper`` uses Unicode UAX #29 sentence boundary detection as a baseline "
 "(or optional ``--neural`` / nnsplit), then applies the same post-pipeline: "
@@ -435,66 +953,68 @@ msgid ""
 "[]{}`` spans are not fractured."
 msgstr ""
 
-#: ../../source/reference/formats.rst:259
+#: ../../source/reference/formats.rst:428
 msgid "Delimiter-span policy (residual cases)"
 msgstr ""
 
-#: ../../source/reference/formats.rst:261
+#: ../../source/reference/formats.rst:430
 msgid ""
-"Balanced ASCII/curly/guillemet quotes, LaTeX ````…''``, and ``()[]{}`` must "
-"not gain a semantic line break mid-span (see ``tests/"
+"Balanced ASCII/curly/guillemet quotes, LaTeX double-backtick quotes, and ``()"
+"[]{}`` must not gain a semantic line break mid-span (see ``tests/"
 "sentence_delim_props.rs``)."
 msgstr ""
 
-#: ../../source/reference/formats.rst:263
+#: ../../source/reference/formats.rst:432
 msgid ""
 "Unclosed ``\"`` (or open ``‘`` without ``’``) glues the rest of the "
 "paragraph; snapper does not invent closers."
 msgstr ""
 
-#: ../../source/reference/formats.rst:265
+#: ../../source/reference/formats.rst:434
 msgid ""
 "Nested semantic ASCII quotes (``say \"hi\" now`` with an inner pair) remain "
 "toggle-ambiguous; prefer typographic quotes or escapes in source."
 msgstr ""
 
-#: ../../source/reference/formats.rst:267
+#: ../../source/reference/formats.rst:436
 msgid ""
 "Apostrophes in contractions (``don't``, ``it's``) are not treated as "
 "dialogue openers."
 msgstr ""
 
-#: ../../source/reference/formats.rst:269
-msgid "Markdown fences (```````) are not treated as LaTeX `````` openers."
+#: ../../source/reference/formats.rst:438
+msgid ""
+"Markdown fences (three backticks) are not treated as LaTeX double-backtick "
+"openers."
 msgstr ""
 
-#: ../../source/reference/formats.rst:271
+#: ../../source/reference/formats.rst:440
 msgid ""
 "``--neural`` runs the same abbreviation + span post-pipeline after the model "
 "proposes cuts (English papers can still prefer the rules path for fully "
 "offline, deterministic CI)."
 msgstr ""
 
-#: ../../source/reference/formats.rst:273
+#: ../../source/reference/formats.rst:442
 #, fuzzy
 msgid "``snapper`` merges false splits caused by known abbreviations:"
 msgstr ""
 "``snapper`` używa wykrywania granic zdań Unicode UAX #29 jako punktu "
 "wyjścia, a następnie łączy fałszywe podziały spowodowane znanymi skrótami:"
 
-#: ../../source/reference/formats.rst:278
+#: ../../source/reference/formats.rst:447
 msgid "Titles"
 msgstr "Tytuły"
 
-#: ../../source/reference/formats.rst:280
+#: ../../source/reference/formats.rst:449
 msgid "Mr., Mrs., Ms., Dr., Prof., Sr., Jr., St., Rev., Gen., etc."
 msgstr "Mr., Mrs., Ms., Dr., Prof., Sr., Jr., St., Rev., Gen. itp."
 
-#: ../../source/reference/formats.rst:285
+#: ../../source/reference/formats.rst:454
 msgid "Academic"
 msgstr "Naukowe"
 
-#: ../../source/reference/formats.rst:287
+#: ../../source/reference/formats.rst:456
 msgid ""
 "Fig., Figs., Eq., Eqs., Ref., Refs., Tab., Sec., Ch., Vol., No., Thm., Lem., "
 "Prop., Def., Cor., Rem., Ex."
@@ -502,35 +1022,35 @@ msgstr ""
 "Fig., Figs., Eq., Eqs., Ref., Refs., Tab., Sec., Ch., Vol., No., Thm., Lem., "
 "Prop., Def., Cor., Rem., Ex."
 
-#: ../../source/reference/formats.rst:292
+#: ../../source/reference/formats.rst:461
 msgid "Latin"
 msgstr "Łacińskie"
 
-#: ../../source/reference/formats.rst:294
+#: ../../source/reference/formats.rst:463
 msgid "e.g., i.e., et al., cf., etc., viz., ibid., ca., approx."
 msgstr "e.g., i.e., et al., cf., etc., viz., ibid., ca., approx."
 
-#: ../../source/reference/formats.rst:299
+#: ../../source/reference/formats.rst:468
 msgid "Single initials"
 msgstr "Pojedyncze inicjały"
 
-#: ../../source/reference/formats.rst:301
+#: ../../source/reference/formats.rst:470
 msgid "A., B., C., ... Z."
 msgstr "A., B., C., ... Z."
 
-#: ../../source/reference/formats.rst:307
+#: ../../source/reference/formats.rst:476
 msgid "Date and time"
 msgstr "Data i czas"
 
-#: ../../source/reference/formats.rst:309
+#: ../../source/reference/formats.rst:478
 msgid "Jan., Feb., ..., Dec., Mon., Tue., ..., Sun., a.m., p.m."
 msgstr "Jan., Feb., ..., Dec., Mon., Tue., ..., Sun., a.m., p.m."
 
-#: ../../source/reference/formats.rst:314
+#: ../../source/reference/formats.rst:483
 msgid "Quoted and parenthesized punctuation"
 msgstr ""
 
-#: ../../source/reference/formats.rst:316
+#: ../../source/reference/formats.rst:485
 msgid ""
 "Sentence punctuation inside quotes or parentheses does not trigger a false "
 "split when the next word starts lowercase. For example, ``He said \"wow!\" "
@@ -563,3 +1083,6 @@ msgstr ""
 
 #~ msgid "Heading text (after the marker)"
 #~ msgstr "Tekst nagłówka (po znaczniku)"
+
+#~ msgid "``#+END_*`` blocks (example, quote, etc.)"
+#~ msgstr "bloki ``#+END_*`` (source, example, quote itp.)"

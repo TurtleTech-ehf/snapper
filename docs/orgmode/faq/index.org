@@ -54,7 +54,7 @@ The Unicode UAX #29 sentence boundary algorithm works across all languages.
 Enable with =--neural --lang de=.
 Models download on first use (~4MB, cached).
 
-The rule-based approach handles most academic text well and runs 18x faster.
+The rule-based approach handles most academic text well and runs about 40x faster than neural (~5ms vs ~200ms per file; see the neural-detection howto).
 Use neural for languages where abbreviation rules fall short (Chinese, Turkish, etc.).
 
 * Why does =snapper= conflict with openSUSE?
@@ -80,11 +80,7 @@ use snapper_fmt::format::Format;
 
 let config = FormatConfig {
     format: Format::Org,
-    max_width: 0,
-    use_neural: false,
-    neural_lang: "en".to_string(),
-    neural_model_path: None,
-    extra_abbreviations: vec![],
+    ..Default::default()
 };
 let output = format_text(input, &config).unwrap();
 #+end_src

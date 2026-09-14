@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: snapper \n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-09-09 10:12-0500\n"
+"POT-Creation-Date: 2026-09-14 02:13-0500\n"
 "PO-Revision-Date: 2026-03-27 23:00+0100\n"
 "Last-Translator: Rohit Goswami <rgoswami@ieee.org>\n"
 "Language-Team: pl <LL@li.org>\n"
@@ -195,43 +195,175 @@ msgstr ""
 #: ../../source/reference/config.rst:171
 msgid ""
 "String array of environment names treated like ``minted`` / ``lstlisting`` / "
-"``verbatim`` (``Region::Code``, no reflow). Built-in: ``minted``, "
-"``lstlisting``, ``verbatim``. Adding ``Verbatim`` (fancyvrb) stops reflow of "
-"that environment."
+"``verbatim`` / ``comment`` (``Region::Code``, no reflow). Built-in: "
+"``minted`` / ``minted*``, ``lstlisting`` / ``lstlisting*``, ``verbatim``, "
+"``comment``, Overleaf ``Verbatim`` / ``boxedverbatim`` / ``tcblisting`` / "
+"``tcblisting*`` / ``codeexample`` / ``tcbverbatimwrite`` / "
+"``tcbwritetemp`` / leftover ``tcboutputlisting`` / ``tcbexternal`` / "
+"``dispExample`` / ``dispExample*`` / ``dispListing`` / ``dispListing*``, "
+"fancyvrb ``BVerbatim`` / ``BVerbatim*`` / ``LVerbatim`` / ``LVerbatim*`` / "
+"``Verbatim*`` / ``SaveVerbatim`` / ``VerbatimOut`` / fvextra "
+"``VerbatimWrite`` / ``VerbatimBuffer`` / ``VerbEnv``, verbments.sty "
+"``pyglist``, texments.sty / pygmentex.sty ``pygmented``, moreverb "
+"``verbatimtab`` / ``verbatimwrite`` / ``listing`` / ``listingcont`` / "
+"``listing*`` / ``listingcont*``, leftover sverb.sty ``verbwrite`` / "
+"``ignore`` / ``demo`` / ``demo*``, standard ``alltt``, spverbatim.sty "
+"``spverbatim``, piton.sty ``Piton``, latexindent ``filecontents`` / "
+"``filecontents*``, filecontentsdef.sty ``filecontentsdef`` / "
+"``filecontentsgdef`` / ``filecontentsdefmacro`` / "
+"``filecontentsgdefmacro`` / ``filecontentshere`` and starred twins "
+"``filecontentsdef*`` / ``filecontentsgdef*`` / ``filecontentshere*``, "
+"scontents.sty ``scontents`` / ``verbatimsc``, tree-sitter-latex "
+"``sagesilent`` / ``sageblock``, sagetex.sty ``sageverbatim`` / "
+"``sageexample`` / ``sagecommandline``, pythontex.sty ``pycode`` / "
+"``pycode*`` / ``pyblock`` / ``pyblock*`` / ``pyverbatim`` / "
+"``pyverbatim*`` / ``pyconsole`` / ``pyconsole*`` / ``pygments`` / "
+"``sympycode`` / ``sympyblock`` / ``sympyverbatim`` / ``sympyconsole`` / "
+"``pylabcode`` / ``pylabblock`` / ``pylabverbatim`` / ``pylabconsole`` and "
+"starred twins, leftover default-family ``pyconcode`` / ``pyconverbatim`` / "
+"``pysub`` / ``pyconsub`` / ``sympyconcode`` / ``sympyconverbatim`` / "
+"``sympysub`` / ``sympyconsub`` / ``pylabconcode`` / ``pylabconverbatim`` / "
+"``pylabsub`` / ``pylabconsub`` / ``pythontexcustomcode``, option-family "
+"``usefamily`` leftovers (``rubycode`` representative; ruby / rb / julia / "
+"juliacon / jl / matlab / octave / bash / sage / rust / rs / R / Rcon / "
+"perl / pl / perlsix / psix / javascript / js), pythonhighlight.sty "
+"``python``, pyluatex.sty ``pythonq`` / ``pythonrepl``, showexpl.sty "
+"``LTXexample``, luamplib.dtx ``mplibcode``, luacode.sty leftover "
+"``luaexec``, and codehigh.sty ``codehigh`` / ``demohigh`` / ``codehigh*`` / "
+"``demohigh*``."
 msgstr ""
 
-#: ../../source/reference/config.rst:178
-msgid "structure\\ :sub:`envs`\\ (latex)"
+#: ../../source/reference/config.rst:175
+msgid "Adding an unlisted name stops reflow of that environment."
 msgstr ""
 
 #: ../../source/reference/config.rst:180
-msgid ""
-"String array of environment names treated like ``equation`` / ``figure`` "
-"(``Region::Structure``, no reflow). Built-in: the ``NON_PROSE_ENVS`` list "
-"(equation, align, figure, table, tabular, tikzpicture, and starred variants, "
-"plus the built-in code envs). Adding ``algorithm`` or ``comment`` stops "
-"reflow of those environments."
+msgid "structure\\ :sub:`envs`\\ (latex)"
 msgstr ""
 
-#: ../../source/reference/config.rst:187
+#: ../../source/reference/config.rst:182
+msgid ""
+"String array of environment names treated like ``equation`` "
+"(``Region::Structure``, no reflow). Built-in: the ``NON_PROSE_ENVS`` list "
+"(equation, align, tabular, tikzpicture, and starred variants, plus the built-"
+"in code envs). Figure/table chrome stays Structure; the ``\\caption`` long "
+"argument is Prose. Adding ``algorithm`` stops reflow of that environment."
+msgstr ""
+
+#: ../../source/reference/config.rst:190
 msgid "verbatim\\ :sub:`commands`\\ (latex)"
 msgstr ""
 
-#: ../../source/reference/config.rst:189
+#: ../../source/reference/config.rst:192
 msgid ""
 "String array of extra command names tokenized like the built-in verb command "
 "before sentence split. The next character after the name is the delimiter. "
-"Built-in names are ``verb`` and ``lstinline``; ``lstinline`` still accepts "
-"optional ``[...]`` and ``{...}``. Adding ``Verb`` (fancyvrb) keeps that "
-"command's delimited body atomic and treats an inner ``%`` as content, not a "
-"comment."
+"Built-in names are leftover ``verb`` / ``verb*``, leftover ``lstinline``, "
+"``lstinputlisting``, leftover ``spverb``, leftover ``mintinline``, "
+"``inputminted``, leftover ``mint``, leftover fancyvrb ``Verb`` / ``Verb*`` / "
+"leftover ``SaveVerb`` / leftover ``UseVerb`` / leftover ``UseVerbatim`` / "
+"leftover ``LUseVerbatim`` / leftover ``BUseVerbatim`` / leftover fvextra "
+"``EscVerb`` / leftover fvextra ``VerbatimInsertBuffer`` / "
+"``VerbatimClearBuffer`` / ``InsertBuffer`` / ``IterateBuffer`` / leftover "
+"fancyvrb ``DefineShortVerb`` / ``UndefineShortVerb`` / ``VerbatimInput`` / "
+"``BVerbatimInput`` / ``LVerbatimInput``, piton.sty leftover ``\\piton`` / "
+"``\\PitonInputFile`` / ``\\PitonInputFileT`` / ``\\PitonInputFileF`` / "
+"``\\PitonInputFileTF``, tools/verbatim.sty ``\\verbatiminput``, tcolorbox "
+"``\\tcbinputlisting``, pythontex.sty ``\\inputpy`` / ``\\inputpycon`` / "
+"leftover inline ``\\py`` / ``\\pyc`` / ``\\pys`` / ``\\pyb`` / ``\\pyv`` / "
+"``\\pycon`` and twins / ``\\sympy`` / ``\\pylab`` and twins / leftover "
+"usefamily ``\\ruby`` / ``\\rb`` / ``\\julia`` / ``\\jl`` / ``\\matlab`` / "
+"``\\octave`` / ``\\bash`` / ``\\sage`` / ``\\rust`` / ``\\rs`` / ``\\R`` / "
+"``\\perl`` / ``\\pl`` / ``\\perlsix`` / ``\\psix`` / ``\\javascript`` / "
+"``\\js`` and twins / ``\\inputpygments`` / ``\\pygment`` / leftover "
+"``\\pythontexcustomc``, pythonhighlight.sty ``\\inputpython`` / "
+"``\\inputpythonfile`` / leftover ``\\pyth``, catchfilebetweentags.sty "
+"``\\CatchFileBetweenTags`` / ``\\CatchFileBetweenDelims`` / "
+"``\\ExecuteMetaData``, catchfile.sty leftover ``\\CatchFileDef`` / "
+"``\\CatchFileEdef``, moreverb ``\\listinginput`` / leftover "
+"``\\listingcont`` / leftover ``\\verbatimtabinput`` / "
+"``\\verbatimtabinput*`` / leftover ``\\verbatimwrite`` / "
+"``\\verbatimwrite*``, sagetex ``\\sageinput`` / leftover inline "
+"``\\sageplot`` / ``\\sagestr``, scontents leftover ``\\Scontents`` / "
+"``\\Scontents*`` / ``\\typestored`` / ``\\getstored`` / ``\\mergesc`` / "
+"``\\meaningsc`` / ``\\foreachsc``; ``lstinline`` still accepts optional "
+"``[...]`` and ``{...}``. ``verb`` / ``verb*`` / ``lstinline`` / ``spverb`` "
+"take a delimiter or, for ``lstinline``, optional ``[...]`` then a delimiter "
+"or ``{...}``; following flush prose stays on its own line. ``mintinline`` / "
+"``mint`` take optional ``[...]``, a ``{lang}`` argument, then a delimiter or "
+"``{...}`` body; following flush prose stays on its own line. "
+"``\\inputminted`` takes the same optional ``[...]`` and ``{lang}`` then a "
+"required ``{filename}``; following flush prose stays on its own line. "
+"``SaveVerb`` takes optional ``[...]``, a ``{name}`` argument, then the same "
+"delimiter body as ``Verb``; following flush prose stays on its own line. "
+"``UseVerb`` / ``UseVerb*`` take optional ``[...]`` then a required ``{name}"
+"``; ``UseVerbatim`` / ``LUseVerbatim`` / ``BUseVerbatim`` take optional "
+"``[...]`` then a required ``{name}``; following flush prose stays on its own "
+"line. leftover ``\\DefineShortVerb`` takes optional ``[...]`` then a ``{char}"
+"``; leftover ``\\UndefineShortVerb`` takes a ``{char}``; following flush "
+"prose stays on its own line. ``Verb`` takes a delimiter like ``verb``; "
+"``EscVerb`` takes a delimiter or ``{code}``; following flush prose stays on "
+"its own line. ``\\VerbatimInsertBuffer`` / ``\\InsertBuffer`` take optional "
+"``[...]``; ``\\VerbatimClearBuffer`` takes no args; ``\\IterateBuffer`` "
+"takes optional ``[...]`` then a required ``{cmd}``; following flush prose "
+"stays on its own line. ``\\piton|...|`` is verb-like (interior ``.!?%`` stay "
+"one token); ``\\piton{...}`` stays one token via the generic command "
+"argument; following flush prose stays on its own line. ``\\lstinputlisting`` "
+"takes optional ``[...]`` then a required ``{filename}``; following flush "
+"prose stays on its own line. ``\\VerbatimInput`` / ``\\BVerbatimInput`` / "
+"``\\LVerbatimInput`` take optional ``[...]`` then a required ``{filename}``; "
+"following flush prose stays on its own line. ``\\verbatiminput`` / "
+"``\\verbatiminput*`` take a required ``{filename}``; following flush prose "
+"stays on its own line. ``\\PitonInputFile`` takes optional ``<...>``, "
+"optional ``[...]``, then a required ``{filename}``; following flush prose "
+"stays on its own line. ``\\PitonInputFileT`` / ``\\PitonInputFileF`` take "
+"the same optional args then ``{file}`` and one extra required brace; "
+"``\\PitonInputFileTF`` takes two extra braces; following flush prose stays "
+"on its own line. ``\\tcbinputlisting`` takes one required ``{keyval}`` "
+"group; following flush prose stays on its own line. ``\\inputpy`` / "
+"``\\inputpycon`` take optional ``[...]`` then a required ``{filename}``; "
+"following flush prose stays on its own line. ``\\py`` / ``\\pyc`` / "
+"``\\pys`` / ``\\pyb`` / ``\\pyv`` / ``\\pycon`` and twins / ``\\sympy`` / "
+"``\\pylab`` and twins take optional ``[...]`` then a delimiter or ``{body}"
+"``; following flush prose stays on its own line. ``\\inputpygments`` takes "
+"optional ``[...]``, ``{lang}``, then a required ``{filename}``; "
+"``\\pygment`` takes ``{lang}`` then a delimiter or ``{code}`` body; "
+"following flush prose stays on its own line. ``\\inputpython`` takes "
+"required ``{file}`` ``{first}`` ``{last}``; ``\\inputpythonfile`` takes "
+"required ``{file}`` then optional ``[first]`` ``[last]``; following flush "
+"prose stays on its own line. ``\\pyth`` takes a delimiter or ``{code}`` "
+"body; following flush prose stays on its own line. "
+"``\\CatchFileBetweenTags`` takes ``{macro}`` ``{file}`` ``{tag}``; "
+"``\\CatchFileBetweenDelims`` takes ``{macro}`` ``{file}`` ``{start}`` ``{end}"
+"``; ``\\ExecuteMetaData`` takes optional ``[file]`` then ``{tag}``; "
+"following flush prose stays on its own line. ``\\CatchFileDef`` / "
+"``\\CatchFileEdef`` take ``{macro}`` ``{file}`` ``{setup}``; following flush "
+"prose stays on its own line. ``\\listinginput`` takes optional "
+"``[interval]`` then required ``{start}`` and ``{filename}``; following flush "
+"prose stays on its own line. leftover ``\\listingcont`` takes no args; "
+"following flush prose stays on its own line. ``\\verbatimtabinput`` / "
+"``\\verbatimtabinput*`` take optional ``[tabwidth]`` then a required "
+"``{filename}``; following flush prose stays on its own line. "
+"``\\verbatimwrite`` / ``\\verbatimwrite*`` take a required ``{filename}``; "
+"following flush prose stays on its own line. ``\\sageinput`` takes optional "
+"``[...]`` then a required ``{filename}``; following flush prose stays on its "
+"own line. ``\\sageplot`` takes optional ``[ltx opts]`` ``[fmt]`` then a "
+"required ``{graphics}``; ``\\sagestr`` takes a required ``{code}``; "
+"following flush prose stays on its own line. ``\\pythontexcustomc`` takes "
+"optional ``[begin|end]``, a required ``{type}``, then a delimiter or ``{code}"
+"`` body; following flush prose stays on its own line. ``\\Scontents`` / "
+"``\\Scontents*`` take optional ``[...]`` then a standard or verbatim arg; "
+"``\\typestored`` / ``\\getstored`` / ``\\mergesc`` / ``\\meaningsc`` / "
+"``\\foreachsc`` take optional ``[...]`` then a required ``{seq}``; following "
+"flush prose stays on its own line. Adding another name keeps that command's "
+"delimited body atomic and treats an inner ``%`` as content, not a comment."
 msgstr ""
 
-#: ../../source/reference/config.rst:197
+#: ../../source/reference/config.rst:230
 msgid "Code-block sections (``[code.<lang>]``)"
 msgstr ""
 
-#: ../../source/reference/config.rst:199
+#: ../../source/reference/config.rst:232
 msgid ""
 "Each ``[code.<lang>]`` table configures how fenced or delimited source "
 "blocks for that language are handled. ``snapper init`` writes seed entries "
@@ -239,57 +371,57 @@ msgid ""
 "``html``, ``javascript``)."
 msgstr ""
 
-#: ../../source/reference/config.rst:205
+#: ../../source/reference/config.rst:238
 msgid "line\\ :sub:`comment`"
 msgstr ""
 
-#: ../../source/reference/config.rst:207
+#: ../../source/reference/config.rst:240
 msgid ""
 "String. Marker for single-line comments (for example ``\"//\"`` or "
 "``\"#\"``). Comment text after the marker is reflowed with the sentence "
 "splitter; the marker and indentation are preserved."
 msgstr ""
 
-#: ../../source/reference/config.rst:211
+#: ../../source/reference/config.rst:244
 msgid ""
 "A marker that repeats or decorates this one keeps its written form, so ``///"
 "`` and ``//!`` survive a split instead of collapsing to ``//``. A ``#!`` "
 "shebang is left alone."
 msgstr ""
 
-#: ../../source/reference/config.rst:214
+#: ../../source/reference/config.rst:247
 msgid ""
 "Where a grammar backs the language (see `grammar-backed-languages`_), the "
 "reflow also reaches a comment that follows code on the same line, aligning "
 "continuation sentences under the comment:"
 msgstr ""
 
-#: ../../source/reference/config.rst:221
+#: ../../source/reference/config.rst:254
 msgid ""
 "Without a grammar the marker must open the line. That rule keeps the ``//`` "
 "inside ``\"// not a comment.\"`` out of the reflow."
 msgstr ""
 
-#: ../../source/reference/config.rst:227
+#: ../../source/reference/config.rst:260
 msgid "block\\ :sub:`comment`"
 msgstr ""
 
-#: ../../source/reference/config.rst:229
+#: ../../source/reference/config.rst:262
 msgid ""
 "String array of length two: open and close markers (for example ``[\"/*\", "
 "\"*/\"]``). One-line and multi-line block comments are reflowed as prose "
 "between the markers."
 msgstr ""
 
-#: ../../source/reference/config.rst:235
+#: ../../source/reference/config.rst:268
 msgid "string\\ :sub:`delims`"
 msgstr ""
 
-#: ../../source/reference/config.rst:237
+#: ../../source/reference/config.rst:270
 msgid "String array of quote characters. Defaults to ``[\"\\\"\", \"'\"]``."
 msgstr ""
 
-#: ../../source/reference/config.rst:240
+#: ../../source/reference/config.rst:273
 msgid ""
 "Without a grammar, quoting is the only thing separating a comment marker "
 "from the same characters inside a literal: a marker that trails code "
@@ -299,46 +431,46 @@ msgid ""
 "marker after it goes unreflowed rather than mangled."
 msgstr ""
 
-#: ../../source/reference/config.rst:243
+#: ../../source/reference/config.rst:276
 msgid ""
 "Grammar-backed languages ignore this field; the parse already knows which "
 "bytes belong to a string."
 msgstr ""
 
-#: ../../source/reference/config.rst:248
+#: ../../source/reference/config.rst:281
 msgid "escape"
 msgstr ""
 
-#: ../../source/reference/config.rst:250
+#: ../../source/reference/config.rst:283
 msgid ""
 "String holding one character that escapes the next inside a string literal. "
 "Defaults to a backslash."
 msgstr ""
 
-#: ../../source/reference/config.rst:256
+#: ../../source/reference/config.rst:289
 #, fuzzy
 msgid "formatter"
 msgstr "format"
 
-#: ../../source/reference/config.rst:258
+#: ../../source/reference/config.rst:291
 msgid ""
 "String array treated as argv for ``std::process::Command``. Only runs when "
 "the CLI flag ``--format-code`` is set. Missing binaries, non-zero exits, and "
 "a ~30s watchdog timeout each leave the reflowed body in place (non-fatal)."
 msgstr ""
 
-#: ../../source/reference/config.rst:262
+#: ../../source/reference/config.rst:295
 msgid ""
 "If a language has no ``[code.<lang>]`` entry (or the fence has no language), "
 "the block body passes through unchanged aside from normal trailing-newline "
 "preservation."
 msgstr ""
 
-#: ../../source/reference/config.rst:267
+#: ../../source/reference/config.rst:300
 msgid "Grammar-backed languages"
 msgstr ""
 
-#: ../../source/reference/config.rst:269
+#: ../../source/reference/config.rst:302
 msgid ""
 "The ``treesitter`` feature, on by default, parses code blocks in ``rust``, "
 "``python``, ``javascript``, ``c``, ``cpp``, ``go``, ``bash`` and ``html`` to "
@@ -346,38 +478,38 @@ msgid ""
 "``js``, ``sh``."
 msgstr ""
 
-#: ../../source/reference/config.rst:272
+#: ../../source/reference/config.rst:305
 msgid ""
 "A build feature governs this, not a config field, and a ``[code.<lang>]`` "
 "entry remains required. The grammar decides which bytes form a comment; the "
 "entry supplies the markers used to re-emit it."
 msgstr ""
 
-#: ../../source/reference/config.rst:275
+#: ../../source/reference/config.rst:308
 msgid ""
 "Two builds carry no grammars and fall back to the scanner for every language:"
 msgstr ""
 
-#: ../../source/reference/config.rst:277
+#: ../../source/reference/config.rst:310
 msgid ""
 "``wasm32-unknown-unknown``, the target behind the Obsidian and Word "
 "integrations, where the C runtime and its grammars would need a ``wasm`` "
 "libc."
 msgstr ""
 
-#: ../../source/reference/config.rst:279
+#: ../../source/reference/config.rst:312
 msgid ""
 "Any build configured with ``--no-default-features`` that does not opt back "
 "in."
 msgstr ""
 
-#: ../../source/reference/config.rst:281
+#: ../../source/reference/config.rst:314
 msgid ""
 "The VS Code extension runs the CLI rather than the wasm build, so it has "
 "grammars."
 msgstr ""
 
-#: ../../source/reference/config.rst:283
+#: ../../source/reference/config.rst:316
 msgid ""
 "The scanner reads `field-string-delims`_ to find trailing comments on its "
 "own, so both engines agree on ordinary code. A grammar still wins on raw "
@@ -385,7 +517,7 @@ msgid ""
 "counting alone gives the wrong answer."
 msgstr ""
 
-#: ../../source/reference/config.rst:286
+#: ../../source/reference/config.rst:319
 msgid ""
 "Block comments stay on the scanner. A close marker inside a string does not "
 "end the comment, so ``let s = \"*/\";`` in a ``/* ... */`` block stays in "
@@ -394,11 +526,11 @@ msgid ""
 "reflow."
 msgstr ""
 
-#: ../../source/reference/config.rst:293
+#: ../../source/reference/config.rst:326
 msgid "Precedence"
 msgstr "Kolejność priorytetów"
 
-#: ../../source/reference/config.rst:295
+#: ../../source/reference/config.rst:328
 msgid ""
 "CLI flags override config file values. Per-format sections override top-"
 "level config values. Config file values override ``.editorconfig`` values. "
