@@ -240,6 +240,18 @@ fn leftover_constructors_do_not_join() {
     leftover_cmd_stays_atomic(r"\NewTColorBox{mybox}{O{}}{colback=red}");
     leftover_cmd_stays_atomic(r"\tcbset{colback=red}");
     leftover_cmd_stays_atomic(r"\tcbuselibrary{listings}");
+    leftover_cmd_stays_atomic(r"\setpythontexprettyprinter{pygments}");
+    leftover_cmd_stays_atomic(r"\setpythontexprettyprinter[py]{pygments}");
+    leftover_cmd_stays_atomic(r"\setpygmentsprettyprinter{pygments}");
+    leftover_cmd_stays_atomic(r"\setpythontexworkingdir{plots}");
+    leftover_cmd_stays_atomic(r"\setpythontexoutputdir{pythontex-files}");
+    leftover_cmd_stays_atomic(r"\renewtcbinputlisting{\mylisting}{listing file={foo.py}}");
+    leftover_cmd_stays_atomic(r"\RenewTCBInputListing{\mylisting}{O{}}{listing file={foo.py}}");
+    leftover_cmd_stays_atomic(r"\lstloadaspects{strings}");
+    leftover_cmd_stays_atomic(r"\BufferMdfivesum");
+    leftover_cmd_stays_atomic(r"\BufferMdfivesum[foo]");
+    leftover_cmd_stays_atomic(r"\sagetexpause");
+    leftover_cmd_stays_atomic(r"\sagetexunpause");
     extras_skip_no_brace("newminted");
     extras_skip_no_brace("newmint");
     extras_skip_no_brace("renewminted");
@@ -252,6 +264,10 @@ fn leftover_constructors_do_not_join() {
     extras_skip_no_brace("newtcolorbox");
     extras_skip_no_brace("tcbset");
     extras_skip_no_brace("tcbuselibrary");
+    extras_skip_no_brace("setpythontexprettyprinter");
+    extras_skip_no_brace("lstloadaspects");
+    extras_skip_no_brace("BufferMdfivesum");
+    extras_skip_no_brace("sagetexpause");
 }
 
 #[test]

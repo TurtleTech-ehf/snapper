@@ -682,7 +682,7 @@ pub(crate) fn latex_verb_span_end_with(
             "lstdefinestyle" | "lstdefinelanguage" | "lstdefineformat" | "lstalias" => {
                 VerbKind::Listinginput
             }
-            "lstset" | "lstloadlanguages" => VerbKind::Tcbinputlisting,
+            "lstset" | "lstloadlanguages" | "lstloadaspects" => VerbKind::Tcbinputlisting,
             "lstlistoflistings" => VerbKind::Listingcont,
             _ => VerbKind::LstMakeShortInline,
         };
@@ -1378,6 +1378,7 @@ pub(crate) fn listings_leftover_cs_name(tail: &str) -> Option<&'static str> {
         "lstdefinelanguage",
         "lstdefinestyle",
         "lstloadlanguages",
+        "lstloadaspects",
         "lstalias",
         "lstDeleteShortInline",
         "lstMakeShortInline",
@@ -1409,7 +1410,10 @@ pub(crate) fn leftover_keyval_cs_name(tail: &str) -> Option<&'static str> {
         "DefineVerbatimCommand",
         "MintedRegisterTempFileExtension",
         "DeclareTCBInputListing",
+        "ProvideTCBInputListing",
+        "RenewTCBInputListing",
         "NewTCBInputListing",
+        "renewtcbinputlisting",
         "newtcbinputlisting",
         "DeclareTCBListing",
         "ProvideTCBListing",
@@ -1444,10 +1448,14 @@ pub(crate) fn leftover_keyval_cs_name(tail: &str) -> Option<&'static str> {
         "usestdoutpythontex",
         "usestderrpythontex",
         "useprintpythontex",
+        "setpythontexprettyprinter",
+        "setpythontexworkingdir",
+        "setpythontexoutputdir",
         "setpythontexpyglexer",
         "setpythontexautostdout",
         "setpythontexautoprint",
         "setpythontexpygopt",
+        "setpygmentsprettyprinter",
         "setpygmentspygopt",
         "SetPitonIdentifier",
         "NewPitonLanguage",
@@ -1470,6 +1478,8 @@ pub(crate) fn leftover_keyval_cs_name(tail: &str) -> Option<&'static str> {
         "pyoptions",
         "listoflistings",
         "pyoption",
+        "sagetexunpause",
+        "sagetexpause",
         "pyif",
         "fvset",
     ] {
@@ -1494,10 +1504,15 @@ fn leftover_keyval_kind(name: &str) -> VerbKind {
         | "tcbusetemplisting"
         | "tcbusetemp"
         | "lstlistoflistings"
-        | "listoflistings" => VerbKind::Listingcont,
-        "setmintedinline" | "usemintedstyle" | "setminted" | "SetPitonStyle" => {
-            VerbKind::Lstinputlisting
-        }
+        | "listoflistings"
+        | "sagetexpause"
+        | "sagetexunpause" => VerbKind::Listingcont,
+        "setmintedinline"
+        | "usemintedstyle"
+        | "setminted"
+        | "SetPitonStyle"
+        | "setpythontexprettyprinter"
+        | "setpygmentsprettyprinter" => VerbKind::Lstinputlisting,
         "pyoption"
         | "SetPitonIdentifier"
         | "NewPitonLanguage"
@@ -1515,8 +1530,7 @@ fn leftover_keyval_kind(name: &str) -> VerbKind {
         | "renewtcblisting"
         | "newtcblisting"
         | "newtcbinputlisting"
-        | "NewTCBInputListing"
-        | "DeclareTCBInputListing"
+        | "renewtcbinputlisting"
         | "renewtcolorbox"
         | "newtcolorbox" => VerbKind::Listinginput,
         "RecustomVerbatimEnvironment"
@@ -1526,9 +1540,15 @@ fn leftover_keyval_kind(name: &str) -> VerbKind {
         | "CustomVerbatimCommand"
         | "DefineVerbatimCommand" => VerbKind::LstNewenvironment,
         "NewTCBListing" | "DeclareTCBListing" | "RenewTCBListing" | "ProvideTCBListing"
-        | "DeclareTColorBox" | "ProvideTColorBox" | "RenewTColorBox" | "NewTColorBox" | "pyif" => {
-            VerbKind::LstNewenvironment
-        }
+        | "DeclareTColorBox"
+        | "ProvideTColorBox"
+        | "RenewTColorBox"
+        | "NewTColorBox"
+        | "NewTCBInputListing"
+        | "RenewTCBInputListing"
+        | "ProvideTCBInputListing"
+        | "DeclareTCBInputListing"
+        | "pyif" => VerbKind::LstNewenvironment,
         "ProvidePitonEnvironment"
         | "DeclarePitonEnvironment"
         | "RenewPitonEnvironment"
@@ -1577,6 +1597,7 @@ pub(crate) fn fvextra_buffer_leftover_cs_name(tail: &str) -> Option<&'static str
     for name in [
         "VerbatimInsertBuffer",
         "VerbatimClearBuffer",
+        "BufferMdfivesum",
         "IterateBuffer",
         "InsertBuffer",
         "WriteBuffer",
