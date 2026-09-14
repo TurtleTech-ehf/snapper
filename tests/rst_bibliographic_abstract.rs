@@ -73,6 +73,21 @@ fn leftover_authors_same_line_hangs_and_splits() {
 }
 
 #[test]
+fn leftover_organization_same_line_hangs_and_splits() {
+    let input = concat!(":Organization: fig. 1 is here. After.\n", "After. Next.\n",);
+    let out = format_text(input, &rst_cfg()).unwrap();
+    assert!(
+        !out.contains(":Organization: fig. 1 is here. After."),
+        "Organization value must still split, got:\n{out}"
+    );
+    assert!(
+        out.contains("After.\nNext."),
+        "following prose must still split, got:\n{out}"
+    );
+    assert_eq!(format_text(&out, &rst_cfg()).unwrap(), out);
+}
+
+#[test]
 fn leftover_copyright_same_line_hangs_and_splits() {
     let input = concat!(":Copyright: fig. 1 is here. After.\n", "After. Next.\n",);
     let out = format_text(input, &rst_cfg()).unwrap();

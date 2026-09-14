@@ -316,7 +316,10 @@ fn parse_line_based(input: &str) -> Vec<SpannedRegion> {
             }
             regions.push(SpannedRegion::structure(input, line.span()));
             let dir_name = rst_directive_name(trimmed);
-            if dir_name.as_deref().is_some_and(|n| n == "table") {
+            if dir_name
+                .as_deref()
+                .is_some_and(|n| n == "table" || n == "csv-table")
+            {
                 in_container_body = false;
                 in_meta = false;
                 let leading = line_text.len() - trimmed.len();
@@ -907,7 +910,18 @@ fn rst_bibliographic_body_field(name: &str) -> bool {
         .unwrap_or(name);
     matches!(
         inner.to_ascii_lowercase().as_str(),
-        "abstract" | "dedication" | "authors" | "address" | "subtitle" | "copyright"
+        "abstract"
+            | "dedication"
+            | "authors"
+            | "address"
+            | "subtitle"
+            | "copyright"
+            | "organization"
+            | "contact"
+            | "version"
+            | "revision"
+            | "status"
+            | "date"
     )
 }
 
@@ -920,8 +934,8 @@ fn is_rst_meta_directive(name: &str) -> bool {
 /// line is not a no-argument admonition. Body text after the marker
 /// is not included, so `Some(s.len())` is the Structure prefix used
 /// for hang (GitHub #349).
-/// Docutils `table` title leftover: `.. table::` plus pad. Same-line
-/// title is hung Prose; the table body stays opaque.
+/// Docutils `table` / `csv-table` title leftover: `.. table::` plus
+/// pad. Same-line title is hung Prose; the table body stays opaque.
 fn rst_table_marker_len(line: &str) -> Option<usize> {
     let indent = line.len() - line.trim_start().len();
     let trimmed = &line[indent..];
@@ -932,7 +946,8 @@ fn rst_table_marker_len(line: &str) -> Option<usize> {
     let name_off = rest.len() - rest.trim_start().len();
     let after_ws = &rest[name_off..];
     let name_end = after_ws.find("::")?;
-    if after_ws[..name_end].trim().to_ascii_lowercase() != "table" {
+    let name = after_ws[..name_end].trim().to_ascii_lowercase();
+    if name != "table" && name != "csv-table" {
         return None;
     }
     let colons_at = indent + 2 + name_off + name_end;

@@ -30,6 +30,30 @@ fn note_container_fixture() -> &'static str {
 }
 
 #[test]
+fn leftover_csv_table_title_splits_body_stays_opaque() {
+    let input = concat!(
+        ".. csv-table:: fig. 1 is here. After.\n",
+        "\n",
+        "   \"a. b\", \"c. d\"\n",
+        "After. Next.\n",
+    );
+    let out = format_text(input, &rst_cfg()).unwrap();
+    assert!(
+        !out.contains(".. csv-table:: fig. 1 is here. After."),
+        "csv-table title must still split, got:\n{out}"
+    );
+    assert!(
+        out.contains("\"a. b\"") && !out.contains("a.\n"),
+        "csv-table body must stay opaque, got:\n{out}"
+    );
+    assert!(
+        out.contains("After.\nNext."),
+        "following prose must still split, got:\n{out}"
+    );
+    assert_eq!(format_text(&out, &rst_cfg()).unwrap(), out);
+}
+
+#[test]
 fn leftover_table_title_splits_body_stays_opaque() {
     let input = concat!(
         ".. table:: fig. 1 is here. After.\n",
