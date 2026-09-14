@@ -5,7 +5,7 @@
 use snapper_fmt::format::Format;
 use snapper_fmt::parser::org::OrgParser;
 use snapper_fmt::parser::{FormatParser, Region};
-use snapper_fmt::{FormatConfig, format_text};
+use snapper_fmt::{format_text, FormatConfig};
 
 fn org_cfg() -> FormatConfig {
     FormatConfig {
@@ -99,6 +99,58 @@ fn unmatched_example_is_paragraph() {
         "After the block. Next.\n",
     );
     assert_unmatched_opaque_is_paragraph(input, "#+BEGIN_EXAMPLE");
+}
+
+#[test]
+fn leftover_unmatched_quote_is_paragraph() {
+    let input = concat!(
+        "#+BEGIN_QUOTE\n",
+        "Quoted one. Quoted two.\n",
+        "After. Next.\n",
+    );
+    let regions = OrgParser.parse(input);
+    assert!(
+        regions.iter().any(|r| matches!(
+            r,
+            Region::Prose(s)
+                if s.contains("#+BEGIN_QUOTE")
+                    && s.contains("Quoted one.")
+                    && s.contains("After.")
+        )),
+        "unmatched #+BEGIN_QUOTE is a paragraph, got {regions:?}"
+    );
+    assert!(
+        !regions
+            .iter()
+            .any(|r| matches!(r, Region::Structure(s) if s.contains("#+BEGIN_QUOTE"))),
+        "unmatched #+BEGIN_QUOTE must not stay Structure, got {regions:?}"
+    );
+    let out = format_text(input, &org_cfg()).unwrap();
+    assert!(
+        out.contains("After.\nNext."),
+        "following prose must still split, got:\n{out}"
+    );
+    assert_eq!(format_text(&out, &org_cfg()).unwrap(), out);
+}
+
+#[test]
+fn leftover_unmatched_center_is_paragraph() {
+    let input = concat!(
+        "#+BEGIN_CENTER\n",
+        "Great clouds overhead. Tiny black birds.\n",
+        "After the block. Next.\n",
+    );
+    assert_unmatched_opaque_is_paragraph(input, "#+BEGIN_CENTER");
+}
+
+#[test]
+fn leftover_unmatched_note_is_paragraph() {
+    let input = concat!(
+        "#+BEGIN_NOTE\n",
+        "Great clouds overhead. Tiny black birds.\n",
+        "After the block. Next.\n",
+    );
+    assert_unmatched_opaque_is_paragraph(input, "#+BEGIN_NOTE");
 }
 
 #[test]

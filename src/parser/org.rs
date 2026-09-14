@@ -589,12 +589,11 @@ impl OrgParser {
         "\\end{".len() + env.len() + 1
     }
 
-    /// Greater-block names whose unmatched opener is a paragraph
-    /// (org-element; GitHub #355). Quote/center/special-block stay
-    /// containers when closed; unmatched opaque names must not
-    /// swallow to EOF.
-    fn unmatched_greater_is_paragraph(name: &str) -> bool {
-        matches!(name, "EXPORT" | "SRC" | "VERSE" | "EXAMPLE" | "COMMENT")
+    /// Unmatched `#+BEGIN_NAME` is a paragraph (org-element quote /
+    /// center / special-block / src-block parsers). Closed quote,
+    /// center, and special-blocks stay containers.
+    fn unmatched_greater_is_paragraph(_name: &str) -> bool {
+        true
     }
 
     /// org-syntax 5.2 `\[CONTENTS\]`: unescaped `\[` / `\]`.
@@ -979,9 +978,8 @@ impl FormatParser for OrgParser {
                 }
             }
 
-            // #+BEGIN_NAME: container open (quote/center) or opaque.
-            // Unmatched EXPORT/SRC/VERSE/EXAMPLE/COMMENT is a paragraph
-            // (org-element / GitHub #355).
+            // #+BEGIN_NAME: container open (quote/center/special) or opaque.
+            // Unmatched opener is a paragraph (org-element / GitHub #355).
             if let Some(name) = Self::block_begin_name(line_text) {
                 let unmatched = Self::unmatched_greater_is_paragraph(&name)
                     && !Self::remaining_has_named_block_end(&input[line.end..], &name);
