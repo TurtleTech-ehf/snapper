@@ -1125,7 +1125,7 @@ fn footnote_def_end(lines: &[Line<'_>], start: usize) -> usize {
             while k < lines.len() && lines[k].text.trim().is_empty() {
                 k += 1;
             }
-            if k < lines.len() && line_indent(lines[k].text) >= 4 {
+            if k < lines.len() && is_footnote_continuation(lines[k].text) {
                 end = k;
                 j = k + 1;
                 continue;
@@ -2339,8 +2339,9 @@ impl FormatParser for MarkdownParser {
                     input,
                     &mut regions,
                 );
-                let end = footnote_def_end(&lines, i);
-                for row in &lines[i + 1..=end] {
+                let opener = i;
+                let end = footnote_def_end(&lines, opener);
+                for row in &lines[opener + 1..=end] {
                     let hang = line_indent(row.text);
                     if hang > 0 {
                         let hang_span = ByteSpan::new(row.start, row.start + hang);
@@ -2361,6 +2362,26 @@ impl FormatParser for MarkdownParser {
                     );
                 }
                 i = end + 1;
+                // pulldown pops the footnote on a column-0 line even
+                // without a blank. Only after a real continuation so a
+                // SemBr-split second sentence of the opener stays in
+                // the footnote (oracle / GitHub #106).
+                if end > opener
+                    && i < total
+                    && !lines[i].text.trim().is_empty()
+                    && !is_footnote_continuation(lines[i].text)
+                {
+                    close_list_item(
+                        &mut in_list_item,
+                        &mut list_hang,
+                        &mut current_prose,
+                        &mut prose_span,
+                        &mut list_term,
+                        &mut in_definition_list,
+                        input,
+                        &mut regions,
+                    );
+                }
                 continue;
             }
 
