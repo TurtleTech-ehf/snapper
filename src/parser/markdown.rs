@@ -1052,6 +1052,11 @@ fn lrd_title_span_end_inner(
         if inner.trim().is_empty() {
             return None;
         }
+        // pulldown `scan_refdef_title` aborts on a paragraph interrupt
+        // (setext underline, ATX, thematic break).
+        if is_setext_underline(inner) || HEADING_RE.is_match(inner) || is_thematic_break(inner) {
+            return None;
+        }
         acc.push('\n');
         acc.push_str(inner.trim_start_matches([' ', '\t']));
         if rest_is_md_link_title_allowing_newlines(&acc) {
@@ -1092,8 +1097,9 @@ fn is_footnote_definition(line: &str) -> bool {
 }
 
 /// Indented footnote body line (pulldown GFM continuation).
+/// pulldown `scan_containers` continues only on 4 spaces (or a tab).
 fn is_footnote_continuation(line: &str) -> bool {
-    !line.trim().is_empty() && line_indent(line) >= 1
+    !line.trim().is_empty() && line_indent(line) >= 4
 }
 
 /// Last line of a footnote definition starting at `start` (opener plus
@@ -1473,16 +1479,15 @@ fn is_quote_continuation_setext_pair(last_title: &str, underline: &str, prev: &s
 }
 
 /// Quoted setext that still respects list hang (GitHub #261 / #262).
-/// Use `list_item_hang` so start != 1 (`> 2. Foo` / `> =======`) is a
-/// quoted list item, not a heading. `list_opener_hang` is start-1 only
-/// and would treat that pair as setext.
+/// Start != 1 does not interrupt a paragraph (CM 5.2), so `> 2. Foo` /
+/// `> =======` stays title text. `list_opener_hang` is start-1 only.
 fn quoted_setext_ok(title: &str, underline: &str, prev: Option<&str>) -> bool {
     if !is_quoted_setext_pair(title, underline) {
         return false;
     }
     let hang = prev
-        .and_then(list_item_hang)
-        .or_else(|| list_item_hang(title));
+        .and_then(list_opener_hang)
+        .or_else(|| list_opener_hang(title));
     let Some(hang) = hang else {
         return true;
     };
@@ -2133,6 +2138,15 @@ impl FormatParser for MarkdownParser {
                         is_setext_underline(lines[i + 1].text)
                             && line_indent(lines[i + 1].text) < hang
                     }))
+                // CM 0.31.2 ex. 93: a setext underline cannot close a
+                // lazy quote continuation. Quotes reuse in_list_item
+                // with list_hang unset, so the list hang guard misses
+                // unquoted `bar` / `===`.
+                && !(in_list_item
+                    && list_hang.is_none()
+                    && quote_marker_depth(line_text) == 0
+                    && is_setext_underline(lines[i + 1].text)
+                    && quote_marker_depth(lines[i + 1].text) == 0)
             {
                 // Open list item plus at-hang underline: Foo is already
                 // marker Structure + prose. Promote that prose with the
@@ -6245,6 +6259,7 @@ mod tests {
         assert!(is_footnote_continuation(
             "    Continuation of the footnote."
         ));
+        assert!(!is_footnote_continuation("  only two spaces"));
         assert!(!is_footnote_continuation("[^1]: opener"));
         assert!(!is_footnote_continuation(""));
     }

@@ -1,7 +1,7 @@
 use snapper_fmt::format::Format;
 use snapper_fmt::parser::markdown::MarkdownParser;
 use snapper_fmt::parser::{FormatParser, Region};
-use snapper_fmt::{FormatConfig, format_text};
+use snapper_fmt::{format_text, FormatConfig};
 
 /// GitHub #106 / snapper-5m2a: CM 4.7 `[label]: dest` and pulldown `[^id]:`.
 fn md_cfg() -> FormatConfig {
@@ -61,6 +61,40 @@ fn ticket_fixture() -> &'static str {
         "\n",
         "[^1]: Footnote text. Second sentence.\n",
     )
+}
+
+#[test]
+fn leftover_footnote_two_space_is_not_continuation() {
+    let input = concat!(
+        "[^1]: First sentence. Second sentence.\n",
+        "  Continuation sentence. More.\n",
+        "After the note. Next.\n",
+    );
+    let regions = MarkdownParser.parse(input);
+    assert!(
+        !regions.iter().any(|r| matches!(
+            r,
+            Region::Structure(s) if s.contains("Continuation sentence")
+        )),
+        "2-space line must leave the footnote, got {regions:?}"
+    );
+    assert!(
+        regions.iter().any(|r| matches!(
+            r,
+            Region::Prose(p) if p.contains("Continuation sentence.")
+        )),
+        "2-space line must be document Prose, got {regions:?}"
+    );
+    let out = format_text(input, &md_cfg()).unwrap();
+    assert!(
+        out.contains("First sentence.\nSecond sentence."),
+        "footnote opener body must still split, got:\n{out}"
+    );
+    assert!(
+        out.contains("After the note.\nNext.") || out.contains("More.\nAfter the note."),
+        "following prose must still split, got:\n{out}"
+    );
+    assert_eq!(format_text(&out, &md_cfg()).unwrap(), out);
 }
 
 #[test]

@@ -3,7 +3,7 @@
 use snapper_fmt::format::Format;
 use snapper_fmt::parser::markdown::MarkdownParser;
 use snapper_fmt::parser::{FormatParser, Region};
-use snapper_fmt::{FormatConfig, format_text};
+use snapper_fmt::{format_text, FormatConfig};
 
 fn md_cfg() -> FormatConfig {
     FormatConfig {
@@ -55,6 +55,39 @@ fn spanning_lrd_title_is_structure() {
         )),
         "spanning title must not be Prose, got {regions:?}"
     );
+}
+
+#[test]
+fn leftover_lrd_title_yields_to_setext_underline() {
+    let input = concat!(
+        "[foo]: /url\n",
+        "\"Title with a period.\n",
+        "=======\n",
+        "Still title.\"\n",
+        "\n",
+        "After the definition. Next.\n",
+    );
+    let regions = MarkdownParser.parse(input);
+    assert!(
+        regions.iter().any(|r| matches!(
+            r,
+            Region::Structure(s) if s.contains("[foo]: /url")
+        )),
+        "dest-only LRD must stay Structure, got {regions:?}"
+    );
+    assert!(
+        !regions.iter().any(|r| matches!(
+            r,
+            Region::Structure(s) if s.contains("Still title")
+        )),
+        "interrupted title closer must not stay Structure, got {regions:?}"
+    );
+    let out = format_text(input, &md_cfg()).unwrap();
+    assert!(
+        out.contains("After the definition.\nNext."),
+        "following prose must still split, got:\n{out}"
+    );
+    assert_eq!(format_text(&out, &md_cfg()).unwrap(), out);
 }
 
 #[test]
