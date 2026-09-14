@@ -164,6 +164,64 @@ fn tcolorbox_external_write_envs_are_code() {
 }
 
 #[test]
+fn minted_setminted_leftover_cmds_do_not_join_following_prose() {
+    leftover_cmd_stays_atomic(r"\setminted{style=bw}");
+    leftover_cmd_stays_atomic(r"\setminted[python]{style=bw}");
+    leftover_cmd_stays_atomic(r"\setmintedinline{breaklines=true}");
+    leftover_cmd_stays_atomic(r"\usemintedstyle{bw}");
+    extras_skip_no_brace("setminted");
+}
+
+#[test]
+fn fvset_and_fvinlineset_do_not_join_following_prose() {
+    leftover_cmd_stays_atomic(r"\fvset{fontsize=\small}");
+    leftover_cmd_stays_atomic(r"\fvinlineset{breaklines=true}");
+    extras_skip_no_brace("fvset");
+    extras_skip_no_brace("fvinlineset");
+}
+
+#[test]
+fn pythontex_print_leftover_cmds_do_not_join_following_prose() {
+    leftover_cmd_stays_atomic(r"\printpythontex");
+    leftover_cmd_stays_atomic(r"\stdoutpythontex");
+    leftover_cmd_stays_atomic(r"\stderrpythontex");
+    leftover_cmd_stays_atomic(r"\setpythontexfv{gobble=2}");
+    extras_skip_no_brace("printpythontex");
+    extras_skip_no_brace("setpythontexfv");
+}
+
+#[test]
+fn pyluatex_pysession_leftover_cmds_do_not_join_following_prose() {
+    leftover_cmd_stays_atomic(r"\pysession{main}");
+    leftover_cmd_stays_atomic(r"\pyoption{verbose}{true}");
+    extras_skip_no_brace("pysession");
+    extras_skip_no_brace("pyoption");
+}
+
+#[test]
+fn piton_options_leftover_cmds_do_not_join_following_prose() {
+    leftover_cmd_stays_atomic(r"\PitonOptions{language=Python}");
+    leftover_cmd_stays_atomic(r"\SetPitonStyle{Number=\bfseries}");
+    extras_skip_no_brace("PitonOptions");
+}
+
+#[test]
+fn tcolorbox_use_listing_leftover_cmds_do_not_join_following_prose() {
+    leftover_cmd_stays_atomic(r"\tcbuselistingtext");
+    leftover_cmd_stays_atomic(r"\tcbuselistinglisting");
+    leftover_cmd_stays_atomic(r"\tcbusetemplisting");
+    extras_skip_no_brace("tcbuselistingtext");
+}
+
+#[test]
+fn listings_load_language_leftover_cmds_do_not_join_following_prose() {
+    leftover_cmd_stays_atomic(r"\lstloadlanguages{Python}");
+    leftover_cmd_stays_atomic(r"\lstdefinelanguage{MyLang}{morekeywords={foo}}");
+    extras_skip_no_brace("lstloadlanguages");
+    extras_skip_no_brace("lstdefinelanguage");
+}
+
+#[test]
 fn inc_corp_ltd_title_case_merge() {
     let cfg = FormatConfig {
         format: Format::Latex,

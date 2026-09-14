@@ -649,10 +649,17 @@ pub(crate) fn latex_verb_span_end_with(
         // `\lstinputlisting` / `\lstinline` stay their own leftovers.
         let kind = match name {
             "lstnewenvironment" => VerbKind::LstNewenvironment,
-            "lstdefinestyle" => VerbKind::Listinginput,
-            "lstset" => VerbKind::Tcbinputlisting,
+            "lstdefinestyle" | "lstdefinelanguage" => VerbKind::Listinginput,
+            "lstset" | "lstloadlanguages" => VerbKind::Tcbinputlisting,
             _ => VerbKind::LstMakeShortInline,
         };
+        (after_bs + name.len(), kind)
+    } else if let Some(name) = leftover_keyval_cs_name(tail) {
+        // minted / fancyvrb / fvextra / pythontex / pyluatex / piton /
+        // tcolorbox leftover keyval and replay cmds. Longer names first.
+        // `\inputminted` / `\mint` / `\piton` / `\py` / `\tcbinputlisting`
+        // stay their own leftovers.
+        let kind = leftover_keyval_kind(name);
         (after_bs + name.len(), kind)
     } else if let Some((name, kind)) = pitoninputfile_cs_name(tail) {
         // Longer leftover name, case-distinct from `\piton` (GitHub
@@ -848,18 +855,16 @@ pub(crate) fn latex_verb_span_end_with(
 
     // tcolorbox `\tcbinputlisting{keyvals}` and sagetex
     // `\sageinput{file}` (GitHub #428) are one required brace group.
+    // Nested braces so `\fvset{fontsize=\small}`-class keyvals with
+    // `{...}` stay one span.
     if kind == VerbKind::Tcbinputlisting {
-        i = skip_ascii_ws(text, i);
-        if !text.get(i..).is_some_and(|s| s.starts_with('{')) {
-            return None;
-        }
-        i += 1;
-        return Some(find_unescaped_brace_close(text, i).unwrap_or_else(|| line_end(text, i)));
+        return skip_nested_brace_group(text, i);
     }
 
     // moreverb `\listinginput[interval]{start-line}{filename}` (GitHub
     // #424). Optional interval, then two required brace groups. No
-    // second brace is not a span. There is no `*` form.
+    // second brace is not a span. There is no `*` form. Nested braces
+    // so `\lstdefinelanguage{lang}{morekeywords={foo}}` stays one span.
     if kind == VerbKind::Listinginput {
         i = skip_ascii_ws(text, i);
         if text.get(i..).is_some_and(|s| s.starts_with('[')) {
@@ -868,19 +873,13 @@ pub(crate) fn latex_verb_span_end_with(
                 None => return Some(line_end(text, i)),
             }
         }
-        if !text.get(i..).is_some_and(|s| s.starts_with('{')) {
-            return None;
+        for _ in 0..2 {
+            match skip_nested_brace_group(text, i) {
+                Some(end) => i = skip_ascii_ws(text, end),
+                None => return None,
+            }
         }
-        i += 1;
-        match find_unescaped_brace_close(text, i) {
-            Some(end) => i = skip_ascii_ws(text, end),
-            None => return Some(line_end(text, i)),
-        }
-        if !text.get(i..).is_some_and(|s| s.starts_with('{')) {
-            return None;
-        }
-        i += 1;
-        return Some(find_unescaped_brace_close(text, i).unwrap_or_else(|| line_end(text, i)));
+        return Some(i);
     }
 
     // piton.sty `\PitonInputFile<spec>[opts]{file}` (`d < > O { } m`;
@@ -1332,7 +1331,9 @@ pub(crate) fn verb_span_leftover_cs_name(tail: &str) -> Option<&'static str> {
 pub(crate) fn listings_leftover_cs_name(tail: &str) -> Option<&'static str> {
     for name in [
         "lstnewenvironment",
+        "lstdefinelanguage",
         "lstdefinestyle",
+        "lstloadlanguages",
         "lstDeleteShortInline",
         "lstMakeShortInline",
         "lstset",
@@ -1346,6 +1347,53 @@ pub(crate) fn listings_leftover_cs_name(tail: &str) -> Option<&'static str> {
         return Some(name);
     }
     None
+}
+
+/// Leftover keyval / replay cmds. Longer names first so
+/// `\setmintedinline` is not `\setminted` + leftover and
+/// `\tcbuselistinglisting` is not a shorter name + leftover.
+/// No `*` form. `\inputminted` / `\mint` / `\piton` / `\py` /
+/// `\tcbinputlisting` / `\lstset` stay their own leftovers.
+pub(crate) fn leftover_keyval_cs_name(tail: &str) -> Option<&'static str> {
+    for name in [
+        "tcbuselistinglisting",
+        "tcbuselistingtext",
+        "tcbusetemplisting",
+        "setmintedinline",
+        "setpythontexfv",
+        "stdoutpythontex",
+        "stderrpythontex",
+        "printpythontex",
+        "usemintedstyle",
+        "SetPitonStyle",
+        "PitonOptions",
+        "fvinlineset",
+        "setminted",
+        "pysession",
+        "pyoption",
+        "fvset",
+    ] {
+        let Some(after) = tail.strip_prefix(name) else {
+            continue;
+        };
+        if after.starts_with(|c: char| c.is_ascii_alphabetic() || c == '*') {
+            return None;
+        }
+        return Some(name);
+    }
+    None
+}
+
+fn leftover_keyval_kind(name: &str) -> VerbKind {
+    match name {
+        "printpythontex" | "stdoutpythontex" | "stderrpythontex" => VerbKind::FvextraBuffer,
+        "tcbuselistinglisting" | "tcbuselistingtext" | "tcbusetemplisting" => VerbKind::Listingcont,
+        "setmintedinline" | "usemintedstyle" | "setminted" | "SetPitonStyle" => {
+            VerbKind::Lstinputlisting
+        }
+        "pyoption" => VerbKind::Listinginput,
+        _ => VerbKind::Tcbinputlisting,
+    }
 }
 
 /// fancyvrb leftover replay / leftover `\Verb` / fvextra leftover
@@ -1629,6 +1677,7 @@ fn match_extra_verb_command<'a>(tail: &'a str, extras: &'a [String]) -> Option<&
             || fancyvrb_shortverb_leftover_cs_name(name).is_some_and(|n| n == name.as_str())
             || fvextra_buffer_leftover_cs_name(name).is_some_and(|n| n == name.as_str())
             || listings_leftover_cs_name(name).is_some_and(|n| n == name.as_str())
+            || leftover_keyval_cs_name(name).is_some_and(|n| n == name.as_str())
             || name == "tcboxverb"
             || name == "verbinput"
             || name == "verbwrite"
@@ -4509,6 +4558,26 @@ mod tests {
             latex_verb_span_end_with(r"\setupsc{print-cmd=true}", 0, &[]),
             Some(r"\setupsc{print-cmd=true}".len()),
             "setupsc stays one span"
+        );
+        assert_eq!(
+            latex_verb_span_end_with(r"\lstloadlanguages{Python}", 0, &[]),
+            Some(r"\lstloadlanguages{Python}".len()),
+            "lstloadlanguages stays one span"
+        );
+        assert_eq!(
+            latex_verb_span_end_with(r"\setminted{style=bw}", 0, &[]),
+            Some(r"\setminted{style=bw}".len()),
+            "setminted stays one span"
+        );
+        assert_eq!(
+            latex_verb_span_end_with(r"\printpythontex", 0, &[]),
+            Some(r"\printpythontex".len()),
+            "printpythontex is a leftover span"
+        );
+        assert_eq!(
+            latex_verb_span_end_with(r"\fvset{fontsize=\small}", 0, &[]),
+            Some(r"\fvset{fontsize=\small}".len()),
+            "fvset stays one span"
         );
         let extras = vec!["lstset".to_string(), "verbwrite".to_string()];
         assert_eq!(

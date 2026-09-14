@@ -6,9 +6,9 @@ use crate::parser::{
 };
 use crate::sentence::unicode::{
     catchfile_leftover_cs_name, fancyvrb_leftover_cs_name, fancyvrb_shortverb_leftover_cs_name,
-    fvextra_buffer_leftover_cs_name, latex_verb_span_end_with, listings_leftover_cs_name,
-    pyth_cs_name, pythontexcustomc_cs_name, pytx_inline_cs_name, sagetex_inline_cs_name,
-    scontents_leftover_cs_name, verb_span_leftover_cs_name,
+    fvextra_buffer_leftover_cs_name, latex_verb_span_end_with, leftover_keyval_cs_name,
+    listings_leftover_cs_name, pyth_cs_name, pythontexcustomc_cs_name, pytx_inline_cs_name,
+    sagetex_inline_cs_name, scontents_leftover_cs_name, verb_span_leftover_cs_name,
 };
 
 // Environments whose content is NOT prose (math, code, tables, pictures).
@@ -1549,6 +1549,26 @@ fn listings_leftover_cs_at(line: &str, at: usize) -> bool {
     listings_leftover_cs_name(tail).is_some()
 }
 
+/// minted / fancyvrb / fvextra / pythontex / pyluatex / piton /
+/// tcolorbox leftover keyval and replay cmds. Other verb spans are
+/// skipped so `\verb|\fvset{x}|` is not stolen. Walk stops at an
+/// unescaped `%`. `\inputminted` / `\piton` / `\py` stay their own
+/// leftovers.
+fn find_keyval_leftover_at(
+    line: &str,
+    from: usize,
+    extra_cmds: &[String],
+) -> Option<(usize, usize)> {
+    find_leftover_cmd_at(line, from, extra_cmds, leftover_keyval_cs_at)
+}
+
+fn leftover_keyval_cs_at(line: &str, at: usize) -> bool {
+    let Some(tail) = line.get(at..).and_then(|s| s.strip_prefix('\\')) else {
+        return false;
+    };
+    leftover_keyval_cs_name(tail).is_some()
+}
+
 /// `\piton{...}` is not a unicode verb span. Walk one brace group so
 /// the leftover walker can classify the generic cmd-arg as Structure.
 fn piton_brace_leftover_end(line: &str, at: usize) -> Option<usize> {
@@ -2412,6 +2432,9 @@ impl<'a> ParseState<'a> {
                     })
                     .or_else(|| {
                         find_listings_leftover_at(code, i, &self.parser.extra_verbatim_commands)
+                    })
+                    .or_else(|| {
+                        find_keyval_leftover_at(code, i, &self.parser.extra_verbatim_commands)
                     })
             {
                 self.append_item_or_prose(line.start + i, &code[i..start]);
