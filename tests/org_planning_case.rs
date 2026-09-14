@@ -7,7 +7,7 @@
 use snapper_fmt::format::Format;
 use snapper_fmt::parser::org::OrgParser;
 use snapper_fmt::parser::{FormatParser, Region};
-use snapper_fmt::{FormatConfig, format_text};
+use snapper_fmt::{format_text, FormatConfig};
 
 fn org_cfg() -> FormatConfig {
     FormatConfig {
@@ -24,6 +24,39 @@ fn ticket_fixture() -> &'static str {
         "deadline: <2026-01-01 Wed>\n",
         "After planning. Next sentence.\n",
     )
+}
+
+#[test]
+fn leftover_deadline_after_timestamp_hangs_and_splits() {
+    let input = concat!(
+        "DEADLINE: <2026-01-01 Wed> hello. World after that.\n",
+        "After the line. Next.\n",
+    );
+    let regions = OrgParser.parse(input);
+    assert!(
+        regions.iter().any(|r| matches!(
+            r,
+            Region::Structure(s) if s.contains("DEADLINE:") && s.contains("<2026-01-01 Wed>")
+        )),
+        "planning stamp must stay Structure, got {regions:?}"
+    );
+    assert!(
+        regions.iter().any(|r| matches!(
+            r,
+            Region::Prose(p) if p.contains("hello.") && p.contains("World after that.")
+        )),
+        "leftover after stamp must be Prose, got {regions:?}"
+    );
+    let out = format_text(input, &org_cfg()).unwrap();
+    assert!(
+        !out.contains("hello. World after that."),
+        "leftover after stamp must still split, got:\n{out}"
+    );
+    assert!(
+        out.contains("After the line.\nNext."),
+        "following prose must still split, got:\n{out}"
+    );
+    assert_eq!(format_text(&out, &org_cfg()).unwrap(), out);
 }
 
 #[test]

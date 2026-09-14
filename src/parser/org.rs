@@ -170,18 +170,49 @@ struct OpenGreater {
 /// `CLOSED:` plus a timestamp (`<...>` or `[...]`). Bare
 /// `DEADLINE: hello.` is a paragraph.
 pub(crate) fn org_planning_line(line: &str) -> bool {
-    let t = line.trim_start_matches([' ', '\t']);
+    org_planning_marker_len(line).is_some()
+}
+
+/// Structure prefix of a planning line: `DEADLINE:` / `SCHEDULED:` /
+/// `CLOSED:` plus the timestamp. Leftover after the stamp is hung Prose.
+pub(crate) fn org_planning_marker_len(line: &str) -> Option<usize> {
+    let indent = line.len() - line.trim_start_matches([' ', '\t']).len();
+    let t = &line[indent..];
     const KEYS: [&str; 3] = ["DEADLINE:", "SCHEDULED:", "CLOSED:"];
     for k in KEYS {
-        if t.as_bytes()
+        if !t
+            .as_bytes()
             .get(..k.len())
             .is_some_and(|head| head.eq_ignore_ascii_case(k.as_bytes()))
         {
-            let rest = t[k.len()..].trim_start_matches([' ', '\t']);
-            return rest.starts_with('<') || rest.starts_with('[');
+            continue;
         }
+        let after_key = &t[k.len()..];
+        let pad = after_key.len() - after_key.trim_start_matches([' ', '\t']).len();
+        let rest = &after_key[pad..];
+        let close = if rest.starts_with('<') {
+            rest.find('>')?
+        } else if rest.starts_with('[') {
+            rest.find(']')?
+        } else {
+            return None;
+        };
+        let mut end = indent + k.len() + pad + close + 1;
+        let after_stamp = &line[end..];
+        if let Some(range) = after_stamp.strip_prefix("--") {
+            if range.starts_with('<') {
+                let c = range.find('>')?;
+                end += 2 + c + 1;
+            } else if range.starts_with('[') {
+                let c = range.find(']')?;
+                end += 2 + c + 1;
+            }
+        }
+        let after = &line[end..];
+        let trail = after.len() - after.trim_start_matches([' ', '\t']).len();
+        return Some(end + trail);
     }
-    false
+    None
 }
 
 /// org-element-clock-line-re: `CLOCK:` plus an inactive stamp
@@ -1143,7 +1174,23 @@ impl FormatParser for OrgParser {
             }
 
             // Planning / clock stay Structure so they do not join the next paragraph.
-            if Self::is_planning_or_clock(line_text) {
+            // Leftover after a planning timestamp is hung Prose.
+            if let Some(marker_len) = org_planning_marker_len(line_text) {
+                flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
+                let body = &line_text[marker_len..];
+                if body.trim().is_empty() {
+                    regions.push(SpannedRegion::structure(input, line.span()));
+                } else {
+                    regions.push(SpannedRegion::structure(
+                        input,
+                        ByteSpan::new(line.start, line.start + marker_len),
+                    ));
+                    list_item_indent = Some(marker_len);
+                    Self::emit_hung_text(input, &line, marker_len, &mut regions);
+                }
+                continue;
+            }
+            if Self::is_clock_line(line_text) {
                 flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
                 regions.push(SpannedRegion::structure(input, line.span()));
                 continue;
