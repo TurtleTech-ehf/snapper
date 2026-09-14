@@ -20,5 +20,6 @@ augroup snapper
   autocmd FileType tex setlocal formatprg=snapper\ --native\ --format\ latex
   autocmd FileType markdown setlocal formatprg=snapper\ --native\ --format\ markdown
   autocmd FileType rst setlocal formatprg=snapper\ --native\ --format\ rst
-  autocmd FileType plaintex setlocal formatprg=snapper\ --native\ --format\ plaintex
+  autocmd FileType plaintex setlocal formatprg=snapper\ --native\ --format\ latex
+  autocmd FileType text setlocal formatprg=snapper\ --native\ --format\ plaintext
 augroup END
