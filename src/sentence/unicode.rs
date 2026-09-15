@@ -1564,6 +1564,8 @@ pub(crate) fn leftover_keyval_cs_name(tail: &str) -> Option<&'static str> {
         "DepythontexOn",
         "listoflistingscaption",
         "listingscaption",
+        "lstlistingname",
+        "VerbatimFootnotes",
         "setminted",
         "newmint",
         "pysession",
@@ -1618,7 +1620,9 @@ fn leftover_keyval_kind(name: &str) -> VerbKind {
         | "tcbpatcharcangular"
         | "tcbpatcharcround"
         | "tcbline"
-        | "restartpythontexsession" => VerbKind::Listingcont,
+        | "restartpythontexsession"
+        | "lstlistingname"
+        | "VerbatimFootnotes" => VerbKind::Listingcont,
         "setmintedinline"
         | "usemintedstyle"
         | "setminted"

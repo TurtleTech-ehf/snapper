@@ -300,6 +300,8 @@ fn leftover_constructors_do_not_join() {
     leftover_cmd_stays_atomic(r"\tcbmakeprefixed{\myref}{th}");
     leftover_cmd_stays_atomic(r"\setpythontexcontext{foo=bar}");
     leftover_cmd_stays_atomic(r"\restartpythontexsession");
+    leftover_cmd_stays_atomic(r"\lstlistingname");
+    leftover_cmd_stays_atomic(r"\VerbatimFootnotes");
     extras_skip_no_brace("newminted");
     extras_skip_no_brace("newmint");
     extras_skip_no_brace("renewminted");

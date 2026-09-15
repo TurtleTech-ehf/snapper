@@ -45,6 +45,21 @@ fn leftover_plain_link_after_path_hangs_and_splits() {
 }
 
 #[test]
+fn leftover_mailto_plain_link_after_path_hangs_and_splits() {
+    let input = concat!("mailto:dev@example.com leftover. Next.\n", "After. Next.\n",);
+    let out = format_text(input, &org_cfg()).unwrap();
+    assert!(
+        !out.contains("mailto:dev@example.com leftover. Next."),
+        "leftover after mailto path must still split, got:\n{out}"
+    );
+    assert!(
+        out.contains("After.\nNext."),
+        "following prose must still split, got:\n{out}"
+    );
+    assert_eq!(format_text(&out, &org_cfg()).unwrap(), out);
+}
+
+#[test]
 fn leftover_https_plain_link_after_path_hangs_and_splits() {
     let input = concat!("https://example.com/a leftover. Next.\n", "After. Next.\n",);
     let out = format_text(input, &org_cfg()).unwrap();
