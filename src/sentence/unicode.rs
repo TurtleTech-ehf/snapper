@@ -1548,6 +1548,7 @@ pub(crate) fn leftover_keyval_cs_name(tail: &str) -> Option<&'static str> {
         "stderrpythontex",
         "printpythontex",
         "usemintedstyle",
+        "OptionalLocalPitonStyle",
         "SetPitonStyle",
         "PitonStyle",
         "PitonOptions",
