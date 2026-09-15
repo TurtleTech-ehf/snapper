@@ -161,6 +161,42 @@ fn leftover_info_plain_link_after_path_hangs_and_splits() {
 }
 
 #[test]
+fn leftover_eww_plain_link_after_path_hangs_and_splits() {
+    let input = concat!(
+        "eww:https://example.org leftover. Next.\n",
+        "After. Next.\n",
+    );
+    let out = format_text(input, &org_cfg()).unwrap();
+    assert!(
+        !out.contains("eww:https://example.org leftover. Next."),
+        "leftover after eww path must still split, got:\n{out}"
+    );
+    assert!(
+        out.contains("After.\nNext."),
+        "following prose must still split, got:\n{out}"
+    );
+    assert_eq!(format_text(&out, &org_cfg()).unwrap(), out);
+}
+
+#[test]
+fn leftover_irc_plain_link_after_path_hangs_and_splits() {
+    let input = concat!(
+        "irc:/irc.libera.chat/#org leftover. Next.\n",
+        "After. Next.\n",
+    );
+    let out = format_text(input, &org_cfg()).unwrap();
+    assert!(
+        !out.contains("irc:/irc.libera.chat/#org leftover. Next."),
+        "leftover after irc path must still split, got:\n{out}"
+    );
+    assert!(
+        out.contains("After.\nNext."),
+        "following prose must still split, got:\n{out}"
+    );
+    assert_eq!(format_text(&out, &org_cfg()).unwrap(), out);
+}
+
+#[test]
 fn leftover_attachment_plain_link_after_path_hangs_and_splits() {
     let input = concat!("attachment:plot.png leftover. Next.\n", "After. Next.\n",);
     let out = format_text(input, &org_cfg()).unwrap();
