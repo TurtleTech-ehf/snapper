@@ -45,6 +45,36 @@ fn leftover_plain_link_after_path_hangs_and_splits() {
 }
 
 #[test]
+fn leftover_id_plain_link_after_path_hangs_and_splits() {
+    let input = concat!("id:abc-123 leftover. Next.\n", "After. Next.\n",);
+    let out = format_text(input, &org_cfg()).unwrap();
+    assert!(
+        !out.contains("id:abc-123 leftover. Next."),
+        "leftover after id path must still split, got:\n{out}"
+    );
+    assert!(
+        out.contains("After.\nNext."),
+        "following prose must still split, got:\n{out}"
+    );
+    assert_eq!(format_text(&out, &org_cfg()).unwrap(), out);
+}
+
+#[test]
+fn leftover_attachment_plain_link_after_path_hangs_and_splits() {
+    let input = concat!("attachment:plot.png leftover. Next.\n", "After. Next.\n",);
+    let out = format_text(input, &org_cfg()).unwrap();
+    assert!(
+        !out.contains("attachment:plot.png leftover. Next."),
+        "leftover after attachment path must still split, got:\n{out}"
+    );
+    assert!(
+        out.contains("After.\nNext."),
+        "following prose must still split, got:\n{out}"
+    );
+    assert_eq!(format_text(&out, &org_cfg()).unwrap(), out);
+}
+
+#[test]
 fn leftover_ftp_plain_link_after_path_hangs_and_splits() {
     let input = concat!("ftp://example.com leftover. Next.\n", "After. Next.\n",);
     let out = format_text(input, &org_cfg()).unwrap();
