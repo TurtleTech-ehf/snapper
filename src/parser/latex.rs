@@ -1272,8 +1272,10 @@ fn leftover_filename_input_cs_at(line: &str, at: usize) -> bool {
             if after.starts_with(|c: char| c.is_ascii_alphabetic()) {
                 return false;
             }
-            if matches!(name, "CatchFileBetweenDelims" | "inputpythonfile" | "inputpython")
-                && after.starts_with('*')
+            if matches!(
+                name,
+                "CatchFileBetweenDelims" | "inputpythonfile" | "inputpython"
+            ) && after.starts_with('*')
             {
                 return false;
             }

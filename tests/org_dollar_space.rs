@@ -2,7 +2,7 @@
 //! opener. `$ x. Next $` is prose; `$a. b$` stays a fragment.
 
 use snapper_fmt::format::Format;
-use snapper_fmt::{format_text, FormatConfig};
+use snapper_fmt::{FormatConfig, format_text};
 
 fn org_cfg() -> FormatConfig {
     FormatConfig {

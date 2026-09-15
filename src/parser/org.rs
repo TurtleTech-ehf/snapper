@@ -2,8 +2,8 @@ use regex::Regex;
 use std::sync::LazyLock;
 
 use crate::parser::{
-    flush_prose_spanned, iter_lines, join_prose_gap, push_prose_line, ByteSpan, FormatParser, Line,
-    Region, RegionOrigin, SpannedRegion,
+    ByteSpan, FormatParser, Line, Region, RegionOrigin, SpannedRegion, flush_prose_spanned,
+    iter_lines, join_prose_gap, push_prose_line,
 };
 
 static HEADLINE_RE: LazyLock<Regex> =
@@ -1491,7 +1491,7 @@ mod tests {
     #[test]
     fn multi_sentence_headline_stays_one_line() {
         use crate::format::Format;
-        use crate::{format_text, FormatConfig};
+        use crate::{FormatConfig, format_text};
 
         let input = "** Multi sentence. Second sentence in title\nbody prose. Second body.\n";
         let cfg = FormatConfig {
@@ -1515,7 +1515,7 @@ mod tests {
     #[test]
     fn headline_trailing_angle_bracket_round_trips() {
         use crate::format::Format;
-        use crate::{format_text, FormatConfig};
+        use crate::{FormatConfig, format_text};
 
         let input = "* TODO R4 :: snapshot field is Box[T], not Vec[T]\nbody\n";
         let cfg = FormatConfig {
@@ -1534,7 +1534,7 @@ mod tests {
     #[test]
     fn verbatim_inner_equals_does_not_orphan_closer() {
         use crate::format::Format;
-        use crate::{format_text, FormatConfig};
+        use crate::{FormatConfig, format_text};
 
         // The period after `note.` is inside the first span. Closing on the
         // inner `=` would emit a line that starts with `=` and leave the
@@ -1560,7 +1560,7 @@ mod tests {
     #[test]
     fn bold_emphasis_with_period_does_not_become_headline() {
         use crate::format::Format;
-        use crate::{format_text, FormatConfig};
+        use crate::{FormatConfig, format_text};
 
         let input = "End of first. *Bold spans period. Continues* after.\n";
         let cfg = FormatConfig {
@@ -1785,7 +1785,7 @@ mod tests {
     #[test]
     fn dollar_dollar_display_math_does_not_reflow_as_prose() {
         use crate::format::Format;
-        use crate::{format_text, FormatConfig};
+        use crate::{FormatConfig, format_text};
 
         let input = "$$\nThis is a long sentence that must stay inside display math and must not reflow as prose.\n$$\n";
         let cfg = FormatConfig {
@@ -1959,7 +1959,7 @@ mod tests {
     #[test]
     fn list_multi_sentence_hangs_and_rejoins() {
         use crate::format::Format;
-        use crate::{format_text, FormatConfig};
+        use crate::{FormatConfig, format_text};
 
         let input = "- One. Two.\n";
         let cfg = FormatConfig {
@@ -1981,7 +1981,7 @@ mod tests {
     #[test]
     fn nested_list_stays_two_items_after_reflow() {
         use crate::format::Format;
-        use crate::{format_text, FormatConfig};
+        use crate::{FormatConfig, format_text};
 
         let input = "1. Parent one. Parent two.\n   - Child one. Child two.\n";
         let cfg = FormatConfig {
@@ -2046,7 +2046,7 @@ mod tests {
     #[test]
     fn indented_star_list_hangs_and_rejoins() {
         use crate::format::Format;
-        use crate::{format_text, FormatConfig};
+        use crate::{FormatConfig, format_text};
 
         let input = wci8_indented_star_list_fixture();
         let cfg = FormatConfig {
@@ -2198,7 +2198,7 @@ mod tests {
     #[test]
     fn nested_example_in_quote_closes_by_name_only() {
         use crate::format::Format;
-        use crate::{format_text, FormatConfig};
+        use crate::{FormatConfig, format_text};
 
         let input = quote_with_nested_example();
         let cfg = FormatConfig {
@@ -2457,7 +2457,7 @@ mod tests {
     #[test]
     fn example_export_comment_do_not_reflow() {
         use crate::format::Format;
-        use crate::{format_text, FormatConfig};
+        use crate::{FormatConfig, format_text};
 
         let cfg = FormatConfig {
             format: Format::Org,

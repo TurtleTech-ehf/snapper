@@ -1,7 +1,7 @@
 use snapper_fmt::format::Format;
 use snapper_fmt::parser::markdown::MarkdownParser;
 use snapper_fmt::parser::{FormatParser, Region};
-use snapper_fmt::{format_text, FormatConfig};
+use snapper_fmt::{FormatConfig, format_text};
 
 /// GitHub #106 / snapper-5m2a: CM 4.7 `[label]: dest` and pulldown `[^id]:`.
 fn md_cfg() -> FormatConfig {
