@@ -334,6 +334,9 @@ fn leftover_constructors_do_not_join() {
     leftover_cmd_stays_atomic(r"\FancyVerbRestoreCodes");
     leftover_cmd_stays_atomic(r"\FancyVerbFormatCom{First. Second.}");
     leftover_cmd_stays_atomic(r"\tcbdocmarginnote{First. Second.}");
+    leftover_cmd_stays_atomic(r"\tcbdocnew{First. Second.}");
+    leftover_cmd_stays_atomic(r"\tcbdocupdated{First. Second.}");
+    leftover_cmd_stays_atomic(r"\tcbdocnote{First. Second.}");
     leftover_cmd_stays_atomic(r"\tcbindex");
     leftover_cmd_stays_atomic(r"\tcbEXTERNALIZE");
     leftover_cmd_stays_atomic(r"\tcbifexternal{odd. More}{even. More}");
