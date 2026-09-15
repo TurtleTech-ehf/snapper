@@ -337,6 +337,14 @@ fn leftover_constructors_do_not_join() {
     leftover_cmd_stays_atomic(r"\tcbdocnew{First. Second.}");
     leftover_cmd_stays_atomic(r"\tcbdocupdated{First. Second.}");
     leftover_cmd_stays_atomic(r"\tcbdocnote{First. Second.}");
+    leftover_cmd_stays_atomic(r"\PyLTVerbatimEnv");
+    leftover_cmd_stays_atomic(r"\PitonStyle{Number}");
+    leftover_cmd_stays_atomic(r"\tcbdocdescNoDefaultInit");
+    leftover_cmd_stays_atomic(r"\tcbdocdescInitEmpty");
+    leftover_cmd_stays_atomic(r"\tcbdocdescInit{foo}");
+    leftover_cmd_stays_atomic(r"\tcbdocdescDefault{foo}");
+    leftover_cmd_stays_atomic(r"\tcbdocdescDefaultInitEmpty{foo}");
+    leftover_cmd_stays_atomic(r"\tcbdocdescDefaultInit{foo}{bar}");
     leftover_cmd_stays_atomic(r"\tcbindex");
     leftover_cmd_stays_atomic(r"\tcbEXTERNALIZE");
     leftover_cmd_stays_atomic(r"\tcbifexternal{odd. More}{even. More}");

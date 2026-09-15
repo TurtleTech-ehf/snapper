@@ -1549,6 +1549,7 @@ pub(crate) fn leftover_keyval_cs_name(tail: &str) -> Option<&'static str> {
         "printpythontex",
         "usemintedstyle",
         "SetPitonStyle",
+        "PitonStyle",
         "PitonOptions",
         "fvinlineset",
         "tcbusetemp",
@@ -1591,6 +1592,13 @@ pub(crate) fn leftover_keyval_cs_name(tail: &str) -> Option<&'static str> {
         "tcbdocupdated",
         "tcbdocnote",
         "tcbdocnew",
+        "tcbdocdescDefaultInitEmpty",
+        "tcbdocdescDefaultInit",
+        "tcbdocdescNoDefaultInit",
+        "tcbdocdescInitEmpty",
+        "tcbdocdescDefault",
+        "tcbdocdescInit",
+        "PyLTVerbatimEnv",
         "tcbindexbar",
         "tcbindex",
         "thetcbcounterof",
@@ -1706,11 +1714,15 @@ fn leftover_keyval_kind(name: &str) -> VerbKind {
         | "FancyVerbSpace"
         | "tcbindex"
         | "tcbindexbar"
-        | "tcbEXTERNALIZE" => VerbKind::Listingcont,
+        | "tcbEXTERNALIZE"
+        | "tcbdocdescNoDefaultInit"
+        | "tcbdocdescInitEmpty"
+        | "PyLTVerbatimEnv" => VerbKind::Listingcont,
         "setmintedinline"
         | "usemintedstyle"
         | "setminted"
         | "SetPitonStyle"
+        | "PitonStyle"
         | "setpythontexprettyprinter"
         | "setpygmentsprettyprinter"
         | "tcbincludegraphics"
@@ -1726,6 +1738,9 @@ fn leftover_keyval_kind(name: &str) -> VerbKind {
         | "tcbdocupdated"
         | "tcbdocnote"
         | "tcbdocnew"
+        | "tcbdocdescDefaultInitEmpty"
+        | "tcbdocdescInit"
+        | "tcbdocdescDefault"
         | "Depythontex"
         | "DepyMacro"
         | "DepyFile"
@@ -1771,6 +1786,7 @@ fn leftover_keyval_kind(name: &str) -> VerbKind {
         | "tcbglueto"
         | "renewthetcbcounter"
         | "setpythontexformatter"
+        | "tcbdocdescDefaultInit"
         | "tcbsettowidthofnode"
         | "tcbsetmacrotowidthofnode"
         | "tcbsettoheightofnode"
