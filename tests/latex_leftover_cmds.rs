@@ -364,6 +364,16 @@ fn leftover_constructors_do_not_join() {
     leftover_cmd_stays_atomic(r"\docLength{linewidth}");
     leftover_cmd_stays_atomic(r"\docColor{red}");
     leftover_cmd_stays_atomic(r"\docValue{none}");
+    leftover_cmd_stays_atomic(r"\colDef{First. Second.}");
+    leftover_cmd_stays_atomic(r"\colOpt{First. Second.}");
+    leftover_cmd_stays_atomic(r"\colFade{First. Second.}");
+    leftover_cmd_stays_atomic(r"\cs{tcbset}");
+    leftover_cmd_stays_atomic(r"\meta{name}");
+    leftover_cmd_stays_atomic(r"\marg{text}");
+    leftover_cmd_stays_atomic(r"\oarg{text}");
+    leftover_cmd_stays_atomic(r"\pbarg{text}");
+    leftover_cmd_stays_atomic(r"\brackets{text}");
+    leftover_cmd_stays_atomic(r"\sarg");
     leftover_cmd_stays_atomic(r"\tcbindex");
     leftover_cmd_stays_atomic(r"\tcbEXTERNALIZE");
     leftover_cmd_stays_atomic(r"\tcbifexternal{odd. More}{even. More}");
@@ -391,6 +401,8 @@ fn leftover_constructors_do_not_join() {
     extras_skip_no_brace("tcbmakedocSubKeys");
     extras_skip_no_brace("refCom");
     extras_skip_no_brace("docAuxCommand");
+    extras_skip_no_brace("colDef");
+    extras_skip_no_brace("cs");
     extras_skip_no_brace("tcbset");
     extras_skip_no_brace("tcbuselibrary");
     extras_skip_no_brace("setpythontexprettyprinter");
