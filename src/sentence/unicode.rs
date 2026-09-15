@@ -1026,12 +1026,19 @@ pub(crate) fn latex_verb_span_end_with(
                 None => return None,
             }
         }
-        let end = i;
+        let mut end = i;
         i = skip_ascii_ws(text, end);
-        // leftover tcbmaketheorem takes a fifth brace group.
-        if text.get(i..).is_some_and(|s| s.starts_with('{')) {
-            if let Some(close) = skip_nested_brace_group(text, i) {
-                return Some(close);
+        // leftover tcbmaketheorem / externalize take 5–6 brace groups.
+        for _ in 0..2 {
+            if !text.get(i..).is_some_and(|s| s.starts_with('{')) {
+                break;
+            }
+            match skip_nested_brace_group(text, i) {
+                Some(close) => {
+                    end = close;
+                    i = skip_ascii_ws(text, close);
+                }
+                None => break,
             }
         }
         if text.get(i..).is_some_and(|s| s.starts_with('[')) {
@@ -1470,6 +1477,10 @@ pub(crate) fn leftover_keyval_cs_name(tail: &str) -> Option<&'static str> {
         "RenewTCBox",
         "NewTCBoxFit",
         "NewTCBox",
+        "renewtcbexternalizeenvironment",
+        "newtcbexternalizeenvironment",
+        "renewtcbexternalizetcolorbox",
+        "newtcbexternalizetcolorbox",
         "renewtcolorbox",
         "tcolorboxenvironment",
         "newtcolorbox",
@@ -1562,8 +1573,12 @@ pub(crate) fn leftover_keyval_cs_name(tail: &str) -> Option<&'static str> {
         "tcbsetfromto",
         "tcbsetfiltered",
         "tcbset",
+        "tcbiffileprocess",
         "tcbifoddpageoroneside",
         "tcbifoddpage",
+        "tcbifexternal",
+        "tcbEXTERNALIZE",
+        "tcbitem",
         "tcbheightfromgroup",
         "tcbpatcharcangular",
         "tcbpatcharcround",
@@ -1647,9 +1662,11 @@ pub(crate) fn leftover_keyval_cs_name(tail: &str) -> Option<&'static str> {
 
 fn leftover_keyval_kind(name: &str) -> VerbKind {
     match name {
-        "printpythontex" | "stdoutpythontex" | "stderrpythontex" | "PitonClearUserFunctions" => {
-            VerbKind::FvextraBuffer
-        }
+        "printpythontex"
+        | "stdoutpythontex"
+        | "stderrpythontex"
+        | "PitonClearUserFunctions"
+        | "tcbitem" => VerbKind::FvextraBuffer,
         "tcbuselistinglisting"
         | "tcbuselistingtext"
         | "tcbusetemplisting"
@@ -1695,7 +1712,8 @@ fn leftover_keyval_kind(name: &str) -> VerbKind {
         | "FancyVerbTab"
         | "FancyVerbSpace"
         | "tcbindex"
-        | "tcbindexbar" => VerbKind::Listingcont,
+        | "tcbindexbar"
+        | "tcbEXTERNALIZE" => VerbKind::Listingcont,
         "setmintedinline"
         | "usemintedstyle"
         | "setminted"
@@ -1750,6 +1768,7 @@ fn leftover_keyval_kind(name: &str) -> VerbKind {
         | "tcbsidebyside"
         | "tcbifoddpage"
         | "tcbifoddpageoroneside"
+        | "tcbifexternal"
         | "tcbheightfromgroup"
         | "tcbmakeprefixed"
         | "tcbdimto"
@@ -1814,7 +1833,12 @@ fn leftover_keyval_kind(name: &str) -> VerbKind {
         | "ProvideTotalTCBoxFit"
         | "DeclareTotalTCBoxFit"
         | "renewtcbtheorem"
-        | "tcbmaketheorem" => VerbKind::CatchFileBetweenDelims,
+        | "tcbmaketheorem"
+        | "tcbiffileprocess"
+        | "newtcbexternalizeenvironment"
+        | "renewtcbexternalizeenvironment"
+        | "newtcbexternalizetcolorbox"
+        | "renewtcbexternalizetcolorbox" => VerbKind::CatchFileBetweenDelims,
         "useprintpythontex" | "usestdoutpythontex" | "usestderrpythontex" => {
             VerbKind::Lstinputlisting
         }

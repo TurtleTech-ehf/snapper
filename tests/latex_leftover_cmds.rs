@@ -335,6 +335,18 @@ fn leftover_constructors_do_not_join() {
     leftover_cmd_stays_atomic(r"\FancyVerbFormatCom{First. Second.}");
     leftover_cmd_stays_atomic(r"\tcbdocmarginnote{First. Second.}");
     leftover_cmd_stays_atomic(r"\tcbindex");
+    leftover_cmd_stays_atomic(r"\tcbEXTERNALIZE");
+    leftover_cmd_stays_atomic(r"\tcbifexternal{odd. More}{even. More}");
+    leftover_cmd_stays_atomic(
+        r"\tcbiffileprocess{1}{foo.tex}{foo.md5}{foo.pdf}{odd. More}{even. More}",
+    );
+    leftover_cmd_stays_atomic(
+        r"\newtcbexternalizeenvironment{exenv}{tabular}{listing file={foo.py}}{odd. More}{even. More}",
+    );
+    leftover_cmd_stays_atomic(
+        r"\newtcbexternalizetcolorbox{exbox}{tcolorbox}{listing file={foo.py}}{colback=red}",
+    );
+    leftover_cmd_stays_atomic(r"\tcbitem[colback=red]");
     extras_skip_no_brace("newminted");
     extras_skip_no_brace("newmint");
     extras_skip_no_brace("renewminted");
@@ -378,6 +390,9 @@ fn leftover_constructors_do_not_join() {
     extras_skip_no_brace("tcblower");
     extras_skip_no_brace("FancyVerbHighlightLine");
     extras_skip_no_brace("setpythontexformatter");
+    extras_skip_no_brace("tcbEXTERNALIZE");
+    extras_skip_no_brace("newtcbexternalizeenvironment");
+    extras_skip_no_brace("tcbitem");
 }
 
 #[test]
