@@ -375,6 +375,9 @@ fn leftover_constructors_do_not_join() {
     leftover_cmd_stays_atomic(r"\brackets{text}");
     leftover_cmd_stays_atomic(r"\sarg");
     leftover_cmd_stays_atomic(r"\OptionalLocalPitonStyle{Number}");
+    leftover_cmd_stays_atomic(r"\tcbposterset{colback=red}");
+    leftover_cmd_stays_atomic(r"\tcbcontinuedraftmode");
+    leftover_cmd_stays_atomic(r"\tcbinterruptdraftmode");
     leftover_cmd_stays_atomic(r"\tcbindex");
     leftover_cmd_stays_atomic(r"\tcbEXTERNALIZE");
     leftover_cmd_stays_atomic(r"\tcbifexternal{odd. More}{even. More}");
@@ -405,6 +408,7 @@ fn leftover_constructors_do_not_join() {
     extras_skip_no_brace("colDef");
     extras_skip_no_brace("cs");
     extras_skip_no_brace("OptionalLocalPitonStyle");
+    extras_skip_no_brace("tcbposterset");
     extras_skip_no_brace("tcbset");
     extras_skip_no_brace("tcbuselibrary");
     extras_skip_no_brace("setpythontexprettyprinter");

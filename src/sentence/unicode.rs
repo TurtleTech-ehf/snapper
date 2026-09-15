@@ -1569,6 +1569,9 @@ pub(crate) fn leftover_keyval_cs_name(tail: &str) -> Option<&'static str> {
         "tcbifoddpageoroneside",
         "tcbifoddpage",
         "tcbifexternal",
+        "tcbcontinuedraftmode",
+        "tcbinterruptdraftmode",
+        "tcbposterset",
         "tcbEXTERNALIZE",
         "tcbitem",
         "tcbheightfromgroup",
@@ -1761,6 +1764,8 @@ fn leftover_keyval_kind(name: &str) -> VerbKind {
         | "tcbdocdescNoDefaultInit"
         | "tcbdocdescInitEmpty"
         | "sarg"
+        | "tcbcontinuedraftmode"
+        | "tcbinterruptdraftmode"
         | "PyLTVerbatimEnv" => VerbKind::Listingcont,
         "setmintedinline"
         | "usemintedstyle"
