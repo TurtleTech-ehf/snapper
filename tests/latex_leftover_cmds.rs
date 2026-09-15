@@ -378,6 +378,8 @@ fn leftover_constructors_do_not_join() {
     leftover_cmd_stays_atomic(r"\tcbposterset{colback=red}");
     leftover_cmd_stays_atomic(r"\tcbcontinuedraftmode");
     leftover_cmd_stays_atomic(r"\tcbinterruptdraftmode");
+    leftover_cmd_stays_atomic(r"\tcbstartdraftmode");
+    leftover_cmd_stays_atomic(r"\tcbstopdraftmode");
     leftover_cmd_stays_atomic(r"\tcbfontsize{2}");
     leftover_cmd_stays_atomic(r"\tcbindex");
     leftover_cmd_stays_atomic(r"\tcbEXTERNALIZE");
@@ -410,6 +412,8 @@ fn leftover_constructors_do_not_join() {
     extras_skip_no_brace("cs");
     extras_skip_no_brace("OptionalLocalPitonStyle");
     extras_skip_no_brace("tcbposterset");
+    extras_skip_no_brace("tcbstartdraftmode");
+    extras_skip_no_brace("tcbstopdraftmode");
     extras_skip_no_brace("tcbfontsize");
     extras_skip_no_brace("tcbset");
     extras_skip_no_brace("tcbuselibrary");
