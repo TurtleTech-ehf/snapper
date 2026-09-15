@@ -1489,15 +1489,18 @@ fn is_quote_continuation_setext_pair(last_title: &str, underline: &str, prev: &s
 }
 
 /// Quoted setext that still respects list hang (GitHub #261 / #262).
-/// Start != 1 does not interrupt a paragraph (CM 5.2), so `> 2. Foo` /
-/// `> =======` stays title text. `list_opener_hang` is start-1 only.
+/// `> 2. Foo` / `> =======` as the first quote line is a list item.
+/// After an open quote paragraph, start != 1 does not interrupt (CM 5.2)
+/// so `> Foo` / `> 2. Bar` / `> =======` stays setext title text.
 fn quoted_setext_ok(title: &str, underline: &str, prev: Option<&str>) -> bool {
     if !is_quoted_setext_pair(title, underline) {
         return false;
     }
-    let hang = prev
-        .and_then(list_opener_hang)
-        .or_else(|| list_opener_hang(title));
+    let hang = match prev {
+        Some(p) if quote_marker_depth(p) > 0 && list_item_hang(p).is_none() => None,
+        Some(p) => list_item_hang(p).or_else(|| list_item_hang(title)),
+        None => list_item_hang(title),
+    };
     let Some(hang) = hang else {
         return true;
     };
