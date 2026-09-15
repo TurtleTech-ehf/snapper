@@ -197,6 +197,39 @@ fn leftover_irc_plain_link_after_path_hangs_and_splits() {
 }
 
 #[test]
+fn leftover_bbdb_plain_link_after_path_hangs_and_splits() {
+    let input = concat!("bbdb:Smith leftover. Next.\n", "After. Next.\n",);
+    let out = format_text(input, &org_cfg()).unwrap();
+    assert!(
+        !out.contains("bbdb:Smith leftover. Next."),
+        "leftover after bbdb path must still split, got:\n{out}"
+    );
+    assert!(
+        out.contains("After.\nNext."),
+        "following prose must still split, got:\n{out}"
+    );
+    assert_eq!(format_text(&out, &org_cfg()).unwrap(), out);
+}
+
+#[test]
+fn leftover_gnus_plain_link_after_path_hangs_and_splits() {
+    let input = concat!(
+        "gnus:nntp+news.gmane.io leftover. Next.\n",
+        "After. Next.\n",
+    );
+    let out = format_text(input, &org_cfg()).unwrap();
+    assert!(
+        !out.contains("gnus:nntp+news.gmane.io leftover. Next."),
+        "leftover after gnus path must still split, got:\n{out}"
+    );
+    assert!(
+        out.contains("After.\nNext."),
+        "following prose must still split, got:\n{out}"
+    );
+    assert_eq!(format_text(&out, &org_cfg()).unwrap(), out);
+}
+
+#[test]
 fn leftover_attachment_plain_link_after_path_hangs_and_splits() {
     let input = concat!("attachment:plot.png leftover. Next.\n", "After. Next.\n",);
     let out = format_text(input, &org_cfg()).unwrap();

@@ -168,7 +168,7 @@ struct OpenGreater {
 /// or Unicode word characters (letters and digits). `:END:` is the closer.
 /// org-element plain link at column 0: `file+emacs:` / `file+sys:` /
 /// `file:` / `shell:` / `elisp:` / `help:` / `info:` / `http://` /
-/// `https://` / `eww:` / `irc:` / `mailto:` /
+/// `https://` / `eww:` / `irc:` / `bbdb:` / `gnus:` / `mailto:` /
 /// `news:` / `doi:` / `ftp://` / `attachment:` / `id:` plus the path.
 /// Leftover after the path is hung Prose. `file+emacs:` / `file+sys:`
 /// must be matched before `file:` or the `+…` is eaten as the path.
@@ -193,6 +193,10 @@ pub(crate) fn org_plain_link_marker_len(line: &str) -> Option<usize> {
         "eww:"
     } else if t.starts_with("irc:") {
         "irc:"
+    } else if t.starts_with("bbdb:") {
+        "bbdb:"
+    } else if t.starts_with("gnus:") {
+        "gnus:"
     } else if t.starts_with("https://") {
         "https://"
     } else if t.starts_with("http://") {
