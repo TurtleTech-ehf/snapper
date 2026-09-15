@@ -840,10 +840,8 @@ pub(crate) fn latex_verb_span_end_with(
             }
         }
         for _ in 0..2 {
-            match skip_nested_brace_group(text, i) {
-                Some(end) => i = skip_ascii_ws(text, end),
-                None => return None,
-            }
+            let end = skip_nested_brace_group(text, i)?;
+            i = skip_ascii_ws(text, end);
         }
         return Some(i);
     }
@@ -915,19 +913,15 @@ pub(crate) fn latex_verb_span_end_with(
             }
         }
         for n in 0..2 {
-            match skip_nested_brace_group(text, i) {
-                Some(end) => {
-                    // Skip space between groups, not after the last
-                    // brace, so mid-line leftover does not swallow
-                    // the following prose space.
-                    i = if n + 1 < 2 {
-                        skip_ascii_ws(text, end)
-                    } else {
-                        end
-                    };
-                }
-                None => return None,
-            }
+            let end = skip_nested_brace_group(text, i)?;
+            // Skip space between groups, not after the last
+            // brace, so mid-line leftover does not swallow
+            // the following prose space.
+            i = if n + 1 < 2 {
+                skip_ascii_ws(text, end)
+            } else {
+                end
+            };
         }
         return Some(i);
     }
@@ -1015,16 +1009,12 @@ pub(crate) fn latex_verb_span_end_with(
         };
         // Nested braces so leftover `{O{}}` specs stay in the span.
         for k in 0..n {
-            match skip_nested_brace_group(text, i) {
-                Some(end) => {
-                    i = if k + 1 < n {
-                        skip_ascii_ws(text, end)
-                    } else {
-                        end
-                    };
-                }
-                None => return None,
-            }
+            let end = skip_nested_brace_group(text, i)?;
+            i = if k + 1 < n {
+                skip_ascii_ws(text, end)
+            } else {
+                end
+            };
         }
         let mut end = i;
         i = skip_ascii_ws(text, end);

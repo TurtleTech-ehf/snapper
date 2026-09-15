@@ -149,6 +149,7 @@ static HTML_BLOCK_TAGS: &[&str] = &[
 pub struct MarkdownParser;
 
 /// Close an open list item: flush accumulated prose and emit the trailing newline.
+#[allow(clippy::too_many_arguments)]
 fn close_list_item(
     in_list_item: &mut bool,
     list_hang: &mut Option<usize>,
@@ -1024,7 +1025,7 @@ fn quoted_lrd_title_span_end(lines: &[Line<'_>], start: usize, depth: usize) -> 
     lrd_title_span_end_inner(lines, start, Some(depth))
 }
 
-fn lrd_title_line_inner<'a>(line: &'a str, depth: Option<usize>) -> Option<&'a str> {
+fn lrd_title_line_inner(line: &str, depth: Option<usize>) -> Option<&str> {
     match depth {
         Some(d) => strip_quote_markers(line, d),
         None => Some(line),
@@ -1045,10 +1046,8 @@ fn lrd_title_span_end_inner(
         return None;
     }
     let mut acc = first_t.to_string();
-    for j in start + 1..lines.len() {
-        let Some(inner) = lrd_title_line_inner(lines[j].text, depth) else {
-            return None;
-        };
+    for (j, line) in lines.iter().enumerate().skip(start + 1) {
+        let inner = lrd_title_line_inner(line.text, depth)?;
         if inner.trim().is_empty() {
             return None;
         }

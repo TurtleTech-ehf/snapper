@@ -1056,13 +1056,13 @@ impl FormatParser for OrgParser {
 
             // Drawer begin (`:NAME:` only; `:See also:` is not a name).
             // Unmatched `:NAME:` without `:END:` is a paragraph.
-            if Self::is_drawer_begin(line_text) {
-                if Self::remaining_has_drawer_end(&input[line.end..]) {
-                    flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
-                    in_drawer = true;
-                    regions.push(SpannedRegion::structure(input, line.span()));
-                    continue;
-                }
+            if Self::is_drawer_begin(line_text)
+                && Self::remaining_has_drawer_end(&input[line.end..])
+            {
+                flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
+                in_drawer = true;
+                regions.push(SpannedRegion::structure(input, line.span()));
+                continue;
             }
 
             // Fixed-width (`: text`) is Structure, not a drawer.
@@ -1160,13 +1160,13 @@ impl FormatParser for OrgParser {
             // #+BEGIN: NAME -- org-element dynamic block. Body stays Structure
             // through #+END: / #+END (GitHub #178). Unmatched opener is a
             // paragraph.
-            if Self::is_dynamic_block_begin(line_text) {
-                if Self::remaining_has_dynamic_block_end(&input[line.end..]) {
-                    flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
-                    in_dynamic_block = true;
-                    regions.push(SpannedRegion::structure(input, line.span()));
-                    continue;
-                }
+            if Self::is_dynamic_block_begin(line_text)
+                && Self::remaining_has_dynamic_block_end(&input[line.end..])
+            {
+                flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
+                in_dynamic_block = true;
+                regions.push(SpannedRegion::structure(input, line.span()));
+                continue;
             }
 
             // Affiliated CAPTION: org-element-parsed-keywords is CAPTION

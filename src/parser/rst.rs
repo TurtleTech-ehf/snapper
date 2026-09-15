@@ -83,18 +83,11 @@ fn parse_line_based(input: &str) -> Vec<SpannedRegion> {
     // Continuation paragraphs after a blank stay in the item when
     // indented this far.
     let mut list_hang: Option<usize> = None;
-    // Compact `.. note::` + indented body + flush paragraph (GitHub #344):
-    // the body hangs as a block quote, so a column-0 line must close that
-    // hang instead of joining After markup into the note Prose.
-    let mut in_container_body = false;
     // Docutils `meta` body is a field list whose values are paragraphs.
     // Field markers stay Structure; same-line bodies hang as Prose
     // (GitHub #434). Top-level `:Author:` and directive `:option:`
     // fields stay whole-line Structure.
     let mut in_meta = false;
-    // Line-block hang (`| `): first flush line that is not `| ` and not
-    // a hang is a new paragraph, not more line-block (GitHub #409).
-    let mut in_line_block = false;
     let mut allow_rfc2822 = true;
     let mut pragma_off = false;
 
@@ -355,10 +348,8 @@ fn parse_line_based(input: &str) -> Vec<SpannedRegion> {
                         // indented line is leftover Prose, not opaque.
                         in_table_title = true;
                         list_hang = Some(marker_len);
-                        in_container_body = false;
                     } else {
                         list_hang = Some(marker_len);
-                        in_container_body = true;
                     }
                     i += 1;
                     continue;
@@ -370,7 +361,6 @@ fn parse_line_based(input: &str) -> Vec<SpannedRegion> {
                 .as_deref()
                 .is_some_and(|n| n == "table" || n == "csv-table")
             {
-                in_container_body = false;
                 in_meta = false;
                 let leading = line_text.len() - trimmed.len();
                 directive_indent = leading + 2;
@@ -383,12 +373,10 @@ fn parse_line_based(input: &str) -> Vec<SpannedRegion> {
                 .is_some_and(|n| is_rst_container_directive(n) || is_rst_meta_directive(n))
                 || rst_substitution_replace_marker_len(line_text).is_some()
             {
-                in_container_body = true;
                 in_meta = dir_name.as_deref().is_some_and(is_rst_meta_directive);
                 i += 1;
                 continue;
             }
-            in_container_body = false;
             in_meta = false;
             let leading = line_text.len() - trimmed.len();
             // Docutils accepts a two-space body; +3 is convention only.
@@ -662,7 +650,6 @@ fn parse_line_based(input: &str) -> Vec<SpannedRegion> {
         if let Some(marker_len) = rst_line_block_marker_len(line_text) {
             flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
             list_hang = Some(marker_len);
-            in_line_block = true;
             regions.push(SpannedRegion::structure(
                 input,
                 ByteSpan::new(line.start, line.start + marker_len),
@@ -781,9 +768,7 @@ fn parse_line_based(input: &str) -> Vec<SpannedRegion> {
             // Bibliographic leftover fields use the same hang close.
             if leading == 0 {
                 flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
-                in_container_body = false;
                 in_meta = false;
-                in_line_block = false;
             }
         }
 
@@ -808,9 +793,7 @@ fn parse_line_based(input: &str) -> Vec<SpannedRegion> {
         }
 
         // Regular prose
-        in_container_body = false;
         in_meta = false;
-        in_line_block = false;
         push_prose_line(&mut current_prose, &mut prose_span, line, true, true);
         i += 1;
     }
