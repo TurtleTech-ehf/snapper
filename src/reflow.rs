@@ -4,8 +4,8 @@ use std::collections::HashMap;
 use crate::config::CodeLang;
 use crate::format::Format;
 use crate::parser::{Region, RegionOrigin, SpannedRegion};
-use crate::sentence::SentenceSplitter;
 use crate::sentence::unicode::atomic_inline_spans;
+use crate::sentence::SentenceSplitter;
 
 /// Configuration for the reflow engine.
 pub struct ReflowConfig<'a> {
@@ -699,7 +699,18 @@ fn org_opens_block(line: &str) -> bool {
 /// `org-element--current-element` binds `case-fold-search` t, so prefixes
 /// compare ignore ASCII case (GitHub #319).
 fn org_planning_or_clock(line: &str) -> bool {
-    crate::parser::org::org_planning_line(line) || crate::parser::org::org_clock_line(line)
+    if crate::parser::org::org_planning_line(line) || crate::parser::org::org_clock_line(line) {
+        return true;
+    }
+    // Wrap skip-cut uses the KEY prefix so wrap cannot park
+    // `DEADLINE: extra words` at column 0 (no timestamp).
+    let t = line.trim_start_matches([' ', '\t']);
+    const KEYS: [&str; 4] = ["DEADLINE:", "SCHEDULED:", "CLOSED:", "CLOCK:"];
+    KEYS.iter().any(|k| {
+        t.as_bytes()
+            .get(..k.len())
+            .is_some_and(|head| head.eq_ignore_ascii_case(k.as_bytes()))
+    })
 }
 
 /// org-element fixed-width: colon then a space, or a lone colon.

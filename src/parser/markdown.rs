@@ -2,8 +2,8 @@ use regex::Regex;
 use std::sync::LazyLock;
 
 use crate::parser::{
-    ByteSpan, FormatParser, Line, SpannedRegion, flush_prose_spanned, iter_lines, join_prose_gap,
-    push_prose_line,
+    flush_prose_spanned, iter_lines, join_prose_gap, push_prose_line, ByteSpan, FormatParser, Line,
+    SpannedRegion,
 };
 
 /// CommonMark 0.31.2 §4.2 ATX heading: 0–3 spaces, then 1–6 `#`, then
@@ -1966,7 +1966,8 @@ impl FormatParser for MarkdownParser {
                     let leading = line_indent(line_text);
                     // hang+4 is indented code. List-looking at indent < hang+4
                     // is a nested list and stays in the parent item.
-                    if leading >= hang + 4 {
+                    if leading >= hang + 4 || (leading >= 4 && LIST_LOOKING_RE.is_match(line_text))
+                    {
                         close_list_item(
                             &mut in_list_item,
                             &mut list_hang,
@@ -3209,7 +3210,7 @@ mod tests {
     #[test]
     fn reporter_nested_indented_fence_is_identity_under_format() {
         use crate::format::Format;
-        use crate::{FormatConfig, format_text};
+        use crate::{format_text, FormatConfig};
 
         let input = concat!(
             "```{code-block} markdown\n",
@@ -3480,7 +3481,7 @@ mod tests {
     #[test]
     fn gfm_table_without_flanking_pipes_is_identity_under_format() {
         use crate::format::Format;
-        use crate::{FormatConfig, format_text};
+        use crate::{format_text, FormatConfig};
 
         let input = ticket_gfm_table_fixture();
         let cfg = FormatConfig {
@@ -3694,7 +3695,7 @@ mod tests {
     #[test]
     fn list_blank_indent_continuation_is_identity_under_format() {
         use crate::format::Format;
-        use crate::{FormatConfig, format_text};
+        use crate::{format_text, FormatConfig};
 
         let input = "- Item one.\n\n  Still the same item.\n";
         let cfg = FormatConfig {
@@ -3783,7 +3784,7 @@ mod tests {
     fn list_container_fixture_keeps_hang_and_code_under_format() {
         use crate::format::Format;
         use crate::oracle;
-        use crate::{FormatConfig, format_text};
+        use crate::{format_text, FormatConfig};
 
         let input = ticket_list_container_fixture();
         let cfg = FormatConfig {
@@ -3925,7 +3926,7 @@ mod tests {
     #[test]
     fn wide_numbered_marker_blank_indent_is_identity_under_format() {
         use crate::format::Format;
-        use crate::{FormatConfig, format_text};
+        use crate::{format_text, FormatConfig};
 
         let input = "10. Item one.\n\n    Still the same item.\n";
         let cfg = FormatConfig {
@@ -4198,7 +4199,7 @@ mod tests {
     #[test]
     fn multi_sentence_setext_title_stays_one_line() {
         use crate::format::Format;
-        use crate::{FormatConfig, format_text};
+        use crate::{format_text, FormatConfig};
 
         let input = "Setext Title With Period. Still Title\n=====================================\n\nBody after setext. Second body.\n";
         let cfg = FormatConfig {
@@ -4232,11 +4233,9 @@ mod tests {
             })
             .collect();
         assert!(prose.iter().any(|p| p.contains("Body sentence one")));
-        assert!(
-            regions
-                .iter()
-                .any(|r| matches!(r, Region::Structure(s) if s == "Heading Here\n"))
-        );
+        assert!(regions
+            .iter()
+            .any(|r| matches!(r, Region::Structure(s) if s == "Heading Here\n")));
     }
 
     /// GitHub #208 / snapper-4wxk: CommonMark 4.3 ex. 50–51. The whole
@@ -4290,7 +4289,7 @@ mod tests {
     #[test]
     fn multiline_setext_body_still_splits() {
         use crate::format::Format;
-        use crate::{FormatConfig, format_text};
+        use crate::{format_text, FormatConfig};
 
         let input = multiline_setext_fixture();
         let cfg = FormatConfig {
@@ -4619,7 +4618,7 @@ mod tests {
     #[test]
     fn list_and_quote_multi_sentence_hangs() {
         use crate::format::Format;
-        use crate::{FormatConfig, format_text};
+        use crate::{format_text, FormatConfig};
 
         let cfg = FormatConfig {
             format: Format::Markdown,
@@ -4641,7 +4640,7 @@ mod tests {
     #[test]
     fn blockquote_keeps_marker_on_each_content_line() {
         use crate::format::Format;
-        use crate::{FormatConfig, format_text};
+        use crate::{format_text, FormatConfig};
 
         let cfg = FormatConfig {
             format: Format::Markdown,
@@ -4674,7 +4673,7 @@ mod tests {
     #[test]
     fn nested_blockquote_reflow_repeats_prefix() {
         use crate::format::Format;
-        use crate::{FormatConfig, format_text};
+        use crate::{format_text, FormatConfig};
 
         let input = "> Quoted one. Quoted two.\n> > Nested one. Nested two.\n";
         let cfg = FormatConfig {
@@ -4692,7 +4691,7 @@ mod tests {
     #[test]
     fn nested_list_stays_two_items_after_reflow() {
         use crate::format::Format;
-        use crate::{FormatConfig, format_text};
+        use crate::{format_text, FormatConfig};
 
         let input = "1. Parent one. Parent two.\n   - Child one. Child two.\n";
         let cfg = FormatConfig {
@@ -4724,7 +4723,7 @@ mod tests {
     #[test]
     fn hard_break_two_spaces_not_joined_with_space() {
         use crate::format::Format;
-        use crate::{FormatConfig, format_text};
+        use crate::{format_text, FormatConfig};
 
         let input = "line  \ncontinued. Next sentence.\n";
         let regions = MarkdownParser.parse(input);
@@ -4767,7 +4766,7 @@ mod tests {
     #[test]
     fn hard_break_backslash_not_joined_with_space() {
         use crate::format::Format;
-        use crate::{FormatConfig, format_text};
+        use crate::{format_text, FormatConfig};
 
         let input = "line\\\ncontinued. Next sentence.\n";
         let cfg = FormatConfig {
@@ -4811,7 +4810,7 @@ mod tests {
     #[test]
     fn html_comment_multiline_passes_through_format() {
         use crate::format::Format;
-        use crate::{FormatConfig, format_text};
+        use crate::{format_text, FormatConfig};
 
         let input = "Before sentence. After.\n<!--\nHidden. With a period.\nStill comment.\n-->\nMore. Text.\n";
         let cfg = FormatConfig {
@@ -4831,7 +4830,7 @@ mod tests {
     #[test]
     fn html_comment_pragma_still_disables_reflow() {
         use crate::format::Format;
-        use crate::{FormatConfig, format_text};
+        use crate::{format_text, FormatConfig};
 
         let input = "Hello world. Goodbye world.\n<!-- snapper:off -->\nKeep this. Exactly here.\n<!-- snapper:on -->\nFinal thing. Last sentence.\n";
         let cfg = FormatConfig {
@@ -4852,7 +4851,7 @@ mod tests {
     #[test]
     fn quote_hard_break_then_nonquote_has_no_stray_marker() {
         use crate::format::Format;
-        use crate::{FormatConfig, format_text};
+        use crate::{format_text, FormatConfig};
 
         let input = "> line  \nNext sentence.\n";
         let regions = MarkdownParser.parse(input);
@@ -4898,7 +4897,7 @@ mod tests {
     #[test]
     fn quote_wrap_repeats_prefix_under_max_width() {
         use crate::format::Format;
-        use crate::{FormatConfig, format_text};
+        use crate::{format_text, FormatConfig};
 
         let input = "> One two three four five six seven eight.\n";
         let cfg = FormatConfig {
@@ -4933,7 +4932,7 @@ mod tests {
     #[test]
     fn quoted_fenced_code_is_not_sentence_split() {
         use crate::format::Format;
-        use crate::{FormatConfig, format_text};
+        use crate::{format_text, FormatConfig};
 
         let input = concat!(
             "> ```\n",
@@ -4989,7 +4988,7 @@ mod tests {
     #[test]
     fn quoted_tilde_fence_without_space_is_code() {
         use crate::format::Format;
-        use crate::{FormatConfig, format_text};
+        use crate::{format_text, FormatConfig};
 
         let input = concat!(">~~~\n", "> print(1. 2)\n", "> still code. yes\n", ">~~~\n",);
         let regions = MarkdownParser.parse(input);
@@ -5083,7 +5082,7 @@ mod tests {
     fn indented_code_fixture_is_identity_under_format() {
         use crate::format::Format;
         use crate::oracle;
-        use crate::{FormatConfig, format_text};
+        use crate::{format_text, FormatConfig};
 
         let input = concat!(
             "After a blank, this is code.\n",
@@ -5431,7 +5430,7 @@ mod tests {
     #[test]
     fn html_type7_closed_span_following_prose_still_splits() {
         use crate::format::Format;
-        use crate::{FormatConfig, format_text};
+        use crate::{format_text, FormatConfig};
 
         let input = ticket_html_type7_close_fixture();
         let cfg = FormatConfig {
@@ -5473,7 +5472,7 @@ mod tests {
     #[test]
     fn html_blocks_ticket_fixture_does_not_reflow() {
         use crate::format::Format;
-        use crate::{FormatConfig, format_text};
+        use crate::{format_text, FormatConfig};
 
         let input = ticket_html_blocks_fixture();
         let cfg = FormatConfig {
@@ -5515,7 +5514,7 @@ mod tests {
     #[test]
     fn html_type6_closed_div_following_prose_still_splits() {
         use crate::format::Format;
-        use crate::{FormatConfig, format_text};
+        use crate::{format_text, FormatConfig};
 
         let input = ticket_html_type6_close_fixture();
         let cfg = FormatConfig {
@@ -5599,7 +5598,7 @@ mod tests {
     #[test]
     fn quoted_html_div_following_prose_still_splits() {
         use crate::format::Format;
-        use crate::{FormatConfig, format_text};
+        use crate::{format_text, FormatConfig};
 
         let input = ticket_quoted_html_fixture("<div>");
         let cfg = FormatConfig {
@@ -5630,7 +5629,7 @@ mod tests {
     #[test]
     fn quoted_html_pre_comment_span_following_prose_unquoted() {
         use crate::format::Format;
-        use crate::{FormatConfig, format_text};
+        use crate::{format_text, FormatConfig};
 
         let cfg = FormatConfig {
             format: Format::Markdown,
@@ -5674,7 +5673,7 @@ mod tests {
     #[test]
     fn quoted_html_both_quoted_does_not_glue() {
         use crate::format::Format;
-        use crate::{FormatConfig, format_text};
+        use crate::{format_text, FormatConfig};
 
         let input = "> <div>\n> After tag. Next sentence.\n";
         let cfg = FormatConfig {
@@ -5701,7 +5700,7 @@ mod tests {
     #[test]
     fn top_level_html_types_still_interrupt() {
         use crate::format::Format;
-        use crate::{FormatConfig, format_text};
+        use crate::{format_text, FormatConfig};
 
         let cfg = FormatConfig {
             format: Format::Markdown,
@@ -5765,7 +5764,7 @@ mod tests {
     #[test]
     fn dollar_dollar_display_math_does_not_reflow_as_prose() {
         use crate::format::Format;
-        use crate::{FormatConfig, format_text};
+        use crate::{format_text, FormatConfig};
 
         let input = "$$\nThis is a long sentence that must stay inside display math and must not reflow as prose.\n$$\n";
         let cfg = FormatConfig {
@@ -6526,7 +6525,7 @@ mod tests {
     #[test]
     fn ticket_fixture_link_ref_and_footnote_do_not_reflow() {
         use crate::format::Format;
-        use crate::{FormatConfig, format_text};
+        use crate::{format_text, FormatConfig};
 
         let input = ticket_link_ref_footnote_fixture();
         let regions = MarkdownParser.parse(input);
@@ -6605,7 +6604,7 @@ mod tests {
     #[test]
     fn ticket_footnote_body_splits_after_period() {
         use crate::format::Format;
-        use crate::{FormatConfig, format_text};
+        use crate::{format_text, FormatConfig};
 
         let input = ticket_footnote_body_fixture();
         let out = format_text(input, &md_cfg()).unwrap();
@@ -6692,7 +6691,7 @@ mod tests {
     #[test]
     fn definition_list_body_hangs_and_splits() {
         use crate::format::Format;
-        use crate::{FormatConfig, format_text};
+        use crate::{format_text, FormatConfig};
 
         let input = ticket_definition_list_fixture();
         let out = format_text(input, &md_cfg()).unwrap();

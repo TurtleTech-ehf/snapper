@@ -6177,15 +6177,17 @@ mod tests {
             None,
             "configured extra ExecuteMetaData must not re-tokenize the no-brace form as Delim"
         );
+        let tags_star = r"\CatchFileBetweenTags*{\tmp}{foo.tex}{TAG}";
         assert_eq!(
-            latex_verb_span_end_with(r"\CatchFileBetweenTags*{\tmp}{foo.tex}{TAG}", 0, &[]),
-            None,
-            "CatchFileBetweenTags has no star form"
+            latex_verb_span_end_with(tags_star, 0, &[]),
+            Some(tags_star.len()),
+            "CatchFileBetweenTags* is leftover"
         );
+        let exec_star = r"\ExecuteMetaData*{TAG}";
         assert_eq!(
-            latex_verb_span_end_with(r"\ExecuteMetaData*{TAG}", 0, &[]),
-            None,
-            "ExecuteMetaData has no star form"
+            latex_verb_span_end_with(exec_star, 0, &[]),
+            Some(exec_star.len()),
+            "ExecuteMetaData* is leftover"
         );
     }
 
