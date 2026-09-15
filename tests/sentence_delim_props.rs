@@ -101,6 +101,26 @@ fn plaintext_period_then_latex_quotes_is_idempotent() {
 }
 
 #[test]
+fn plaintext_nested_quoted_bang_letter_is_span_safe() {
+    // ubuntu CI seed: `"!!a"` nested in a delimiter soup.
+    let input = "\"\"\"`A`]]\"`A`']']]\"!!a\"])]]'''}";
+    let out = format_plain(input);
+    assert_eq!(
+        format_plain(&out),
+        out,
+        "idempotence\n in={input:?}\n out={out:?}"
+    );
+    assert!(
+        newlines_respect_delimiter_spans(&out),
+        "span newline\n in={input:?}\n out={out:?}"
+    );
+    assert!(
+        !out.contains("!!\n"),
+        "must not split !!a inside quotes\n in={input:?}\n out={out:?}"
+    );
+}
+
+#[test]
 fn plaintext_quoted_bang_letter_is_span_safe() {
     let input = "\"!!a\"";
     let out = format_plain(input);
