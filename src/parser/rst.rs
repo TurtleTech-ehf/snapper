@@ -1059,14 +1059,21 @@ pub(crate) fn rst_substitution_replace_marker_len(line: &str) -> Option<usize> {
         return None;
     }
     let after_mid = &after_close[mid_ws..];
-    // `replace::` and leftover `unicode::` are the same length.
     // `get` not `[..len]`: same UTF-8 mid-char slice as
     // org_caption_marker_len (GitHub #459).
-    let kind_len = 9;
-    let kind = after_mid.get(..kind_len)?;
-    if !kind.eq_ignore_ascii_case("replace::") && !kind.eq_ignore_ascii_case("unicode::") {
+    let kind_len = if after_mid
+        .get(..9)
+        .is_some_and(|h| h.eq_ignore_ascii_case("replace::") || h.eq_ignore_ascii_case("unicode::"))
+    {
+        9
+    } else if after_mid
+        .get(..6)
+        .is_some_and(|h| h.eq_ignore_ascii_case("date::"))
+    {
+        6
+    } else {
         return None;
-    }
+    };
     let after_colons = &after_mid[kind_len..];
     let pad = after_colons.len() - after_colons.trim_start().len();
     Some(indent + 2 + ws_after_dots + 1 + name_end + 1 + mid_ws + kind_len + pad)

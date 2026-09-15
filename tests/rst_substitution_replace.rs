@@ -37,6 +37,43 @@ fn expected_ticket() -> &'static str {
 }
 
 #[test]
+fn leftover_date_substitution_same_line_hangs_and_splits() {
+    let input = concat!(
+        ".. |today| date:: fig. 1 is here. After.\n",
+        "After. Next.\n",
+    );
+    let out = format_text(input, &rst_cfg()).unwrap();
+    assert!(
+        !out.contains("date:: fig. 1 is here. After."),
+        "date argument must still split, got:\n{out}"
+    );
+    assert!(
+        out.contains("After.\nNext."),
+        "following prose must still split, got:\n{out}"
+    );
+    assert_eq!(format_text(&out, &rst_cfg()).unwrap(), out);
+}
+
+#[test]
+fn leftover_date_substitution_indented_body_hangs_and_splits() {
+    let input = concat!(
+        ".. |today| date::\n",
+        "   fig. 1 is here. After.\n",
+        "After. Next.\n",
+    );
+    let out = format_text(input, &rst_cfg()).unwrap();
+    assert!(
+        !out.contains("fig. 1 is here. After."),
+        "indented date body must still split, got:\n{out}"
+    );
+    assert!(
+        out.contains("After.\nNext."),
+        "following prose must still split, got:\n{out}"
+    );
+    assert_eq!(format_text(&out, &rst_cfg()).unwrap(), out);
+}
+
+#[test]
 fn leftover_unicode_substitution_same_line_hangs_and_splits() {
     let input = concat!(
         ".. |copy| unicode:: copyright sign. Next.\n",
