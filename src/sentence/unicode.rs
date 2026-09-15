@@ -1572,6 +1572,7 @@ pub(crate) fn leftover_keyval_cs_name(tail: &str) -> Option<&'static str> {
         "tcbcontinuedraftmode",
         "tcbinterruptdraftmode",
         "tcbposterset",
+        "tcbfontsize",
         "tcbEXTERNALIZE",
         "tcbitem",
         "tcbheightfromgroup",
