@@ -698,7 +698,10 @@ pub(crate) fn latex_verb_span_end_with(
         // `\inputminted` / `\mint` / `\piton` / `\py` / `\tcbinputlisting`
         // stay their own leftovers.
         let kind = leftover_keyval_kind(name);
-        (after_bs + name.len(), kind)
+        let star = usize::from(
+            name == "tcbline" && tail.get(name.len()..).is_some_and(|s| s.starts_with('*')),
+        );
+        (after_bs + name.len() + star, kind)
     } else if let Some((name, kind)) = pitoninputfile_cs_name(tail) {
         // Longer leftover name, case-distinct from `\piton` (GitHub
         // #406). T / F / TF siblings (GitHub #439) before the base
@@ -1025,6 +1028,12 @@ pub(crate) fn latex_verb_span_end_with(
         }
         let end = i;
         i = skip_ascii_ws(text, end);
+        // leftover tcbmaketheorem takes a fifth brace group.
+        if text.get(i..).is_some_and(|s| s.starts_with('{')) {
+            if let Some(close) = skip_nested_brace_group(text, i) {
+                return Some(close);
+            }
+        }
         if text.get(i..).is_some_and(|s| s.starts_with('[')) {
             return match skip_bracket_group(text, i) {
                 Some(close) => Some(close),
@@ -1546,7 +1555,10 @@ pub(crate) fn leftover_keyval_cs_name(tail: &str) -> Option<&'static str> {
         "tcbsetforeverylayer",
         "tcbsetmanagedlayers",
         "tcbsetmanagedlayer",
+        "tcbsetmacrotowidthofnode",
+        "tcbsetmacrotoheightofnode",
         "tcbsettowidthofnode",
+        "tcbsettoheightofnode",
         "tcbsetfromto",
         "tcbsetfiltered",
         "tcbset",
@@ -1562,6 +1574,14 @@ pub(crate) fn leftover_keyval_cs_name(tail: &str) -> Option<&'static str> {
         "tcbsubskin",
         "tcbmakeprefixed",
         "tcbhyperref",
+        "tcbhypernode",
+        "tcbmaketheorem",
+        "endtcbverbatimwrite",
+        "tcbverbatimwrite",
+        "endtcbwritetemp",
+        "tcbwritetemp",
+        "tcbrecord",
+        "tcbbreak",
         "thetcbcounterof",
         "renewthetcbcounter",
         "tcbcounterof",
@@ -1569,14 +1589,29 @@ pub(crate) fn leftover_keyval_cs_name(tail: &str) -> Option<&'static str> {
         "tcbdimto",
         "tcblower",
         "tcbline",
+        "FancyVerbBreakByTokenAnywhereBreak",
+        "FancyVerbBreakAnywhereBreak",
+        "FancyVerbBreakBeforeBreak",
+        "FancyVerbBreakAfterBreak",
+        "FancyVerbBreakStart",
+        "FancyVerbBreakStop",
+        "FancyVerbRestoreCodes",
         "FancyVerbHighlightLine",
+        "FancyVerbTab",
+        "FancyVerbSpace",
         "FancyVerbFormatInline",
         "FancyVerbFormatLine",
         "FancyVerbFormatText",
         "DepythontexOff",
         "DepythontexOn",
+        "Depythontex",
+        "DepyListing",
+        "DepyMacro",
+        "DepyFile",
         "listoflistingscaption",
         "listingscaption",
+        "lstlistingnamestyle",
+        "lstlistlistingname",
         "lstlistingname",
         "VerbatimFootnotes",
         "setminted",
@@ -1596,7 +1631,8 @@ pub(crate) fn leftover_keyval_cs_name(tail: &str) -> Option<&'static str> {
         let Some(after) = tail.strip_prefix(name) else {
             continue;
         };
-        if after.starts_with(|c: char| c.is_ascii_alphabetic() || c == '*') {
+        let reject_star = name != "tcbline";
+        if after.starts_with(|c: char| c.is_ascii_alphabetic() || (reject_star && c == '*')) {
             return None;
         }
         return Some(name);
@@ -1635,8 +1671,24 @@ fn leftover_keyval_kind(name: &str) -> VerbKind {
         | "tcbline"
         | "restartpythontexsession"
         | "lstlistingname"
+        | "lstlistingnamestyle"
+        | "lstlistlistingname"
         | "VerbatimFootnotes"
-        | "tcblower" => VerbKind::Listingcont,
+        | "tcblower"
+        | "tcbwritetemp"
+        | "endtcbwritetemp"
+        | "endtcbverbatimwrite"
+        | "tcbbreak"
+        | "DepyListing"
+        | "FancyVerbBreakStart"
+        | "FancyVerbBreakStop"
+        | "FancyVerbBreakAnywhereBreak"
+        | "FancyVerbBreakBeforeBreak"
+        | "FancyVerbBreakAfterBreak"
+        | "FancyVerbBreakByTokenAnywhereBreak"
+        | "FancyVerbRestoreCodes"
+        | "FancyVerbTab"
+        | "FancyVerbSpace" => VerbKind::Listingcont,
         "setmintedinline"
         | "usemintedstyle"
         | "setminted"
@@ -1649,6 +1701,12 @@ fn leftover_keyval_kind(name: &str) -> VerbKind {
         | "tcboxfit"
         | "tcbox"
         | "tcbhyperref"
+        | "tcbhypernode"
+        | "tcbverbatimwrite"
+        | "tcbrecord"
+        | "Depythontex"
+        | "DepyMacro"
+        | "DepyFile"
         | "FancyVerbFormatInline"
         | "FancyVerbFormatLine"
         | "FancyVerbFormatText"
@@ -1689,6 +1747,9 @@ fn leftover_keyval_kind(name: &str) -> VerbKind {
         | "renewthetcbcounter"
         | "setpythontexformatter"
         | "tcbsettowidthofnode"
+        | "tcbsetmacrotowidthofnode"
+        | "tcbsettoheightofnode"
+        | "tcbsetmacrotoheightofnode"
         | "tcbsetfromto" => VerbKind::Listinginput,
         "RecustomVerbatimEnvironment"
         | "CustomVerbatimEnvironment"
@@ -1742,7 +1803,8 @@ fn leftover_keyval_kind(name: &str) -> VerbKind {
         | "RenewTotalTCBoxFit"
         | "ProvideTotalTCBoxFit"
         | "DeclareTotalTCBoxFit"
-        | "renewtcbtheorem" => VerbKind::CatchFileBetweenDelims,
+        | "renewtcbtheorem"
+        | "tcbmaketheorem" => VerbKind::CatchFileBetweenDelims,
         "useprintpythontex" | "usestdoutpythontex" | "usestderrpythontex" => {
             VerbKind::Lstinputlisting
         }

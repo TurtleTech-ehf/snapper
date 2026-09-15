@@ -45,6 +45,21 @@ fn leftover_plain_link_after_path_hangs_and_splits() {
 }
 
 #[test]
+fn leftover_ftp_plain_link_after_path_hangs_and_splits() {
+    let input = concat!("ftp://example.com leftover. Next.\n", "After. Next.\n",);
+    let out = format_text(input, &org_cfg()).unwrap();
+    assert!(
+        !out.contains("ftp://example.com leftover. Next."),
+        "leftover after ftp path must still split, got:\n{out}"
+    );
+    assert!(
+        out.contains("After.\nNext."),
+        "following prose must still split, got:\n{out}"
+    );
+    assert_eq!(format_text(&out, &org_cfg()).unwrap(), out);
+}
+
+#[test]
 fn leftover_doi_plain_link_after_path_hangs_and_splits() {
     let input = concat!("doi:10.1000/foo leftover. Next.\n", "After. Next.\n",);
     let out = format_text(input, &org_cfg()).unwrap();
