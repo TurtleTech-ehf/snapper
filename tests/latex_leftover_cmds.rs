@@ -313,6 +313,8 @@ fn leftover_constructors_do_not_join() {
     leftover_cmd_stays_atomic(r"\setpythontexlistingenv{listing}");
     leftover_cmd_stays_atomic(r"\setpythontexformatter{py}{pygments}");
     leftover_cmd_stays_atomic(r"\setpygmentsformatter{pygments}");
+    leftover_cmd_stays_atomic(r"\tcbsettowidthofnode{\w}{node}");
+    leftover_cmd_stays_atomic(r"\tcbsetfromto{1}{2}");
     extras_skip_no_brace("newminted");
     extras_skip_no_brace("newmint");
     extras_skip_no_brace("renewminted");

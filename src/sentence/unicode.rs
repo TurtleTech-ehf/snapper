@@ -1546,6 +1546,8 @@ pub(crate) fn leftover_keyval_cs_name(tail: &str) -> Option<&'static str> {
         "tcbsetforeverylayer",
         "tcbsetmanagedlayers",
         "tcbsetmanagedlayer",
+        "tcbsettowidthofnode",
+        "tcbsetfromto",
         "tcbsetfiltered",
         "tcbset",
         "tcbifoddpageoroneside",
@@ -1685,7 +1687,9 @@ fn leftover_keyval_kind(name: &str) -> VerbKind {
         | "tcbdimto"
         | "tcbglueto"
         | "renewthetcbcounter"
-        | "setpythontexformatter" => VerbKind::Listinginput,
+        | "setpythontexformatter"
+        | "tcbsettowidthofnode"
+        | "tcbsetfromto" => VerbKind::Listinginput,
         "RecustomVerbatimEnvironment"
         | "CustomVerbatimEnvironment"
         | "DefineVerbatimEnvironment"

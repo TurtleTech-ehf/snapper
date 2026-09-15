@@ -167,7 +167,8 @@ struct OpenGreater {
 /// org-element-drawer-re NAME: `(any ?- ?_ word)` — hyphen, underscore,
 /// or Unicode word characters (letters and digits). `:END:` is the closer.
 /// org-element plain link at column 0: `file:` / `http://` / `https://`
-/// / `mailto:` plus the path. Leftover after the path is hung Prose.
+/// / `mailto:` / `news:` / `doi:` / `ftp://` plus the path.
+/// Leftover after the path is hung Prose.
 pub(crate) fn org_plain_link_marker_len(line: &str) -> Option<usize> {
     let indent = line.len() - line.trim_start().len();
     let t = &line[indent..];
@@ -179,6 +180,12 @@ pub(crate) fn org_plain_link_marker_len(line: &str) -> Option<usize> {
         "http://"
     } else if t.starts_with("mailto:") {
         "mailto:"
+    } else if t.starts_with("news:") {
+        "news:"
+    } else if t.starts_with("doi:") {
+        "doi:"
+    } else if t.starts_with("ftp://") {
+        "ftp://"
     } else {
         return None;
     };
