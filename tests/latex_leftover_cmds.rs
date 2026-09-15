@@ -284,6 +284,17 @@ fn leftover_constructors_do_not_join() {
     leftover_cmd_stays_atomic(r"\ExecuteMetaData*{tag}");
     leftover_cmd_stays_atomic(r"\tcboxraise{1em}");
     leftover_cmd_stays_atomic(r"\tcbsetmanagedlayer{1}");
+    leftover_cmd_stays_atomic(r"\listingscaption");
+    leftover_cmd_stays_atomic(r"\listoflistingscaption");
+    leftover_cmd_stays_atomic(r"\FancyVerbFormatInline{First. Second.}");
+    leftover_cmd_stays_atomic(r"\DepythontexOn");
+    leftover_cmd_stays_atomic(r"\tcbsidebyside{left. More}{right. More}");
+    leftover_cmd_stays_atomic(r"\tcbstartrecording");
+    leftover_cmd_stays_atomic(r"\tcbsetmanagedlayers{3}");
+    leftover_cmd_stays_atomic(r"\tcbsubskin{mine}{standard}{colback=red}");
+    leftover_cmd_stays_atomic(r"\tcbifoddpage{odd. More}{even. More}");
+    leftover_cmd_stays_atomic(r"\tcbheightfromgroup{\h}{grp}");
+    leftover_cmd_stays_atomic(r"\tcbpatcharcround");
     extras_skip_no_brace("newminted");
     extras_skip_no_brace("newmint");
     extras_skip_no_brace("renewminted");
@@ -317,6 +328,10 @@ fn leftover_constructors_do_not_join() {
     extras_skip_no_brace("CatchFileBetweenTags");
     extras_skip_no_brace("tcboxraise");
     extras_skip_no_brace("tcbsetmanagedlayer");
+    extras_skip_no_brace("listingscaption");
+    extras_skip_no_brace("FancyVerbFormatInline");
+    extras_skip_no_brace("tcbsidebyside");
+    extras_skip_no_brace("tcbsetmanagedlayers");
 }
 
 #[test]

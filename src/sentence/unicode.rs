@@ -1547,9 +1547,27 @@ pub(crate) fn leftover_keyval_cs_name(tail: &str) -> Option<&'static str> {
         "tcbusetemp",
         "tcbsetforeverylisting",
         "tcbsetforeverylayer",
+        "tcbsetmanagedlayers",
         "tcbsetmanagedlayer",
         "tcbsetfiltered",
         "tcbset",
+        "tcbifoddpageoroneside",
+        "tcbifoddpage",
+        "tcbheightfromgroup",
+        "tcbpatcharcangular",
+        "tcbpatcharcround",
+        "tcbstartrecording",
+        "tcbstoprecording",
+        "tcbinputrecords",
+        "tcbsidebyside",
+        "tcbsubskin",
+        "FancyVerbFormatInline",
+        "FancyVerbFormatLine",
+        "FancyVerbFormatText",
+        "DepythontexOff",
+        "DepythontexOn",
+        "listoflistingscaption",
+        "listingscaption",
         "setminted",
         "newmint",
         "pysession",
@@ -1593,7 +1611,16 @@ fn leftover_keyval_kind(name: &str) -> VerbKind {
         | "tcbtitletext"
         | "listinglabel"
         | "listingoffset"
-        | "verbatimtabsize" => VerbKind::Listingcont,
+        | "verbatimtabsize"
+        | "listingscaption"
+        | "listoflistingscaption"
+        | "DepythontexOn"
+        | "DepythontexOff"
+        | "tcbstartrecording"
+        | "tcbstoprecording"
+        | "tcbinputrecords"
+        | "tcbpatcharcangular"
+        | "tcbpatcharcround" => VerbKind::Listingcont,
         "setmintedinline"
         | "usemintedstyle"
         | "setminted"
@@ -1604,7 +1631,10 @@ fn leftover_keyval_kind(name: &str) -> VerbKind {
         | "tcbincludepdf"
         | "tcbsubtitle"
         | "tcboxfit"
-        | "tcbox" => VerbKind::Lstinputlisting,
+        | "tcbox"
+        | "FancyVerbFormatInline"
+        | "FancyVerbFormatLine"
+        | "FancyVerbFormatText" => VerbKind::Lstinputlisting,
         "pyoption"
         | "SetPitonIdentifier"
         | "NewPitonLanguage"
@@ -1630,7 +1660,11 @@ fn leftover_keyval_kind(name: &str) -> VerbKind {
         | "newtcboxfit"
         | "renewtcboxfit"
         | "tcolorboxenvironment"
-        | "tcblistof" => VerbKind::Listinginput,
+        | "tcblistof"
+        | "tcbsidebyside"
+        | "tcbifoddpage"
+        | "tcbifoddpageoroneside"
+        | "tcbheightfromgroup" => VerbKind::Listinginput,
         "RecustomVerbatimEnvironment"
         | "CustomVerbatimEnvironment"
         | "DefineVerbatimEnvironment"
@@ -1660,7 +1694,8 @@ fn leftover_keyval_kind(name: &str) -> VerbKind {
         | "RenewTCBInputListing"
         | "ProvideTCBInputListing"
         | "DeclareTCBInputListing"
-        | "pyif" => VerbKind::LstNewenvironment,
+        | "pyif"
+        | "tcbsubskin" => VerbKind::LstNewenvironment,
         "ProvidePitonEnvironment"
         | "DeclarePitonEnvironment"
         | "RenewPitonEnvironment"
