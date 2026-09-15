@@ -674,6 +674,18 @@ fn org_opens_block(line: &str) -> bool {
     if crate::parser::org::org_export_snippet_starts(t) {
         return true;
     }
+    if crate::parser::org::org_footnote_definition_marker_len(t).is_some() {
+        return true;
+    }
+    if t.starts_with("[[") {
+        return true;
+    }
+    if t.starts_with("file:") || t.starts_with("http://") || t.starts_with("https://") {
+        return true;
+    }
+    if t.starts_with("\\begin{") {
+        return true;
+    }
     if crate::parser::org::is_org_drawer_begin(t) || org_fixed_width(t) || org_horizontal_rule(t) {
         return true;
     }
@@ -687,6 +699,11 @@ fn org_opens_block(line: &str) -> bool {
 /// `org-element--current-element` binds `case-fold-search` t, so prefixes
 /// compare ignore ASCII case (GitHub #319).
 fn org_planning_or_clock(line: &str) -> bool {
+    if crate::parser::org::org_planning_line(line) || crate::parser::org::org_clock_line(line) {
+        return true;
+    }
+    // Wrap skip-cut uses the KEY prefix so wrap cannot park
+    // `DEADLINE: extra words` at column 0 (no timestamp).
     let t = line.trim_start_matches([' ', '\t']);
     const KEYS: [&str; 4] = ["DEADLINE:", "SCHEDULED:", "CLOSED:", "CLOCK:"];
     KEYS.iter().any(|k| {

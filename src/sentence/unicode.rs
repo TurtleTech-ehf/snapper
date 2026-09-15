@@ -4,7 +4,7 @@ use std::sync::LazyLock;
 /// Matches segments ending with sentence punctuation followed by closing quotes/parens,
 /// where the punctuation is not a true sentence boundary (e.g., `"wow!" and`, `(emphasis!) loudly`).
 static QUOTED_PUNCT_END_RE: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r##"[.!?]["')\]]+\s*$"##).expect("valid quoted-punct regex"));
+    LazyLock::new(|| Regex::new(r##"[.!?]["')\]}”’»›]+\s*$"##).expect("valid quoted-punct regex"));
 
 use crate::abbreviations;
 use crate::sentence::SentenceSplitter;
@@ -50,14 +50,18 @@ static INLINE_TOKEN_RE: LazyLock<Regex> = LazyLock::new(|| {
             r"!\[[^\]]*\]\[[^\]]*\]", // Markdown reference images: ![alt][ref]
             r"\[[^\]]+\]\[[^\]]*\]",  // Markdown reference links: [text][ref]
             r"\$\$[^$\n]+\$\$", // Display math: $$...$$
-            r"\$[^$\n]+\$",     // Inline math: $...$
+            // org-element-latex-fragment-parser: after `$` the next char
+            // is not space/tab/newline/`,`/`.`/`;`; the char before the
+            // closer is not space/tab/newline/`,`/`.`. `$ x. Next $` is
+            // leftover prose. `$a. b$` stays a fragment.
+            r"\$[^\s,.;$\n](?:[^$\n]*[^\s,.$\n])?\$",
             // org-element-latex-fragment-parser: \(...\) / \[...\] search
             // to the closer. `[^\\\n]` dropped interior `\alpha` / `\beta`.
             r"\\\([^\n]+?\\\)", // LaTeX inline math: \(...\)
             r"\\\[[^\n]+?\\\]", // Org / LaTeX display math fragment: \[...\]
             // org-element-latex-fragment-parser macro:
-            // \\[a-zA-Z]+\*? then optional [arg] and one or more {arg}.
-            r"\\[a-zA-Z]+\*?(?:\[[^\]\[\n{}]*\])?(?:\{[^{}\n]*\})+",
+            // \\[a-zA-Z]+\*? then ([arg]|{arg})* (zero braces is a fragment).
+            r"\\[a-zA-Z]+\*?(?:\[[^\]\[\n{}]*\]|\{[^{}\n]*\})+",
             // Org emphasis must be protected before sentence splits so a line
             // cannot begin with `*rest` (false headline) or leave markers open.
             // Org requires a non-space immediately after the opener and before
@@ -85,7 +89,7 @@ static INLINE_TOKEN_RE: LazyLock<Regex> = LazyLock::new(|| {
             r#"file:\S+[^.\s!?,;:)\]'""]"#, // Org file: links (don't swallow trailing punctuation)
             // org-element-export-snippet-parser. Backend is [-A-Za-z0-9]+
             // so html5 and hyphen names stay one token (GitHub #354).
-            r"@@[-A-Za-z0-9]+:[^@]*@@",
+            r"@@[-A-Za-z0-9]+:.*?@@",
         ]
         .join("|"),
     )
@@ -189,11 +193,37 @@ pub fn protect_inline_tokens_with(
     let after_org = protect_org_inline_src_and_call(&after_rst, &mut placeholders);
     let after_spans = protect_paired_spans(&after_org, &mut placeholders);
     let protected = INLINE_TOKEN_RE.replace_all(&after_spans, |caps: &regex::Captures| {
+        let m = caps.get(0).expect("regex match");
+        let token = m.as_str();
+        // org-element leftover: `$…$` closer must be followed by
+        // whitespace / punctuation / open-close paren / `"` `'` / EOL.
+        // A letter is leftover prose.
+        if token.starts_with('$')
+            && !token.starts_with("$$")
+            && !dollar_closer_post_context(
+                after_spans.get(m.end()..).and_then(|s| s.chars().next()),
+            )
+        {
+            return token.to_string();
+        }
         let idx = placeholders.len();
-        placeholders.push(caps[0].to_string());
+        placeholders.push(token.to_string());
         format!("\x00PH{idx}\x00")
     });
     (protected.into_owned(), placeholders)
+}
+
+fn dollar_closer_post_context(next: Option<char>) -> bool {
+    match next {
+        None => true,
+        Some(c) if c.is_whitespace() => true,
+        // org-element `looking-at-p` of `\s.` / `\s(` / `\s)` / `\s"` / `'`.
+        Some(
+            '.' | '-' | ',' | ';' | ':' | '!' | '?' | '(' | ')' | '[' | ']' | '{' | '}' | '"'
+            | '\'',
+        ) => true,
+        _ => false,
+    }
 }
 
 /// `\verb|...|` / `\lstinline[...]!...!` / `\spverb|...|` /
@@ -552,22 +582,27 @@ pub(crate) fn latex_verb_span_end_with(
         )
     } else if let Some(stripped) = tail.strip_prefix("CatchFileBetweenTags") {
         // catchfilebetweentags.sty leftover (GitHub #439). Three
-        // required braces, optional trailing `[setup]`. No `*` form.
-        if stripped.starts_with(|c: char| c.is_ascii_alphabetic() || c == '*') {
+        // required braces, optional trailing `[setup]`. Star form
+        // is the same walk.
+        let star = usize::from(stripped.starts_with('*'));
+        let after_star = &stripped[star..];
+        if after_star.starts_with(|c: char| c.is_ascii_alphabetic()) {
             return None;
         }
         (
-            after_bs + "CatchFileBetweenTags".len(),
+            after_bs + "CatchFileBetweenTags".len() + star,
             VerbKind::CatchFileBetweenTags,
         )
     } else if let Some(stripped) = tail.strip_prefix("ExecuteMetaData") {
         // catchfilebetweentags.sty leftover (GitHub #439). Optional
-        // `[file]` then required `{tag}`. No `*` form.
-        if stripped.starts_with(|c: char| c.is_ascii_alphabetic() || c == '*') {
+        // `[file]` then required `{tag}`. Star form is the same walk.
+        let star = usize::from(stripped.starts_with('*'));
+        let after_star = &stripped[star..];
+        if after_star.starts_with(|c: char| c.is_ascii_alphabetic()) {
             return None;
         }
         (
-            after_bs + "ExecuteMetaData".len(),
+            after_bs + "ExecuteMetaData".len() + star,
             VerbKind::Lstinputlisting,
         )
     } else if let Some(name) = catchfile_leftover_cs_name(tail) {
@@ -606,6 +641,21 @@ pub(crate) fn latex_verb_span_end_with(
             return None;
         }
         (after_bs + "verbatimwrite".len(), VerbKind::Lstinputlisting)
+    } else if let Some(stripped) = tail.strip_prefix("verbinput") {
+        // sverb leftover file-input. Before `verb` so this is not
+        // `\verb` + leftover. Required `{file}`. No `*` form.
+        if stripped.starts_with(|c: char| c.is_ascii_alphabetic() || c == '*') {
+            return None;
+        }
+        (after_bs + "verbinput".len(), VerbKind::Tcbinputlisting)
+    } else if let Some(stripped) = tail.strip_prefix("verbwrite") {
+        // sverb leftover write cmd. Before `verb` so this is not
+        // `\verb` + leftover. Required `{file}` like `\verbatimwrite`.
+        // The `verbwrite` / `verbwrite*` envs stay Code.
+        if stripped.starts_with(|c: char| c.is_ascii_alphabetic()) {
+            return None;
+        }
+        (after_bs + "verbwrite".len(), VerbKind::Lstinputlisting)
     } else if let Some(stripped) = tail.strip_prefix("verbatiminput") {
         // Before `verb` so `\verbatiminput` is not `\verb` + leftover.
         if stripped.starts_with(|c: char| c.is_ascii_alphabetic()) {
@@ -620,6 +670,38 @@ pub(crate) fn latex_verb_span_end_with(
             after_bs + "tcbinputlisting".len(),
             VerbKind::Tcbinputlisting,
         )
+    } else if let Some(stripped) = tail.strip_prefix("tcboxverb") {
+        // tcolorbox leftover `\tcboxverb`: optional `[...]` then a
+        // v-type delimiter or `{body}` like `\lstinline`.
+        if stripped.starts_with(|c: char| c.is_ascii_alphabetic() || c == '*') {
+            return None;
+        }
+        (after_bs + "tcboxverb".len(), VerbKind::EscVerb)
+    } else if let Some(name) = listings_leftover_cs_name(tail) {
+        // listings leftover `\lstset` / `\lstdefinestyle` /
+        // `\lstnewenvironment` / `\lstMakeShortInline` /
+        // `\lstDeleteShortInline`. Longer names first.
+        // `\lstinputlisting` / `\lstinline` stay their own leftovers.
+        let kind = match name {
+            "lstnewenvironment" => VerbKind::LstNewenvironment,
+            "lstdefinestyle" | "lstdefinelanguage" | "lstdefineformat" | "lstalias" => {
+                VerbKind::Listinginput
+            }
+            "lstset" | "lstloadlanguages" | "lstloadaspects" => VerbKind::Tcbinputlisting,
+            "lstlistoflistings" => VerbKind::Listingcont,
+            _ => VerbKind::LstMakeShortInline,
+        };
+        (after_bs + name.len(), kind)
+    } else if let Some(name) = leftover_keyval_cs_name(tail) {
+        // minted / fancyvrb / fvextra / pythontex / pyluatex / piton /
+        // tcolorbox leftover keyval and replay cmds. Longer names first.
+        // `\inputminted` / `\mint` / `\piton` / `\py` / `\tcbinputlisting`
+        // stay their own leftovers.
+        let kind = leftover_keyval_kind(name);
+        let star = usize::from(
+            name == "tcbline" && tail.get(name.len()..).is_some_and(|s| s.starts_with('*')),
+        );
+        (after_bs + name.len() + star, kind)
     } else if let Some((name, kind)) = pitoninputfile_cs_name(tail) {
         // Longer leftover name, case-distinct from `\piton` (GitHub
         // #406). T / F / TF siblings (GitHub #439) before the base
@@ -740,6 +822,30 @@ pub(crate) fn latex_verb_span_end_with(
         return Some(i);
     }
 
+    // listings leftover `\lstnewenvironment{name}[n][default]{beg}{end}`.
+    // Required name brace first. Begin/end groups nest so
+    // `{\lstset{...}}` is one group. Missing a required brace is not
+    // a span.
+    if kind == VerbKind::LstNewenvironment {
+        let after_name = skip_required_brace_groups(text, i, 1)?;
+        i = skip_ascii_ws(text, after_name);
+        for _ in 0..2 {
+            if text.get(i..).is_some_and(|s| s.starts_with('[')) {
+                match skip_bracket_group(text, i) {
+                    Some(end) => i = skip_ascii_ws(text, end),
+                    None => return Some(line_end(text, i)),
+                }
+            } else {
+                break;
+            }
+        }
+        for _ in 0..2 {
+            let end = skip_nested_brace_group(text, i)?;
+            i = skip_ascii_ws(text, end);
+        }
+        return Some(i);
+    }
+
     if matches!(
         kind,
         VerbKind::Lstinline
@@ -750,6 +856,7 @@ pub(crate) fn latex_verb_span_end_with(
             | VerbKind::Pythontexcustomc
             | VerbKind::Scontents
             | VerbKind::EscVerb
+            | VerbKind::LstMakeShortInline
     ) {
         i = skip_ascii_ws(text, i);
         if text.get(i..).is_some_and(|s| s.starts_with('[')) {
@@ -758,6 +865,18 @@ pub(crate) fn latex_verb_span_end_with(
                 None => return Some(line_end(text, i)),
             }
         }
+    }
+
+    // listings leftover `\lstMakeShortInline[opt]CHAR` /
+    // `\lstDeleteShortInlineCHAR`. Optional already skipped. One
+    // non-letter short-inline character. An ASCII-letter next token
+    // is leftover prose, not a delimiter.
+    if kind == VerbKind::LstMakeShortInline {
+        let delim = text.get(i..).and_then(|s| s.chars().next())?;
+        if delim == '\n' || delim.is_ascii_alphabetic() {
+            return None;
+        }
+        return Some(i + delim.len_utf8());
     }
 
     // listings.sty `\lstinputlisting[opts]{file}` and fancyvrb
@@ -775,18 +894,16 @@ pub(crate) fn latex_verb_span_end_with(
 
     // tcolorbox `\tcbinputlisting{keyvals}` and sagetex
     // `\sageinput{file}` (GitHub #428) are one required brace group.
+    // Nested braces so `\fvset{fontsize=\small}`-class keyvals with
+    // `{...}` stay one span.
     if kind == VerbKind::Tcbinputlisting {
-        i = skip_ascii_ws(text, i);
-        if !text.get(i..).is_some_and(|s| s.starts_with('{')) {
-            return None;
-        }
-        i += 1;
-        return Some(find_unescaped_brace_close(text, i).unwrap_or_else(|| line_end(text, i)));
+        return skip_nested_brace_group(text, i);
     }
 
     // moreverb `\listinginput[interval]{start-line}{filename}` (GitHub
     // #424). Optional interval, then two required brace groups. No
-    // second brace is not a span. There is no `*` form.
+    // second brace is not a span. There is no `*` form. Nested braces
+    // so `\lstdefinelanguage{lang}{morekeywords={foo}}` stays one span.
     if kind == VerbKind::Listinginput {
         i = skip_ascii_ws(text, i);
         if text.get(i..).is_some_and(|s| s.starts_with('[')) {
@@ -795,19 +912,18 @@ pub(crate) fn latex_verb_span_end_with(
                 None => return Some(line_end(text, i)),
             }
         }
-        if !text.get(i..).is_some_and(|s| s.starts_with('{')) {
-            return None;
+        for n in 0..2 {
+            let end = skip_nested_brace_group(text, i)?;
+            // Skip space between groups, not after the last
+            // brace, so mid-line leftover does not swallow
+            // the following prose space.
+            i = if n + 1 < 2 {
+                skip_ascii_ws(text, end)
+            } else {
+                end
+            };
         }
-        i += 1;
-        match find_unescaped_brace_close(text, i) {
-            Some(end) => i = skip_ascii_ws(text, end),
-            None => return Some(line_end(text, i)),
-        }
-        if !text.get(i..).is_some_and(|s| s.starts_with('{')) {
-            return None;
-        }
-        i += 1;
-        return Some(find_unescaped_brace_close(text, i).unwrap_or_else(|| line_end(text, i)));
+        return Some(i);
     }
 
     // piton.sty `\PitonInputFile<spec>[opts]{file}` (`d < > O { } m`;
@@ -891,8 +1007,30 @@ pub(crate) fn latex_verb_span_end_with(
             VerbKind::CatchFileBetweenDelims => 4,
             _ => 3,
         };
-        let end = skip_required_brace_groups(text, i, n)?;
+        // Nested braces so leftover `{O{}}` specs stay in the span.
+        for k in 0..n {
+            let end = skip_nested_brace_group(text, i)?;
+            i = if k + 1 < n {
+                skip_ascii_ws(text, end)
+            } else {
+                end
+            };
+        }
+        let mut end = i;
         i = skip_ascii_ws(text, end);
+        // leftover tcbmaketheorem / externalize take 5–6 brace groups.
+        for _ in 0..2 {
+            if !text.get(i..).is_some_and(|s| s.starts_with('{')) {
+                break;
+            }
+            match skip_nested_brace_group(text, i) {
+                Some(close) => {
+                    end = close;
+                    i = skip_ascii_ws(text, close);
+                }
+                None => break,
+            }
+        }
         if text.get(i..).is_some_and(|s| s.starts_with('[')) {
             return match skip_bracket_group(text, i) {
                 Some(close) => Some(close),
@@ -1093,6 +1231,14 @@ enum VerbKind {
     /// `[...]`, then required `{cmd}`. No brace is not a span. No
     /// `*` form.
     FvextraIterateBuffer,
+    /// listings leftover `\lstnewenvironment`: required `{name}`,
+    /// optional `[n][default]`, then `{begin}{end}`. No `*` form.
+    /// Do not invent env names from the constructor.
+    LstNewenvironment,
+    /// listings leftover `\lstMakeShortInline` / `\lstDeleteShortInline`:
+    /// optional `[...]`, then one non-letter short-inline character.
+    /// An ASCII-letter next token is not a delimiter. No `*` form.
+    LstMakeShortInline,
     /// `\SaveVerb`: optional `[...]`, `{name}`, then delimiter body like `\Verb`.
     SaveVerb,
     /// `\piton`: verb-like delimiter except `{` (GitHub #305).
@@ -1169,14 +1315,18 @@ pub(crate) fn pyth_cs_name(tail: &str) -> Option<&'static str> {
 /// `\meaningsc` / `\foreachsc` take optional `[...]` then `{seq}`
 /// (`o m` / `O{-1} m`). Only `\Scontents` has a `*` form.
 /// `\inputsc` stays its own leftover. `\newenvsc` is a constructor,
-/// not this leftover.
+/// not this leftover. `\setupsc` / `\countsc` / `\cleanseqsc` take
+/// optional `[...]` then a required `{seq}` like `\typestored`.
 pub(crate) fn scontents_leftover_cs_name(tail: &str) -> Option<&'static str> {
     for name in [
+        "cleanseqsc",
         "typestored",
         "getstored",
         "meaningsc",
         "foreachsc",
         "Scontents",
+        "countsc",
+        "setupsc",
         "mergesc",
     ] {
         let Some(after) = tail.strip_prefix(name) else {
@@ -1217,6 +1367,7 @@ pub(crate) fn fancyvrb_shortverb_leftover_cs_name(tail: &str) -> Option<&'static
 pub(crate) fn verb_span_leftover_cs_name(tail: &str) -> Option<&'static str> {
     for name in [
         "mintinline",
+        "tcboxverb",
         "lstinline",
         "SaveVerb",
         "spverb",
@@ -1233,6 +1384,456 @@ pub(crate) fn verb_span_leftover_cs_name(tail: &str) -> Option<&'static str> {
         return Some(name);
     }
     None
+}
+
+/// listings leftover cmds. Longer names first so `\lstnewenvironment`
+/// is not `\lstset` + leftover. `\lstinputlisting` / `\lstinline` stay
+/// their own leftovers (alphabetic leftover rejects a longer name).
+/// `\lstset` takes one required `{keyvals}`. `\lstdefinestyle` takes
+/// `{name}{keyvals}`. `\lstnewenvironment` takes `{name}` then optional
+/// `[n][default]` then `{begin}{end}`. `\lstMakeShortInline` /
+/// `\lstDeleteShortInline` take optional `[...]` then one short-inline
+/// character. No `*` form. Do not invent env names from the constructor.
+pub(crate) fn listings_leftover_cs_name(tail: &str) -> Option<&'static str> {
+    for name in [
+        "lstnewenvironment",
+        "lstlistoflistings",
+        "lstdefineformat",
+        "lstdefinelanguage",
+        "lstdefinestyle",
+        "lstloadlanguages",
+        "lstloadaspects",
+        "lstalias",
+        "lstDeleteShortInline",
+        "lstMakeShortInline",
+        "lstset",
+    ] {
+        let Some(after) = tail.strip_prefix(name) else {
+            continue;
+        };
+        if after.starts_with(|c: char| c.is_ascii_alphabetic() || c == '*') {
+            return None;
+        }
+        return Some(name);
+    }
+    None
+}
+
+/// Leftover keyval / replay cmds. Longer names first so
+/// `\setmintedinline` is not `\setminted` + leftover and
+/// `\tcbuselistinglisting` is not a shorter name + leftover.
+/// No `*` form. `\inputminted` / `\mint` / `\piton` / `\py` /
+/// `\tcbinputlisting` / `\lstset` stay their own leftovers.
+pub(crate) fn leftover_keyval_cs_name(tail: &str) -> Option<&'static str> {
+    for name in [
+        "RecustomVerbatimEnvironment",
+        "CustomVerbatimEnvironment",
+        "DefineVerbatimEnvironment",
+        "RecustomVerbatimCommand",
+        "CustomVerbatimCommand",
+        "DefineVerbatimCommand",
+        "MintedRegisterTempFileExtension",
+        "DeclareTCBInputListing",
+        "ProvideTCBInputListing",
+        "RenewTCBInputListing",
+        "NewTCBInputListing",
+        "renewtcbinputlisting",
+        "newtcbinputlisting",
+        "DeclareTCBListing",
+        "ProvideTCBListing",
+        "RenewTCBListing",
+        "NewTCBListing",
+        "DeclareTColorBox",
+        "ProvideTColorBox",
+        "RenewTColorBox",
+        "NewTColorBox",
+        "DeclareTotalTColorBox",
+        "ProvideTotalTColorBox",
+        "RenewTotalTColorBox",
+        "NewTotalTColorBox",
+        "DeclareTotalTCBoxFit",
+        "ProvideTotalTCBoxFit",
+        "RenewTotalTCBoxFit",
+        "NewTotalTCBoxFit",
+        "DeclareTotalTCBox",
+        "ProvideTotalTCBox",
+        "RenewTotalTCBox",
+        "NewTotalTCBox",
+        "DeclareTCBoxFit",
+        "ProvideTCBoxFit",
+        "RenewTCBoxFit",
+        "DeclareTCBox",
+        "ProvideTCBox",
+        "RenewTCBox",
+        "NewTCBoxFit",
+        "NewTCBox",
+        "renewtcbexternalizeenvironment",
+        "newtcbexternalizeenvironment",
+        "renewtcbexternalizetcolorbox",
+        "newtcbexternalizetcolorbox",
+        "renewtcolorbox",
+        "tcolorboxenvironment",
+        "newtcolorbox",
+        "renewtcbtheorem",
+        "newtcbtheorem",
+        "NewTcbTheorem",
+        "RenewTcbTheorem",
+        "ProvideTcbTheorem",
+        "DeclareTcbTheorem",
+        "renewtcboxfit",
+        "renewtcbox",
+        "newtcboxfit",
+        "newtcbox",
+        "tcbincludegraphics",
+        "tcbincludepdf",
+        "tcbsubtitle",
+        "tcbtitletext",
+        "tcbtitle",
+        "tcboxfit",
+        "provideenvsc",
+        "renewenvsc",
+        "newenvsc",
+        "tcbuselibrary",
+        "tcbhighmath",
+        "tcboxraisebase",
+        "tcboxraise",
+        "tcboxmath",
+        "tcblistof",
+        "tcbox",
+        "renewmintedfile",
+        "renewmintinline",
+        "ProvidePitonEnvironment",
+        "DeclarePitonEnvironment",
+        "RenewPitonEnvironment",
+        "NewPitonEnvironment",
+        "tcbuselistinglisting",
+        "tcbuselistingtext",
+        "tcbusetemplisting",
+        "tcbuselisting",
+        "PitonClearUserFunctions",
+        "renewtcblisting",
+        "newtcblisting",
+        "newmintedfile",
+        "newmintinline",
+        "renewminted",
+        "renewmint",
+        "savestdoutpythontex",
+        "savestderrpythontex",
+        "saveprintpythontex",
+        "usestdoutpythontex",
+        "usestderrpythontex",
+        "useprintpythontex",
+        "setpythontexprettyprinter",
+        "setpythontexlistingenv",
+        "setpythontexformatter",
+        "setpythontexworkingdir",
+        "setpythontexoutputdir",
+        "setpythontexcontext",
+        "setpygmentsformatter",
+        "makepythontexfamily",
+        "restartpythontexsession",
+        "setpythontexpyglexer",
+        "setpythontexautostdout",
+        "setpythontexautoprint",
+        "setpythontexpygopt",
+        "setpygmentsprettyprinter",
+        "setpygmentspygopt",
+        "SetPitonIdentifier",
+        "NewPitonLanguage",
+        "setmintedinline",
+        "newminted",
+        "setpythontexfv",
+        "setpygmentsfv",
+        "stdoutpythontex",
+        "stderrpythontex",
+        "printpythontex",
+        "usemintedstyle",
+        "SetPitonStyle",
+        "PitonOptions",
+        "fvinlineset",
+        "tcbusetemp",
+        "tcbsetforeverylisting",
+        "tcbsetforeverylayer",
+        "tcbsetmanagedlayers",
+        "tcbsetmanagedlayer",
+        "tcbsetmacrotowidthofnode",
+        "tcbsetmacrotoheightofnode",
+        "tcbsettowidthofnode",
+        "tcbsettoheightofnode",
+        "tcbsetfromto",
+        "tcbsetfiltered",
+        "tcbset",
+        "tcbiffileprocess",
+        "tcbifoddpageoroneside",
+        "tcbifoddpage",
+        "tcbifexternal",
+        "tcbEXTERNALIZE",
+        "tcbitem",
+        "tcbheightfromgroup",
+        "tcbpatcharcangular",
+        "tcbpatcharcround",
+        "tcbstartrecording",
+        "tcbstoprecording",
+        "tcbinputrecords",
+        "tcbsidebyside",
+        "tcbsubskin",
+        "tcbmakeprefixed",
+        "tcbhyperref",
+        "tcbhypernode",
+        "tcbmaketheorem",
+        "endtcbverbatimwrite",
+        "tcbverbatimwrite",
+        "endtcbwritetemp",
+        "tcbwritetemp",
+        "tcbrecord",
+        "tcbbreak",
+        "tcbdocmarginnote",
+        "tcbindexbar",
+        "tcbindex",
+        "thetcbcounterof",
+        "renewthetcbcounter",
+        "tcbcounterof",
+        "tcbglueto",
+        "tcbdimto",
+        "tcblower",
+        "tcbline",
+        "FancyVerbBreakByTokenAnywhereBreak",
+        "FancyVerbBreakAnywhereBreak",
+        "FancyVerbBreakBeforeBreak",
+        "FancyVerbBreakAfterBreak",
+        "FancyVerbBreakStart",
+        "FancyVerbBreakStop",
+        "FancyVerbRestoreCodes",
+        "FancyVerbHighlightLine",
+        "FancyVerbTab",
+        "FancyVerbSpace",
+        "FancyVerbFormatInline",
+        "FancyVerbFormatLine",
+        "FancyVerbFormatText",
+        "FancyVerbFormatCom",
+        "FancyVerbFormatTab",
+        "DepythontexOff",
+        "DepythontexOn",
+        "Depythontex",
+        "DepyListing",
+        "DepyMacro",
+        "DepyFile",
+        "listoflistingscaption",
+        "listingscaption",
+        "lstlistingnamestyle",
+        "lstlistlistingname",
+        "lstlistingname",
+        "VerbatimFootnotes",
+        "setminted",
+        "newmint",
+        "pysession",
+        "pyoptions",
+        "listoflistings",
+        "pyoption",
+        "verbatimtabsize",
+        "listingoffset",
+        "listinglabel",
+        "sagetexunpause",
+        "sagetexpause",
+        "pyif",
+        "fvset",
+    ] {
+        let Some(after) = tail.strip_prefix(name) else {
+            continue;
+        };
+        let reject_star = name != "tcbline";
+        if after.starts_with(|c: char| c.is_ascii_alphabetic() || (reject_star && c == '*')) {
+            return None;
+        }
+        return Some(name);
+    }
+    None
+}
+
+fn leftover_keyval_kind(name: &str) -> VerbKind {
+    match name {
+        "printpythontex"
+        | "stdoutpythontex"
+        | "stderrpythontex"
+        | "PitonClearUserFunctions"
+        | "tcbitem" => VerbKind::FvextraBuffer,
+        "tcbuselistinglisting"
+        | "tcbuselistingtext"
+        | "tcbusetemplisting"
+        | "tcbusetemp"
+        | "tcbuselisting"
+        | "lstlistoflistings"
+        | "listoflistings"
+        | "sagetexpause"
+        | "sagetexunpause"
+        | "tcbtitle"
+        | "tcbtitletext"
+        | "listinglabel"
+        | "listingoffset"
+        | "verbatimtabsize"
+        | "listingscaption"
+        | "listoflistingscaption"
+        | "DepythontexOn"
+        | "DepythontexOff"
+        | "tcbstartrecording"
+        | "tcbstoprecording"
+        | "tcbinputrecords"
+        | "tcbpatcharcangular"
+        | "tcbpatcharcround"
+        | "tcbline"
+        | "restartpythontexsession"
+        | "lstlistingname"
+        | "lstlistingnamestyle"
+        | "lstlistlistingname"
+        | "VerbatimFootnotes"
+        | "tcblower"
+        | "tcbwritetemp"
+        | "endtcbwritetemp"
+        | "endtcbverbatimwrite"
+        | "tcbbreak"
+        | "DepyListing"
+        | "FancyVerbBreakStart"
+        | "FancyVerbBreakStop"
+        | "FancyVerbBreakAnywhereBreak"
+        | "FancyVerbBreakBeforeBreak"
+        | "FancyVerbBreakAfterBreak"
+        | "FancyVerbBreakByTokenAnywhereBreak"
+        | "FancyVerbRestoreCodes"
+        | "FancyVerbTab"
+        | "FancyVerbSpace"
+        | "tcbindex"
+        | "tcbindexbar"
+        | "tcbEXTERNALIZE" => VerbKind::Listingcont,
+        "setmintedinline"
+        | "usemintedstyle"
+        | "setminted"
+        | "SetPitonStyle"
+        | "setpythontexprettyprinter"
+        | "setpygmentsprettyprinter"
+        | "tcbincludegraphics"
+        | "tcbincludepdf"
+        | "tcbsubtitle"
+        | "tcboxfit"
+        | "tcbox"
+        | "tcbhyperref"
+        | "tcbhypernode"
+        | "tcbverbatimwrite"
+        | "tcbrecord"
+        | "tcbdocmarginnote"
+        | "Depythontex"
+        | "DepyMacro"
+        | "DepyFile"
+        | "FancyVerbFormatInline"
+        | "FancyVerbFormatLine"
+        | "FancyVerbFormatText"
+        | "FancyVerbFormatCom"
+        | "FancyVerbFormatTab"
+        | "FancyVerbHighlightLine" => VerbKind::Lstinputlisting,
+        "pyoption"
+        | "SetPitonIdentifier"
+        | "NewPitonLanguage"
+        | "setpythontexpyglexer"
+        | "setpythontexpygopt"
+        | "setpygmentspygopt"
+        | "newmintedfile"
+        | "newmintinline"
+        | "newminted"
+        | "newmint"
+        | "renewmintedfile"
+        | "renewmintinline"
+        | "renewminted"
+        | "renewmint"
+        | "renewtcblisting"
+        | "newtcblisting"
+        | "newtcbinputlisting"
+        | "renewtcbinputlisting"
+        | "renewtcolorbox"
+        | "newtcolorbox"
+        | "renewtcbox"
+        | "newtcbox"
+        | "newtcboxfit"
+        | "renewtcboxfit"
+        | "tcolorboxenvironment"
+        | "tcblistof"
+        | "tcbsidebyside"
+        | "tcbifoddpage"
+        | "tcbifoddpageoroneside"
+        | "tcbifexternal"
+        | "tcbheightfromgroup"
+        | "tcbmakeprefixed"
+        | "tcbdimto"
+        | "tcbglueto"
+        | "renewthetcbcounter"
+        | "setpythontexformatter"
+        | "tcbsettowidthofnode"
+        | "tcbsetmacrotowidthofnode"
+        | "tcbsettoheightofnode"
+        | "tcbsetmacrotoheightofnode"
+        | "tcbsetfromto" => VerbKind::Listinginput,
+        "RecustomVerbatimEnvironment"
+        | "CustomVerbatimEnvironment"
+        | "DefineVerbatimEnvironment"
+        | "RecustomVerbatimCommand"
+        | "CustomVerbatimCommand"
+        | "DefineVerbatimCommand" => VerbKind::LstNewenvironment,
+        "NewTCBListing"
+        | "DeclareTCBListing"
+        | "RenewTCBListing"
+        | "ProvideTCBListing"
+        | "DeclareTColorBox"
+        | "ProvideTColorBox"
+        | "RenewTColorBox"
+        | "NewTColorBox"
+        | "DeclareTCBox"
+        | "ProvideTCBox"
+        | "RenewTCBox"
+        | "NewTCBox"
+        | "DeclareTCBoxFit"
+        | "ProvideTCBoxFit"
+        | "RenewTCBoxFit"
+        | "NewTCBoxFit"
+        | "newenvsc"
+        | "renewenvsc"
+        | "provideenvsc"
+        | "NewTCBInputListing"
+        | "RenewTCBInputListing"
+        | "ProvideTCBInputListing"
+        | "DeclareTCBInputListing"
+        | "pyif"
+        | "tcbsubskin" => VerbKind::LstNewenvironment,
+        "ProvidePitonEnvironment"
+        | "DeclarePitonEnvironment"
+        | "RenewPitonEnvironment"
+        | "NewPitonEnvironment"
+        | "NewTotalTCBox"
+        | "RenewTotalTCBox"
+        | "ProvideTotalTCBox"
+        | "DeclareTotalTCBox"
+        | "newtcbtheorem"
+        | "NewTcbTheorem"
+        | "RenewTcbTheorem"
+        | "ProvideTcbTheorem"
+        | "DeclareTcbTheorem"
+        | "NewTotalTColorBox"
+        | "RenewTotalTColorBox"
+        | "ProvideTotalTColorBox"
+        | "DeclareTotalTColorBox"
+        | "NewTotalTCBoxFit"
+        | "RenewTotalTCBoxFit"
+        | "ProvideTotalTCBoxFit"
+        | "DeclareTotalTCBoxFit"
+        | "renewtcbtheorem"
+        | "tcbmaketheorem"
+        | "tcbiffileprocess"
+        | "newtcbexternalizeenvironment"
+        | "renewtcbexternalizeenvironment"
+        | "newtcbexternalizetcolorbox"
+        | "renewtcbexternalizetcolorbox" => VerbKind::CatchFileBetweenDelims,
+        "useprintpythontex" | "usestdoutpythontex" | "usestderrpythontex" => {
+            VerbKind::Lstinputlisting
+        }
+        _ => VerbKind::Tcbinputlisting,
+    }
 }
 
 /// fancyvrb leftover replay / leftover `\Verb` / fvextra leftover
@@ -1265,14 +1866,18 @@ pub(crate) fn fancyvrb_leftover_cs_name(tail: &str) -> Option<&'static str> {
 /// `\VerbatimInsertBuffer` is not `\Verb` + leftover. `\InsertBuffer`
 /// / `\VerbatimInsertBuffer` take optional `[...]`. `\VerbatimClearBuffer`
 /// takes no args. `\IterateBuffer` takes optional `[...]` then
-/// `{cmd}`. No `*` form. `\UseVerb` / `\VerbatimInput` stay their own
-/// leftovers.
+/// `{cmd}`. `\ClearBuffer` / `\WriteBuffer` take optional `[...]`
+/// like `\InsertBuffer`. No `*` form. `\UseVerb` / `\VerbatimInput`
+/// stay their own leftovers.
 pub(crate) fn fvextra_buffer_leftover_cs_name(tail: &str) -> Option<&'static str> {
     for name in [
         "VerbatimInsertBuffer",
         "VerbatimClearBuffer",
+        "BufferMdfivesum",
         "IterateBuffer",
         "InsertBuffer",
+        "WriteBuffer",
+        "ClearBuffer",
     ] {
         let Some(after) = tail.strip_prefix(name) else {
             continue;
@@ -1318,6 +1923,7 @@ pub(crate) fn pytx_inline_cs_name(tail: &str) -> Option<&'static str> {
         "javascripts",
         "javascriptv",
         "javascript",
+        "pyfilerepl",
         "pylabconc",
         "pylabcons",
         "pylabconv",
@@ -1329,6 +1935,7 @@ pub(crate) fn pytx_inline_cs_name(tail: &str) -> Option<&'static str> {
         "perlsixs",
         "perlsixv",
         "pylabcon",
+        "pyfileq",
         "sympycon",
         "matlabb",
         "matlabc",
@@ -1369,6 +1976,7 @@ pub(crate) fn pytx_inline_cs_name(tail: &str) -> Option<&'static str> {
         "psixc",
         "psixs",
         "psixv",
+        "pyfile",
         "pycon",
         "pylab",
         "rubyb",
@@ -1402,10 +2010,12 @@ pub(crate) fn pytx_inline_cs_name(tail: &str) -> Option<&'static str> {
         "plc",
         "pls",
         "plv",
+        "pycq",
         "pyb",
         "pyc",
         "pys",
         "pyv",
+        "pyq",
         "rbb",
         "rbc",
         "rbs",
@@ -1507,6 +2117,11 @@ fn match_extra_verb_command<'a>(tail: &'a str, extras: &'a [String]) -> Option<&
             || fancyvrb_leftover_cs_name(name).is_some_and(|n| n == name.as_str())
             || fancyvrb_shortverb_leftover_cs_name(name).is_some_and(|n| n == name.as_str())
             || fvextra_buffer_leftover_cs_name(name).is_some_and(|n| n == name.as_str())
+            || listings_leftover_cs_name(name).is_some_and(|n| n == name.as_str())
+            || leftover_keyval_cs_name(name).is_some_and(|n| n == name.as_str())
+            || name == "tcboxverb"
+            || name == "verbinput"
+            || name == "verbwrite"
             || name == "listinginput"
             || name == "listingcont"
             || name == "verbatimtabinput"
@@ -1550,6 +2165,37 @@ fn skip_ascii_ws(text: &str, mut i: usize) -> usize {
         i += 1;
     }
     i
+}
+
+/// One `{...}` group with nested braces. Missing `{` is not a span.
+/// An unclosed group runs to end of line.
+fn skip_nested_brace_group(text: &str, mut i: usize) -> Option<usize> {
+    i = skip_ascii_ws(text, i);
+    if !text.get(i..).is_some_and(|s| s.starts_with('{')) {
+        return None;
+    }
+    i += 1;
+    let bytes = text.as_bytes();
+    let mut depth = 1usize;
+    while i < bytes.len() {
+        if bytes[i] == b'\n' {
+            return Some(i);
+        }
+        if bytes[i] == b'\\' && i + 1 < bytes.len() {
+            i += 2;
+            continue;
+        }
+        if bytes[i] == b'{' {
+            depth += 1;
+        } else if bytes[i] == b'}' {
+            depth -= 1;
+            if depth == 0 {
+                return Some(i + 1);
+            }
+        }
+        i += 1;
+    }
+    Some(text.len())
 }
 
 /// `n` required `{...}` groups. Missing a group is not a span.
@@ -1796,12 +2442,12 @@ fn org_inline_object_start(text: &str, at: usize) -> bool {
     }
     let mut prevs = text[..at].chars().rev();
     let prev = prevs.next().expect("at > 0");
-    if prev.is_ascii_alphanumeric() {
+    if prev.is_alphanumeric() {
         return false;
     }
     if prev == '_' {
         if let Some(before) = prevs.next() {
-            if before.is_ascii_alphanumeric() {
+            if before.is_alphanumeric() {
                 return false;
             }
         }
@@ -2540,8 +3186,9 @@ fn push_markup_sentence_splits(out: &mut Vec<String>, seg: &str) {
 
 fn take_markup_terminal_sentence(seg: &str) -> Option<(String, String)> {
     // Terminal `.!?` immediately before `**` / `*` / `_` / backticks /
-    // `~~` / `](url)`, or an RST interpreted-text closer then `.!?`,
-    // then whitespace, then a new sentence (uppercase or opening quote).
+    // `~~` / Org `/` `=` `+` / `](url)`, or an RST interpreted-text
+    // closer then `.!?`, then whitespace, then a new sentence
+    // (uppercase or opening quote).
     // Prefix closer is `:role:`text`. / `:domain:role:`text`. Suffix
     // closer is `text`:role:. / `text`:domain:role:. (the closer is
     // `:role:`, not the backtick). Opening ```` is not a closer. Role
@@ -2550,7 +3197,7 @@ fn take_markup_terminal_sentence(seg: &str) -> Option<(String, String)> {
     // stays one sentence.
     static CAP: LazyLock<Regex> = LazyLock::new(|| {
         Regex::new(
-            r#"(?s)^(.*?(?:[.!?](?:\*{1,3}|_{1,3}|`+|~{1,2}|\]\([^)]*\))+|:[A-Za-z][A-Za-z0-9_-]*(?::[A-Za-z][A-Za-z0-9_-]*)*:`[^`\n]+`[.!?]|`[^`\n]+`:[A-Za-z][A-Za-z0-9_-]*(?::[A-Za-z][A-Za-z0-9_-]*)*:[.!?]))\s+([A-Z][\s\S]*|["'][A-Z][\s\S]*)$"#,
+            r#"(?s)^(.*?(?:[.!?](?:\*{1,3}|_{1,3}|`+|~{1,2}|[/=+]|\]\([^)]*\))+|:[A-Za-z][A-Za-z0-9_-]*(?::[A-Za-z][A-Za-z0-9_-]*)*:`[^`\n]+`[.!?]|`[^`\n]+`:[A-Za-z][A-Za-z0-9_-]*(?::[A-Za-z][A-Za-z0-9_-]*)*:[.!?]))\s+([A-Z][\s\S]*|["'][A-Z][\s\S]*)$"#,
         )
         .expect("valid markup-terminal sentence regex")
     });
@@ -4280,6 +4927,110 @@ mod tests {
             Some(r"\UseVerb{foo}".len()),
             "fvextra buffer leftover must not steal UseVerb"
         );
+        assert_eq!(
+            latex_verb_span_end_with(r"\ClearBuffer", 0, &[]),
+            Some(r"\ClearBuffer".len()),
+            "ClearBuffer is a leftover span"
+        );
+        assert_eq!(
+            latex_verb_span_end_with(r"\WriteBuffer[foo]", 0, &[]),
+            Some(r"\WriteBuffer[foo]".len()),
+            "WriteBuffer optional is a leftover span"
+        );
+    }
+
+    #[test]
+    fn latex_listings_leftover_cmds_stay_atomic() {
+        assert_eq!(
+            latex_verb_span_end_with(r"\lstset{language=Python}", 0, &[]),
+            Some(r"\lstset{language=Python}".len()),
+            "lstset keyvals stay one span"
+        );
+        assert_eq!(
+            latex_verb_span_end_with(r"\lstdefinestyle{mystyle}{language=Python}", 0, &[]),
+            Some(r"\lstdefinestyle{mystyle}{language=Python}".len()),
+            "lstdefinestyle two braces stay one span"
+        );
+        assert_eq!(
+            latex_verb_span_end_with(r"\lstMakeShortInline|", 0, &[]),
+            Some(r"\lstMakeShortInline|".len()),
+            "lstMakeShortInline short char stays a span"
+        );
+        assert_eq!(
+            latex_verb_span_end_with(r"\lstMakeShortInline After.", 0, &[]),
+            None,
+            "lstMakeShortInline letter is not a delimiter"
+        );
+        assert_eq!(
+            latex_verb_span_end_with(
+                r"\lstnewenvironment{mylst}{\lstset{language=Python}}{}",
+                0,
+                &[]
+            ),
+            Some(r"\lstnewenvironment{mylst}{\lstset{language=Python}}{}".len()),
+            "lstnewenvironment constructor stays one span"
+        );
+        assert_eq!(
+            latex_verb_span_end_with(r"\lstinputlisting{foo.py}", 0, &[]),
+            Some(r"\lstinputlisting{foo.py}".len()),
+            "listings leftover must not steal lstinputlisting"
+        );
+        assert_eq!(
+            latex_verb_span_end_with(r"\tcboxverb{First. Second.}", 0, &[]),
+            Some(r"\tcboxverb{First. Second.}".len()),
+            "tcboxverb brace body stays one span"
+        );
+        assert_eq!(
+            latex_verb_span_end_with(r"\verbinput{foo.py}", 0, &[]),
+            Some(r"\verbinput{foo.py}".len()),
+            "verbinput file stays one span"
+        );
+        assert_eq!(
+            latex_verb_span_end_with(r"\verbwrite{foo.py}", 0, &[]),
+            Some(r"\verbwrite{foo.py}".len()),
+            "verbwrite file stays one span"
+        );
+        assert_eq!(
+            latex_verb_span_end_with(r"\pyfile{foo.py}", 0, &[]),
+            Some(r"\pyfile{foo.py}".len()),
+            "pyfile stays one span"
+        );
+        assert_eq!(
+            latex_verb_span_end_with(r"\setupsc{print-cmd=true}", 0, &[]),
+            Some(r"\setupsc{print-cmd=true}".len()),
+            "setupsc stays one span"
+        );
+        assert_eq!(
+            latex_verb_span_end_with(r"\lstloadlanguages{Python}", 0, &[]),
+            Some(r"\lstloadlanguages{Python}".len()),
+            "lstloadlanguages stays one span"
+        );
+        assert_eq!(
+            latex_verb_span_end_with(r"\setminted{style=bw}", 0, &[]),
+            Some(r"\setminted{style=bw}".len()),
+            "setminted stays one span"
+        );
+        assert_eq!(
+            latex_verb_span_end_with(r"\printpythontex", 0, &[]),
+            Some(r"\printpythontex".len()),
+            "printpythontex is a leftover span"
+        );
+        assert_eq!(
+            latex_verb_span_end_with(r"\fvset{fontsize=\small}", 0, &[]),
+            Some(r"\fvset{fontsize=\small}".len()),
+            "fvset stays one span"
+        );
+        let extras = vec!["lstset".to_string(), "verbwrite".to_string()];
+        assert_eq!(
+            latex_verb_span_end_with(r"\lstset After.", 0, &extras),
+            None,
+            "configured extra lstset must not re-tokenize the no-brace form as Delim"
+        );
+        assert_eq!(
+            latex_verb_span_end_with(r"\verbwrite After.", 0, &extras),
+            None,
+            "configured extra verbwrite must not re-tokenize the no-brace form as Delim"
+        );
     }
 
     /// Ticket fixture (GitHub #446): sagetex leftover inline
@@ -5416,15 +6167,17 @@ mod tests {
             None,
             "configured extra ExecuteMetaData must not re-tokenize the no-brace form as Delim"
         );
+        let tags_star = r"\CatchFileBetweenTags*{\tmp}{foo.tex}{TAG}";
         assert_eq!(
-            latex_verb_span_end_with(r"\CatchFileBetweenTags*{\tmp}{foo.tex}{TAG}", 0, &[]),
-            None,
-            "CatchFileBetweenTags has no star form"
+            latex_verb_span_end_with(tags_star, 0, &[]),
+            Some(tags_star.len()),
+            "CatchFileBetweenTags* is leftover"
         );
+        let exec_star = r"\ExecuteMetaData*{TAG}";
         assert_eq!(
-            latex_verb_span_end_with(r"\ExecuteMetaData*{TAG}", 0, &[]),
-            None,
-            "ExecuteMetaData has no star form"
+            latex_verb_span_end_with(exec_star, 0, &[]),
+            Some(exec_star.len()),
+            "ExecuteMetaData* is leftover"
         );
     }
 
@@ -7193,6 +7946,27 @@ mod tests {
             split(r#"He said "wow!" and left. She agreed."#),
             vec![r#"He said "wow!" and left."#, "She agreed."]
         );
+        assert_eq!(
+            split("He said “wow!” and left. She agreed."),
+            vec![
+                "He said “wow!” and left.".to_string(),
+                "She agreed.".to_string()
+            ]
+        );
+        assert_eq!(
+            split("He said «wow!» and left. She agreed."),
+            vec![
+                "He said «wow!» and left.".to_string(),
+                "She agreed.".to_string()
+            ]
+        );
+        assert_eq!(
+            split("He said {wow!} and left. She agreed."),
+            vec![
+                "He said {wow!} and left.".to_string(),
+                "She agreed.".to_string()
+            ]
+        );
     }
 
     #[test]
@@ -7324,6 +8098,18 @@ mod tests {
         assert_eq!(
             split("*Italic sentence.* Next one."),
             vec!["*Italic sentence.*".to_string(), "Next one.".to_string()]
+        );
+        assert_eq!(
+            split("/Italic sentence./ Next one."),
+            vec!["/Italic sentence./".to_string(), "Next one.".to_string()]
+        );
+        assert_eq!(
+            split("=Verbatim sentence.= Next one."),
+            vec!["=Verbatim sentence.=".to_string(), "Next one.".to_string()]
+        );
+        assert_eq!(
+            split("+Strike sentence.+ Next one."),
+            vec!["+Strike sentence.+".to_string(), "Next one.".to_string()]
         );
         assert_eq!(
             split("`Code sentence.` Next one."),

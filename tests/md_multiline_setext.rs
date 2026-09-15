@@ -97,6 +97,42 @@ fn multiline_setext_body_still_splits() {
 }
 
 #[test]
+fn leftover_lazy_quote_setext_stays_quote_prose() {
+    let input = concat!(
+        "> Foo is one. Two.\n",
+        "bar is three. Four.\n",
+        "===\n",
+        "\n",
+        "After. Next.\n",
+    );
+    let regions = MarkdownParser.parse(input);
+    assert!(
+        !regions.iter().any(|r| matches!(
+            r,
+            Region::Structure(s) if s.contains("bar is three") || s.contains("===")
+        )),
+        "lazy quote continuation must not become setext, got {regions:?}"
+    );
+    assert!(
+        regions.iter().any(|r| matches!(
+            r,
+            Region::Prose(p) if p.contains("bar is three.") && p.contains("Four.")
+        )),
+        "lazy continuation must stay Prose, got {regions:?}"
+    );
+    let out = format_text(input, &md_cfg()).unwrap();
+    assert!(
+        !out.contains("bar is three. Four.\n==="),
+        "must not keep a fused setext title, got:\n{out}"
+    );
+    assert!(
+        out.contains("After.\nNext."),
+        "following prose must still split, got:\n{out}"
+    );
+    assert_eq!(format_text(&out, &md_cfg()).unwrap(), out);
+}
+
+#[test]
 fn multiline_setext_survives_safety_backstops() {
     let input = ticket_fixture();
     let cfg = FormatConfig {

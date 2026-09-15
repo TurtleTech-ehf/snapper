@@ -2,6 +2,8 @@
 //! trailing sentence punctuation.
 
 use snapper_fmt::format::Format;
+use snapper_fmt::parser::org::OrgParser;
+use snapper_fmt::parser::{FormatParser, Region};
 use snapper_fmt::{FormatConfig, format_text};
 
 fn org_cfg() -> FormatConfig {
@@ -11,6 +13,95 @@ fn org_cfg() -> FormatConfig {
         ..Default::default()
     }
     .without_safety_backstops()
+}
+
+#[test]
+fn leftover_plain_link_after_path_hangs_and_splits() {
+    let input = concat!("file:/tmp/plot.png leftover. Next.\n", "After. Next.\n",);
+    let regions = OrgParser.parse(input);
+    assert!(
+        regions
+            .iter()
+            .any(|r| matches!(r, Region::Structure(s) if s.contains("file:/tmp/plot.png"))),
+        "plain link path must stay Structure, got {regions:?}"
+    );
+    assert!(
+        regions.iter().any(|r| matches!(
+            r,
+            Region::Prose(p) if p.contains("leftover.") && p.contains("Next.")
+        )),
+        "leftover after the path must be Prose, got {regions:?}"
+    );
+    let out = format_text(input, &org_cfg()).unwrap();
+    assert!(
+        !out.contains("file:/tmp/plot.png leftover. Next."),
+        "leftover after the path must still split, got:\n{out}"
+    );
+    assert!(
+        out.contains("After.\nNext."),
+        "following prose must still split, got:\n{out}"
+    );
+    assert_eq!(format_text(&out, &org_cfg()).unwrap(), out);
+}
+
+#[test]
+fn leftover_ftp_plain_link_after_path_hangs_and_splits() {
+    let input = concat!("ftp://example.com leftover. Next.\n", "After. Next.\n",);
+    let out = format_text(input, &org_cfg()).unwrap();
+    assert!(
+        !out.contains("ftp://example.com leftover. Next."),
+        "leftover after ftp path must still split, got:\n{out}"
+    );
+    assert!(
+        out.contains("After.\nNext."),
+        "following prose must still split, got:\n{out}"
+    );
+    assert_eq!(format_text(&out, &org_cfg()).unwrap(), out);
+}
+
+#[test]
+fn leftover_doi_plain_link_after_path_hangs_and_splits() {
+    let input = concat!("doi:10.1000/foo leftover. Next.\n", "After. Next.\n",);
+    let out = format_text(input, &org_cfg()).unwrap();
+    assert!(
+        !out.contains("doi:10.1000/foo leftover. Next."),
+        "leftover after doi path must still split, got:\n{out}"
+    );
+    assert!(
+        out.contains("After.\nNext."),
+        "following prose must still split, got:\n{out}"
+    );
+    assert_eq!(format_text(&out, &org_cfg()).unwrap(), out);
+}
+
+#[test]
+fn leftover_mailto_plain_link_after_path_hangs_and_splits() {
+    let input = concat!("mailto:dev@example.com leftover. Next.\n", "After. Next.\n",);
+    let out = format_text(input, &org_cfg()).unwrap();
+    assert!(
+        !out.contains("mailto:dev@example.com leftover. Next."),
+        "leftover after mailto path must still split, got:\n{out}"
+    );
+    assert!(
+        out.contains("After.\nNext."),
+        "following prose must still split, got:\n{out}"
+    );
+    assert_eq!(format_text(&out, &org_cfg()).unwrap(), out);
+}
+
+#[test]
+fn leftover_https_plain_link_after_path_hangs_and_splits() {
+    let input = concat!("https://example.com/a leftover. Next.\n", "After. Next.\n",);
+    let out = format_text(input, &org_cfg()).unwrap();
+    assert!(
+        !out.contains("https://example.com/a leftover. Next."),
+        "leftover after https path must still split, got:\n{out}"
+    );
+    assert!(
+        out.contains("After.\nNext."),
+        "following prose must still split, got:\n{out}"
+    );
+    assert_eq!(format_text(&out, &org_cfg()).unwrap(), out);
 }
 
 #[test]
