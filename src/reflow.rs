@@ -4,8 +4,8 @@ use std::collections::HashMap;
 use crate::config::CodeLang;
 use crate::format::Format;
 use crate::parser::{Region, RegionOrigin, SpannedRegion};
-use crate::sentence::unicode::atomic_inline_spans;
 use crate::sentence::SentenceSplitter;
+use crate::sentence::unicode::atomic_inline_spans;
 
 /// Configuration for the reflow engine.
 pub struct ReflowConfig<'a> {
