@@ -13,6 +13,45 @@ fn md_cfg() -> FormatConfig {
     .without_safety_backstops()
 }
 
+#[test]
+fn footnote_continuation_after_blank_is_prose_not_code() {
+    let input = concat!(
+        "[^1]: First sentence. Second sentence.\n",
+        "\n",
+        "    Continuation sentence. More.\n",
+        "\n",
+        "After the note. Next.\n",
+    );
+    let regions = MarkdownParser.parse(input);
+    assert!(
+        !regions.iter().any(|r| matches!(
+            r,
+            Region::Code { body, .. } if body.contains("Continuation sentence.")
+        )),
+        "footnote continuation after a blank must not be Code, got {regions:?}"
+    );
+    assert!(
+        regions.iter().any(|r| matches!(
+            r,
+            Region::Prose(p) if p.contains("Continuation sentence.") && p.contains("More.")
+        )),
+        "footnote continuation must be leftover Prose, got {regions:?}"
+    );
+    let out = format_text(input, &md_cfg()).unwrap();
+    assert!(
+        out.contains("Continuation sentence."),
+        "continuation must remain Prose, got:\n{out}"
+    );
+    assert!(
+        !out.contains("    Continuation sentence. More.\n"),
+        "continuation must not stay one Code line, got:\n{out}"
+    );
+    assert!(
+        out.contains("After the note.\nNext."),
+        "following prose must still split, got:\n{out}"
+    );
+}
+
 fn ticket_fixture() -> &'static str {
     concat!(
         "See [foo]. Next sentence.\n",
@@ -22,6 +61,82 @@ fn ticket_fixture() -> &'static str {
         "\n",
         "[^1]: Footnote text. Second sentence.\n",
     )
+}
+
+#[test]
+fn leftover_footnote_col0_after_continuation_is_new_paragraph() {
+    let input = concat!(
+        "[^1]: First sentence. Second sentence.\n",
+        "    Continuation sentence. More.\n",
+        "After the note. Next.\n",
+    );
+    let out = format_text(input, &md_cfg()).unwrap();
+    assert!(
+        !out.contains("More. After the note."),
+        "col-0 after a footnote continuation must not lazy-join, got:\n{out}"
+    );
+    assert!(
+        out.contains("After the note.\nNext."),
+        "following prose must still split, got:\n{out}"
+    );
+}
+
+#[test]
+fn leftover_footnote_tab_is_continuation() {
+    let input = concat!(
+        "[^1]: First sentence. Second sentence.\n",
+        "\tContinuation sentence. More.\n",
+        "\n",
+        "After the note. Next.\n",
+    );
+    let regions = MarkdownParser.parse(input);
+    assert!(
+        regions.iter().any(|r| matches!(
+            r,
+            Region::Prose(p) if p.contains("Continuation sentence.")
+        )),
+        "tab continuation must stay leftover Prose, got {regions:?}"
+    );
+    let out = format_text(input, &md_cfg()).unwrap();
+    assert!(
+        out.contains("After the note.\nNext."),
+        "following prose must still split, got:\n{out}"
+    );
+    assert_eq!(format_text(&out, &md_cfg()).unwrap(), out);
+}
+
+#[test]
+fn leftover_footnote_two_space_is_not_continuation() {
+    let input = concat!(
+        "[^1]: First sentence. Second sentence.\n",
+        "  Continuation sentence. More.\n",
+        "After the note. Next.\n",
+    );
+    let regions = MarkdownParser.parse(input);
+    assert!(
+        !regions.iter().any(|r| matches!(
+            r,
+            Region::Structure(s) if s.contains("Continuation sentence")
+        )),
+        "2-space line must leave the footnote, got {regions:?}"
+    );
+    assert!(
+        regions.iter().any(|r| matches!(
+            r,
+            Region::Prose(p) if p.contains("Continuation sentence.")
+        )),
+        "2-space line must be document Prose, got {regions:?}"
+    );
+    let out = format_text(input, &md_cfg()).unwrap();
+    assert!(
+        out.contains("First sentence.\nSecond sentence."),
+        "footnote opener body must still split, got:\n{out}"
+    );
+    assert!(
+        out.contains("After the note.\nNext.") || out.contains("More.\nAfter the note."),
+        "following prose must still split, got:\n{out}"
+    );
+    assert_eq!(format_text(&out, &md_cfg()).unwrap(), out);
 }
 
 #[test]

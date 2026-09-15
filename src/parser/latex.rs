@@ -6,9 +6,9 @@ use crate::parser::{
 };
 use crate::sentence::unicode::{
     catchfile_leftover_cs_name, fancyvrb_leftover_cs_name, fancyvrb_shortverb_leftover_cs_name,
-    fvextra_buffer_leftover_cs_name, latex_verb_span_end_with, pyth_cs_name,
-    pythontexcustomc_cs_name, pytx_inline_cs_name, sagetex_inline_cs_name,
-    scontents_leftover_cs_name, verb_span_leftover_cs_name,
+    fvextra_buffer_leftover_cs_name, latex_verb_span_end_with, leftover_keyval_cs_name,
+    listings_leftover_cs_name, pyth_cs_name, pythontexcustomc_cs_name, pytx_inline_cs_name,
+    sagetex_inline_cs_name, scontents_leftover_cs_name, verb_span_leftover_cs_name,
 };
 
 // Environments whose content is NOT prose (math, code, tables, pictures).
@@ -183,7 +183,8 @@ static LSTLISTING_LANG_RE: LazyLock<Regex> = LazyLock::new(|| {
 /// `verbwrite` / `ignore` / `demo` / `demo*` (`sv@readenv` raw grab;
 /// GitHub #353), tcolorbox `tcblisting` /
 /// `tcblisting*` / `codeexample` / `tcbverbatimwrite` / `tcbwritetemp` /
-/// leftover `tcboutputlisting` / `tcbexternal` / `dispExample` /
+/// leftover `tcboutputlisting` / `tcbexternal` / `extcolorbox` /
+/// `extikzpicture` / `dispExample` /
 /// `dispExample*` / `dispListing` / `dispListing*`,
 /// standard `alltt` (alltt.sty: macros
 /// still apply, line breaks stay raw; GitHub #230), spverbatim.sty `spverbatim`
@@ -279,6 +280,7 @@ fn is_builtin_code_env(name: &str) -> bool {
             | "verbatimtab"
             | "verbatimwrite"
             | "verbwrite"
+            | "verbwrite*"
             | "ignore"
             | "demo"
             | "demo*"
@@ -293,6 +295,8 @@ fn is_builtin_code_env(name: &str) -> bool {
             | "tcbwritetemp"
             | "tcboutputlisting"
             | "tcbexternal"
+            | "extcolorbox"
+            | "extikzpicture"
             | "dispExample"
             | "dispExample*"
             | "dispListing"
@@ -1239,7 +1243,8 @@ fn scontents_leftover_cs_at(line: &str, at: usize) -> bool {
 /// not stolen. Walk stops at an unescaped `%` so a comment is not a
 /// command tail. `\lstinputlisting` / `\inputpy` stay their own
 /// leftovers. `\CatchFileDef` / `\CatchFileEdef` stay their own
-/// leftover (GitHub #462). There is no `*` form.
+/// leftover (GitHub #462). sverb leftover `\verbinput` / `\verbwrite`
+/// take a required `{file}`. There is no `*` form.
 fn find_leftover_filename_input_at(
     line: &str,
     from: usize,
@@ -1260,6 +1265,8 @@ fn leftover_filename_input_cs_at(line: &str, at: usize) -> bool {
         "CatchFileBetweenTags",
         "CatchFileBetweenDelims",
         "ExecuteMetaData",
+        "verbinput",
+        "verbwrite",
     ] {
         if let Some(after) = tail.strip_prefix(name) {
             if after.starts_with(|c: char| c.is_ascii_alphabetic()) {
@@ -1267,11 +1274,7 @@ fn leftover_filename_input_cs_at(line: &str, at: usize) -> bool {
             }
             if matches!(
                 name,
-                "CatchFileBetweenTags"
-                    | "CatchFileBetweenDelims"
-                    | "ExecuteMetaData"
-                    | "inputpythonfile"
-                    | "inputpython"
+                "CatchFileBetweenDelims" | "inputpythonfile" | "inputpython"
             ) && after.starts_with('*')
             {
                 return false;
@@ -1518,6 +1521,48 @@ fn fvextra_buffer_leftover_cs_at(line: &str, at: usize) -> bool {
         return false;
     };
     fvextra_buffer_leftover_cs_name(tail).is_some()
+}
+
+/// listings leftover `\lstset` / `\lstdefinestyle` /
+/// `\lstnewenvironment` / `\lstMakeShortInline` /
+/// `\lstDeleteShortInline`. Other verb spans are skipped so
+/// `\verb|\lstset{x}|` is not stolen. Walk stops at an unescaped `%`
+/// so a comment is not a command tail. `\lstinputlisting` /
+/// `\lstinline` stay their own leftovers. Do not invent env names
+/// from `\lstnewenvironment`.
+fn find_listings_leftover_at(
+    line: &str,
+    from: usize,
+    extra_cmds: &[String],
+) -> Option<(usize, usize)> {
+    find_leftover_cmd_at(line, from, extra_cmds, listings_leftover_cs_at)
+}
+
+fn listings_leftover_cs_at(line: &str, at: usize) -> bool {
+    let Some(tail) = line.get(at..).and_then(|s| s.strip_prefix('\\')) else {
+        return false;
+    };
+    listings_leftover_cs_name(tail).is_some()
+}
+
+/// minted / fancyvrb / fvextra / pythontex / pyluatex / piton /
+/// tcolorbox leftover keyval and replay cmds. Other verb spans are
+/// skipped so `\verb|\fvset{x}|` is not stolen. Walk stops at an
+/// unescaped `%`. `\inputminted` / `\piton` / `\py` stay their own
+/// leftovers.
+fn find_keyval_leftover_at(
+    line: &str,
+    from: usize,
+    extra_cmds: &[String],
+) -> Option<(usize, usize)> {
+    find_leftover_cmd_at(line, from, extra_cmds, leftover_keyval_cs_at)
+}
+
+fn leftover_keyval_cs_at(line: &str, at: usize) -> bool {
+    let Some(tail) = line.get(at..).and_then(|s| s.strip_prefix('\\')) else {
+        return false;
+    };
+    leftover_keyval_cs_name(tail).is_some()
 }
 
 /// `\piton{...}` is not a unicode verb span. Walk one brace group so
@@ -2380,6 +2425,12 @@ impl<'a> ParseState<'a> {
                             i,
                             &self.parser.extra_verbatim_commands,
                         )
+                    })
+                    .or_else(|| {
+                        find_listings_leftover_at(code, i, &self.parser.extra_verbatim_commands)
+                    })
+                    .or_else(|| {
+                        find_keyval_leftover_at(code, i, &self.parser.extra_verbatim_commands)
                     })
             {
                 self.append_item_or_prose(line.start + i, &code[i..start]);

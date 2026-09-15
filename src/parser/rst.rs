@@ -69,6 +69,9 @@ fn parse_line_based(input: &str) -> Vec<SpannedRegion> {
     let mut in_literal_block = false;
     let mut literal_indent: usize = 0;
     let mut in_directive = false;
+    // Empty `.. table::` / `.. csv-table::`: first indented paragraph
+    // is leftover title Prose; the table body then stays opaque.
+    let mut in_table_title = false;
     let mut directive_indent: usize = 0;
     let mut in_definition = false;
     let mut definition_indent: usize = 0;
@@ -80,18 +83,12 @@ fn parse_line_based(input: &str) -> Vec<SpannedRegion> {
     // Continuation paragraphs after a blank stay in the item when
     // indented this far.
     let mut list_hang: Option<usize> = None;
-    // Compact `.. note::` + indented body + flush paragraph (GitHub #344):
-    // the body hangs as a block quote, so a column-0 line must close that
-    // hang instead of joining After markup into the note Prose.
-    let mut in_container_body = false;
     // Docutils `meta` body is a field list whose values are paragraphs.
     // Field markers stay Structure; same-line bodies hang as Prose
     // (GitHub #434). Top-level `:Author:` and directive `:option:`
     // fields stay whole-line Structure.
     let mut in_meta = false;
-    // Line-block hang (`| `): first flush line that is not `| ` and not
-    // a hang is a new paragraph, not more line-block (GitHub #409).
-    let mut in_line_block = false;
+    let mut allow_rfc2822 = true;
     let mut pragma_off = false;
 
     // Code-block directive bookkeeping. Mutually exclusive with `in_directive`.
@@ -181,6 +178,49 @@ fn parse_line_based(input: &str) -> Vec<SpannedRegion> {
                 continue;
             }
             in_literal_block = false;
+        }
+
+        // Empty table opener: leftover title until a blank or a table
+        // border, then the body stays opaque `in_directive`.
+        if in_table_title {
+            let leading = line_text.len() - line_text.trim_start().len();
+            if line_text.trim().is_empty() {
+                flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
+                if list_hang.is_some() {
+                    in_table_title = false;
+                    in_directive = true;
+                    list_hang = None;
+                }
+                regions.push(SpannedRegion::structure(input, line.span()));
+                i += 1;
+                continue;
+            }
+            if leading >= directive_indent {
+                if GRID_TABLE_TOP_RE.is_match(line_text) || is_simple_table_border(line_text) {
+                    flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
+                    in_table_title = false;
+                    in_directive = true;
+                    list_hang = None;
+                    regions.push(SpannedRegion::structure(input, line.span()));
+                    i += 1;
+                    continue;
+                }
+                flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
+                list_hang = Some(leading);
+                regions.push(SpannedRegion::structure(
+                    input,
+                    ByteSpan::new(line.start, line.start + leading),
+                ));
+                if line_text.len() > leading {
+                    current_prose.push_str(line_text[leading..].trim());
+                    prose_span = Some(ByteSpan::new(line.start + leading, line.end));
+                }
+                i += 1;
+                continue;
+            }
+            flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
+            in_table_title = false;
+            list_hang = None;
         }
 
         // Inside directive body
@@ -289,10 +329,9 @@ fn parse_line_based(input: &str) -> Vec<SpannedRegion> {
             flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
             if let Some(marker_len) = rst_admonition_marker_len(line_text)
                 .or_else(|| rst_substitution_replace_marker_len(line_text))
+                .or_else(|| rst_table_marker_len(line_text))
             {
                 if line_text.len() > marker_len && !line_text[marker_len..].trim().is_empty() {
-                    list_hang = Some(marker_len);
-                    in_container_body = true;
                     in_meta = false;
                     regions.push(SpannedRegion::structure(
                         input,
@@ -300,6 +339,18 @@ fn parse_line_based(input: &str) -> Vec<SpannedRegion> {
                     ));
                     current_prose.push_str(line_text[marker_len..].trim());
                     prose_span = Some(ByteSpan::new(line.start + marker_len, line.end));
+                    if rst_table_marker_len(line_text).is_some() {
+                        flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
+                        let leading = line_text.len() - trimmed.len();
+                        directive_indent = leading + 2;
+                        // Docutils arg_block continues until a blank or
+                        // option field. Stay in title hang so the next
+                        // indented line is leftover Prose, not opaque.
+                        in_table_title = true;
+                        list_hang = Some(marker_len);
+                    } else {
+                        list_hang = Some(marker_len);
+                    }
                     i += 1;
                     continue;
                 }
@@ -308,15 +359,24 @@ fn parse_line_based(input: &str) -> Vec<SpannedRegion> {
             let dir_name = rst_directive_name(trimmed);
             if dir_name
                 .as_deref()
+                .is_some_and(|n| n == "table" || n == "csv-table")
+            {
+                in_meta = false;
+                let leading = line_text.len() - trimmed.len();
+                directive_indent = leading + 2;
+                in_table_title = true;
+                i += 1;
+                continue;
+            }
+            if dir_name
+                .as_deref()
                 .is_some_and(|n| is_rst_container_directive(n) || is_rst_meta_directive(n))
                 || rst_substitution_replace_marker_len(line_text).is_some()
             {
-                in_container_body = true;
                 in_meta = dir_name.as_deref().is_some_and(is_rst_meta_directive);
                 i += 1;
                 continue;
             }
-            in_container_body = false;
             in_meta = false;
             let leading = line_text.len() - trimmed.len();
             // Docutils accepts a two-space body; +3 is convention only.
@@ -429,6 +489,27 @@ fn parse_line_based(input: &str) -> Vec<SpannedRegion> {
             continue;
         }
 
+        // Docutils RFC2822Body: `[!-9;-~]+:( +|$)` only as the first
+        // construct. Marker Structure; same-line value leftover Prose.
+        if allow_rfc2822 {
+            if let Some(marker_len) = rst_rfc2822_marker_len(line_text) {
+                flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
+                let body = &line_text[marker_len..];
+                regions.push(SpannedRegion::structure(
+                    input,
+                    ByteSpan::new(line.start, line.start + marker_len),
+                ));
+                if !body.trim().is_empty() {
+                    list_hang = Some(marker_len);
+                    current_prose.push_str(body.trim());
+                    prose_span = Some(ByteSpan::new(line.start + marker_len, line.end));
+                }
+                i += 1;
+                continue;
+            }
+            allow_rfc2822 = false;
+        }
+
         // Field list. Docutils field_marker is
         // `:(?![: ])([^:\\]|\\.|:(?!([ `]|$)))*(?<! ):( +|$)`.
         // Interior colons in the name are allowed (GitHub #341).
@@ -446,7 +527,9 @@ fn parse_line_based(input: &str) -> Vec<SpannedRegion> {
                 .strip_prefix(':')
                 .and_then(|s| s.strip_suffix(':'))
                 .is_some_and(|inner| inner.contains(':'));
-            if (interior_colon || in_meta) && !body.trim().is_empty() {
+            if (interior_colon || in_meta || rst_bibliographic_body_field(name))
+                && !body.trim().is_empty()
+            {
                 list_hang = Some(marker_len);
                 regions.push(SpannedRegion::structure(
                     input,
@@ -567,7 +650,6 @@ fn parse_line_based(input: &str) -> Vec<SpannedRegion> {
         if let Some(marker_len) = rst_line_block_marker_len(line_text) {
             flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
             list_hang = Some(marker_len);
-            in_line_block = true;
             regions.push(SpannedRegion::structure(
                 input,
                 ByteSpan::new(line.start, line.start + marker_len),
@@ -683,11 +765,10 @@ fn parse_line_based(input: &str) -> Vec<SpannedRegion> {
             // flush so After markup stays column-0 Prose (GitHub #344).
             // Same close for line-block: first flush line that is not
             // `| ` and not a hang is a new paragraph (GitHub #409).
-            if (in_container_body || in_line_block) && leading == 0 {
+            // Bibliographic leftover fields use the same hang close.
+            if leading == 0 {
                 flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
-                in_container_body = false;
                 in_meta = false;
-                in_line_block = false;
             }
         }
 
@@ -712,9 +793,7 @@ fn parse_line_based(input: &str) -> Vec<SpannedRegion> {
         }
 
         // Regular prose
-        in_container_body = false;
         in_meta = false;
-        in_line_block = false;
         push_prose_line(&mut current_prose, &mut prose_span, line, true, true);
         i += 1;
     }
@@ -827,6 +906,13 @@ fn is_rst_specific_admonition(name: &str) -> bool {
             | "footer"
             | "parsed-literal"
             | "line-block"
+            | "rubric"
+            | "topic"
+            | "sidebar"
+            | "admonition"
+            | "list-table"
+            | "contents"
+            | "title"
     )
 }
 
@@ -841,12 +927,38 @@ fn is_rst_container_directive(name: &str) -> bool {
     is_rst_specific_admonition(name)
         || matches!(
             name,
-            "admonition" | "figure" | "topic" | "sidebar" | "container"
+            "admonition" | "figure" | "topic" | "sidebar" | "container" | "class" | "list-table"
         )
 }
 
 /// Docutils `meta` directive. Takes no argument; the body is a field
 /// list whose values are paragraphs (GitHub #434).
+/// Docutils bibliographic fields whose same-line value is leftover
+/// nested-parsed body (`Abstract` / `Dedication` / compound `Authors`
+/// / `Address`). Singular `:Author:` stays whole-line Structure
+/// (GitHub #330).
+fn rst_bibliographic_body_field(name: &str) -> bool {
+    let inner = name
+        .strip_prefix(':')
+        .and_then(|s| s.strip_suffix(':'))
+        .unwrap_or(name);
+    matches!(
+        inner.to_ascii_lowercase().as_str(),
+        "abstract"
+            | "dedication"
+            | "authors"
+            | "address"
+            | "subtitle"
+            | "copyright"
+            | "organization"
+            | "contact"
+            | "version"
+            | "revision"
+            | "status"
+            | "date"
+    )
+}
+
 fn is_rst_meta_directive(name: &str) -> bool {
     name == "meta"
 }
@@ -856,6 +968,28 @@ fn is_rst_meta_directive(name: &str) -> bool {
 /// line is not a no-argument admonition. Body text after the marker
 /// is not included, so `Some(s.len())` is the Structure prefix used
 /// for hang (GitHub #349).
+/// Docutils `table` / `csv-table` title leftover: `.. table::` plus
+/// pad. Same-line title is hung Prose; the table body stays opaque.
+fn rst_table_marker_len(line: &str) -> Option<usize> {
+    let indent = line.len() - line.trim_start().len();
+    let trimmed = &line[indent..];
+    let rest = trimmed.strip_prefix("..")?;
+    if !rest.starts_with([' ', '\t']) {
+        return None;
+    }
+    let name_off = rest.len() - rest.trim_start().len();
+    let after_ws = &rest[name_off..];
+    let name_end = after_ws.find("::")?;
+    let name = after_ws[..name_end].trim().to_ascii_lowercase();
+    if name != "table" && name != "csv-table" {
+        return None;
+    }
+    let colons_at = indent + 2 + name_off + name_end;
+    let after_colons = &line[colons_at + 2..];
+    let pad = after_colons.len() - after_colons.trim_start().len();
+    Some(colons_at + 2 + pad)
+}
+
 pub(crate) fn rst_admonition_marker_len(line: &str) -> Option<usize> {
     let indent = line.len() - line.trim_start().len();
     let trimmed = &line[indent..];
@@ -908,18 +1042,24 @@ pub(crate) fn rst_substitution_replace_marker_len(line: &str) -> Option<usize> {
         return None;
     }
     let after_mid = &after_close[mid_ws..];
-    const REPLACE: &str = "replace::";
-    // `get` not `[..REPLACE.len()]`: same UTF-8 mid-char slice as
+    // `get` not `[..len]`: same UTF-8 mid-char slice as
     // org_caption_marker_len (GitHub #459).
-    if !after_mid
-        .get(..REPLACE.len())
-        .is_some_and(|head| head.eq_ignore_ascii_case(REPLACE))
+    let kind_len = if after_mid
+        .get(..9)
+        .is_some_and(|h| h.eq_ignore_ascii_case("replace::") || h.eq_ignore_ascii_case("unicode::"))
     {
+        9
+    } else if after_mid
+        .get(..6)
+        .is_some_and(|h| h.eq_ignore_ascii_case("date::"))
+    {
+        6
+    } else {
         return None;
-    }
-    let after_colons = &after_mid[REPLACE.len()..];
+    };
+    let after_colons = &after_mid[kind_len..];
     let pad = after_colons.len() - after_colons.trim_start().len();
-    Some(indent + 2 + ws_after_dots + 1 + name_end + 1 + mid_ws + REPLACE.len() + pad)
+    Some(indent + 2 + ws_after_dots + 1 + name_end + 1 + mid_ws + kind_len + pad)
 }
 
 /// True when `trimmed` is an RST comment opener, not a `.. name::`
@@ -968,6 +1108,41 @@ pub(crate) fn is_rst_field_list_line(trimmed: &str) -> bool {
 
 /// Byte length of a Docutils field marker on `line`, including leading
 /// indent and the spaces after the closing colon.
+/// Docutils RFC2822Body `Name:( +|$)`. Printable 7-bit except space
+/// and `:`. Not `..` / `:field:`.
+fn rst_rfc2822_marker_len(line: &str) -> Option<usize> {
+    let trimmed = line.trim_start();
+    if trimmed.starts_with("..") || trimmed.starts_with(':') {
+        return None;
+    }
+    let colon = trimmed.find(':')?;
+    let name = &trimmed[..colon];
+    if name.is_empty() {
+        return None;
+    }
+    if !name
+        .bytes()
+        .all(|b| (b'!'..=b'9').contains(&b) || (b';'..=b'~').contains(&b))
+    {
+        return None;
+    }
+    let after = &trimmed[colon + 1..];
+    if !after.is_empty() && !after.starts_with([' ', '\t']) {
+        return None;
+    }
+    // Only leftover bibliographic names hang. A lone `A: ` is prose
+    // (oracle / SemBr), not an RFC2822 field.
+    if !rst_bibliographic_body_field(name) && !name.eq_ignore_ascii_case("author") {
+        return None;
+    }
+    let lead = line.len() - trimmed.len();
+    let spaces = after
+        .bytes()
+        .take_while(|&b| b == b' ' || b == b'\t')
+        .count();
+    Some(lead + colon + 1 + spaces)
+}
+
 pub(crate) fn rst_field_marker_len(line: &str) -> Option<usize> {
     let indent = line.len() - line.trim_start().len();
     rst_field_marker_end(&line[indent..]).map(|n| indent + n)

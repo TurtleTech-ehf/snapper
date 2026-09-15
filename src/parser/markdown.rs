@@ -37,6 +37,12 @@ static LIST_ITEM_RE: LazyLock<Regex> =
 static LIST_LOOKING_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"^[\t ]*(?:[-*+]|\d{1,9}[.)])(?:[ \t]|$)").unwrap());
 
+/// List item at any indent. LIST_ITEM_RE is 0–3 only so a 4-space dash is
+/// document-level indented code. Inside a parent item, hang ≤ indent < hang+4
+/// is a nested list (pulldown / CM 5.2), not code.
+static LIST_ITEM_ANY_INDENT_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"^([\t ]*(?:[-*+]|\d{1,9}[.)])(?:[ \t]|$))(.*)$").unwrap());
+
 /// Match a markdown table row: line whose trimmed form starts and ends with `|`.
 /// Also matches separator rows like `|---|---|`.
 /// GFM 4.10 makes leading/trailing pipes optional; those rows are
@@ -143,12 +149,14 @@ static HTML_BLOCK_TAGS: &[&str] = &[
 pub struct MarkdownParser;
 
 /// Close an open list item: flush accumulated prose and emit the trailing newline.
+#[allow(clippy::too_many_arguments)]
 fn close_list_item(
     in_list_item: &mut bool,
     list_hang: &mut Option<usize>,
     current_prose: &mut String,
     prose_span: &mut Option<ByteSpan>,
     list_term: &mut Option<ByteSpan>,
+    in_definition_list: &mut bool,
     input: &str,
     regions: &mut Vec<SpannedRegion>,
 ) {
@@ -162,6 +170,7 @@ fn close_list_item(
         *in_list_item = false;
         *list_hang = None;
     }
+    *in_definition_list = false;
 }
 
 /// Indent of the next non-blank line after `start`, if any.
@@ -173,7 +182,9 @@ fn next_nonblank_indent(lines: &[Line<'_>], start: usize) -> Option<usize> {
 }
 
 fn starts_html_comment(line: &str) -> bool {
-    line.trim_start().starts_with("<!--")
+    // CM 4.6 type 2: at most three spaces. Four-space `<!--` is indented
+    // code (or lazy title text), not an HTML block.
+    html_block_rest(line).starts_with("<!--")
 }
 
 fn html_comment_closed(text: &str) -> bool {
@@ -785,7 +796,15 @@ fn md_leaf_rest(line: &str) -> Option<&str> {
 pub(crate) fn md_definition_list_marker_len(line: &str) -> Option<usize> {
     let rest = md_leaf_rest(line)?;
     let indent = line.len() - rest.len();
-    let after = rest.strip_prefix(':')?;
+    // pulldown `:` plus compact leftover `~` (Pandoc / extra DL marker).
+    // `~~` is GFM strike, not a definition.
+    let after = if let Some(a) = rest.strip_prefix(':') {
+        a
+    } else if rest.starts_with("~~") {
+        return None;
+    } else {
+        rest.strip_prefix('~')?
+    };
     let spaces = after.bytes().take_while(|&b| b == b' ').count();
     let consumed = if spaces >= 5 { 1 } else { spaces };
     Some(indent + 1 + consumed)
@@ -886,6 +905,15 @@ fn scan_md_link_dest(s: &str) -> Option<usize> {
 /// True when `s` is a complete link title (`"..."` / `'...'` / `(...)`)
 /// plus optional trailing spaces or tabs.
 fn rest_is_md_link_title(s: &str) -> bool {
+    rest_is_md_link_title_inner(s, false)
+}
+
+/// CM 0.31.2 §4.7 ex. 196: a title may span physical lines.
+fn rest_is_md_link_title_allowing_newlines(s: &str) -> bool {
+    rest_is_md_link_title_inner(s, true)
+}
+
+fn rest_is_md_link_title_inner(s: &str, allow_newline: bool) -> bool {
     let t = s.trim_end_matches([' ', '\t']);
     if t.len() < 2 {
         return false;
@@ -902,7 +930,7 @@ fn rest_is_md_link_title(s: &str) -> bool {
         match bytes[i] {
             b'\\' if i + 1 < bytes.len() => i += 2,
             b if b == close => return i + 1 == bytes.len(),
-            b'\n' | b'\r' => return false,
+            b'\n' | b'\r' if !allow_newline => return false,
             _ => i += 1,
         }
     }
@@ -975,11 +1003,76 @@ fn dest_and_optional_title(line: &str) -> Option<bool> {
 }
 
 /// Optional title on the line after `[label]: dest` (`"title"` / `'title'` / `(title)`).
+/// Indent is LRD whitespace, not indented code (CM 0.31.2 ex. 193).
 fn is_link_title_continuation(line: &str) -> bool {
-    if is_indented_code_line(line) {
-        return false;
-    }
     rest_is_md_link_title(line.trim_start_matches([' ', '\t']))
+}
+
+fn is_link_title_opener(line: &str) -> bool {
+    matches!(
+        line.trim_start_matches([' ', '\t']).as_bytes().first(),
+        Some(b'"' | b'\'' | b'(')
+    )
+}
+
+/// Last line index of a complete (possibly spanning) LRD title starting at
+/// `start`. CM 0.31.2 §4.7 ex. 196.
+fn lrd_title_span_end(lines: &[Line<'_>], start: usize) -> Option<usize> {
+    lrd_title_span_end_inner(lines, start, None)
+}
+
+fn quoted_lrd_title_span_end(lines: &[Line<'_>], start: usize, depth: usize) -> Option<usize> {
+    lrd_title_span_end_inner(lines, start, Some(depth))
+}
+
+fn lrd_title_line_inner(line: &str, depth: Option<usize>) -> Option<&str> {
+    match depth {
+        Some(d) => strip_quote_markers(line, d),
+        None => Some(line),
+    }
+}
+
+fn lrd_title_span_end_inner(
+    lines: &[Line<'_>],
+    start: usize,
+    depth: Option<usize>,
+) -> Option<usize> {
+    let first = lrd_title_line_inner(lines.get(start)?.text, depth)?;
+    let first_t = first.trim_start_matches([' ', '\t']);
+    if is_link_title_continuation(first) {
+        return Some(start);
+    }
+    if !is_link_title_opener(first_t) {
+        return None;
+    }
+    let mut acc = first_t.to_string();
+    for (j, line) in lines.iter().enumerate().skip(start + 1) {
+        let inner = lrd_title_line_inner(line.text, depth)?;
+        if inner.trim().is_empty() {
+            return None;
+        }
+        // pulldown `scan_refdef_title` aborts on a paragraph interrupt.
+        if is_setext_underline(inner)
+            || HEADING_RE.is_match(inner)
+            || is_thematic_break(inner)
+            || FENCED_CODE_RE.is_match(inner.trim_start())
+            || quote_marker_depth(inner) > 0
+            || list_interrupts_paragraph(inner)
+            || html_block_kind(inner).is_some_and(|k| k.can_interrupt())
+        {
+            return None;
+        }
+        acc.push('\n');
+        acc.push_str(inner.trim_start_matches([' ', '\t']));
+        if rest_is_md_link_title_allowing_newlines(&acc) {
+            return Some(j);
+        }
+    }
+    None
+}
+
+fn lrd_stays_in_list(in_list_item: bool, list_hang: Option<usize>, line: &str) -> bool {
+    in_list_item && list_hang.is_some_and(|hang| line_indent(line) >= hang)
 }
 
 /// Byte length of a pulldown `ENABLE_FOOTNOTES` opener: 0–3 spaces,
@@ -1009,8 +1102,14 @@ fn is_footnote_definition(line: &str) -> bool {
 }
 
 /// Indented footnote body line (pulldown GFM continuation).
+/// pulldown `scan_containers` continues only on 4 spaces (or a tab).
 fn is_footnote_continuation(line: &str) -> bool {
-    !line.trim().is_empty() && line_indent(line) >= 1
+    let trimmed = line.trim_start();
+    if trimmed.is_empty() {
+        return false;
+    }
+    let prefix = &line[..line.len() - trimmed.len()];
+    prefix.contains('\t') || prefix.len() >= 4
 }
 
 /// Last line of a footnote definition starting at `start` (opener plus
@@ -1018,11 +1117,25 @@ fn is_footnote_continuation(line: &str) -> bool {
 /// following unindented paragraph stays Prose.
 fn footnote_def_end(lines: &[Line<'_>], start: usize) -> usize {
     let mut end = start;
-    for (j, line) in lines.iter().enumerate().skip(start + 1) {
-        if !is_footnote_continuation(line.text) {
+    let mut j = start + 1;
+    while j < lines.len() {
+        if lines[j].text.trim().is_empty() {
+            let mut k = j + 1;
+            while k < lines.len() && lines[k].text.trim().is_empty() {
+                k += 1;
+            }
+            if k < lines.len() && is_footnote_continuation(lines[k].text) {
+                end = k;
+                j = k + 1;
+                continue;
+            }
+            break;
+        }
+        if !is_footnote_continuation(lines[j].text) {
             break;
         }
         end = j;
+        j += 1;
     }
     end
 }
@@ -1166,16 +1279,175 @@ fn list_opener_hang(line: &str) -> Option<usize> {
     Some(list_marker_hang(marker))
 }
 
+/// Hang of any non-empty list opener, including start != 1. Used for
+/// setext-in-list pairing at a block boundary (CM 4.3).
+fn list_item_hang(line: &str) -> Option<usize> {
+    let depth = quote_marker_depth(line);
+    let body = strip_quote_markers(line, depth)?;
+    let caps = LIST_ITEM_RE.captures(body)?;
+    let marker = caps.get(1).unwrap().as_str();
+    if caps
+        .get(2)
+        .is_none_or(|m| list_item_rest_is_empty(m.as_str()))
+    {
+        return None;
+    }
+    Some(list_marker_hang(marker))
+}
+
 /// Bullet, or ordered start 1, can interrupt an open paragraph.
 fn list_interrupts_paragraph(line: &str) -> bool {
     list_opener_hang(line).is_some()
+}
+
+/// List-item captures: 0–3 spaces at a block boundary, or hang ≤ indent < hang+4
+/// inside a parent item (nested list, not hang+4 indented code).
+fn list_item_captures<'a>(
+    line: &'a str,
+    in_list_item: bool,
+    list_hang: Option<usize>,
+) -> Option<regex::Captures<'a>> {
+    if let Some(caps) = LIST_ITEM_RE.captures(line) {
+        return Some(caps);
+    }
+    if in_list_item {
+        if let Some(hang) = list_hang {
+            let ind = line_indent(line);
+            if ind >= hang && ind < hang + 4 && LIST_LOOKING_RE.is_match(line) {
+                return LIST_ITEM_ANY_INDENT_RE.captures(line);
+            }
+        }
+    }
+    None
+}
+
+/// True when a same-depth quoted `: ` / `~ ` marker appears after
+/// zero or more compact term lines. Blank, code, or a dropped quote
+/// ends the look-ahead. Extra terms stay titles like unquoted
+/// `flush_prose_as_structure`.
+fn upcoming_dl_marker(lines: &[Line<'_>], start: usize, min_indent: Option<usize>) -> bool {
+    let mut j = start + 1;
+    while j < lines.len() {
+        let t = lines[j].text;
+        if t.trim().is_empty() {
+            return false;
+        }
+        if min_indent.is_some_and(|h| line_indent(t) < h) {
+            return false;
+        }
+        if md_definition_list_marker_len(t).is_some() {
+            return true;
+        }
+        if HEADING_RE.is_match(t) || is_thematic_break(t) || FENCED_CODE_RE.is_match(t.trim_start())
+        {
+            return false;
+        }
+        j += 1;
+    }
+    false
+}
+
+fn quoted_upcoming_dl_marker(lines: &[Line<'_>], start: usize, depth: usize) -> bool {
+    let mut j = start + 1;
+    while j < lines.len() {
+        let Some(inner) = strip_quote_markers(lines[j].text, depth) else {
+            return false;
+        };
+        if inner.trim().is_empty() {
+            return false;
+        }
+        if md_definition_list_marker_len(inner).is_some() {
+            return true;
+        }
+        if is_indented_code_line(inner)
+            || HEADING_RE.is_match(inner)
+            || is_thematic_break(inner)
+            || FENCED_CODE_RE.is_match(inner.trim_start())
+        {
+            return false;
+        }
+        j += 1;
+    }
+    false
+}
+
+/// Quoted GFM table (leading pipe optional) at a matching `>` depth.
+fn quoted_gfm_table_end(lines: &[Line<'_>], start: usize, depth: usize) -> Option<usize> {
+    let header_inner = strip_quote_markers(lines[start].text, depth)?;
+    let header = gfm_table_cells(header_inner)?;
+    let delim_inner = strip_quote_markers(lines.get(start + 1)?.text, depth)?;
+    let dcells = gfm_table_cells(delim_inner)?;
+    if header.len() != dcells.len() || !dcells.iter().all(|c| is_gfm_delimiter_cell(c)) {
+        return None;
+    }
+    let mut end = start + 1;
+    for (j, line) in lines.iter().enumerate().skip(start + 2) {
+        let Some(inner) = strip_quote_markers(line.text, depth) else {
+            break;
+        };
+        if !is_gfm_table_row(inner) {
+            break;
+        }
+        end = j;
+    }
+    Some(end)
+}
+
+/// Indented code may open inside a quote only when no quote paragraph is open
+/// (BOF, blank, empty `>`, or already-open quoted code).
+fn quote_can_open_indented_code(prev: Option<&str>, depth: usize) -> bool {
+    match prev {
+        None => true,
+        Some(p) if p.trim().is_empty() => true,
+        Some(p) => match strip_quote_markers(p, depth) {
+            Some(inner) if inner.trim().is_empty() || is_indented_code_line(inner) => true,
+            Some(_) => false,
+            None => true,
+        },
+    }
+}
+
+/// Last quoted indented-code line starting at `start` (same `>` depth).
+fn quoted_indented_code_end(lines: &[Line<'_>], start: usize, depth: usize) -> usize {
+    let mut end = start;
+    let mut i = start + 1;
+    while i < lines.len() {
+        let Some(inner) = strip_quote_markers(lines[i].text, depth) else {
+            break;
+        };
+        if is_indented_code_line(inner) {
+            end = i;
+            i += 1;
+            continue;
+        }
+        if inner.trim().is_empty() {
+            let mut j = i + 1;
+            while j < lines.len() {
+                match strip_quote_markers(lines[j].text, depth) {
+                    Some(t) if t.trim().is_empty() => j += 1,
+                    Some(t) if is_indented_code_line(t) => {
+                        end = i;
+                        i += 1;
+                        break;
+                    }
+                    _ => return end,
+                }
+            }
+            if j >= lines.len() {
+                return end;
+            }
+            continue;
+        }
+        break;
+    }
+    end
 }
 
 /// List-item last title line plus underline at or past the item hang.
 /// Indent below hang is not a heading. Quote depth must match so a lazy
 /// unquoted underline after a quote stays CM 4.3 ex. 93.
 fn is_list_setext_pair(title: &str, underline: &str) -> bool {
-    let Some(hang) = list_opener_hang(title) else {
+    let Some(hang) = list_item_hang(title) else {
         return false;
     };
     let depth = quote_marker_depth(title);
@@ -1217,13 +1489,18 @@ fn is_quote_continuation_setext_pair(last_title: &str, underline: &str, prev: &s
 }
 
 /// Quoted setext that still respects list hang (GitHub #261 / #262).
+/// `> 2. Foo` / `> =======` as the first quote line is a list item.
+/// After an open quote paragraph, start != 1 does not interrupt (CM 5.2)
+/// so `> Foo` / `> 2. Bar` / `> =======` stays setext title text.
 fn quoted_setext_ok(title: &str, underline: &str, prev: Option<&str>) -> bool {
     if !is_quoted_setext_pair(title, underline) {
         return false;
     }
-    let hang = prev
-        .and_then(list_opener_hang)
-        .or_else(|| list_opener_hang(title));
+    let hang = match prev {
+        Some(p) if quote_marker_depth(p) > 0 && list_item_hang(p).is_none() => None,
+        Some(p) => list_item_hang(p).or_else(|| list_item_hang(title)),
+        None => list_item_hang(title),
+    };
     let Some(hang) = hang else {
         return true;
     };
@@ -1525,6 +1802,8 @@ impl FormatParser for MarkdownParser {
         let mut list_after_blank = false;
         let mut list_term: Option<ByteSpan> = None;
         let mut last_was_def_term = false;
+        let mut in_definition_list = false;
+        let mut in_quoted_footnote = false;
         let mut in_display_math = false;
         let mut pragma_off = false;
 
@@ -1549,6 +1828,7 @@ impl FormatParser for MarkdownParser {
                         &mut current_prose,
                         &mut prose_span,
                         &mut list_term,
+                        &mut in_definition_list,
                         input,
                         &mut regions,
                     );
@@ -1566,6 +1846,7 @@ impl FormatParser for MarkdownParser {
                         &mut current_prose,
                         &mut prose_span,
                         &mut list_term,
+                        &mut in_definition_list,
                         input,
                         &mut regions,
                     );
@@ -1597,6 +1878,7 @@ impl FormatParser for MarkdownParser {
                     &mut current_prose,
                     &mut prose_span,
                     &mut list_term,
+                    &mut in_definition_list,
                     input,
                     &mut regions,
                 );
@@ -1628,6 +1910,7 @@ impl FormatParser for MarkdownParser {
                     &mut current_prose,
                     &mut prose_span,
                     &mut list_term,
+                    &mut in_definition_list,
                     input,
                     &mut regions,
                 );
@@ -1652,6 +1935,7 @@ impl FormatParser for MarkdownParser {
                     &mut current_prose,
                     &mut prose_span,
                     &mut list_term,
+                    &mut in_definition_list,
                     input,
                     &mut regions,
                 );
@@ -1682,13 +1966,17 @@ impl FormatParser for MarkdownParser {
             if list_after_blank && is_indented_code_line(line_text) {
                 if let Some(hang) = list_hang {
                     let leading = line_indent(line_text);
-                    if LIST_LOOKING_RE.is_match(line_text) || leading >= hang + 4 {
+                    // hang+4 is indented code. List-looking at indent < hang+4
+                    // is a nested list and stays in the parent item.
+                    if leading >= hang + 4 || (leading >= 4 && LIST_LOOKING_RE.is_match(line_text))
+                    {
                         close_list_item(
                             &mut in_list_item,
                             &mut list_hang,
                             &mut current_prose,
                             &mut prose_span,
                             &mut list_term,
+                            &mut in_definition_list,
                             input,
                             &mut regions,
                         );
@@ -1703,6 +1991,7 @@ impl FormatParser for MarkdownParser {
                     &mut current_prose,
                     &mut prose_span,
                     &mut list_term,
+                    &mut in_definition_list,
                     input,
                     &mut regions,
                 );
@@ -1755,6 +2044,7 @@ impl FormatParser for MarkdownParser {
                     &mut current_prose,
                     &mut prose_span,
                     &mut list_term,
+                    &mut in_definition_list,
                     input,
                     &mut regions,
                 );
@@ -1793,6 +2083,7 @@ impl FormatParser for MarkdownParser {
                     &mut current_prose,
                     &mut prose_span,
                     &mut list_term,
+                    &mut in_definition_list,
                     input,
                     &mut regions,
                 );
@@ -1818,6 +2109,7 @@ impl FormatParser for MarkdownParser {
                     &mut current_prose,
                     &mut prose_span,
                     &mut list_term,
+                    &mut in_definition_list,
                     input,
                     &mut regions,
                 );
@@ -1834,7 +2126,13 @@ impl FormatParser for MarkdownParser {
             // Start from current_prose, not a title-line walk-back: HTML
             // comments and indented code are already emitted.
             if i + 1 < total
-                && ((is_setext_title_line(line_text) && is_setext_underline(lines[i + 1].text))
+                && (((is_setext_title_line(line_text) && is_setext_underline(lines[i + 1].text))
+                    // CM 4.3: after blank/BOF a list opener is not a
+                    // setext title. At-hang underlines still pair via
+                    // is_list_setext_pair (`- Foo` / `  =======`).
+                    && !(current_prose.is_empty()
+                        && !in_list_item
+                        && LIST_ITEM_RE.is_match(line_text)))
                     || is_list_setext_pair(line_text, lines[i + 1].text)
                     || quoted_setext_ok(
                         line_text,
@@ -1854,6 +2152,15 @@ impl FormatParser for MarkdownParser {
                         is_setext_underline(lines[i + 1].text)
                             && line_indent(lines[i + 1].text) < hang
                     }))
+                // CM 0.31.2 ex. 93: a setext underline cannot close a
+                // lazy quote continuation. Quotes reuse in_list_item
+                // with list_hang unset, so the list hang guard misses
+                // unquoted `bar` / `===`.
+                && !(in_list_item
+                    && list_hang.is_none()
+                    && quote_marker_depth(line_text) == 0
+                    && is_setext_underline(lines[i + 1].text)
+                    && quote_marker_depth(lines[i + 1].text) == 0)
             {
                 // Open list item plus at-hang underline: Foo is already
                 // marker Structure + prose. Promote that prose with the
@@ -1964,6 +2271,7 @@ impl FormatParser for MarkdownParser {
                     &mut current_prose,
                     &mut prose_span,
                     &mut list_term,
+                    &mut in_definition_list,
                     input,
                     &mut regions,
                 );
@@ -1991,6 +2299,7 @@ impl FormatParser for MarkdownParser {
                     &mut current_prose,
                     &mut prose_span,
                     &mut list_term,
+                    &mut in_definition_list,
                     input,
                     &mut regions,
                 );
@@ -2010,6 +2319,7 @@ impl FormatParser for MarkdownParser {
                     &mut current_prose,
                     &mut prose_span,
                     &mut list_term,
+                    &mut in_definition_list,
                     input,
                     &mut regions,
                 );
@@ -2032,8 +2342,9 @@ impl FormatParser for MarkdownParser {
                     input,
                     &mut regions,
                 );
-                let end = footnote_def_end(&lines, i);
-                for row in &lines[i + 1..=end] {
+                let opener = i;
+                let end = footnote_def_end(&lines, opener);
+                for row in &lines[opener + 1..=end] {
                     let hang = line_indent(row.text);
                     if hang > 0 {
                         let hang_span = ByteSpan::new(row.start, row.start + hang);
@@ -2054,6 +2365,26 @@ impl FormatParser for MarkdownParser {
                     );
                 }
                 i = end + 1;
+                // pulldown pops the footnote on a column-0 line even
+                // without a blank. Only after a real continuation so a
+                // SemBr-split second sentence of the opener stays in
+                // the footnote (oracle / GitHub #106).
+                if end > opener
+                    && i < total
+                    && !lines[i].text.trim().is_empty()
+                    && !is_footnote_continuation(lines[i].text)
+                {
+                    close_list_item(
+                        &mut in_list_item,
+                        &mut list_hang,
+                        &mut current_prose,
+                        &mut prose_span,
+                        &mut list_term,
+                        &mut in_definition_list,
+                        input,
+                        &mut regions,
+                    );
+                }
                 continue;
             }
 
@@ -2063,21 +2394,26 @@ impl FormatParser for MarkdownParser {
             // interrupt a paragraph (CM 0.31.2 §4.7 / GitHub #357): after
             // prose, the line stays in the open paragraph.
             if current_prose.is_empty() && is_link_reference_definition(line_text) {
-                close_list_item(
-                    &mut in_list_item,
-                    &mut list_hang,
-                    &mut current_prose,
-                    &mut prose_span,
-                    &mut list_term,
-                    input,
-                    &mut regions,
-                );
-                flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
+                if !lrd_stays_in_list(in_list_item, list_hang, line_text) {
+                    close_list_item(
+                        &mut in_list_item,
+                        &mut list_hang,
+                        &mut current_prose,
+                        &mut prose_span,
+                        &mut list_term,
+                        &mut in_definition_list,
+                        input,
+                        &mut regions,
+                    );
+                    flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
+                }
                 regions.push(SpannedRegion::structure(input, line.span()));
                 i += 1;
-                if i < total && is_link_title_continuation(lines[i].text) {
-                    regions.push(SpannedRegion::structure(input, lines[i].span()));
-                    i += 1;
+                if let Some(end) = lrd_title_span_end(&lines, i) {
+                    for row in &lines[i..=end] {
+                        regions.push(SpannedRegion::structure(input, row.span()));
+                    }
+                    i = end + 1;
                 }
                 continue;
             }
@@ -2086,46 +2422,59 @@ impl FormatParser for MarkdownParser {
                 && i + 1 < total
                 && is_link_dest_continuation(lines[i + 1].text)
             {
-                close_list_item(
-                    &mut in_list_item,
-                    &mut list_hang,
-                    &mut current_prose,
-                    &mut prose_span,
-                    &mut list_term,
-                    input,
-                    &mut regions,
-                );
-                flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
-                regions.push(SpannedRegion::structure(input, line.span()));
-                regions.push(SpannedRegion::structure(input, lines[i + 1].span()));
-                let dest_has_title = dest_line_has_title(lines[i + 1].text);
-                i += 2;
-                if !dest_has_title && i < total && is_link_title_continuation(lines[i].text) {
-                    regions.push(SpannedRegion::structure(input, lines[i].span()));
-                    i += 1;
-                }
-                continue;
-            }
-
-            // GFM table: header + delimiter (leading/trailing pipes optional).
-            // Pipe-less rows are Structure only when a separator is present.
-            if i + 1 < total {
-                if let Some(end) = gfm_table_end(&lines, i) {
+                if !lrd_stays_in_list(in_list_item, list_hang, line_text) {
                     close_list_item(
                         &mut in_list_item,
                         &mut list_hang,
                         &mut current_prose,
                         &mut prose_span,
                         &mut list_term,
+                        &mut in_definition_list,
                         input,
                         &mut regions,
                     );
                     flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
-                    for row in &lines[i..=end] {
-                        regions.push(SpannedRegion::structure(input, row.span()));
+                }
+                regions.push(SpannedRegion::structure(input, line.span()));
+                regions.push(SpannedRegion::structure(input, lines[i + 1].span()));
+                let dest_has_title = dest_line_has_title(lines[i + 1].text);
+                i += 2;
+                if !dest_has_title {
+                    if let Some(end) = lrd_title_span_end(&lines, i) {
+                        for row in &lines[i..=end] {
+                            regions.push(SpannedRegion::structure(input, row.span()));
+                        }
+                        i = end + 1;
                     }
-                    i = end + 1;
-                    continue;
+                }
+                continue;
+            }
+
+            // GFM table: header + delimiter (leading/trailing pipes optional).
+            // Pipe-less rows are Structure only when a separator is present.
+            // pulldown scan_paragraph_interrupt: only a heavy table
+            // (header starts with `|`) interrupts a paragraph.
+            if i + 1 < total {
+                if let Some(end) = gfm_table_end(&lines, i) {
+                    let heavy = lines[i].text.trim_start().starts_with('|');
+                    if heavy || current_prose.is_empty() {
+                        close_list_item(
+                            &mut in_list_item,
+                            &mut list_hang,
+                            &mut current_prose,
+                            &mut prose_span,
+                            &mut list_term,
+                            &mut in_definition_list,
+                            input,
+                            &mut regions,
+                        );
+                        flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
+                        for row in &lines[i..=end] {
+                            regions.push(SpannedRegion::structure(input, row.span()));
+                        }
+                        i = end + 1;
+                        continue;
+                    }
                 }
             }
 
@@ -2137,6 +2486,7 @@ impl FormatParser for MarkdownParser {
                     &mut current_prose,
                     &mut prose_span,
                     &mut list_term,
+                    &mut in_definition_list,
                     input,
                     &mut regions,
                 );
@@ -2154,6 +2504,7 @@ impl FormatParser for MarkdownParser {
                     &mut current_prose,
                     &mut prose_span,
                     &mut list_term,
+                    &mut in_definition_list,
                     input,
                     &mut regions,
                 );
@@ -2195,6 +2546,7 @@ impl FormatParser for MarkdownParser {
                         &mut current_prose,
                         &mut prose_span,
                         &mut list_term,
+                        &mut in_definition_list,
                         input,
                         &mut regions,
                     );
@@ -2218,6 +2570,42 @@ impl FormatParser for MarkdownParser {
             let quote_depth = quote_marker_depth(line_text);
             if quote_depth > 0 {
                 let text = strip_quote_markers(line_text, quote_depth).unwrap_or(line_text);
+                // pulldown footnote leftover: empty `>` then `>` + four
+                // inner spaces continues the quoted footnote as Prose,
+                // not quoted indented Code.
+                if in_quoted_footnote {
+                    if text.trim().is_empty() {
+                        flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
+                        regions.push(SpannedRegion::structure(input, line.span()));
+                        i += 1;
+                        continue;
+                    }
+                    if is_indented_code_line(text) {
+                        flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
+                        let quote_len = line_text.len() - text.len();
+                        let hang = line_indent(text);
+                        regions.push(SpannedRegion::structure(
+                            input,
+                            ByteSpan::new(line.start, line.start + quote_len + hang),
+                        ));
+                        append_piece(
+                            &mut ProseAcc {
+                                text: &mut current_prose,
+                                span: &mut prose_span,
+                                term: &mut list_term,
+                            },
+                            line,
+                            quote_len + hang,
+                            false,
+                            false,
+                            input,
+                            &mut regions,
+                        );
+                        i += 1;
+                        continue;
+                    }
+                    in_quoted_footnote = false;
+                }
                 // Quoted HTML block (CM 4.6 + 5.1 / GitHub #340). Types 1-7
                 // may start after `>`. Lazy continuation does not apply, so
                 // the next unquoted line is a new paragraph.
@@ -2233,6 +2621,7 @@ impl FormatParser for MarkdownParser {
                             &mut current_prose,
                             &mut prose_span,
                             &mut list_term,
+                            &mut in_definition_list,
                             input,
                             &mut regions,
                         );
@@ -2248,12 +2637,14 @@ impl FormatParser for MarkdownParser {
                         continue;
                     }
                 }
+                let was_in_definition_list = in_definition_list;
                 close_list_item(
                     &mut in_list_item,
                     &mut list_hang,
                     &mut current_prose,
                     &mut prose_span,
                     &mut list_term,
+                    &mut in_definition_list,
                     input,
                     &mut regions,
                 );
@@ -2271,12 +2662,153 @@ impl FormatParser for MarkdownParser {
                     i += 1;
                     continue;
                 }
+                // Quoted indented code: `>` then 4-space inner (CM 4.4 + 5.1).
+                // Cannot interrupt an open quote paragraph.
+                if is_indented_code_line(text)
+                    && quote_can_open_indented_code(
+                        if i > 0 { Some(lines[i - 1].text) } else { None },
+                        quote_depth,
+                    )
+                {
+                    let end = quoted_indented_code_end(&lines, i, quote_depth);
+                    let header = ByteSpan::new(line.start, line.start);
+                    let body_end = lines[end].end;
+                    let footer = ByteSpan::new(body_end, body_end);
+                    regions.push(SpannedRegion::code(
+                        input,
+                        None,
+                        header,
+                        ByteSpan::new(line.start, body_end),
+                        footer,
+                    ));
+                    i = end + 1;
+                    continue;
+                }
+                // Quoted GFM table; leading/trailing pipes optional.
+                // Only a heavy table (inner header starts with `|`)
+                // interrupts a quote paragraph.
+                if let Some(end) = quoted_gfm_table_end(&lines, i, quote_depth) {
+                    let heavy = text.trim_start().starts_with('|');
+                    let quote_para_open = i > 0
+                        && quote_marker_depth(lines[i - 1].text) == quote_depth
+                        && strip_quote_markers(lines[i - 1].text, quote_depth)
+                            .is_some_and(|t| !t.trim().is_empty());
+                    if heavy || !quote_para_open {
+                        for row in &lines[i..=end] {
+                            regions.push(SpannedRegion::structure(input, row.span()));
+                        }
+                        i = end + 1;
+                        continue;
+                    }
+                }
+                // Quoted compact definition list (same rules as unquoted).
+                // Look ahead across extra compact terms, not just i+1,
+                // so `> Alpha` / `> Bravo` / `> : def` keeps both terms.
+                if quoted_upcoming_dl_marker(&lines, i, quote_depth)
+                    && md_definition_list_marker_len(text).is_none()
+                    && !text.trim().is_empty()
+                    && !is_indented_code_line(text)
+                {
+                    regions.push(SpannedRegion::structure(input, line.span()));
+                    last_was_def_term = true;
+                    in_definition_list = true;
+                    i += 1;
+                    continue;
+                }
+                if let Some(inner_marker_len) = md_definition_list_marker_len(text) {
+                    if last_was_def_term || was_in_definition_list {
+                        last_was_def_term = false;
+                        in_definition_list = true;
+                        let quote_len = line_text.len() - text.len();
+                        let marker_span =
+                            ByteSpan::new(line.start, line.start + quote_len + inner_marker_len);
+                        regions.push(SpannedRegion::structure(input, marker_span));
+                        in_list_item = true;
+                        list_hang = Some(quote_len + inner_marker_len);
+                        list_after_blank = false;
+                        append_piece(
+                            &mut ProseAcc {
+                                text: &mut current_prose,
+                                span: &mut prose_span,
+                                term: &mut list_term,
+                            },
+                            line,
+                            quote_len + inner_marker_len,
+                            false,
+                            false,
+                            input,
+                            &mut regions,
+                        );
+                        i += 1;
+                        continue;
+                    }
+                }
+                // Quoted footnotes interrupt. Marker is Structure; same-line
+                // body is leftover Prose like unquoted GitHub #410.
+                if let Some(inner_fn) = md_footnote_definition_marker_len(text) {
+                    let quote_len = line_text.len() - text.len();
+                    let marker_span = ByteSpan::new(line.start, line.start + quote_len + inner_fn);
+                    regions.push(SpannedRegion::structure(input, marker_span));
+                    in_list_item = true;
+                    list_hang = Some(quote_len + inner_fn);
+                    list_after_blank = false;
+                    in_quoted_footnote = true;
+                    append_piece(
+                        &mut ProseAcc {
+                            text: &mut current_prose,
+                            span: &mut prose_span,
+                            term: &mut list_term,
+                        },
+                        line,
+                        quote_len + inner_fn,
+                        false,
+                        false,
+                        input,
+                        &mut regions,
+                    );
+                    i += 1;
+                    continue;
+                }
+                // Quoted LRD does not interrupt a quote paragraph (CM 4.7).
+                let quote_para_open = i > 0
+                    && quote_marker_depth(lines[i - 1].text) == quote_depth
+                    && strip_quote_markers(lines[i - 1].text, quote_depth)
+                        .is_some_and(|t| !t.trim().is_empty());
+                if !quote_para_open && is_link_reference_definition(text) {
+                    regions.push(SpannedRegion::structure(input, line.span()));
+                    i += 1;
+                    if let Some(end) = quoted_lrd_title_span_end(&lines, i, quote_depth) {
+                        for row in &lines[i..=end] {
+                            regions.push(SpannedRegion::structure(input, row.span()));
+                        }
+                        i = end + 1;
+                    }
+                    continue;
+                }
+                if !quote_para_open && is_link_reference_label_only(text) && i + 1 < total {
+                    if let Some(next_inner) = strip_quote_markers(lines[i + 1].text, quote_depth) {
+                        if is_link_dest_continuation(next_inner) {
+                            regions.push(SpannedRegion::structure(input, line.span()));
+                            regions.push(SpannedRegion::structure(input, lines[i + 1].span()));
+                            let dest_has_title = dest_line_has_title(next_inner);
+                            i += 2;
+                            if !dest_has_title {
+                                if let Some(end) = quoted_lrd_title_span_end(&lines, i, quote_depth)
+                                {
+                                    for row in &lines[i..=end] {
+                                        regions.push(SpannedRegion::structure(input, row.span()));
+                                    }
+                                    i = end + 1;
+                                }
+                            }
+                            continue;
+                        }
+                    }
+                }
                 if HEADING_RE.is_match(text)
                     || TABLE_ROW_RE.is_match(text)
                     || FENCED_CODE_RE.is_match(text.trim_start())
                     || is_thematic_break(text)
-                    || is_footnote_definition(text)
-                    || is_link_reference_definition(text)
                     || is_empty_list_item(text)
                 {
                     regions.push(SpannedRegion::structure(input, line.span()));
@@ -2306,7 +2838,8 @@ impl FormatParser for MarkdownParser {
             // List item: emit marker as Structure, start accumulating text as prose.
             // Continuation lines are appended until a block boundary.
             // Start != 1 does not interrupt an open paragraph (CM 5.2).
-            if let Some(caps) = LIST_ITEM_RE.captures(line_text) {
+            // Nested items: hang ≤ indent < hang+4 (4-space child after `- `).
+            if let Some(caps) = list_item_captures(line_text, in_list_item, list_hang) {
                 let open_para = !current_prose.is_empty() && !in_list_item;
                 if open_para && !list_interrupts_paragraph(line_text) {
                     // Fall through: `2. Bar` stays title/prose text.
@@ -2317,6 +2850,7 @@ impl FormatParser for MarkdownParser {
                         &mut current_prose,
                         &mut prose_span,
                         &mut list_term,
+                        &mut in_definition_list,
                         input,
                         &mut regions,
                     );
@@ -2332,6 +2866,7 @@ impl FormatParser for MarkdownParser {
                     in_list_item = true;
                     list_hang = Some(list_marker_hang(marker));
                     list_after_blank = false;
+                    in_definition_list = false;
                     append_piece(
                         &mut ProseAcc {
                             text: &mut current_prose,
@@ -2353,41 +2888,47 @@ impl FormatParser for MarkdownParser {
             // pulldown ENABLE_DEFINITION_LIST: a `: ` marker on the next
             // line turns this paragraph into a definition title. The
             // title stays Structure so interior periods do not split.
-            if i + 1 < total
-                && md_definition_list_marker_len(lines[i + 1].text).is_some()
-                && md_definition_list_marker_len(line_text).is_none()
+            if upcoming_dl_marker(
+                &lines,
+                i,
+                if in_definition_list
+                    && line_indent(line_text) < 4
+                    && list_hang.is_none_or(|h| line_indent(line_text) < h)
+                {
+                    None
+                } else {
+                    list_hang.filter(|_| in_list_item)
+                },
+            ) && md_definition_list_marker_len(line_text).is_none()
                 && !line_text.trim().is_empty()
                 && !is_indented_code_line(line_text)
             {
-                let hang_cont =
-                    in_list_item && list_hang.is_some_and(|hang| line_indent(line_text) >= hang);
-                if !hang_cont {
-                    close_list_item(
-                        &mut in_list_item,
-                        &mut list_hang,
-                        &mut current_prose,
-                        &mut prose_span,
-                        &mut list_term,
-                        input,
-                        &mut regions,
-                    );
-                    flush_prose_as_structure(
-                        &mut current_prose,
-                        &mut prose_span,
-                        input,
-                        &mut regions,
-                    );
-                    regions.push(SpannedRegion::structure(input, line.span()));
-                    last_was_def_term = true;
-                    i += 1;
-                    continue;
-                }
+                flush_prose_as_structure(&mut current_prose, &mut prose_span, input, &mut regions);
+                close_list_item(
+                    &mut in_list_item,
+                    &mut list_hang,
+                    &mut current_prose,
+                    &mut prose_span,
+                    &mut list_term,
+                    &mut in_definition_list,
+                    input,
+                    &mut regions,
+                );
+                regions.push(SpannedRegion::structure(input, line.span()));
+                last_was_def_term = true;
+                in_definition_list = true;
+                i += 1;
+                continue;
             }
 
             // pulldown scan_definition_list_definition_marker_with_indent:
             // `: ` (0–3 space indent) is the definition marker. Body hangs.
             if let Some(marker_len) = md_definition_list_marker_len(line_text) {
-                if last_was_def_term {
+                if last_was_def_term
+                    || in_definition_list
+                    || (in_list_item
+                        && list_hang.is_some_and(|hang| line_indent(line_text) >= hang))
+                {
                     last_was_def_term = false;
                     close_list_item(
                         &mut in_list_item,
@@ -2395,15 +2936,16 @@ impl FormatParser for MarkdownParser {
                         &mut current_prose,
                         &mut prose_span,
                         &mut list_term,
+                        &mut in_definition_list,
                         input,
                         &mut regions,
                     );
-                    flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
                     let marker_span = ByteSpan::new(line.start, line.start + marker_len);
                     regions.push(SpannedRegion::structure(input, marker_span));
                     in_list_item = true;
                     list_hang = Some(marker_len);
                     list_after_blank = false;
+                    in_definition_list = true;
                     append_piece(
                         &mut ProseAcc {
                             text: &mut current_prose,
@@ -2423,6 +2965,61 @@ impl FormatParser for MarkdownParser {
             }
             last_was_def_term = false;
 
+            // hang+4 indented code inside a list item, with or without a
+            // blank. CM 5.2: indent ≥ hang+4 is code, not lazy paragraph.
+            if in_list_item {
+                if let Some(hang) = list_hang {
+                    if is_indented_code_line(line_text) && line_indent(line_text) >= hang + 4 {
+                        flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
+                        if let Some(span) = list_term.take() {
+                            if !span.is_empty() {
+                                regions.push(SpannedRegion::structure(input, span));
+                            }
+                        }
+                        let header = ByteSpan::new(line.start, line.start);
+                        let body_start = line.start;
+                        let mut body_end = line.end;
+                        let mut footer = ByteSpan::new(line.end, line.end);
+                        i += 1;
+                        while i < total {
+                            let nxt = &lines[i];
+                            if is_indented_code_line(nxt.text) && line_indent(nxt.text) >= hang + 4
+                            {
+                                body_end = nxt.end;
+                                footer = ByteSpan::new(nxt.end, nxt.end);
+                                i += 1;
+                                continue;
+                            }
+                            if nxt.text.trim().is_empty() {
+                                let mut j = i + 1;
+                                while j < total && lines[j].text.trim().is_empty() {
+                                    j += 1;
+                                }
+                                if j < total
+                                    && is_indented_code_line(lines[j].text)
+                                    && line_indent(lines[j].text) >= hang + 4
+                                {
+                                    body_end = nxt.end;
+                                    footer = ByteSpan::new(nxt.end, nxt.end);
+                                    i += 1;
+                                    continue;
+                                }
+                                break;
+                            }
+                            break;
+                        }
+                        regions.push(SpannedRegion::code(
+                            input,
+                            None,
+                            header,
+                            ByteSpan::new(body_start, body_end),
+                            footer,
+                        ));
+                        continue;
+                    }
+                }
+            }
+
             // Regular prose (also serves as list-item continuation when in_list_item)
             // Empty item: an unindented line is a new paragraph, not lazy
             // continuation (CM 5.2: only an open paragraph is lazy).
@@ -2436,6 +3033,7 @@ impl FormatParser for MarkdownParser {
                     &mut current_prose,
                     &mut prose_span,
                     &mut list_term,
+                    &mut in_definition_list,
                     input,
                     &mut regions,
                 );
@@ -2504,6 +3102,7 @@ impl FormatParser for MarkdownParser {
             &mut current_prose,
             &mut prose_span,
             &mut list_term,
+            &mut in_definition_list,
             input,
             &mut regions,
         );
@@ -5667,6 +6266,13 @@ mod tests {
         assert!(is_link_dest_continuation("      /url"));
         assert!(is_link_dest_continuation("/url \"title\""));
         assert!(!is_link_dest_continuation("After. More."));
+        assert!(is_link_title_continuation(
+            "\"Title with a period. Still title.\""
+        ));
+        assert!(is_link_title_continuation("           'the title'"));
+        assert!(!is_link_title_continuation(
+            "           code looks like this"
+        ));
         assert!(!is_link_reference_definition("See [foo]: not-a-def"));
         assert!(!is_link_reference_definition(
             "[^1]: Footnote text. Second sentence."
@@ -5692,6 +6298,7 @@ mod tests {
         assert!(is_footnote_continuation(
             "    Continuation of the footnote."
         ));
+        assert!(!is_footnote_continuation("  only two spaces"));
         assert!(!is_footnote_continuation("[^1]: opener"));
         assert!(!is_footnote_continuation(""));
     }
@@ -6038,6 +6645,10 @@ mod tests {
         assert_eq!(md_definition_list_marker_len(":    def"), Some(5));
         assert_eq!(md_definition_list_marker_len(":     def"), Some(2));
         assert_eq!(md_definition_list_marker_len(":"), Some(1));
+        assert_eq!(md_definition_list_marker_len("~ This is"), Some(2));
+        assert_eq!(md_definition_list_marker_len("  ~ def"), Some(4));
+        assert_eq!(md_definition_list_marker_len("~"), Some(1));
+        assert_eq!(md_definition_list_marker_len("~~strike"), None);
         assert_eq!(md_definition_list_marker_len("    : def"), None);
         assert_eq!(md_definition_list_marker_len("Term"), None);
         assert_eq!(md_definition_list_marker_len("[foo]: /url"), None);

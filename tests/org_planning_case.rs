@@ -27,6 +27,72 @@ fn ticket_fixture() -> &'static str {
 }
 
 #[test]
+fn leftover_deadline_after_timestamp_hangs_and_splits() {
+    let input = concat!(
+        "DEADLINE: <2026-01-01 Wed> hello. World after that.\n",
+        "After the line. Next.\n",
+    );
+    let regions = OrgParser.parse(input);
+    assert!(
+        regions.iter().any(|r| matches!(
+            r,
+            Region::Structure(s) if s.contains("DEADLINE:") && s.contains("<2026-01-01 Wed>")
+        )),
+        "planning stamp must stay Structure, got {regions:?}"
+    );
+    assert!(
+        regions.iter().any(|r| matches!(
+            r,
+            Region::Prose(p) if p.contains("hello.") && p.contains("World after that.")
+        )),
+        "leftover after stamp must be Prose, got {regions:?}"
+    );
+    let out = format_text(input, &org_cfg()).unwrap();
+    assert!(
+        !out.contains("hello. World after that."),
+        "leftover after stamp must still split, got:\n{out}"
+    );
+    assert!(
+        out.contains("After the line.\nNext."),
+        "following prose must still split, got:\n{out}"
+    );
+    assert_eq!(format_text(&out, &org_cfg()).unwrap(), out);
+}
+
+#[test]
+fn leftover_deadline_without_timestamp_is_paragraph() {
+    let input = concat!(
+        "DEADLINE: hello. World after that.\n",
+        "After the line. Next.\n",
+    );
+    let regions = OrgParser.parse(input);
+    assert!(
+        regions.iter().any(|r| matches!(
+            r,
+            Region::Prose(p) if p.contains("DEADLINE: hello.") && p.contains("World after that.")
+        )),
+        "DEADLINE: without a timestamp must stay Prose, got {regions:?}"
+    );
+    assert!(
+        !regions.iter().any(|r| matches!(
+            r,
+            Region::Structure(s) if s.contains("DEADLINE: hello")
+        )),
+        "leftover DEADLINE: must not be Structure, got {regions:?}"
+    );
+    let out = format_text(input, &org_cfg()).unwrap();
+    assert!(
+        out.contains("DEADLINE: hello.\nWorld after that."),
+        "leftover DEADLINE: must still split, got:\n{out}"
+    );
+    assert!(
+        out.contains("After the line.\nNext."),
+        "following prose must still split, got:\n{out}"
+    );
+    assert_eq!(format_text(&out, &org_cfg()).unwrap(), out);
+}
+
+#[test]
 fn lowercase_deadline_is_structure() {
     let regions = OrgParser.parse(ticket_fixture());
     assert!(

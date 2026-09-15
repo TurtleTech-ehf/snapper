@@ -16,18 +16,11 @@ static HEADLINE_RE: LazyLock<Regex> =
 static LIST_ITEM_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"^(\s*(?:[-+]|\d+[.)])(?: |$)|[ \t]+\*(?: |$))(.*)$").unwrap());
 
-/// Matches LaTeX \begin{env} lines embedded in org prose.
-static LATEX_BEGIN_RE: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"^\s*\\begin\{([^}]+)\}").unwrap());
-
-/// Matches LaTeX \end{env} lines.
-static LATEX_END_RE: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"^\s*\\end\{([^}]+)\}").unwrap());
-
 /// org-element-export-snippet-parser prefix: `@@BACKEND:VALUE@@`.
-/// Backend is `[-A-Za-z0-9]+`. Value may contain spaces (GitHub #354).
+/// Backend is `[-A-Za-z0-9]+`. Value runs to the next `@@` (may contain
+/// a single `@`; GitHub #354).
 static EXPORT_SNIPPET_RE: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"^@@[-A-Za-z0-9]+:[^@]*@@").unwrap());
+    LazyLock::new(|| Regex::new(r"^@@[-A-Za-z0-9]+:.*?@@").unwrap());
 
 /// True when the trimmed line is exactly one export snippet.
 pub(crate) fn org_export_snippet_line(line: &str) -> bool {
@@ -173,6 +166,138 @@ struct OpenGreater {
 
 /// org-element-drawer-re NAME: `(any ?- ?_ word)` — hyphen, underscore,
 /// or Unicode word characters (letters and digits). `:END:` is the closer.
+/// org-element plain link at column 0: `file:` / `http://` / `https://`
+/// / `mailto:` / `news:` / `doi:` / `ftp://` plus the path.
+/// Leftover after the path is hung Prose.
+pub(crate) fn org_plain_link_marker_len(line: &str) -> Option<usize> {
+    let indent = line.len() - line.trim_start().len();
+    let t = &line[indent..];
+    let prefix = if t.starts_with("file:") {
+        "file:"
+    } else if t.starts_with("https://") {
+        "https://"
+    } else if t.starts_with("http://") {
+        "http://"
+    } else if t.starts_with("mailto:") {
+        "mailto:"
+    } else if t.starts_with("news:") {
+        "news:"
+    } else if t.starts_with("doi:") {
+        "doi:"
+    } else if t.starts_with("ftp://") {
+        "ftp://"
+    } else {
+        return None;
+    };
+    let after = &t[prefix.len()..];
+    if after.is_empty() || after.starts_with(char::is_whitespace) {
+        return None;
+    }
+    let path_len = after.find(char::is_whitespace).unwrap_or(after.len());
+    let end = indent + prefix.len() + path_len;
+    let rest = &line[end..];
+    let pad = rest.len() - rest.trim_start().len();
+    Some(end + pad)
+}
+
+/// org-element-planning-line-re leftover: `DEADLINE:` / `SCHEDULED:` /
+/// `CLOSED:` plus a timestamp (`<...>` or `[...]`). Bare
+/// `DEADLINE: hello.` is a paragraph.
+pub(crate) fn org_planning_line(line: &str) -> bool {
+    org_planning_marker_len(line).is_some()
+}
+
+/// Structure prefix of a planning line: `DEADLINE:` / `SCHEDULED:` /
+/// `CLOSED:` plus the timestamp. Leftover after the stamp is hung Prose.
+pub(crate) fn org_planning_marker_len(line: &str) -> Option<usize> {
+    let indent = line.len() - line.trim_start_matches([' ', '\t']).len();
+    let t = &line[indent..];
+    const KEYS: [&str; 3] = ["DEADLINE:", "SCHEDULED:", "CLOSED:"];
+    for k in KEYS {
+        if !t
+            .as_bytes()
+            .get(..k.len())
+            .is_some_and(|head| head.eq_ignore_ascii_case(k.as_bytes()))
+        {
+            continue;
+        }
+        let after_key = &t[k.len()..];
+        let pad = after_key.len() - after_key.trim_start_matches([' ', '\t']).len();
+        let rest = &after_key[pad..];
+        let close = if rest.starts_with('<') {
+            rest.find('>')?
+        } else if rest.starts_with('[') {
+            rest.find(']')?
+        } else {
+            return None;
+        };
+        let mut end = indent + k.len() + pad + close + 1;
+        let after_stamp = &line[end..];
+        if let Some(range) = after_stamp.strip_prefix("--") {
+            if range.starts_with('<') {
+                let c = range.find('>')?;
+                end += 2 + c + 1;
+            } else if range.starts_with('[') {
+                let c = range.find(']')?;
+                end += 2 + c + 1;
+            }
+        }
+        let after = &line[end..];
+        let trail = after.len() - after.trim_start_matches([' ', '\t']).len();
+        return Some(end + trail);
+    }
+    None
+}
+
+/// org-element-clock-line-re: `CLOCK:` plus an inactive stamp
+/// (optional `--[stamp]`) and/or `=> H+:MM`, then only `[ \t]*$`.
+/// Extra tokens after a stamp are leftover paragraph.
+pub(crate) fn org_clock_line(line: &str) -> bool {
+    let t = line.trim_start_matches([' ', '\t']);
+    const KEY: &str = "CLOCK:";
+    if !t
+        .as_bytes()
+        .get(..KEY.len())
+        .is_some_and(|head| head.eq_ignore_ascii_case(KEY.as_bytes()))
+    {
+        return false;
+    }
+    let rest = t[KEY.len()..].trim_start_matches([' ', '\t']);
+    if let Some(after_open) = rest.strip_prefix('[') {
+        let Some(close) = after_open.find(']') else {
+            return false;
+        };
+        let mut after = &after_open[close + 1..];
+        if let Some(range) = after.strip_prefix("--[") {
+            let Some(close2) = range.find(']') else {
+                return false;
+            };
+            after = &range[close2 + 1..];
+        }
+        let after = after.trim_start_matches([' ', '\t']);
+        if after.is_empty() {
+            return true;
+        }
+        return org_clock_duration_rest(after);
+    }
+    org_clock_duration_rest(rest)
+}
+
+fn org_clock_duration_rest(rest: &str) -> bool {
+    let Some(after_arrow) = rest.strip_prefix("=>") else {
+        return false;
+    };
+    let after = after_arrow.trim_start_matches([' ', '\t']);
+    let trimmed = after.trim_end_matches([' ', '\t']);
+    let Some((h, m)) = trimmed.split_once(':') else {
+        return false;
+    };
+    !h.is_empty()
+        && h.bytes().all(|b| b.is_ascii_digit())
+        && m.len() == 2
+        && m.bytes().all(|b| b.is_ascii_digit())
+}
+
 pub(crate) fn is_org_drawer_begin(line: &str) -> bool {
     let trimmed = line.trim();
     let Some(name) = trimmed.strip_prefix(':').and_then(|s| s.strip_suffix(':')) else {
@@ -206,8 +331,37 @@ impl OrgParser {
         Self::block_directive_name(line, "#+BEGIN_")
     }
 
+    /// `#+BEGIN_NAME` plus following whitespace. Same-line leftover is
+    /// hung Prose for container blocks.
+    fn block_begin_marker_len(line: &str) -> Option<usize> {
+        let indent = line.len() - line.trim_start().len();
+        let t = &line[indent..];
+        if !t.to_ascii_uppercase().starts_with("#+BEGIN_") {
+            return None;
+        }
+        let after = &t["#+BEGIN_".len()..];
+        let name = after.split_whitespace().next()?;
+        if name.is_empty() {
+            return None;
+        }
+        let name_end = indent + "#+BEGIN_".len() + name.len();
+        let rest = &line[name_end..];
+        let pad = rest.len() - rest.trim_start().len();
+        Some(name_end + pad)
+    }
+
     fn block_end_name(line: &str) -> Option<String> {
-        Self::block_directive_name(line, "#+END_")
+        let trimmed = line.trim_start();
+        let upper = trimmed.to_ascii_uppercase();
+        if !upper.starts_with("#+END_") {
+            return None;
+        }
+        let after = &trimmed["#+END_".len()..];
+        let name = after.split_whitespace().next()?;
+        if name.is_empty() || !after[name.len()..].trim().is_empty() {
+            return None;
+        }
+        Some(name.to_ascii_uppercase())
     }
 
     /// Check if a line starts a block (#+BEGIN_NAME).
@@ -271,18 +425,11 @@ impl OrgParser {
         org_table_rule_line(line)
     }
 
-    /// org-element planning (`DEADLINE:`/`SCHEDULED:`/`CLOSED:`) or clock (`CLOCK:`).
-    /// Leading space/tab is allowed. `org-element--current-element` binds
-    /// `case-fold-search` t before `org-element-planning-line-re` and
-    /// `org-element-clock-line-re`, so prefixes compare ignore ASCII case.
-    fn is_planning_or_clock(line: &str) -> bool {
-        let t = line.trim_start_matches([' ', '\t']);
-        const KEYS: [&str; 4] = ["DEADLINE:", "SCHEDULED:", "CLOSED:", "CLOCK:"];
-        KEYS.iter().any(|k| {
-            t.as_bytes()
-                .get(..k.len())
-                .is_some_and(|head| head.eq_ignore_ascii_case(k.as_bytes()))
-        })
+    /// Clock leftover is `CLOCK:` plus a timestamp and/or `=> HH:MM`.
+    /// Bare `CLOCK: hello.` is a paragraph. Planning leftover uses
+    /// `org_planning_marker_len`.
+    fn is_clock_line(line: &str) -> bool {
+        org_clock_line(line)
     }
 
     /// org-element-diary-sexp-parser / org-element-paragraph-separate:
@@ -319,13 +466,37 @@ impl OrgParser {
         rest.trim_matches([' ', '\t']).is_empty()
     }
 
-    /// Check if a line is a keyword/directive (#+KEYWORD:)
+    /// org-element-keyword-re: `#+KEY` optional `[dual]` then `:`.
+    /// `#+notakeyword Hello` and `#+ TITLE:` (space after `#+`) are
+    /// paragraphs, not keywords.
     fn is_keyword(line: &str) -> bool {
-        let trimmed = line.trim_start();
-        trimmed.starts_with("#+")
-            && !Self::is_block_begin(line)
-            && !Self::is_block_end(line)
-            && !Self::is_dynamic_block_begin(line)
+        if Self::is_block_begin(line)
+            || Self::is_block_end(line)
+            || Self::is_dynamic_block_begin(line)
+        {
+            return false;
+        }
+        let trimmed = line.trim_start_matches([' ', '\t']);
+        let Some(rest) = trimmed.strip_prefix("#+") else {
+            return false;
+        };
+        let key_len = rest
+            .bytes()
+            .take_while(|&b| !b.is_ascii_whitespace() && b != b'[' && b != b':')
+            .count();
+        if key_len == 0 {
+            return false;
+        }
+        let after_key = &rest[key_len..];
+        let after_dual = if let Some(inner) = after_key.strip_prefix('[') {
+            let Some(close) = inner.find(']') else {
+                return false;
+            };
+            &inner[close + 1..]
+        } else {
+            after_key
+        };
+        after_dual.starts_with(':')
     }
 
     /// org.el `org-comment-regexp`: `^[ \t]*#(?: |$)`.
@@ -361,18 +532,55 @@ impl OrgParser {
         }
     }
 
-    /// Check if a line starts a LaTeX environment (\begin{...})
-    fn is_latex_begin(line: &str) -> Option<String> {
-        LATEX_BEGIN_RE
-            .captures(line)
-            .map(|caps| caps.get(1).unwrap().as_str().to_string())
+    /// org-element latex-environment begin: `^[ \t]*\\begin{[A-Za-z0-9*]+}`
+    /// (`case-fold-search` t). Returns the name and the byte after `}`.
+    fn latex_begin_name(line: &str) -> Option<(String, usize)> {
+        let lead = line.len() - line.trim_start_matches([' ', '\t']).len();
+        let rest = &line[lead..];
+        const PREFIX: &str = "\\begin{";
+        let prefix_len = PREFIX.len();
+        if rest.len() < prefix_len
+            || !rest.as_bytes()[..prefix_len].eq_ignore_ascii_case(PREFIX.as_bytes())
+        {
+            return None;
+        }
+        let name_at = lead + prefix_len;
+        let close = line[name_at..].find('}')?;
+        let name = &line[name_at..name_at + close];
+        if name.is_empty() || !name.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'*') {
+            return None;
+        }
+        Some((name.to_string(), name_at + close + 1))
     }
 
-    /// Check if a line ends a LaTeX environment (\end{...})
+    /// org-element latex-environment closer: `\\end{NAME}[ \t]*$`
+    /// (`case-fold-search` t). Mid-line is allowed; trailing non-ws is not.
+    fn latex_end_eol_at(s: &str, env: &str, from: usize) -> Option<usize> {
+        let bytes = s.as_bytes();
+        let needle = b"\\end{";
+        let mut i = from;
+        while i + needle.len() <= bytes.len() {
+            if bytes[i..i + needle.len()].eq_ignore_ascii_case(needle) {
+                let name_at = i + needle.len();
+                if let Some(close) = s[name_at..].find('}') {
+                    let name = &s[name_at..name_at + close];
+                    if name.eq_ignore_ascii_case(env) {
+                        let after = name_at + close + 1;
+                        if s[after..].bytes().all(|b| b == b' ' || b == b'\t') {
+                            return Some(i);
+                        }
+                    }
+                    i = name_at + close + 1;
+                    continue;
+                }
+            }
+            i += 1;
+        }
+        None
+    }
+
     fn is_latex_end(line: &str, env: &str) -> bool {
-        LATEX_END_RE
-            .captures(line)
-            .is_some_and(|caps| caps.get(1).unwrap().as_str() == env)
+        Self::latex_end_eol_at(line, env, 0).is_some()
     }
 
     /// org-element latex-environment / src-block / export-block: no closer
@@ -389,20 +597,45 @@ impl OrgParser {
             .any(|line| Self::is_src_end(line.text))
     }
 
-    fn remaining_has_export_end(rest: &str) -> bool {
+    fn remaining_has_named_block_end(rest: &str, name: &str) -> bool {
         iter_lines(rest)
             .iter()
-            .any(|line| Self::block_end_name(line.text).as_deref() == Some("EXPORT"))
+            .any(|line| Self::block_end_name(line.text).as_deref() == Some(name))
     }
 
-    /// First `\end{env}` at or after `from` (same-line close; not leftover-start).
-    fn latex_end_at(s: &str, env: &str, from: usize) -> Option<usize> {
-        let needle = format!("\\end{{{env}}}");
-        s.get(from..)?.find(&needle).map(|rel| from + rel)
+    fn remaining_has_drawer_end(rest: &str) -> bool {
+        iter_lines(rest)
+            .iter()
+            .any(|line| Self::is_drawer_end(line.text))
+    }
+
+    fn remaining_has_dynamic_block_end(rest: &str) -> bool {
+        iter_lines(rest)
+            .iter()
+            .any(|line| Self::is_dynamic_block_end(line.text))
+    }
+
+    fn remaining_has_bracket_close(rest: &str) -> bool {
+        iter_lines(rest)
+            .iter()
+            .any(|line| Self::find_unescaped_display_bracket(line.text, 0, b']').is_some())
+    }
+
+    fn remaining_has_dollar_close(rest: &str) -> bool {
+        iter_lines(rest)
+            .iter()
+            .any(|line| line.text.trim_end().ends_with("$$"))
     }
 
     fn latex_end_len(env: &str) -> usize {
         "\\end{".len() + env.len() + 1
+    }
+
+    /// Unmatched `#+BEGIN_NAME` is a paragraph (org-element quote /
+    /// center / special-block / src-block parsers). Closed quote,
+    /// center, and special-blocks stay containers.
+    fn unmatched_greater_is_paragraph(_name: &str) -> bool {
+        true
     }
 
     /// org-syntax 5.2 `\[CONTENTS\]`: unescaped `\[` / `\]`.
@@ -661,6 +894,11 @@ impl FormatParser for OrgParser {
         // Track list item context: indent level of the marker text.
         // Continuation lines indented at or beyond this level belong to the item.
         let mut list_item_indent: Option<usize> = None;
+        // org-element footnote-separator is headline / next `[fn:]` /
+        // two consecutive blanks. One blank plus an indented
+        // continuation stays in the definition.
+        let mut in_footnote_def = false;
+        let mut footnote_saw_blank = false;
 
         for line in iter_lines(input) {
             let line_text = line.text;
@@ -782,18 +1020,27 @@ impl FormatParser for OrgParser {
                 }
             }
 
-            // #+BEGIN_NAME: container open (quote/center) or opaque.
-            // Unmatched #+BEGIN_EXPORT is a paragraph (org-element
-            // export-block-parser / GitHub #355). Unmatched #+BEGIN_SRC
-            // falls through the src-begin look-ahead above.
+            // #+BEGIN_NAME: container open (quote/center/special) or opaque.
+            // Unmatched opener is a paragraph (org-element / GitHub #355).
             if let Some(name) = Self::block_begin_name(line_text) {
-                let unmatched_export =
-                    name == "EXPORT" && !Self::remaining_has_export_end(&input[line.end..]);
-                let unmatched_src =
-                    name == "SRC" && !Self::remaining_has_src_end(&input[line.end..]);
-                if !unmatched_export && !unmatched_src {
+                let unmatched = Self::unmatched_greater_is_paragraph(&name)
+                    && !Self::remaining_has_named_block_end(&input[line.end..], &name);
+                if !unmatched {
                     flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
+                    let container = Self::is_container_block_name(&name);
                     Self::push_greater(&mut block_stack, name);
+                    if container {
+                        if let Some(marker_len) = Self::block_begin_marker_len(line_text) {
+                            if !line_text[marker_len..].trim().is_empty() {
+                                regions.push(SpannedRegion::structure(
+                                    input,
+                                    ByteSpan::new(line.start, line.start + marker_len),
+                                ));
+                                Self::emit_hung_text(input, &line, marker_len, &mut regions);
+                                continue;
+                            }
+                        }
+                    }
                     regions.push(SpannedRegion::structure(input, line.span()));
                     continue;
                 }
@@ -807,8 +1054,11 @@ impl FormatParser for OrgParser {
                 continue;
             }
 
-            // Drawer begin (`:NAME:` only; `:See also:` is not a name)
-            if Self::is_drawer_begin(line_text) {
+            // Drawer begin (`:NAME:` only; `:See also:` is not a name).
+            // Unmatched `:NAME:` without `:END:` is a paragraph.
+            if Self::is_drawer_begin(line_text)
+                && Self::remaining_has_drawer_end(&input[line.end..])
+            {
                 flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
                 in_drawer = true;
                 regions.push(SpannedRegion::structure(input, line.span()));
@@ -831,10 +1081,10 @@ impl FormatParser for OrgParser {
 
             // LaTeX environment begin (\begin{equation} etc.).
             // Unmatched \begin{env} is a paragraph (org-element
-            // latex-environment-parser / GitHub #355).
-            if let Some(env) = Self::is_latex_begin(line_text) {
-                let begin_at = LATEX_BEGIN_RE.find(line_text).map(|m| m.end()).unwrap_or(0);
-                if let Some(end_at) = Self::latex_end_at(line_text, &env, begin_at) {
+            // latex-environment-parser / GitHub #355). Closer is
+            // `\\end{NAME}[ \t]*$` (EOL), not leftover-start.
+            if let Some((env, begin_at)) = Self::latex_begin_name(line_text) {
+                if let Some(end_at) = Self::latex_end_eol_at(line_text, &env, begin_at) {
                     flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
                     let cmd_end = end_at + Self::latex_end_len(&env);
                     if line_text[cmd_end..].trim().is_empty() {
@@ -861,14 +1111,19 @@ impl FormatParser for OrgParser {
                 }
             }
 
-            // Display math: leftover-start $$ (2le9). `\[CONTENTS\]` may be mid-line.
+            // Display math: leftover-start $$ (2le9). Unmatched $$ is
+            // not a fragment. `\[CONTENTS\]` may be mid-line.
             if let Some(DisplayMathDelim::Dollars) = Self::display_math_open(line_text) {
-                flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
-                if !Self::display_math_is_single_line(line_text, DisplayMathDelim::Dollars) {
-                    in_display_math = Some(DisplayMathDelim::Dollars);
+                let single =
+                    Self::display_math_is_single_line(line_text, DisplayMathDelim::Dollars);
+                if single || Self::remaining_has_dollar_close(&input[line.end..]) {
+                    flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
+                    if !single {
+                        in_display_math = Some(DisplayMathDelim::Dollars);
+                    }
+                    regions.push(SpannedRegion::structure(input, line.span()));
+                    continue;
                 }
-                regions.push(SpannedRegion::structure(input, line.span()));
-                continue;
             }
 
             // Export snippet line (@@latex:...@@)
@@ -881,7 +1136,13 @@ impl FormatParser for OrgParser {
             // Blank line
             if line_text.trim().is_empty() {
                 flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
-                list_item_indent = None;
+                if in_footnote_def && !footnote_saw_blank {
+                    footnote_saw_blank = true;
+                } else {
+                    in_footnote_def = false;
+                    footnote_saw_blank = false;
+                    list_item_indent = None;
+                }
                 regions.push(SpannedRegion::blank(input, line.span()));
                 continue;
             }
@@ -897,8 +1158,11 @@ impl FormatParser for OrgParser {
             }
 
             // #+BEGIN: NAME -- org-element dynamic block. Body stays Structure
-            // through #+END: / #+END (GitHub #178).
-            if Self::is_dynamic_block_begin(line_text) {
+            // through #+END: / #+END (GitHub #178). Unmatched opener is a
+            // paragraph.
+            if Self::is_dynamic_block_begin(line_text)
+                && Self::remaining_has_dynamic_block_end(&input[line.end..])
+            {
                 flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
                 in_dynamic_block = true;
                 regions.push(SpannedRegion::structure(input, line.span()));
@@ -938,12 +1202,24 @@ impl FormatParser for OrgParser {
                 continue;
             }
 
-            // Bare file/http links on their own line -- treat as structure
-            if line_text.trim_start().starts_with("file:")
-                || line_text.trim_start().starts_with("http://")
-                || line_text.trim_start().starts_with("https://")
-                || Self::is_standalone_org_link(line_text)
-            {
+            // Bare file/http links: URL is Structure; leftover after
+            // the path is hung Prose (org-element plain link).
+            if let Some(marker_len) = org_plain_link_marker_len(line_text) {
+                flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
+                list_item_indent = None;
+                let body = &line_text[marker_len..];
+                if body.trim().is_empty() {
+                    regions.push(SpannedRegion::structure(input, line.span()));
+                } else {
+                    regions.push(SpannedRegion::structure(
+                        input,
+                        ByteSpan::new(line.start, line.start + marker_len),
+                    ));
+                    Self::emit_hung_text(input, &line, marker_len, &mut regions);
+                }
+                continue;
+            }
+            if Self::is_standalone_org_link(line_text) {
                 flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
                 list_item_indent = None;
                 regions.push(SpannedRegion::structure(input, line.span()));
@@ -956,12 +1232,30 @@ impl FormatParser for OrgParser {
             // Org headlines are single-line; do not reflow them.
             if HEADLINE_RE.is_match(line_text) {
                 flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
+                in_footnote_def = false;
+                footnote_saw_blank = false;
                 regions.push(SpannedRegion::structure(input, line.span()));
                 continue;
             }
 
             // Planning / clock stay Structure so they do not join the next paragraph.
-            if Self::is_planning_or_clock(line_text) {
+            // Leftover after a planning timestamp is hung Prose.
+            if let Some(marker_len) = org_planning_marker_len(line_text) {
+                flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
+                let body = &line_text[marker_len..];
+                if body.trim().is_empty() {
+                    regions.push(SpannedRegion::structure(input, line.span()));
+                } else {
+                    regions.push(SpannedRegion::structure(
+                        input,
+                        ByteSpan::new(line.start, line.start + marker_len),
+                    ));
+                    list_item_indent = Some(marker_len);
+                    Self::emit_hung_text(input, &line, marker_len, &mut regions);
+                }
+                continue;
+            }
+            if Self::is_clock_line(line_text) {
                 flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
                 regions.push(SpannedRegion::structure(input, line.span()));
                 continue;
@@ -980,10 +1274,30 @@ impl FormatParser for OrgParser {
             if let Some(marker_len) = org_footnote_definition_marker_len(line_text) {
                 flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
                 list_item_indent = Some(marker_len);
+                in_footnote_def = true;
+                footnote_saw_blank = false;
                 let marker_span = ByteSpan::new(line.start, line.start + marker_len);
                 regions.push(SpannedRegion::structure(input, marker_span));
                 Self::emit_hung_text(input, &line, marker_len, &mut regions);
                 continue;
+            }
+
+            // Indented leftover after one blank stays in the footnote.
+            if in_footnote_def && footnote_saw_blank {
+                let leading = line_text.len() - line_text.trim_start().len();
+                if leading > 0 {
+                    flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
+                    list_item_indent = Some(leading);
+                    footnote_saw_blank = false;
+                    regions.push(SpannedRegion::structure(
+                        input,
+                        ByteSpan::new(line.start, line.start + leading),
+                    ));
+                    Self::emit_hung_text(input, &line, leading, &mut regions);
+                    continue;
+                }
+                in_footnote_def = false;
+                footnote_saw_blank = false;
             }
 
             // List item: marker is structure, rest is prose
@@ -992,6 +1306,8 @@ impl FormatParser for OrgParser {
                 let marker = caps.get(1).unwrap().as_str();
                 // Track indent for continuation detection: text starts at marker length
                 list_item_indent = Some(marker.len());
+                in_footnote_def = false;
+                footnote_saw_blank = false;
                 let marker_span = ByteSpan::new(line.start, line.start + marker.len());
                 regions.push(SpannedRegion::structure(input, marker_span));
                 Self::emit_hung_text(input, &line, marker.len(), &mut regions);
@@ -1074,18 +1390,23 @@ impl FormatParser for OrgParser {
             }
 
             // org-syntax 5.2: `\[CONTENTS\]` may be mid-line (Kang: Structure).
-            if Self::find_unescaped_display_bracket(line_text, 0, b'[').is_some() {
-                flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
-                Self::emit_bracket_math_text(
-                    input,
-                    line.start,
-                    line_text,
-                    line.end,
-                    Some(line.terminator_span()),
-                    &mut regions,
-                    &mut in_display_math,
-                );
-                continue;
+            // Unmatched leftover-start `\[` is not a fragment.
+            if let Some(open) = Self::find_unescaped_display_bracket(line_text, 0, b'[') {
+                let same_line =
+                    Self::find_unescaped_display_bracket(line_text, open + 2, b']').is_some();
+                if same_line || Self::remaining_has_bracket_close(&input[line.end..]) {
+                    flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
+                    Self::emit_bracket_math_text(
+                        input,
+                        line.start,
+                        line_text,
+                        line.end,
+                        Some(line.terminator_span()),
+                        &mut regions,
+                        &mut in_display_math,
+                    );
+                    continue;
+                }
             }
 
             // Regular prose line -- accumulate.

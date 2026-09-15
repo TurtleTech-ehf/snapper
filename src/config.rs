@@ -27,7 +27,8 @@ pub struct FormatOverrides {
     /// VerbatimBuffer and Verbatim*/BVerbatim*/LVerbatim*, fvextra VerbEnv,
     /// verbments pyglist, texments/pygmentex pygmented,
     /// moreverb boxedverbatim/verbatimtab/verbatimwrite/listing/listingcont/listing*/listingcont*,
-    /// leftover sverb verbwrite/ignore/demo/demo*,
+    /// leftover sverb verbwrite/verbwrite*/ignore/demo/demo*,
+    /// leftover tcolorbox extcolorbox/extikzpicture,
     /// standard alltt, spverbatim, piton.sty Piton,
     /// tree-sitter sagesilent/sageblock, sagetex sageverbatim/sageexample/
     /// sagecommandline,
@@ -49,7 +50,7 @@ pub struct FormatOverrides {
     pub structure_envs: Vec<String>,
     /// Extra LaTeX command names tokenized like `\verb` before split.
     /// Meaningful under `[latex]` only. Missing or empty keeps
-    /// verb/lstinline/lstinputlisting/spverb/mintinline/inputminted/mint/Verb/SaveVerb/VerbatimInput/piton/verbatiminput/PitonInputFile/PitonInputFileT/PitonInputFileF/PitonInputFileTF/tcbinputlisting/inputpy/inputpycon/inputpylab/inputpylabcon/inputsympy/inputsympycon/py/pyc/pys/pyb/pyv/pycon and twins/sympy/pylab and twins/usefamily ruby/rb/julia/jl/matlab/octave/bash/sage/rust/rs/R/perl/pl/perlsix/psix/javascript/js and twins/inputpygments/pygment/pythontexcustomc/inputpython/inputpythonfile/CatchFileBetweenTags/CatchFileBetweenDelims/ExecuteMetaData/CatchFileDef/CatchFileEdef/listinginput/verbatimtabinput/verbatimwrite/listingcont/sageinput/sageplot/sagestr/pyth/Scontents/typestored/getstored/mergesc/meaningsc/foreachsc/UseVerb/UseVerbatim/LUseVerbatim/BUseVerbatim/DefineShortVerb/UndefineShortVerb/EscVerb/inputsc/VerbatimInsertBuffer/VerbatimClearBuffer/InsertBuffer/IterateBuffer.
+    /// verb/lstinline/lstinputlisting/spverb/mintinline/inputminted/mint/Verb/SaveVerb/VerbatimInput/piton/verbatiminput/PitonInputFile/PitonInputFileT/PitonInputFileF/PitonInputFileTF/tcbinputlisting/tcboxverb/inputpy/inputpycon/inputpylab/inputpylabcon/inputsympy/inputsympycon/py/pyc/pys/pyb/pyv/pycon and twins/sympy/pylab and twins/usefamily ruby/rb/julia/jl/matlab/octave/bash/sage/rust/rs/R/perl/pl/perlsix/psix/javascript/js and twins/pyq/pycq/pyfile/pyfileq/pyfilerepl/inputpygments/pygment/pythontexcustomc/inputpython/inputpythonfile/CatchFileBetweenTags/CatchFileBetweenDelims/ExecuteMetaData/CatchFileDef/CatchFileEdef/listinginput/verbatimtabinput/verbatimwrite/listingcont/sageinput/sageplot/sagestr/pyth/Scontents/typestored/getstored/mergesc/meaningsc/foreachsc/setupsc/countsc/cleanseqsc/UseVerb/UseVerbatim/LUseVerbatim/BUseVerbatim/DefineShortVerb/UndefineShortVerb/EscVerb/inputsc/VerbatimInsertBuffer/VerbatimClearBuffer/InsertBuffer/IterateBuffer/ClearBuffer/WriteBuffer/lstset/lstdefinestyle/lstMakeShortInline/lstDeleteShortInline/lstnewenvironment/verbinput/verbwrite.
     pub verbatim_commands: Vec<String>,
 }
 
