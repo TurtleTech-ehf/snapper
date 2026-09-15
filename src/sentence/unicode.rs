@@ -1591,6 +1591,16 @@ pub(crate) fn leftover_keyval_cs_name(tail: &str) -> Option<&'static str> {
         "tcbrecord",
         "tcbbreak",
         "refPathOperation",
+        "brackets",
+        "colFade",
+        "colDef",
+        "colOpt",
+        "pbarg",
+        "oarg",
+        "marg",
+        "meta",
+        "sarg",
+        "cs",
         "docAuxEnvironment",
         "docAuxCommand",
         "docKeyChoices",
@@ -1749,6 +1759,7 @@ fn leftover_keyval_kind(name: &str) -> VerbKind {
         | "tcbEXTERNALIZE"
         | "tcbdocdescNoDefaultInit"
         | "tcbdocdescInitEmpty"
+        | "sarg"
         | "PyLTVerbatimEnv" => VerbKind::Listingcont,
         "setmintedinline"
         | "usemintedstyle"
