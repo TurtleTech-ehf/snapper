@@ -101,6 +101,36 @@ fn leftover_file_sys_plain_link_after_path_hangs_and_splits() {
 }
 
 #[test]
+fn leftover_shell_plain_link_after_path_hangs_and_splits() {
+    let input = concat!("shell:ls leftover. Next.\n", "After. Next.\n",);
+    let out = format_text(input, &org_cfg()).unwrap();
+    assert!(
+        !out.contains("shell:ls leftover. Next."),
+        "leftover after shell path must still split, got:\n{out}"
+    );
+    assert!(
+        out.contains("After.\nNext."),
+        "following prose must still split, got:\n{out}"
+    );
+    assert_eq!(format_text(&out, &org_cfg()).unwrap(), out);
+}
+
+#[test]
+fn leftover_elisp_plain_link_after_path_hangs_and_splits() {
+    let input = concat!("elisp:(message \"hi\") leftover. Next.\n", "After. Next.\n",);
+    let out = format_text(input, &org_cfg()).unwrap();
+    assert!(
+        !out.contains("elisp:(message \"hi\") leftover. Next."),
+        "leftover after elisp path must still split, got:\n{out}"
+    );
+    assert!(
+        out.contains("After.\nNext."),
+        "following prose must still split, got:\n{out}"
+    );
+    assert_eq!(format_text(&out, &org_cfg()).unwrap(), out);
+}
+
+#[test]
 fn leftover_attachment_plain_link_after_path_hangs_and_splits() {
     let input = concat!("attachment:plot.png leftover. Next.\n", "After. Next.\n",);
     let out = format_text(input, &org_cfg()).unwrap();
