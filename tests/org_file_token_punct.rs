@@ -60,6 +60,47 @@ fn leftover_id_plain_link_after_path_hangs_and_splits() {
 }
 
 #[test]
+fn leftover_file_emacs_plain_link_after_path_hangs_and_splits() {
+    let input = concat!(
+        "file+emacs:/tmp/plot.png leftover. Next.\n",
+        "After. Next.\n",
+    );
+    let regions = OrgParser.parse(input);
+    assert!(
+        regions.iter().any(|r| matches!(
+            r,
+            Region::Structure(s) if s.contains("file+emacs:/tmp/plot.png")
+        )),
+        "file+emacs path must stay Structure, got {regions:?}"
+    );
+    let out = format_text(input, &org_cfg()).unwrap();
+    assert!(
+        !out.contains("file+emacs:/tmp/plot.png leftover. Next."),
+        "leftover after file+emacs path must still split, got:\n{out}"
+    );
+    assert!(
+        out.contains("After.\nNext."),
+        "following prose must still split, got:\n{out}"
+    );
+    assert_eq!(format_text(&out, &org_cfg()).unwrap(), out);
+}
+
+#[test]
+fn leftover_file_sys_plain_link_after_path_hangs_and_splits() {
+    let input = concat!("file+sys:/tmp/plot.png leftover. Next.\n", "After. Next.\n",);
+    let out = format_text(input, &org_cfg()).unwrap();
+    assert!(
+        !out.contains("file+sys:/tmp/plot.png leftover. Next."),
+        "leftover after file+sys path must still split, got:\n{out}"
+    );
+    assert!(
+        out.contains("After.\nNext."),
+        "following prose must still split, got:\n{out}"
+    );
+    assert_eq!(format_text(&out, &org_cfg()).unwrap(), out);
+}
+
+#[test]
 fn leftover_attachment_plain_link_after_path_hangs_and_splits() {
     let input = concat!("attachment:plot.png leftover. Next.\n", "After. Next.\n",);
     let out = format_text(input, &org_cfg()).unwrap();

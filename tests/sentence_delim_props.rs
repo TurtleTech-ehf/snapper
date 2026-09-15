@@ -76,6 +76,18 @@ fn plaintext_latex_quoted_bang_letter_is_span_safe() {
 }
 
 #[test]
+fn plaintext_period_backtick_capital_is_idempotent() {
+    // ubuntu CI seed: ` `!=(a=.`Aa
+    // first pass splits after `.`; gluing without a space loses the newline.
+    let input = "` `!=(a=.`Aa";
+    let out = format_plain(input);
+    assert_eq!(
+        format_plain(&out),
+        out,
+        "idempotence\n in={input:?}\n out={out:?}"
+    );
+}
+
 #[test]
 fn plaintext_period_then_latex_quotes_is_idempotent() {
     // ubuntu CI seed: first pass keeps `.`` `; second pass invents `. `` `.
@@ -88,6 +100,7 @@ fn plaintext_period_then_latex_quotes_is_idempotent() {
     );
 }
 
+#[test]
 fn plaintext_quoted_bang_letter_is_span_safe() {
     let input = "\"!!a\"";
     let out = format_plain(input);

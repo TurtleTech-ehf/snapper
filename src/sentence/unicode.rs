@@ -3233,12 +3233,20 @@ fn push_segment_preserving_space(dest: &mut String, piece: &str) {
         && !dest.ends_with("!!")
         // After protect_inline_tokens, `.`` ` is `.` + leftover backtick
         // (`dest="…."`, `piece="`\\0PHn\\0"`). Inventing `. `` ` then
-        // wrapping back is a SemBr cycle (ubuntu CI seed).
-        && !(dest.ends_with(['.', '!', '?']) && piece.starts_with('`'));
+        // wrapping back is a SemBr cycle. Still invent a space when the
+        // leftover ticks start a capital (`=(a=.`Aa` vs `=(a=.\n`Aa`).
+        && !(dest.ends_with(['.', '!', '?'])
+            && piece.starts_with('`')
+            && !piece_starts_sentence_after_ticks(piece));
     if need_space {
         dest.push(' ');
     }
     dest.push_str(piece);
+}
+
+fn piece_starts_sentence_after_ticks(piece: &str) -> bool {
+    let rest = piece.trim_start_matches('`');
+    rest.len() < piece.len() && rest.starts_with(|c: char| c.is_uppercase())
 }
 
 /// Merge false splits caused by sentence punctuation inside quotes or parens.
@@ -3444,6 +3452,13 @@ fn merge_splits_inside_delimiters(segments: Vec<String>) -> Vec<String> {
                     result.push(rest.to_string());
                     state.feed(rest);
                 }
+                continue;
+            }
+            if result.last().is_some_and(|last| {
+                last.ends_with(['.', '!', '?']) && piece_starts_sentence_after_ticks(&segment)
+            }) {
+                result.push(segment.clone());
+                state.feed(&segment);
                 continue;
             }
             if let Some(last) = result.last_mut() {

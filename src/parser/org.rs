@@ -166,14 +166,19 @@ struct OpenGreater {
 
 /// org-element-drawer-re NAME: `(any ?- ?_ word)` — hyphen, underscore,
 /// or Unicode word characters (letters and digits). `:END:` is the closer.
-/// org-element plain link at column 0: `file:` / `http://` / `https://`
-/// / `mailto:` / `news:` / `doi:` / `ftp://` / `attachment:` / `id:`
-/// plus the path.
-/// Leftover after the path is hung Prose.
+/// org-element plain link at column 0: `file+emacs:` / `file+sys:` /
+/// `file:` / `http://` / `https://` / `mailto:` / `news:` / `doi:` /
+/// `ftp://` / `attachment:` / `id:` plus the path.
+/// Leftover after the path is hung Prose. `file+emacs:` / `file+sys:`
+/// must be matched before `file:` or the `+…` is eaten as the path.
 pub(crate) fn org_plain_link_marker_len(line: &str) -> Option<usize> {
     let indent = line.len() - line.trim_start().len();
     let t = &line[indent..];
-    let prefix = if t.starts_with("file:") {
+    let prefix = if t.starts_with("file+emacs:") {
+        "file+emacs:"
+    } else if t.starts_with("file+sys:") {
+        "file+sys:"
+    } else if t.starts_with("file:") {
         "file:"
     } else if t.starts_with("https://") {
         "https://"
