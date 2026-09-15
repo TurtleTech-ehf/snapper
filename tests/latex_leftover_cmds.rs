@@ -302,6 +302,17 @@ fn leftover_constructors_do_not_join() {
     leftover_cmd_stays_atomic(r"\restartpythontexsession");
     leftover_cmd_stays_atomic(r"\lstlistingname");
     leftover_cmd_stays_atomic(r"\VerbatimFootnotes");
+    leftover_cmd_stays_atomic(r"\tcbdimto{\foo}{1em}");
+    leftover_cmd_stays_atomic(r"\tcbglueto{\foo}{0pt plus 1fil}");
+    leftover_cmd_stays_atomic(r"\tcblower");
+    leftover_cmd_stays_atomic(r"\renewthetcbcounter{mybox}{\arabic{tcbcounter}}");
+    leftover_cmd_stays_atomic(r"\tcbcounterof{mybox}");
+    leftover_cmd_stays_atomic(r"\thetcbcounterof{mybox}");
+    leftover_cmd_stays_atomic(r"\FancyVerbHighlightLine{First. Second.}");
+    leftover_cmd_stays_atomic(r"\makepythontexfamily{haskell}");
+    leftover_cmd_stays_atomic(r"\setpythontexlistingenv{listing}");
+    leftover_cmd_stays_atomic(r"\setpythontexformatter{py}{pygments}");
+    leftover_cmd_stays_atomic(r"\setpygmentsformatter{pygments}");
     extras_skip_no_brace("newminted");
     extras_skip_no_brace("newmint");
     extras_skip_no_brace("renewminted");
@@ -341,6 +352,10 @@ fn leftover_constructors_do_not_join() {
     extras_skip_no_brace("tcbsetmanagedlayers");
     extras_skip_no_brace("tcbhyperref");
     extras_skip_no_brace("restartpythontexsession");
+    extras_skip_no_brace("tcbdimto");
+    extras_skip_no_brace("tcblower");
+    extras_skip_no_brace("FancyVerbHighlightLine");
+    extras_skip_no_brace("setpythontexformatter");
 }
 
 #[test]

@@ -1514,9 +1514,13 @@ pub(crate) fn leftover_keyval_cs_name(tail: &str) -> Option<&'static str> {
         "usestderrpythontex",
         "useprintpythontex",
         "setpythontexprettyprinter",
+        "setpythontexlistingenv",
+        "setpythontexformatter",
         "setpythontexworkingdir",
         "setpythontexoutputdir",
         "setpythontexcontext",
+        "setpygmentsformatter",
+        "makepythontexfamily",
         "restartpythontexsession",
         "setpythontexpyglexer",
         "setpythontexautostdout",
@@ -1556,7 +1560,14 @@ pub(crate) fn leftover_keyval_cs_name(tail: &str) -> Option<&'static str> {
         "tcbsubskin",
         "tcbmakeprefixed",
         "tcbhyperref",
+        "thetcbcounterof",
+        "renewthetcbcounter",
+        "tcbcounterof",
+        "tcbglueto",
+        "tcbdimto",
+        "tcblower",
         "tcbline",
+        "FancyVerbHighlightLine",
         "FancyVerbFormatInline",
         "FancyVerbFormatLine",
         "FancyVerbFormatText",
@@ -1622,7 +1633,8 @@ fn leftover_keyval_kind(name: &str) -> VerbKind {
         | "tcbline"
         | "restartpythontexsession"
         | "lstlistingname"
-        | "VerbatimFootnotes" => VerbKind::Listingcont,
+        | "VerbatimFootnotes"
+        | "tcblower" => VerbKind::Listingcont,
         "setmintedinline"
         | "usemintedstyle"
         | "setminted"
@@ -1637,7 +1649,8 @@ fn leftover_keyval_kind(name: &str) -> VerbKind {
         | "tcbhyperref"
         | "FancyVerbFormatInline"
         | "FancyVerbFormatLine"
-        | "FancyVerbFormatText" => VerbKind::Lstinputlisting,
+        | "FancyVerbFormatText"
+        | "FancyVerbHighlightLine" => VerbKind::Lstinputlisting,
         "pyoption"
         | "SetPitonIdentifier"
         | "NewPitonLanguage"
@@ -1668,7 +1681,11 @@ fn leftover_keyval_kind(name: &str) -> VerbKind {
         | "tcbifoddpage"
         | "tcbifoddpageoroneside"
         | "tcbheightfromgroup"
-        | "tcbmakeprefixed" => VerbKind::Listinginput,
+        | "tcbmakeprefixed"
+        | "tcbdimto"
+        | "tcbglueto"
+        | "renewthetcbcounter"
+        | "setpythontexformatter" => VerbKind::Listinginput,
         "RecustomVerbatimEnvironment"
         | "CustomVerbatimEnvironment"
         | "DefineVerbatimEnvironment"
