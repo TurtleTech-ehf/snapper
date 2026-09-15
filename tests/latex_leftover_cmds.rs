@@ -332,6 +332,9 @@ fn leftover_constructors_do_not_join() {
     leftover_cmd_stays_atomic(r"\DepyListing");
     leftover_cmd_stays_atomic(r"\FancyVerbBreakStart");
     leftover_cmd_stays_atomic(r"\FancyVerbRestoreCodes");
+    leftover_cmd_stays_atomic(r"\FancyVerbFormatCom{First. Second.}");
+    leftover_cmd_stays_atomic(r"\tcbdocmarginnote{First. Second.}");
+    leftover_cmd_stays_atomic(r"\tcbindex");
     extras_skip_no_brace("newminted");
     extras_skip_no_brace("newmint");
     extras_skip_no_brace("renewminted");

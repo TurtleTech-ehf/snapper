@@ -1582,6 +1582,9 @@ pub(crate) fn leftover_keyval_cs_name(tail: &str) -> Option<&'static str> {
         "tcbwritetemp",
         "tcbrecord",
         "tcbbreak",
+        "tcbdocmarginnote",
+        "tcbindexbar",
+        "tcbindex",
         "thetcbcounterof",
         "renewthetcbcounter",
         "tcbcounterof",
@@ -1602,6 +1605,8 @@ pub(crate) fn leftover_keyval_cs_name(tail: &str) -> Option<&'static str> {
         "FancyVerbFormatInline",
         "FancyVerbFormatLine",
         "FancyVerbFormatText",
+        "FancyVerbFormatCom",
+        "FancyVerbFormatTab",
         "DepythontexOff",
         "DepythontexOn",
         "Depythontex",
@@ -1688,7 +1693,9 @@ fn leftover_keyval_kind(name: &str) -> VerbKind {
         | "FancyVerbBreakByTokenAnywhereBreak"
         | "FancyVerbRestoreCodes"
         | "FancyVerbTab"
-        | "FancyVerbSpace" => VerbKind::Listingcont,
+        | "FancyVerbSpace"
+        | "tcbindex"
+        | "tcbindexbar" => VerbKind::Listingcont,
         "setmintedinline"
         | "usemintedstyle"
         | "setminted"
@@ -1704,12 +1711,15 @@ fn leftover_keyval_kind(name: &str) -> VerbKind {
         | "tcbhypernode"
         | "tcbverbatimwrite"
         | "tcbrecord"
+        | "tcbdocmarginnote"
         | "Depythontex"
         | "DepyMacro"
         | "DepyFile"
         | "FancyVerbFormatInline"
         | "FancyVerbFormatLine"
         | "FancyVerbFormatText"
+        | "FancyVerbFormatCom"
+        | "FancyVerbFormatTab"
         | "FancyVerbHighlightLine" => VerbKind::Lstinputlisting,
         "pyoption"
         | "SetPitonIdentifier"
