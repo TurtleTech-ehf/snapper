@@ -1588,6 +1588,9 @@ pub(crate) fn leftover_keyval_cs_name(tail: &str) -> Option<&'static str> {
         "tcbrecord",
         "tcbbreak",
         "tcbdocmarginnote",
+        "tcbdocupdated",
+        "tcbdocnote",
+        "tcbdocnew",
         "tcbindexbar",
         "tcbindex",
         "thetcbcounterof",
@@ -1720,6 +1723,9 @@ fn leftover_keyval_kind(name: &str) -> VerbKind {
         | "tcbverbatimwrite"
         | "tcbrecord"
         | "tcbdocmarginnote"
+        | "tcbdocupdated"
+        | "tcbdocnote"
+        | "tcbdocnew"
         | "Depythontex"
         | "DepyMacro"
         | "DepyFile"
