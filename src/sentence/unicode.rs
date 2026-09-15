@@ -3230,7 +3230,11 @@ fn push_segment_preserving_space(dest: &mut String, piece: &str) {
         })
         // `!!a` is one UAX fragment; inventing `!! a` then splitting
         // `!! a` on the next pass is a wrap/SemBr cycle.
-        && !dest.ends_with("!!");
+        && !dest.ends_with("!!")
+        // After protect_inline_tokens, `.`` ` is `.` + leftover backtick
+        // (`dest="…."`, `piece="`\\0PHn\\0"`). Inventing `. `` ` then
+        // wrapping back is a SemBr cycle (ubuntu CI seed).
+        && !(dest.ends_with(['.', '!', '?']) && piece.starts_with('`'));
     if need_space {
         dest.push(' ');
     }
@@ -3709,6 +3713,15 @@ mod tests {
 
     fn split(text: &str) -> Vec<String> {
         UnicodeSentenceSplitter::new().split(text)
+    }
+
+    #[test]
+    fn period_then_latex_quotes_does_not_invent_space() {
+        assert_eq!(
+            split("^{`}`.`` A0`"),
+            vec!["^{`}`.`` A0`".to_string()],
+            "must not invent space between . and ``"
+        );
     }
 
     #[test]

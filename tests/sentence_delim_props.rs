@@ -76,6 +76,18 @@ fn plaintext_latex_quoted_bang_letter_is_span_safe() {
 }
 
 #[test]
+#[test]
+fn plaintext_period_then_latex_quotes_is_idempotent() {
+    // ubuntu CI seed: first pass keeps `.`` `; second pass invents `. `` `.
+    let input = ".^{`}`.`` A0`";
+    let out = format_plain(input);
+    assert_eq!(
+        format_plain(&out),
+        out,
+        "idempotence\n in={input:?}\n out={out:?}"
+    );
+}
+
 fn plaintext_quoted_bang_letter_is_span_safe() {
     let input = "\"!!a\"";
     let out = format_plain(input);
