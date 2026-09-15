@@ -1130,6 +1130,11 @@ fn rst_rfc2822_marker_len(line: &str) -> Option<usize> {
     if !after.is_empty() && !after.starts_with([' ', '\t']) {
         return None;
     }
+    // Only leftover bibliographic names hang. A lone `A: ` is prose
+    // (oracle / SemBr), not an RFC2822 field.
+    if !rst_bibliographic_body_field(name) && !name.eq_ignore_ascii_case("author") {
+        return None;
+    }
     let lead = line.len() - trimmed.len();
     let spaces = after
         .bytes()
