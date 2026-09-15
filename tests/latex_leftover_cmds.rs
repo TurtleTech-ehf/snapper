@@ -282,6 +282,8 @@ fn leftover_constructors_do_not_join() {
     leftover_cmd_stays_atomic(r"\verbatimtabsize");
     leftover_cmd_stays_atomic(r"\CatchFileBetweenTags*{\tmp}{foo.tex}{TAG}");
     leftover_cmd_stays_atomic(r"\ExecuteMetaData*{tag}");
+    leftover_cmd_stays_atomic(r"\tcboxraise{1em}");
+    leftover_cmd_stays_atomic(r"\tcbsetmanagedlayer{1}");
     extras_skip_no_brace("newminted");
     extras_skip_no_brace("newmint");
     extras_skip_no_brace("renewminted");
@@ -313,6 +315,8 @@ fn leftover_constructors_do_not_join() {
     extras_skip_no_brace("tcolorboxenvironment");
     extras_skip_no_brace("listinglabel");
     extras_skip_no_brace("CatchFileBetweenTags");
+    extras_skip_no_brace("tcboxraise");
+    extras_skip_no_brace("tcbsetmanagedlayer");
 }
 
 #[test]

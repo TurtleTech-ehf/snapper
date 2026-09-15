@@ -28,6 +28,25 @@ fn dollar_space_after_opener_is_prose_and_splits() {
 }
 
 #[test]
+fn paren_closer_then_comma_is_a_fragment() {
+    let input = "See \\(a. b\\), today. After.\n";
+    let out = format_text(input, &org_cfg()).unwrap();
+    assert!(
+        out.contains("\\(a. b\\)"),
+        "\\\\(a. b\\\\) must stay one token before comma, got:\n{out}"
+    );
+    assert!(
+        !out.contains("\\(a.\n"),
+        "must not split inside \\\\(a. b\\\\), got:\n{out}"
+    );
+    assert!(
+        out.contains("today.\nAfter."),
+        "following sentence must still split, got:\n{out}"
+    );
+    assert_eq!(format_text(&out, &org_cfg()).unwrap(), out);
+}
+
+#[test]
 fn dollar_closer_then_letter_is_not_a_fragment() {
     let input = "See $a. B$today. After.\n";
     let out = format_text(input, &org_cfg()).unwrap();

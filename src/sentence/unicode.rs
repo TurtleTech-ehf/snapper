@@ -206,6 +206,15 @@ pub fn protect_inline_tokens_with(
         {
             return token.to_string();
         }
+        // org-element `\(…\)` uses the same closer post-context as `$`.
+        if token.starts_with("\\(")
+            && token.ends_with("\\)")
+            && !dollar_closer_post_context(
+                after_spans.get(m.end()..).and_then(|s| s.chars().next()),
+            )
+        {
+            return token.to_string();
+        }
         let idx = placeholders.len();
         placeholders.push(token.to_string());
         format!("\x00PH{idx}\x00")
@@ -1485,6 +1494,8 @@ pub(crate) fn leftover_keyval_cs_name(tail: &str) -> Option<&'static str> {
         "newenvsc",
         "tcbuselibrary",
         "tcbhighmath",
+        "tcboxraisebase",
+        "tcboxraise",
         "tcboxmath",
         "tcblistof",
         "tcbox",
@@ -1536,6 +1547,7 @@ pub(crate) fn leftover_keyval_cs_name(tail: &str) -> Option<&'static str> {
         "tcbusetemp",
         "tcbsetforeverylisting",
         "tcbsetforeverylayer",
+        "tcbsetmanagedlayer",
         "tcbsetfiltered",
         "tcbset",
         "setminted",
