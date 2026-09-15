@@ -1,6 +1,6 @@
 {
   "name": "word-snapper",
-  "version": "0.11.4",
+  "version": "0.11.5",
   "private": true,
   "description": "Microsoft Word add-in for snapper semantic line break formatter",
   "scripts": {

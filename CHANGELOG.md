@@ -6,6 +6,12 @@ All notable changes to this project will be documented in this file. See [conven
 
 - - -
 
+## v0.11.5 - 2026-09-15
+#### Bug Fixes
+- leftover native-parser walkers vs Docutils pulldown org-element and TeX (#482)
+
+- - -
+
 ## v0.11.4 - 2026-09-13
 #### Bug Fixes
 - (**latex**) tokenize leftover moreverb listingcont as one walker (#477)
