@@ -1590,6 +1590,21 @@ pub(crate) fn leftover_keyval_cs_name(tail: &str) -> Option<&'static str> {
         "tcbwritetemp",
         "tcbrecord",
         "tcbbreak",
+        "refPathOperation",
+        "docAuxEnvironment",
+        "docAuxCommand",
+        "docKeyChoices",
+        "docAuxKey",
+        "docCounter",
+        "docLength",
+        "docColor",
+        "docValue",
+        "refAuxcs",
+        "refCom",
+        "refEnv",
+        "refKey",
+        "refAux",
+        "refPkg",
         "tcbdocmarginnote",
         "tcbdocupdated",
         "tcbdocnote",
@@ -1654,7 +1669,22 @@ pub(crate) fn leftover_keyval_cs_name(tail: &str) -> Option<&'static str> {
         let Some(after) = tail.strip_prefix(name) else {
             continue;
         };
-        let reject_star = name != "tcbline";
+        let reject_star = !matches!(
+            name,
+            "tcbline"
+                | "refCom"
+                | "refEnv"
+                | "refKey"
+                | "refPathOperation"
+                | "docAuxCommand"
+                | "docAuxEnvironment"
+                | "docAuxKey"
+                | "docCounter"
+                | "docLength"
+                | "docColor"
+                | "docValue"
+                | "docKeyChoices"
+        );
         if after.starts_with(|c: char| c.is_ascii_alphabetic() || (reject_star && c == '*')) {
             return None;
         }
@@ -1733,6 +1763,7 @@ fn leftover_keyval_kind(name: &str) -> VerbKind {
         | "tcboxfit"
         | "tcbox"
         | "tcbhyperref"
+        | "docAuxKey"
         | "tcbhypernode"
         | "tcbverbatimwrite"
         | "tcbrecord"
