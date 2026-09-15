@@ -131,6 +131,36 @@ fn leftover_elisp_plain_link_after_path_hangs_and_splits() {
 }
 
 #[test]
+fn leftover_help_plain_link_after_path_hangs_and_splits() {
+    let input = concat!("help:org leftover. Next.\n", "After. Next.\n",);
+    let out = format_text(input, &org_cfg()).unwrap();
+    assert!(
+        !out.contains("help:org leftover. Next."),
+        "leftover after help path must still split, got:\n{out}"
+    );
+    assert!(
+        out.contains("After.\nNext."),
+        "following prose must still split, got:\n{out}"
+    );
+    assert_eq!(format_text(&out, &org_cfg()).unwrap(), out);
+}
+
+#[test]
+fn leftover_info_plain_link_after_path_hangs_and_splits() {
+    let input = concat!("info:org leftover. Next.\n", "After. Next.\n",);
+    let out = format_text(input, &org_cfg()).unwrap();
+    assert!(
+        !out.contains("info:org leftover. Next."),
+        "leftover after info path must still split, got:\n{out}"
+    );
+    assert!(
+        out.contains("After.\nNext."),
+        "following prose must still split, got:\n{out}"
+    );
+    assert_eq!(format_text(&out, &org_cfg()).unwrap(), out);
+}
+
+#[test]
 fn leftover_attachment_plain_link_after_path_hangs_and_splits() {
     let input = concat!("attachment:plot.png leftover. Next.\n", "After. Next.\n",);
     let out = format_text(input, &org_cfg()).unwrap();
