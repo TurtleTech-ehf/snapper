@@ -3245,9 +3245,8 @@ fn push_segment_preserving_space(dest: &mut String, piece: &str) {
 }
 
 fn piece_starts_sentence_after_ticks(piece: &str) -> bool {
-    piece
-        .trim_start_matches('`')
-        .starts_with(|c: char| c.is_uppercase())
+    let rest = piece.trim_start_matches('`');
+    rest.len() < piece.len() && rest.starts_with(|c: char| c.is_uppercase())
 }
 
 /// Merge false splits caused by sentence punctuation inside quotes or parens.
