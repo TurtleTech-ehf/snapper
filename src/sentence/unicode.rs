@@ -3034,7 +3034,8 @@ impl UnicodeSentenceSplitter {
             self.extra_pattern.as_ref(),
         );
         let merged = merge_quoted_punct_splits(merged);
-        merge_splits_inside_delimiters(merged)
+        let merged = merge_splits_inside_delimiters(merged);
+        split_double_bang_then_letter(merged)
     }
 }
 
@@ -3169,7 +3170,10 @@ fn push_segment_preserving_space(dest: &mut String, piece: &str) {
     let need_space = dest.chars().last().is_some_and(|c| !c.is_whitespace())
         && next.is_some_and(|c| {
             !c.is_whitespace() && (c.is_alphanumeric() || matches!(c, '"' | '\'' | '`' | '('))
-        });
+        })
+        // `!!a` is one UAX fragment; inventing `!! a` then splitting
+        // `!! a` on the next pass is a wrap/SemBr cycle.
+        && !dest.ends_with("!!");
     if need_space {
         dest.push(' ');
     }
@@ -3284,6 +3288,34 @@ fn merge_quoted_punct_splits(segments: Vec<String>) -> Vec<String> {
 /// UAX SB11 breaks after ATerm+Sp *before* a closer, so `(. aA. )A` is
 /// `(. aA. ` + `)A`. Glue only the closer; a following capital is a new
 /// sentence (GitHub #266). The tight form `(. aA.)A` already splits.
+/// `!!a` is one UAX fragment. Split so first and second format_text
+/// passes agree (`!!` ends the sentence; the letter starts the next).
+fn split_double_bang_then_letter(segments: Vec<String>) -> Vec<String> {
+    let mut out = Vec::new();
+    for seg in segments {
+        let chars: Vec<(usize, char)> = seg.char_indices().collect();
+        let mut start = 0;
+        let mut idx = 0;
+        while idx + 1 < chars.len() {
+            if chars[idx].1 == '!' && chars[idx + 1].1 == '!' {
+                if let Some(&(off, ch)) = chars.get(idx + 2) {
+                    if ch.is_alphabetic() {
+                        out.push(seg[start..off].to_string());
+                        start = off;
+                        idx += 2;
+                        continue;
+                    }
+                }
+            }
+            idx += 1;
+        }
+        if start < seg.len() {
+            out.push(seg[start..].to_string());
+        }
+    }
+    out
+}
+
 fn merge_splits_inside_delimiters(segments: Vec<String>) -> Vec<String> {
     let mut result: Vec<String> = Vec::with_capacity(segments.len());
     let mut state = DelimState::default();
