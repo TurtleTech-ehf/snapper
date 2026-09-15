@@ -271,6 +271,17 @@ fn leftover_constructors_do_not_join() {
     leftover_cmd_stays_atomic(r"\tcbsetforeverylisting{listing options}");
     leftover_cmd_stays_atomic(r"\tcbsetfiltered{colback=red}");
     leftover_cmd_stays_atomic(r"\tcbuselisting");
+    leftover_cmd_stays_atomic(r"\NewTotalTColorBox{\foo}{O{}}{colback=red}{done. Next}");
+    leftover_cmd_stays_atomic(r"\NewTotalTCBoxFit{\foo}{O{}}{colback=red}{done. Next}");
+    leftover_cmd_stays_atomic(r"\renewtcbtheorem{theo}{Theorem}{colback=red}{th}");
+    leftover_cmd_stays_atomic(r"\tcolorboxenvironment{quote}{colback=red}");
+    leftover_cmd_stays_atomic(r"\tcbincludepdf{foo.pdf}");
+    leftover_cmd_stays_atomic(r"\tcbtitle");
+    leftover_cmd_stays_atomic(r"\listinglabel");
+    leftover_cmd_stays_atomic(r"\listingoffset");
+    leftover_cmd_stays_atomic(r"\verbatimtabsize");
+    leftover_cmd_stays_atomic(r"\CatchFileBetweenTags*{\tmp}{foo.tex}{TAG}");
+    leftover_cmd_stays_atomic(r"\ExecuteMetaData*{tag}");
     extras_skip_no_brace("newminted");
     extras_skip_no_brace("newmint");
     extras_skip_no_brace("renewminted");
@@ -299,6 +310,9 @@ fn leftover_constructors_do_not_join() {
     extras_skip_no_brace("ProvideTCBox");
     extras_skip_no_brace("tcbsetforeverylisting");
     extras_skip_no_brace("tcbuselisting");
+    extras_skip_no_brace("tcolorboxenvironment");
+    extras_skip_no_brace("listinglabel");
+    extras_skip_no_brace("CatchFileBetweenTags");
 }
 
 #[test]

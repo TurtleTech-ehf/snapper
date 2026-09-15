@@ -582,22 +582,27 @@ pub(crate) fn latex_verb_span_end_with(
         )
     } else if let Some(stripped) = tail.strip_prefix("CatchFileBetweenTags") {
         // catchfilebetweentags.sty leftover (GitHub #439). Three
-        // required braces, optional trailing `[setup]`. No `*` form.
-        if stripped.starts_with(|c: char| c.is_ascii_alphabetic() || c == '*') {
+        // required braces, optional trailing `[setup]`. Star form
+        // is the same walk.
+        let star = usize::from(stripped.starts_with('*'));
+        let after_star = &stripped[star..];
+        if after_star.starts_with(|c: char| c.is_ascii_alphabetic()) {
             return None;
         }
         (
-            after_bs + "CatchFileBetweenTags".len(),
+            after_bs + "CatchFileBetweenTags".len() + star,
             VerbKind::CatchFileBetweenTags,
         )
     } else if let Some(stripped) = tail.strip_prefix("ExecuteMetaData") {
         // catchfilebetweentags.sty leftover (GitHub #439). Optional
-        // `[file]` then required `{tag}`. No `*` form.
-        if stripped.starts_with(|c: char| c.is_ascii_alphabetic() || c == '*') {
+        // `[file]` then required `{tag}`. Star form is the same walk.
+        let star = usize::from(stripped.starts_with('*'));
+        let after_star = &stripped[star..];
+        if after_star.starts_with(|c: char| c.is_ascii_alphabetic()) {
             return None;
         }
         (
-            after_bs + "ExecuteMetaData".len(),
+            after_bs + "ExecuteMetaData".len() + star,
             VerbKind::Lstinputlisting,
         )
     } else if let Some(name) = catchfile_leftover_cs_name(tail) {
@@ -1005,7 +1010,20 @@ pub(crate) fn latex_verb_span_end_with(
             VerbKind::CatchFileBetweenDelims => 4,
             _ => 3,
         };
-        let end = skip_required_brace_groups(text, i, n)?;
+        // Nested braces so leftover `{O{}}` specs stay in the span.
+        for k in 0..n {
+            match skip_nested_brace_group(text, i) {
+                Some(end) => {
+                    i = if k + 1 < n {
+                        skip_ascii_ws(text, end)
+                    } else {
+                        end
+                    };
+                }
+                None => return None,
+            }
+        }
+        let end = i;
         i = skip_ascii_ws(text, end);
         if text.get(i..).is_some_and(|s| s.starts_with('[')) {
             return match skip_bracket_group(text, i) {
@@ -1423,6 +1441,14 @@ pub(crate) fn leftover_keyval_cs_name(tail: &str) -> Option<&'static str> {
         "ProvideTColorBox",
         "RenewTColorBox",
         "NewTColorBox",
+        "DeclareTotalTColorBox",
+        "ProvideTotalTColorBox",
+        "RenewTotalTColorBox",
+        "NewTotalTColorBox",
+        "DeclareTotalTCBoxFit",
+        "ProvideTotalTCBoxFit",
+        "RenewTotalTCBoxFit",
+        "NewTotalTCBoxFit",
         "DeclareTotalTCBox",
         "ProvideTotalTCBox",
         "RenewTotalTCBox",
@@ -1436,7 +1462,9 @@ pub(crate) fn leftover_keyval_cs_name(tail: &str) -> Option<&'static str> {
         "NewTCBoxFit",
         "NewTCBox",
         "renewtcolorbox",
+        "tcolorboxenvironment",
         "newtcolorbox",
+        "renewtcbtheorem",
         "newtcbtheorem",
         "NewTcbTheorem",
         "RenewTcbTheorem",
@@ -1447,7 +1475,10 @@ pub(crate) fn leftover_keyval_cs_name(tail: &str) -> Option<&'static str> {
         "newtcboxfit",
         "newtcbox",
         "tcbincludegraphics",
+        "tcbincludepdf",
         "tcbsubtitle",
+        "tcbtitletext",
+        "tcbtitle",
         "tcboxfit",
         "provideenvsc",
         "renewenvsc",
@@ -1513,6 +1544,9 @@ pub(crate) fn leftover_keyval_cs_name(tail: &str) -> Option<&'static str> {
         "pyoptions",
         "listoflistings",
         "pyoption",
+        "verbatimtabsize",
+        "listingoffset",
+        "listinglabel",
         "sagetexunpause",
         "sagetexpause",
         "pyif",
@@ -1542,7 +1576,12 @@ fn leftover_keyval_kind(name: &str) -> VerbKind {
         | "lstlistoflistings"
         | "listoflistings"
         | "sagetexpause"
-        | "sagetexunpause" => VerbKind::Listingcont,
+        | "sagetexunpause"
+        | "tcbtitle"
+        | "tcbtitletext"
+        | "listinglabel"
+        | "listingoffset"
+        | "verbatimtabsize" => VerbKind::Listingcont,
         "setmintedinline"
         | "usemintedstyle"
         | "setminted"
@@ -1550,6 +1589,7 @@ fn leftover_keyval_kind(name: &str) -> VerbKind {
         | "setpythontexprettyprinter"
         | "setpygmentsprettyprinter"
         | "tcbincludegraphics"
+        | "tcbincludepdf"
         | "tcbsubtitle"
         | "tcboxfit"
         | "tcbox" => VerbKind::Lstinputlisting,
@@ -1577,6 +1617,7 @@ fn leftover_keyval_kind(name: &str) -> VerbKind {
         | "newtcbox"
         | "newtcboxfit"
         | "renewtcboxfit"
+        | "tcolorboxenvironment"
         | "tcblistof" => VerbKind::Listinginput,
         "RecustomVerbatimEnvironment"
         | "CustomVerbatimEnvironment"
@@ -1620,7 +1661,16 @@ fn leftover_keyval_kind(name: &str) -> VerbKind {
         | "NewTcbTheorem"
         | "RenewTcbTheorem"
         | "ProvideTcbTheorem"
-        | "DeclareTcbTheorem" => VerbKind::CatchFileBetweenDelims,
+        | "DeclareTcbTheorem"
+        | "NewTotalTColorBox"
+        | "RenewTotalTColorBox"
+        | "ProvideTotalTColorBox"
+        | "DeclareTotalTColorBox"
+        | "NewTotalTCBoxFit"
+        | "RenewTotalTCBoxFit"
+        | "ProvideTotalTCBoxFit"
+        | "DeclareTotalTCBoxFit"
+        | "renewtcbtheorem" => VerbKind::CatchFileBetweenDelims,
         "useprintpythontex" | "usestdoutpythontex" | "usestderrpythontex" => {
             VerbKind::Lstinputlisting
         }
