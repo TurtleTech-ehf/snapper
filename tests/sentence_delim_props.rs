@@ -23,6 +23,78 @@ fn plaintext_cfg() -> FormatConfig {
 /// PR #52 CI seed: period before backticks, then quote-backtick.
 /// Markup closer-split must not invent a newline inside a DelimState span.
 #[test]
+fn plaintext_setext_looking_bang_letter_is_idempotent() {
+    let input = ".=A[=!!a";
+    let out = format_plain(input);
+    assert_eq!(
+        format_plain(&out),
+        out,
+        "idempotence\n in={input:?}\n out={out:?}"
+    );
+}
+
+/// Quoted `!!a` is one DelimState span. Splitting `!!` then the letter
+/// parks a newline inside the quotes and fails proptest_balanced_wrappers.
+#[test]
+fn plaintext_single_quoted_bang_capital_is_span_safe() {
+    let input = "'!!A'A";
+    let out = format_plain(input);
+    assert_eq!(
+        format_plain(&out),
+        out,
+        "idempotence\n in={input:?}\n out={out:?}"
+    );
+    assert!(
+        newlines_respect_delimiter_spans(&out),
+        "span newline\n in={input:?}\n out={out:?}"
+    );
+    assert!(
+        !out.contains("!!\n"),
+        "must not split !!A inside quotes\n in={input:?}\n out={out:?}"
+    );
+}
+
+/// Quoted `!!a` is one DelimState span. Splitting `!!` then the letter
+/// parks a newline inside the quotes and fails proptest_balanced_wrappers.
+#[test]
+fn plaintext_latex_quoted_bang_letter_is_span_safe() {
+    let input = "``!!a''";
+    let out = format_plain(input);
+    assert_eq!(
+        format_plain(&out),
+        out,
+        "idempotence\n in={input:?}\n out={out:?}"
+    );
+    assert!(
+        newlines_respect_delimiter_spans(&out),
+        "span newline\n in={input:?}\n out={out:?}"
+    );
+    assert!(
+        !out.contains("!!\n"),
+        "must not split !!a inside latex quotes\n in={input:?}\n out={out:?}"
+    );
+}
+
+#[test]
+fn plaintext_quoted_bang_letter_is_span_safe() {
+    let input = "\"!!a\"";
+    let out = format_plain(input);
+    assert_eq!(
+        format_plain(&out),
+        out,
+        "idempotence\n in={input:?}\n out={out:?}"
+    );
+    assert!(
+        newlines_respect_delimiter_spans(&out),
+        "span newline\n in={input:?}\n out={out:?}"
+    );
+    assert!(
+        !out.contains("!!\n"),
+        "must not split !!a inside quotes\n in={input:?}\n out={out:?}"
+    );
+}
+
+#[test]
 fn plaintext_period_before_backticks_quote_is_span_safe() {
     let input = ".`` \"`";
     let out = format_plain(input);
