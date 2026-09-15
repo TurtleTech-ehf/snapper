@@ -2,7 +2,9 @@
 //! trailing sentence punctuation.
 
 use snapper_fmt::format::Format;
-use snapper_fmt::{FormatConfig, format_text};
+use snapper_fmt::parser::org::OrgParser;
+use snapper_fmt::parser::{FormatParser, Region};
+use snapper_fmt::{format_text, FormatConfig};
 
 fn org_cfg() -> FormatConfig {
     FormatConfig {
@@ -11,6 +13,50 @@ fn org_cfg() -> FormatConfig {
         ..Default::default()
     }
     .without_safety_backstops()
+}
+
+#[test]
+fn leftover_plain_link_after_path_hangs_and_splits() {
+    let input = concat!("file:/tmp/plot.png leftover. Next.\n", "After. Next.\n",);
+    let regions = OrgParser.parse(input);
+    assert!(
+        regions
+            .iter()
+            .any(|r| matches!(r, Region::Structure(s) if s.contains("file:/tmp/plot.png"))),
+        "plain link path must stay Structure, got {regions:?}"
+    );
+    assert!(
+        regions.iter().any(|r| matches!(
+            r,
+            Region::Prose(p) if p.contains("leftover.") && p.contains("Next.")
+        )),
+        "leftover after the path must be Prose, got {regions:?}"
+    );
+    let out = format_text(input, &org_cfg()).unwrap();
+    assert!(
+        !out.contains("file:/tmp/plot.png leftover. Next."),
+        "leftover after the path must still split, got:\n{out}"
+    );
+    assert!(
+        out.contains("After.\nNext."),
+        "following prose must still split, got:\n{out}"
+    );
+    assert_eq!(format_text(&out, &org_cfg()).unwrap(), out);
+}
+
+#[test]
+fn leftover_https_plain_link_after_path_hangs_and_splits() {
+    let input = concat!("https://example.com/a leftover. Next.\n", "After. Next.\n",);
+    let out = format_text(input, &org_cfg()).unwrap();
+    assert!(
+        !out.contains("https://example.com/a leftover. Next."),
+        "leftover after https path must still split, got:\n{out}"
+    );
+    assert!(
+        out.contains("After.\nNext."),
+        "following prose must still split, got:\n{out}"
+    );
+    assert_eq!(format_text(&out, &org_cfg()).unwrap(), out);
 }
 
 #[test]

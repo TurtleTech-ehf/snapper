@@ -166,6 +166,31 @@ struct OpenGreater {
 
 /// org-element-drawer-re NAME: `(any ?- ?_ word)` — hyphen, underscore,
 /// or Unicode word characters (letters and digits). `:END:` is the closer.
+/// org-element plain link at column 0: `file:` / `http://` / `https://`
+/// plus the path. Leftover after the path is hung Prose.
+pub(crate) fn org_plain_link_marker_len(line: &str) -> Option<usize> {
+    let indent = line.len() - line.trim_start().len();
+    let t = &line[indent..];
+    let prefix = if t.starts_with("file:") {
+        "file:"
+    } else if t.starts_with("https://") {
+        "https://"
+    } else if t.starts_with("http://") {
+        "http://"
+    } else {
+        return None;
+    };
+    let after = &t[prefix.len()..];
+    if after.is_empty() || after.starts_with(char::is_whitespace) {
+        return None;
+    }
+    let path_len = after.find(char::is_whitespace).unwrap_or(after.len());
+    let end = indent + prefix.len() + path_len;
+    let rest = &line[end..];
+    let pad = rest.len() - rest.trim_start().len();
+    Some(end + pad)
+}
+
 /// org-element-planning-line-re leftover: `DEADLINE:` / `SCHEDULED:` /
 /// `CLOSED:` plus a timestamp (`<...>` or `[...]`). Bare
 /// `DEADLINE: hello.` is a paragraph.
@@ -1168,12 +1193,24 @@ impl FormatParser for OrgParser {
                 continue;
             }
 
-            // Bare file/http links on their own line -- treat as structure
-            if line_text.trim_start().starts_with("file:")
-                || line_text.trim_start().starts_with("http://")
-                || line_text.trim_start().starts_with("https://")
-                || Self::is_standalone_org_link(line_text)
-            {
+            // Bare file/http links: URL is Structure; leftover after
+            // the path is hung Prose (org-element plain link).
+            if let Some(marker_len) = org_plain_link_marker_len(line_text) {
+                flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
+                list_item_indent = None;
+                let body = &line_text[marker_len..];
+                if body.trim().is_empty() {
+                    regions.push(SpannedRegion::structure(input, line.span()));
+                } else {
+                    regions.push(SpannedRegion::structure(
+                        input,
+                        ByteSpan::new(line.start, line.start + marker_len),
+                    ));
+                    Self::emit_hung_text(input, &line, marker_len, &mut regions);
+                }
+                continue;
+            }
+            if Self::is_standalone_org_link(line_text) {
                 flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
                 list_item_indent = None;
                 regions.push(SpannedRegion::structure(input, line.span()));
