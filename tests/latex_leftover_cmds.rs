@@ -260,6 +260,12 @@ fn leftover_constructors_do_not_join() {
     leftover_cmd_stays_atomic(r"\newtcbtheorem{theo}{Theorem}{colback=red}{th}");
     leftover_cmd_stays_atomic(r"\tcblistof{fig}{List of theorems}");
     leftover_cmd_stays_atomic(r"\tcboxmath{x = 1. 2}");
+    leftover_cmd_stays_atomic(r"\tcbox{First. Second.}");
+    leftover_cmd_stays_atomic(r"\tcboxfit{First. Second.}");
+    leftover_cmd_stays_atomic(r"\tcbincludegraphics{foo.png}");
+    leftover_cmd_stays_atomic(r"\tcbsubtitle{First. Second.}");
+    leftover_cmd_stays_atomic(r"\newtcboxfit{\mybox}{colback=red}");
+    leftover_cmd_stays_atomic(r"\NewTCBoxFit{\foo}{O{}}{colback=red}");
     extras_skip_no_brace("newminted");
     extras_skip_no_brace("newmint");
     extras_skip_no_brace("renewminted");
@@ -282,6 +288,9 @@ fn leftover_constructors_do_not_join() {
     extras_skip_no_brace("newtcbtheorem");
     extras_skip_no_brace("tcblistof");
     extras_skip_no_brace("tcboxmath");
+    extras_skip_no_brace("tcbox");
+    extras_skip_no_brace("tcboxfit");
+    extras_skip_no_brace("tcbincludegraphics");
 }
 
 #[test]

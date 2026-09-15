@@ -929,6 +929,7 @@ fn is_rst_specific_admonition(name: &str) -> bool {
             | "admonition"
             | "list-table"
             | "contents"
+            | "title"
     )
 }
 
@@ -1058,18 +1059,17 @@ pub(crate) fn rst_substitution_replace_marker_len(line: &str) -> Option<usize> {
         return None;
     }
     let after_mid = &after_close[mid_ws..];
-    const REPLACE: &str = "replace::";
-    // `get` not `[..REPLACE.len()]`: same UTF-8 mid-char slice as
+    // `replace::` and leftover `unicode::` are the same length.
+    // `get` not `[..len]`: same UTF-8 mid-char slice as
     // org_caption_marker_len (GitHub #459).
-    if !after_mid
-        .get(..REPLACE.len())
-        .is_some_and(|head| head.eq_ignore_ascii_case(REPLACE))
-    {
+    let kind_len = 9;
+    let kind = after_mid.get(..kind_len)?;
+    if !kind.eq_ignore_ascii_case("replace::") && !kind.eq_ignore_ascii_case("unicode::") {
         return None;
     }
-    let after_colons = &after_mid[REPLACE.len()..];
+    let after_colons = &after_mid[kind_len..];
     let pad = after_colons.len() - after_colons.trim_start().len();
-    Some(indent + 2 + ws_after_dots + 1 + name_end + 1 + mid_ws + REPLACE.len() + pad)
+    Some(indent + 2 + ws_after_dots + 1 + name_end + 1 + mid_ws + kind_len + pad)
 }
 
 /// True when `trimmed` is an RST comment opener, not a `.. name::`

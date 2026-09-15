@@ -208,6 +208,21 @@ fn leftover_sidebar_subtitle_hangs_and_splits() {
 }
 
 #[test]
+fn leftover_document_title_same_line_hangs_and_splits() {
+    let input = concat!(".. title:: fig. 1 is here. After.\n", "After. Next.\n",);
+    let out = format_text(input, &rst_cfg()).unwrap();
+    assert!(
+        !out.contains(".. title:: fig. 1 is here. After."),
+        "document title must still split, got:\n{out}"
+    );
+    assert!(
+        out.contains("After.\nNext."),
+        "following prose must still split, got:\n{out}"
+    );
+    assert_eq!(format_text(&out, &rst_cfg()).unwrap(), out);
+}
+
+#[test]
 fn leftover_topic_same_line_title_hangs_and_splits() {
     let input = concat!(".. topic:: fig. 1 is here. After.\n", "After. Next.\n",);
     let regions = RstParser.parse(input);

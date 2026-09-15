@@ -1429,6 +1429,7 @@ pub(crate) fn leftover_keyval_cs_name(tail: &str) -> Option<&'static str> {
         "NewTotalTCBox",
         "DeclareTCBox",
         "RenewTCBox",
+        "NewTCBoxFit",
         "NewTCBox",
         "renewtcolorbox",
         "newtcolorbox",
@@ -1438,7 +1439,11 @@ pub(crate) fn leftover_keyval_cs_name(tail: &str) -> Option<&'static str> {
         "ProvideTcbTheorem",
         "DeclareTcbTheorem",
         "renewtcbox",
+        "newtcboxfit",
         "newtcbox",
+        "tcbincludegraphics",
+        "tcbsubtitle",
+        "tcboxfit",
         "provideenvsc",
         "renewenvsc",
         "newenvsc",
@@ -1446,6 +1451,7 @@ pub(crate) fn leftover_keyval_cs_name(tail: &str) -> Option<&'static str> {
         "tcbhighmath",
         "tcboxmath",
         "tcblistof",
+        "tcbox",
         "renewmintedfile",
         "renewmintinline",
         "ProvidePitonEnvironment",
@@ -1533,7 +1539,11 @@ fn leftover_keyval_kind(name: &str) -> VerbKind {
         | "setminted"
         | "SetPitonStyle"
         | "setpythontexprettyprinter"
-        | "setpygmentsprettyprinter" => VerbKind::Lstinputlisting,
+        | "setpygmentsprettyprinter"
+        | "tcbincludegraphics"
+        | "tcbsubtitle"
+        | "tcboxfit"
+        | "tcbox" => VerbKind::Lstinputlisting,
         "pyoption"
         | "SetPitonIdentifier"
         | "NewPitonLanguage"
@@ -1556,6 +1566,7 @@ fn leftover_keyval_kind(name: &str) -> VerbKind {
         | "newtcolorbox"
         | "renewtcbox"
         | "newtcbox"
+        | "newtcboxfit"
         | "tcblistof" => VerbKind::Listinginput,
         "RecustomVerbatimEnvironment"
         | "CustomVerbatimEnvironment"
@@ -1574,6 +1585,7 @@ fn leftover_keyval_kind(name: &str) -> VerbKind {
         | "DeclareTCBox"
         | "RenewTCBox"
         | "NewTCBox"
+        | "NewTCBoxFit"
         | "newenvsc"
         | "renewenvsc"
         | "provideenvsc"

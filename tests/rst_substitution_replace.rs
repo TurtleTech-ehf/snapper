@@ -6,7 +6,7 @@
 use snapper_fmt::format::Format;
 use snapper_fmt::parser::rst::RstParser;
 use snapper_fmt::parser::{FormatParser, Region};
-use snapper_fmt::{FormatConfig, format_text};
+use snapper_fmt::{format_text, FormatConfig};
 
 fn rst_cfg() -> FormatConfig {
     FormatConfig {
@@ -34,6 +34,24 @@ fn expected_ticket() -> &'static str {
         ".. |v| replace:: fig. 1 is here.\n",
         "                 After.\n",
     )
+}
+
+#[test]
+fn leftover_unicode_substitution_same_line_hangs_and_splits() {
+    let input = concat!(
+        ".. |copy| unicode:: copyright sign. Next.\n",
+        "After. Next.\n",
+    );
+    let out = format_text(input, &rst_cfg()).unwrap();
+    assert!(
+        !out.contains("unicode:: copyright sign. Next."),
+        "unicode argument must still split, got:\n{out}"
+    );
+    assert!(
+        out.contains("After.\nNext."),
+        "following prose must still split, got:\n{out}"
+    );
+    assert_eq!(format_text(&out, &rst_cfg()).unwrap(), out);
 }
 
 #[test]
