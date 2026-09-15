@@ -1578,6 +1578,8 @@ pub(crate) fn leftover_keyval_cs_name(tail: &str) -> Option<&'static str> {
         "tcbinputrecords",
         "tcbsidebyside",
         "tcbsubskin",
+        "tcbmakedocSubKeys",
+        "tcbmakedocSubKey",
         "tcbmakeprefixed",
         "tcbhyperref",
         "tcbhypernode",
@@ -1791,7 +1793,9 @@ fn leftover_keyval_kind(name: &str) -> VerbKind {
         | "tcbsetmacrotowidthofnode"
         | "tcbsettoheightofnode"
         | "tcbsetmacrotoheightofnode"
-        | "tcbsetfromto" => VerbKind::Listinginput,
+        | "tcbsetfromto"
+        | "tcbmakedocSubKeys"
+        | "tcbmakedocSubKey" => VerbKind::Listinginput,
         "RecustomVerbatimEnvironment"
         | "CustomVerbatimEnvironment"
         | "DefineVerbatimEnvironment"
@@ -3288,8 +3292,13 @@ fn merge_quoted_punct_splits(segments: Vec<String>) -> Vec<String> {
 /// UAX SB11 breaks after ATerm+Sp *before* a closer, so `(. aA. )A` is
 /// `(. aA. ` + `)A`. Glue only the closer; a following capital is a new
 /// sentence (GitHub #266). The tight form `(. aA.)A` already splits.
+///
 /// `!!a` is one UAX fragment. Split so first and second format_text
 /// passes agree (`!!` ends the sentence; the letter starts the next).
+/// Do not split when `!!` sits inside a wrapper this piece closes
+/// (`"!!a"`, `'!!A'A`). DelimState's apostrophe heuristic treats the
+/// closer in `'!!A'A` as `A'A`, so this walk toggles `'` without it.
+/// An unclosed opener (`[=!!a`) still splits.
 fn split_double_bang_then_letter(segments: Vec<String>) -> Vec<String> {
     let mut out = Vec::new();
     for seg in segments {
@@ -3299,7 +3308,7 @@ fn split_double_bang_then_letter(segments: Vec<String>) -> Vec<String> {
         while idx + 1 < chars.len() {
             if chars[idx].1 == '!' && chars[idx + 1].1 == '!' {
                 if let Some(&(off, ch)) = chars.get(idx + 2) {
-                    if ch.is_alphabetic() {
+                    if ch.is_alphabetic() && !wrap_closes_after_bang(&seg[start..], off - start) {
                         out.push(seg[start..off].to_string());
                         start = off;
                         idx += 2;
@@ -3314,6 +3323,51 @@ fn split_double_bang_then_letter(segments: Vec<String>) -> Vec<String> {
         }
     }
     out
+}
+
+/// True when `!!` at `bang_at` is inside `"…"` / `'…'` / ` ``…'' ` /
+/// `(…)` / `[…]` / `{…}` and that wrapper closes later in `piece`.
+fn wrap_closes_after_bang(piece: &str, bang_at: usize) -> bool {
+    let chars: Vec<(usize, char)> = piece.char_indices().collect();
+    let mut dq = false;
+    let mut sq = false;
+    let mut latex = 0i32;
+    let mut paren = 0i32;
+    let mut bracket = 0i32;
+    let mut brace = 0i32;
+    let mut i = 0;
+    while i < chars.len() {
+        let ch = chars[i].1;
+        let next = chars.get(i + 1).map(|c| c.1);
+        if ch == '`' && next == Some('`') {
+            latex += 1;
+            i += 2;
+        } else if ch == '\'' && next == Some('\'') {
+            latex = (latex - 1).max(0);
+            i += 2;
+        } else {
+            match ch {
+                '"' => dq = !dq,
+                '\'' => sq = !sq,
+                '(' => paren += 1,
+                ')' => paren -= 1,
+                '[' => bracket += 1,
+                ']' => bracket -= 1,
+                '{' => brace += 1,
+                '}' => brace -= 1,
+                _ => {}
+            }
+            i += 1;
+        }
+        let consumed_to = chars.get(i).map_or(piece.len(), |c| c.0);
+        if consumed_to == bang_at {
+            let inside = dq || sq || latex > 0 || paren > 0 || bracket > 0 || brace > 0;
+            if !inside {
+                return false;
+            }
+        }
+    }
+    !dq && !sq && latex <= 0 && paren <= 0 && bracket <= 0 && brace <= 0
 }
 
 fn merge_splits_inside_delimiters(segments: Vec<String>) -> Vec<String> {
@@ -3602,6 +3656,15 @@ mod tests {
 
     fn split(text: &str) -> Vec<String> {
         UnicodeSentenceSplitter::new().split(text)
+    }
+
+    #[test]
+    fn single_quote_bang_capital_stays_one_sentence() {
+        assert_eq!(
+            split("'!!A'A"),
+            vec!["'!!A'A".to_string()],
+            "UAX/refine must keep balanced '!!A' as one sentence"
+        );
     }
 
     #[test]
