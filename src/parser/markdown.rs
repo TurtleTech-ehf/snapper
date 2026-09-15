@@ -2372,16 +2372,15 @@ impl FormatParser for MarkdownParser {
                             .and_then(|c| c.get(1))
                             .map(|m| m.as_str())
                             .unwrap_or("```");
-                        let mut close = j;
-                        for k in j + 1..=end {
-                            let kh = line_indent(lines[k].text);
-                            let ki = lines[k].text.get(kh..).unwrap_or("");
-                            if ki.trim_start().starts_with(fence) {
-                                close = k;
-                                break;
-                            }
-                            close = k;
-                        }
+                        let close = lines[j + 1..=end]
+                            .iter()
+                            .enumerate()
+                            .find_map(|(off, line)| {
+                                let kh = line_indent(line.text);
+                                let ki = line.text.get(kh..).unwrap_or("");
+                                ki.trim_start().starts_with(fence).then_some(j + 1 + off)
+                            })
+                            .unwrap_or(end);
                         if hang > 0 {
                             regions.push(SpannedRegion::structure(
                                 input,
