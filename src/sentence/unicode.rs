@@ -1516,6 +1516,8 @@ pub(crate) fn leftover_keyval_cs_name(tail: &str) -> Option<&'static str> {
         "setpythontexprettyprinter",
         "setpythontexworkingdir",
         "setpythontexoutputdir",
+        "setpythontexcontext",
+        "restartpythontexsession",
         "setpythontexpyglexer",
         "setpythontexautostdout",
         "setpythontexautoprint",
@@ -1552,6 +1554,9 @@ pub(crate) fn leftover_keyval_cs_name(tail: &str) -> Option<&'static str> {
         "tcbinputrecords",
         "tcbsidebyside",
         "tcbsubskin",
+        "tcbmakeprefixed",
+        "tcbhyperref",
+        "tcbline",
         "FancyVerbFormatInline",
         "FancyVerbFormatLine",
         "FancyVerbFormatText",
@@ -1611,7 +1616,9 @@ fn leftover_keyval_kind(name: &str) -> VerbKind {
         | "tcbstoprecording"
         | "tcbinputrecords"
         | "tcbpatcharcangular"
-        | "tcbpatcharcround" => VerbKind::Listingcont,
+        | "tcbpatcharcround"
+        | "tcbline"
+        | "restartpythontexsession" => VerbKind::Listingcont,
         "setmintedinline"
         | "usemintedstyle"
         | "setminted"
@@ -1623,6 +1630,7 @@ fn leftover_keyval_kind(name: &str) -> VerbKind {
         | "tcbsubtitle"
         | "tcboxfit"
         | "tcbox"
+        | "tcbhyperref"
         | "FancyVerbFormatInline"
         | "FancyVerbFormatLine"
         | "FancyVerbFormatText" => VerbKind::Lstinputlisting,
@@ -1655,7 +1663,8 @@ fn leftover_keyval_kind(name: &str) -> VerbKind {
         | "tcbsidebyside"
         | "tcbifoddpage"
         | "tcbifoddpageoroneside"
-        | "tcbheightfromgroup" => VerbKind::Listinginput,
+        | "tcbheightfromgroup"
+        | "tcbmakeprefixed" => VerbKind::Listinginput,
         "RecustomVerbatimEnvironment"
         | "CustomVerbatimEnvironment"
         | "DefineVerbatimEnvironment"

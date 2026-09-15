@@ -295,6 +295,11 @@ fn leftover_constructors_do_not_join() {
     leftover_cmd_stays_atomic(r"\tcbifoddpage{odd. More}{even. More}");
     leftover_cmd_stays_atomic(r"\tcbheightfromgroup{\h}{grp}");
     leftover_cmd_stays_atomic(r"\tcbpatcharcround");
+    leftover_cmd_stays_atomic(r"\tcbhyperref{sec:foo}");
+    leftover_cmd_stays_atomic(r"\tcbline");
+    leftover_cmd_stays_atomic(r"\tcbmakeprefixed{\myref}{th}");
+    leftover_cmd_stays_atomic(r"\setpythontexcontext{foo=bar}");
+    leftover_cmd_stays_atomic(r"\restartpythontexsession");
     extras_skip_no_brace("newminted");
     extras_skip_no_brace("newmint");
     extras_skip_no_brace("renewminted");
@@ -332,6 +337,8 @@ fn leftover_constructors_do_not_join() {
     extras_skip_no_brace("FancyVerbFormatInline");
     extras_skip_no_brace("tcbsidebyside");
     extras_skip_no_brace("tcbsetmanagedlayers");
+    extras_skip_no_brace("tcbhyperref");
+    extras_skip_no_brace("restartpythontexsession");
 }
 
 #[test]
