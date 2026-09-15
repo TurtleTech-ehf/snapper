@@ -3373,11 +3373,18 @@ fn split_double_bang_then_letter(segments: Vec<String>) -> Vec<String> {
         while idx + 1 < chars.len() {
             if chars[idx].1 == '!' && chars[idx + 1].1 == '!' {
                 if let Some(&(off, ch)) = chars.get(idx + 2) {
-                    if ch.is_alphabetic() && !wrap_closes_after_bang(&seg[start..], off - start) {
-                        out.push(seg[start..off].to_string());
-                        start = off;
-                        idx += 2;
-                        continue;
+                    if ch.is_alphabetic() {
+                        let prev = idx.checked_sub(1).map(|i| chars[i].1);
+                        let quote_before = matches!(
+                            prev,
+                            Some('"' | '\'' | '\u{201C}' | '\u{2018}' | '\u{00AB}')
+                        );
+                        if !quote_before && !wrap_closes_after_bang(&seg[start..], off - start) {
+                            out.push(seg[start..off].to_string());
+                            start = off;
+                            idx += 2;
+                            continue;
+                        }
                     }
                 }
             }
