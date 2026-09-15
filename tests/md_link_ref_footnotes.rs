@@ -64,6 +64,40 @@ fn ticket_fixture() -> &'static str {
 }
 
 #[test]
+fn leftover_footnote_fence_continuation_is_code() {
+    let input = concat!(
+        "[^1]: First sentence. Second sentence.\n",
+        "\n",
+        "    ```\n",
+        "    code. yes\n",
+        "    ```\n",
+        "\n",
+        "After the note. Next.\n",
+    );
+    let regions = MarkdownParser.parse(input);
+    assert!(
+        regions.iter().any(|r| matches!(
+            r,
+            Region::Code { body, .. } if body.contains("code. yes")
+        )),
+        "indented fence in a footnote must be Code, got {regions:?}"
+    );
+    let out = format_text(input, &md_cfg()).unwrap();
+    assert!(
+        out.contains("code. yes"),
+        "fence body must stay one line, got:\n{out}"
+    );
+    assert!(
+        !out.contains("code.\nyes"),
+        "must not SemBr-split inside the fence, got:\n{out}"
+    );
+    assert!(
+        out.contains("After the note.\nNext."),
+        "following prose must still split, got:\n{out}"
+    );
+}
+
+#[test]
 fn leftover_footnote_col0_after_continuation_is_new_paragraph() {
     let input = concat!(
         "[^1]: First sentence. Second sentence.\n",

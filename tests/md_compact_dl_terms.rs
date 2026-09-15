@@ -171,6 +171,36 @@ fn leftover_loose_second_dl_term_after_blank() {
 }
 
 #[test]
+fn leftover_loose_extra_definition_after_blank() {
+    let input = concat!(
+        "Term\n",
+        ": First definition sentence. Second sentence.\n",
+        "\n",
+        ": Third definition sentence. Fourth sentence.\n",
+        "\n",
+        "After the list. Next.\n",
+    );
+    let out = format_text(input, &md_cfg()).unwrap();
+    assert!(
+        !out.contains("Third definition sentence. Fourth sentence."),
+        "second dd body must still split, got:\n{out}"
+    );
+    assert!(
+        out.contains("Fourth sentence."),
+        "fourth sentence must stay, got:\n{out}"
+    );
+    assert!(
+        !out.lines().any(|l| l == "Fourth sentence."),
+        "fourth sentence must stay hung, got:\n{out}"
+    );
+    assert!(
+        out.contains("After the list.\nNext."),
+        "following prose must still split, got:\n{out}"
+    );
+    assert_eq!(format_text(&out, &md_cfg()).unwrap(), out);
+}
+
+#[test]
 fn leftover_list_item_second_compact_dl_term_after_definition() {
     let input = concat!(
         "- Alpha term. Still alpha.\n",

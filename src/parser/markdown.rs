@@ -181,6 +181,21 @@ fn next_nonblank_indent(lines: &[Line<'_>], start: usize) -> Option<usize> {
         .map(|l| line_indent(l.text))
 }
 
+/// Next non-blank is a definition marker (`: ` / `~ `), including after
+/// quote markers. pulldown keeps the DL open across one blank then
+/// another `<dd>`.
+fn next_nonblank_is_dl_marker(lines: &[Line<'_>], start: usize) -> bool {
+    let Some(line) = lines[start..].iter().find(|l| !l.text.trim().is_empty()) else {
+        return false;
+    };
+    if md_definition_list_marker_len(line.text).is_some() {
+        return true;
+    }
+    let depth = quote_marker_depth(line.text);
+    strip_quote_markers(line.text, depth)
+        .is_some_and(|inner| md_definition_list_marker_len(inner).is_some())
+}
+
 fn starts_html_comment(line: &str) -> bool {
     // CM 4.6 type 2: at most three spaces. Four-space `<!--` is indented
     // code (or lazy title text), not an HTML block.
@@ -2064,7 +2079,8 @@ impl FormatParser for MarkdownParser {
                     && list_hang.is_some_and(|hang| {
                         next_nonblank_indent(&lines, i + 1).is_some_and(|ind| ind >= hang)
                     });
-                if stay_in_item {
+                let stay_in_dl = in_definition_list && next_nonblank_is_dl_marker(&lines, i + 1);
+                if stay_in_item || stay_in_dl {
                     flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
                     if let Some(span) = list_term.take() {
                         if !span.is_empty() {
@@ -2344,8 +2360,44 @@ impl FormatParser for MarkdownParser {
                 );
                 let opener = i;
                 let end = footnote_def_end(&lines, opener);
-                for row in &lines[opener + 1..=end] {
+                let mut j = opener + 1;
+                while j <= end {
+                    let row = &lines[j];
                     let hang = line_indent(row.text);
+                    let inner = row.text.get(hang..).unwrap_or("");
+                    if FENCED_CODE_RE.is_match(inner.trim_start()) {
+                        flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
+                        let fence = FENCED_CODE_RE
+                            .captures(inner.trim_start())
+                            .and_then(|c| c.get(1))
+                            .map(|m| m.as_str())
+                            .unwrap_or("```");
+                        let mut close = j;
+                        for k in j + 1..=end {
+                            let kh = line_indent(lines[k].text);
+                            let ki = lines[k].text.get(kh..).unwrap_or("");
+                            if ki.trim_start().starts_with(fence) {
+                                close = k;
+                                break;
+                            }
+                            close = k;
+                        }
+                        if hang > 0 {
+                            regions.push(SpannedRegion::structure(
+                                input,
+                                ByteSpan::new(row.start, row.start + hang),
+                            ));
+                        }
+                        regions.push(SpannedRegion::code(
+                            input,
+                            None,
+                            ByteSpan::new(row.start + hang, row.end),
+                            ByteSpan::new(row.start + hang, lines[close].end),
+                            ByteSpan::new(lines[close].end, lines[close].end),
+                        ));
+                        j = close + 1;
+                        continue;
+                    }
                     if hang > 0 {
                         let hang_span = ByteSpan::new(row.start, row.start + hang);
                         regions.push(SpannedRegion::structure(input, hang_span));
@@ -2363,6 +2415,7 @@ impl FormatParser for MarkdownParser {
                         input,
                         &mut regions,
                     );
+                    j += 1;
                 }
                 i = end + 1;
                 // pulldown pops the footnote on a column-0 line even
@@ -2652,6 +2705,9 @@ impl FormatParser for MarkdownParser {
                 let marker_len = line_text.len() - text.len();
                 if text.trim().is_empty() {
                     regions.push(SpannedRegion::structure(input, line.span()));
+                    if was_in_definition_list {
+                        in_definition_list = true;
+                    }
                     i += 1;
                     continue;
                 }
