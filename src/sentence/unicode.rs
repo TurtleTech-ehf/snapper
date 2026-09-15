@@ -1427,7 +1427,11 @@ pub(crate) fn leftover_keyval_cs_name(tail: &str) -> Option<&'static str> {
         "ProvideTotalTCBox",
         "RenewTotalTCBox",
         "NewTotalTCBox",
+        "DeclareTCBoxFit",
+        "ProvideTCBoxFit",
+        "RenewTCBoxFit",
         "DeclareTCBox",
+        "ProvideTCBox",
         "RenewTCBox",
         "NewTCBoxFit",
         "NewTCBox",
@@ -1438,6 +1442,7 @@ pub(crate) fn leftover_keyval_cs_name(tail: &str) -> Option<&'static str> {
         "RenewTcbTheorem",
         "ProvideTcbTheorem",
         "DeclareTcbTheorem",
+        "renewtcboxfit",
         "renewtcbox",
         "newtcboxfit",
         "newtcbox",
@@ -1461,6 +1466,7 @@ pub(crate) fn leftover_keyval_cs_name(tail: &str) -> Option<&'static str> {
         "tcbuselistinglisting",
         "tcbuselistingtext",
         "tcbusetemplisting",
+        "tcbuselisting",
         "PitonClearUserFunctions",
         "renewtcblisting",
         "newtcblisting",
@@ -1497,7 +1503,9 @@ pub(crate) fn leftover_keyval_cs_name(tail: &str) -> Option<&'static str> {
         "PitonOptions",
         "fvinlineset",
         "tcbusetemp",
+        "tcbsetforeverylisting",
         "tcbsetforeverylayer",
+        "tcbsetfiltered",
         "tcbset",
         "setminted",
         "newmint",
@@ -1530,6 +1538,7 @@ fn leftover_keyval_kind(name: &str) -> VerbKind {
         | "tcbuselistingtext"
         | "tcbusetemplisting"
         | "tcbusetemp"
+        | "tcbuselisting"
         | "lstlistoflistings"
         | "listoflistings"
         | "sagetexpause"
@@ -1567,6 +1576,7 @@ fn leftover_keyval_kind(name: &str) -> VerbKind {
         | "renewtcbox"
         | "newtcbox"
         | "newtcboxfit"
+        | "renewtcboxfit"
         | "tcblistof" => VerbKind::Listinginput,
         "RecustomVerbatimEnvironment"
         | "CustomVerbatimEnvironment"
@@ -1583,8 +1593,12 @@ fn leftover_keyval_kind(name: &str) -> VerbKind {
         | "RenewTColorBox"
         | "NewTColorBox"
         | "DeclareTCBox"
+        | "ProvideTCBox"
         | "RenewTCBox"
         | "NewTCBox"
+        | "DeclareTCBoxFit"
+        | "ProvideTCBoxFit"
+        | "RenewTCBoxFit"
         | "NewTCBoxFit"
         | "newenvsc"
         | "renewenvsc"

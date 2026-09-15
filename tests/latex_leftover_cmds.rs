@@ -266,6 +266,11 @@ fn leftover_constructors_do_not_join() {
     leftover_cmd_stays_atomic(r"\tcbsubtitle{First. Second.}");
     leftover_cmd_stays_atomic(r"\newtcboxfit{\mybox}{colback=red}");
     leftover_cmd_stays_atomic(r"\NewTCBoxFit{\foo}{O{}}{colback=red}");
+    leftover_cmd_stays_atomic(r"\ProvideTCBox{\mybox}{O{}}{colback=red}");
+    leftover_cmd_stays_atomic(r"\renewtcboxfit{\mybox}{colback=red}");
+    leftover_cmd_stays_atomic(r"\tcbsetforeverylisting{listing options}");
+    leftover_cmd_stays_atomic(r"\tcbsetfiltered{colback=red}");
+    leftover_cmd_stays_atomic(r"\tcbuselisting");
     extras_skip_no_brace("newminted");
     extras_skip_no_brace("newmint");
     extras_skip_no_brace("renewminted");
@@ -291,6 +296,9 @@ fn leftover_constructors_do_not_join() {
     extras_skip_no_brace("tcbox");
     extras_skip_no_brace("tcboxfit");
     extras_skip_no_brace("tcbincludegraphics");
+    extras_skip_no_brace("ProvideTCBox");
+    extras_skip_no_brace("tcbsetforeverylisting");
+    extras_skip_no_brace("tcbuselisting");
 }
 
 #[test]
