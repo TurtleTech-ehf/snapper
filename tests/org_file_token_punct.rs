@@ -260,6 +260,36 @@ fn leftover_mhe_plain_link_after_path_hangs_and_splits() {
 }
 
 #[test]
+fn leftover_vm_plain_link_after_path_hangs_and_splits() {
+    let input = concat!("vm:folder leftover. Next.\n", "After. Next.\n",);
+    let out = format_text(input, &org_cfg()).unwrap();
+    assert!(
+        !out.contains("vm:folder leftover. Next."),
+        "leftover after vm path must still split, got:\n{out}"
+    );
+    assert!(
+        out.contains("After.\nNext."),
+        "following prose must still split, got:\n{out}"
+    );
+    assert_eq!(format_text(&out, &org_cfg()).unwrap(), out);
+}
+
+#[test]
+fn leftover_wl_plain_link_after_path_hangs_and_splits() {
+    let input = concat!("wl:folder leftover. Next.\n", "After. Next.\n",);
+    let out = format_text(input, &org_cfg()).unwrap();
+    assert!(
+        !out.contains("wl:folder leftover. Next."),
+        "leftover after wl path must still split, got:\n{out}"
+    );
+    assert!(
+        out.contains("After.\nNext."),
+        "following prose must still split, got:\n{out}"
+    );
+    assert_eq!(format_text(&out, &org_cfg()).unwrap(), out);
+}
+
+#[test]
 fn leftover_attachment_plain_link_after_path_hangs_and_splits() {
     let input = concat!("attachment:plot.png leftover. Next.\n", "After. Next.\n",);
     let out = format_text(input, &org_cfg()).unwrap();
