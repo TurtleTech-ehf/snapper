@@ -330,6 +330,7 @@ fn parse_line_based(input: &str) -> Vec<SpannedRegion> {
             if let Some(marker_len) = rst_admonition_marker_len(line_text)
                 .or_else(|| rst_substitution_replace_marker_len(line_text))
                 .or_else(|| rst_table_marker_len(line_text))
+                .or_else(|| rst_include_marker_len(line_text))
             {
                 if line_text.len() > marker_len && !line_text[marker_len..].trim().is_empty() {
                     in_meta = false;
@@ -988,6 +989,43 @@ fn rst_table_marker_len(line: &str) -> Option<usize> {
     let after_colons = &line[colons_at + 2..];
     let pad = after_colons.len() - after_colons.trim_start().len();
     Some(colons_at + 2 + pad)
+}
+
+/// Docutils `include` leftover: `.. include:: filename` plus pad.
+/// Same-line leftover after the filename is hung Prose.
+fn rst_include_marker_len(line: &str) -> Option<usize> {
+    let indent = line.len() - line.trim_start().len();
+    let trimmed = &line[indent..];
+    let rest = trimmed.strip_prefix("..")?;
+    if !rest.starts_with([' ', '\t']) {
+        return None;
+    }
+    let name_off = rest.len() - rest.trim_start().len();
+    let after_ws = &rest[name_off..];
+    let name_end = after_ws.find("::")?;
+    let name = after_ws[..name_end].trim().to_ascii_lowercase();
+    if name != "include" {
+        return None;
+    }
+    let colons_at = indent + 2 + name_off + name_end;
+    let after_colons = &line[colons_at + 2..];
+    let pad = after_colons.len() - after_colons.trim_start().len();
+    let after_pad = &after_colons[pad..];
+    if after_pad.is_empty() {
+        return None;
+    }
+    let fname_end = after_pad
+        .find(|c: char| c.is_whitespace())
+        .unwrap_or(after_pad.len());
+    if fname_end == 0 {
+        return None;
+    }
+    let after_fname = &after_pad[fname_end..];
+    if after_fname.trim().is_empty() {
+        return None;
+    }
+    let fname_pad = after_fname.len() - after_fname.trim_start().len();
+    Some(colons_at + 2 + pad + fname_end + fname_pad)
 }
 
 pub(crate) fn rst_admonition_marker_len(line: &str) -> Option<usize> {
