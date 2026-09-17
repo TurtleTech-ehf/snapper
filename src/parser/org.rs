@@ -166,65 +166,52 @@ struct OpenGreater {
 
 /// org-element-drawer-re NAME: `(any ?- ?_ word)` — hyphen, underscore,
 /// or Unicode word characters (letters and digits). `:END:` is the closer.
-/// org-element plain link at column 0: `file+emacs:` / `file+sys:` /
-/// `file:` / `shell:` / `elisp:` / `help:` / `info:` / `http://` /
-/// `https://` / `eww:` / `irc:` / `bbdb:` / `gnus:` / `rmail:` /
-/// `mhe:` / `vm:` / `wl:` / `mailto:` /
-/// `news:` / `doi:` / `ftp://` / `attachment:` / `id:` plus the path.
+/// org-element plain-link prefixes at column 0. `file+emacs:` /
+/// `file+sys:` must be matched before `file:`.
+const ORG_PLAIN_LINK_PREFIXES: &[&str] = &[
+    "file+emacs:",
+    "file+sys:",
+    "file:",
+    "shell:",
+    "elisp:",
+    "help:",
+    "info:",
+    "eww:",
+    "irc:",
+    "bbdb:",
+    "gnus:",
+    "rmail:",
+    "mhe:",
+    "vm:",
+    "wl:",
+    "https://",
+    "http://",
+    "mailto:",
+    "news:",
+    "doi:",
+    "ftp://",
+    "attachment:",
+    "id:",
+];
+
+/// True when the line starts with an org-element plain-link prefix.
+/// Wrap skip-cut uses the prefix so leftover after `shell:` / `mailto:`
+/// cannot park at column 0 (snapper-hctf). Path is not required.
+pub(crate) fn org_plain_link_starts(line: &str) -> bool {
+    let t = line.trim_start();
+    ORG_PLAIN_LINK_PREFIXES.iter().any(|p| t.starts_with(p))
+}
+
+/// org-element plain link at column 0: prefix plus the path.
 /// Leftover after the path is hung Prose. `file+emacs:` / `file+sys:`
 /// must be matched before `file:` or the `+…` is eaten as the path.
 pub(crate) fn org_plain_link_marker_len(line: &str) -> Option<usize> {
     let indent = line.len() - line.trim_start().len();
     let t = &line[indent..];
-    let prefix = if t.starts_with("file+emacs:") {
-        "file+emacs:"
-    } else if t.starts_with("file+sys:") {
-        "file+sys:"
-    } else if t.starts_with("file:") {
-        "file:"
-    } else if t.starts_with("shell:") {
-        "shell:"
-    } else if t.starts_with("elisp:") {
-        "elisp:"
-    } else if t.starts_with("help:") {
-        "help:"
-    } else if t.starts_with("info:") {
-        "info:"
-    } else if t.starts_with("eww:") {
-        "eww:"
-    } else if t.starts_with("irc:") {
-        "irc:"
-    } else if t.starts_with("bbdb:") {
-        "bbdb:"
-    } else if t.starts_with("gnus:") {
-        "gnus:"
-    } else if t.starts_with("rmail:") {
-        "rmail:"
-    } else if t.starts_with("mhe:") {
-        "mhe:"
-    } else if t.starts_with("vm:") {
-        "vm:"
-    } else if t.starts_with("wl:") {
-        "wl:"
-    } else if t.starts_with("https://") {
-        "https://"
-    } else if t.starts_with("http://") {
-        "http://"
-    } else if t.starts_with("mailto:") {
-        "mailto:"
-    } else if t.starts_with("news:") {
-        "news:"
-    } else if t.starts_with("doi:") {
-        "doi:"
-    } else if t.starts_with("ftp://") {
-        "ftp://"
-    } else if t.starts_with("attachment:") {
-        "attachment:"
-    } else if t.starts_with("id:") {
-        "id:"
-    } else {
-        return None;
-    };
+    let prefix = ORG_PLAIN_LINK_PREFIXES
+        .iter()
+        .copied()
+        .find(|p| t.starts_with(p))?;
     let after = &t[prefix.len()..];
     if after.is_empty() || after.starts_with(char::is_whitespace) {
         return None;
