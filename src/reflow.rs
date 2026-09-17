@@ -632,6 +632,11 @@ fn md_opens_block(line: &str) -> bool {
     if md_list_start(t) {
         return true;
     }
+    // pulldown leftover `:` / `~` definition marker. `~~` is strike
+    // and `~~~` is already a fence above.
+    if crate::parser::markdown::md_definition_list_marker_len(t).is_some() {
+        return true;
+    }
     if md_link_ref_def(t) {
         return true;
     }
@@ -3014,6 +3019,34 @@ They are endowed with reason and conscience and should act towards one another i
             crate::format::Format::Markdown,
         );
         assert_no_col0_block(&result, &["[ref]:", "[ref]: "]);
+    }
+
+    #[test]
+    fn wrap_created_md_definition_marker_is_not_a_block() {
+        // pulldown leftover `:` / `~` definition. Markdown escapes
+        // the wrap-created marker (same as `#` / `>`). `~~` is strike.
+        for token in [":", "~"] {
+            let result = wrap_fmt(
+                &format!("The options are apples {token} extra words here."),
+                23,
+                crate::format::Format::Markdown,
+            );
+            assert_no_col0_block(&result, &[token, &format!("{token} ")]);
+            let escaped = format!("\\{token} ");
+            assert!(
+                result.lines().any(|l| l.starts_with(&escaped)),
+                "wrap-created {token} must be markdown-escaped:\n{result}"
+            );
+        }
+        let strike = wrap_fmt(
+            "The options are apples ~~ extra words here.",
+            23,
+            crate::format::Format::Markdown,
+        );
+        assert!(
+            !strike.lines().any(|l| l.starts_with("~ ") || l.starts_with(": ")),
+            "~~ strike must not become a definition:\n{strike}"
+        );
     }
 
     #[test]
