@@ -365,6 +365,73 @@ fn leftover_https_plain_link_after_path_hangs_and_splits() {
 }
 
 #[test]
+fn leftover_man_plain_link_after_path_hangs_and_splits() {
+    let input = concat!("man:org leftover. Next.\n", "After. Next.\n",);
+    let regions = OrgParser.parse(input);
+    assert!(
+        regions
+            .iter()
+            .any(|r| matches!(r, Region::Structure(s) if s.contains("man:org"))),
+        "man path must stay Structure, got {regions:?}"
+    );
+    let out = format_text(input, &org_cfg()).unwrap();
+    assert!(
+        !out.contains("man:org leftover. Next."),
+        "leftover after man path must still split, got:\n{out}"
+    );
+    assert!(
+        out.contains("After.\nNext."),
+        "following prose must still split, got:\n{out}"
+    );
+    assert_eq!(format_text(&out, &org_cfg()).unwrap(), out);
+}
+
+#[test]
+fn leftover_docview_plain_link_after_path_hangs_and_splits() {
+    let input = concat!("docview:/tmp/a.pdf leftover. Next.\n", "After. Next.\n",);
+    let regions = OrgParser.parse(input);
+    assert!(
+        regions.iter().any(|r| matches!(
+            r,
+            Region::Structure(s) if s.contains("docview:/tmp/a.pdf")
+        )),
+        "docview path must stay Structure, got {regions:?}"
+    );
+    let out = format_text(input, &org_cfg()).unwrap();
+    assert!(
+        !out.contains("docview:/tmp/a.pdf leftover. Next."),
+        "leftover after docview path must still split, got:\n{out}"
+    );
+    assert!(
+        out.contains("After.\nNext."),
+        "following prose must still split, got:\n{out}"
+    );
+    assert_eq!(format_text(&out, &org_cfg()).unwrap(), out);
+}
+
+#[test]
+fn leftover_shortdoc_plain_link_after_path_hangs_and_splits() {
+    let input = concat!("shortdoc:org leftover. Next.\n", "After. Next.\n",);
+    let regions = OrgParser.parse(input);
+    assert!(
+        regions
+            .iter()
+            .any(|r| matches!(r, Region::Structure(s) if s.contains("shortdoc:org"))),
+        "shortdoc path must stay Structure, got {regions:?}"
+    );
+    let out = format_text(input, &org_cfg()).unwrap();
+    assert!(
+        !out.contains("shortdoc:org leftover. Next."),
+        "leftover after shortdoc path must still split, got:\n{out}"
+    );
+    assert!(
+        out.contains("After.\nNext."),
+        "following prose must still split, got:\n{out}"
+    );
+    assert_eq!(format_text(&out, &org_cfg()).unwrap(), out);
+}
+
+#[test]
 fn org_file_token_same_line_splits() {
     let two_line = "See file:/tmp/foo.\nNext sentence.\n";
     let out = format_text(two_line, &org_cfg()).unwrap();
