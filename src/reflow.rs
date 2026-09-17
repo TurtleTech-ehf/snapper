@@ -646,6 +646,10 @@ fn md_opens_block(line: &str) -> bool {
     if t.starts_with("$$") {
         return true;
     }
+    // GFM leftover flanking-pipe row (TABLE_ROW_RE).
+    if t.starts_with('|') {
+        return true;
+    }
     false
 }
 
@@ -3046,6 +3050,22 @@ They are endowed with reason and conscience and should act towards one another i
         assert!(
             !strike.lines().any(|l| l.starts_with("~ ") || l.starts_with(": ")),
             "~~ strike must not become a definition:\n{strike}"
+        );
+    }
+
+    #[test]
+    fn wrap_created_md_table_pipe_is_not_a_block() {
+        // TABLE_ROW_RE flanking pipes. Wrap-created leftover `| extra |`
+        // must not become a table row. Markdown escapes the opener.
+        let result = wrap_fmt(
+            "The options are apples | extra |",
+            23,
+            crate::format::Format::Markdown,
+        );
+        assert_no_col0_block(&result, &["| extra |", "| "]);
+        assert!(
+            result.lines().any(|l| l.starts_with("\\|")),
+            "wrap-created leftover pipe must be markdown-escaped:\n{result}"
         );
     }
 
