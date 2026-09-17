@@ -3187,6 +3187,9 @@ They are endowed with reason and conscience and should act towards one another i
             "id:abc-123",
             "file+emacs:/tmp/x",
             "attachment:plot.png",
+            "man:org",
+            "docview:/tmp/a.pdf",
+            "shortdoc:org",
         ] {
             let result = wrap_fmt(
                 &format!("The options are apples {token} extra words here."),
