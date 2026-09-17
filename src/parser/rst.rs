@@ -991,9 +991,10 @@ fn rst_table_marker_len(line: &str) -> Option<usize> {
     Some(colons_at + 2 + pad)
 }
 
-/// Docutils `include` / `raw` leftover: `.. include:: filename` or
-/// `.. raw:: format` plus pad. Same-line leftover after the first
-/// argument is hung Prose.
+/// Docutils `include` / `raw` and Sphinx `literalinclude` leftover:
+/// `.. include:: filename`, `.. raw:: format`, or
+/// `.. literalinclude:: filename` plus pad. Same-line leftover after
+/// the first argument is hung Prose.
 fn rst_include_marker_len(line: &str) -> Option<usize> {
     let indent = line.len() - line.trim_start().len();
     let trimmed = &line[indent..];
@@ -1005,7 +1006,7 @@ fn rst_include_marker_len(line: &str) -> Option<usize> {
     let after_ws = &rest[name_off..];
     let name_end = after_ws.find("::")?;
     let name = after_ws[..name_end].trim().to_ascii_lowercase();
-    if name != "include" && name != "raw" {
+    if name != "include" && name != "raw" && name != "literalinclude" {
         return None;
     }
     let colons_at = indent + 2 + name_off + name_end;
