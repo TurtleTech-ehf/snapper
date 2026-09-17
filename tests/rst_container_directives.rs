@@ -737,6 +737,24 @@ fn leftover_include_same_line_after_filename_hangs_and_splits() {
 }
 
 #[test]
+fn leftover_literalinclude_same_line_after_filename_hangs_and_splits() {
+    let input = concat!(
+        ".. literalinclude:: foo.py leftover. Next.\n",
+        "After. Next.\n",
+    );
+    let out = format_text(input, &rst_cfg()).unwrap();
+    assert!(
+        !out.contains(".. literalinclude:: foo.py leftover. Next."),
+        "leftover after literalinclude filename must still split, got:\n{out}"
+    );
+    assert!(
+        out.contains("After.\nNext."),
+        "following prose must still split, got:\n{out}"
+    );
+    assert_eq!(format_text(&out, &rst_cfg()).unwrap(), out);
+}
+
+#[test]
 fn leftover_raw_same_line_after_format_hangs_and_splits() {
     let input = concat!(".. raw:: html leftover. Next.\n", "After. Next.\n",);
     let out = format_text(input, &rst_cfg()).unwrap();
