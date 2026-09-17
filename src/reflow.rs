@@ -686,13 +686,22 @@ fn org_opens_block(line: &str) -> bool {
     if t.starts_with("\\begin{") {
         return true;
     }
-    if crate::parser::org::is_org_drawer_begin(t) || org_fixed_width(t) || org_horizontal_rule(t) {
+    if org_drawer_first_token(t) || org_fixed_width(t) || org_horizontal_rule(t) {
         return true;
     }
     if org_planning_or_clock(t) {
         return true;
     }
     ordered_list_start(t)
+}
+
+/// First whitespace token is `:NAME:` or `:END:`.
+/// org-element drawer begin is the whole line; wrap leftover after the
+/// name is not a drawer, so skip-cut prefix-matches the token (snapper-8jgg).
+fn org_drawer_first_token(line: &str) -> bool {
+    let t = line.trim_start_matches([' ', '\t']);
+    let token = t.split([' ', '\t']).next().unwrap_or("");
+    crate::parser::org::is_org_drawer_begin(token) || token.eq_ignore_ascii_case(":END:")
 }
 
 /// org-element planning (`DEADLINE:`/`SCHEDULED:`/`CLOSED:`) or clock (`CLOCK:`).
@@ -3164,6 +3173,24 @@ They are endowed with reason and conscience and should act towards one another i
             result.contains("apples %%("),
             "%%( stays with the previous line:\n{result}"
         );
+    }
+
+    #[test]
+    fn wrap_created_org_drawer_name_leftover_is_not_a_block() {
+        // snapper-8jgg: leftover after :NAME: is not a drawer line, so
+        // skip-cut must prefix-match the first token (same as DEADLINE:).
+        for token in [":PROPERTIES:", ":LOGBOOK:", ":END:"] {
+            let result = wrap_fmt(
+                &format!("The options are apples {token} extra words here."),
+                23,
+                crate::format::Format::Org,
+            );
+            assert_no_col0_block(&result, &[token]);
+            assert!(
+                result.contains(&format!("apples {token}")),
+                "{token} stays with the previous line:\n{result}"
+            );
+        }
     }
 
     #[test]
