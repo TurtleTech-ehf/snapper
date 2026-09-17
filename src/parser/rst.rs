@@ -349,6 +349,14 @@ fn parse_line_based(input: &str) -> Vec<SpannedRegion> {
                         // indented line is leftover Prose, not opaque.
                         in_table_title = true;
                         list_hang = Some(marker_len);
+                    } else if rst_include_marker_len(line_text).is_some() {
+                        // include / raw / literalinclude leftover: hang
+                        // same-line Prose, then freeze the indented body
+                        // (snapper-5den).
+                        flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
+                        let leading = line_text.len() - trimmed.len();
+                        directive_indent = leading + 2;
+                        in_directive = true;
                     } else {
                         list_hang = Some(marker_len);
                     }
