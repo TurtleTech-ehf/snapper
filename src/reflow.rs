@@ -680,7 +680,7 @@ fn org_opens_block(line: &str) -> bool {
     if t.starts_with("[[") {
         return true;
     }
-    if t.starts_with("file:") || t.starts_with("http://") || t.starts_with("https://") {
+    if crate::parser::org::org_plain_link_starts(t) {
         return true;
     }
     if t.starts_with("\\begin{") {
@@ -3173,6 +3173,32 @@ They are endowed with reason and conscience and should act towards one another i
             result.contains("apples %%("),
             "%%( stays with the previous line:\n{result}"
         );
+    }
+
+    #[test]
+    fn wrap_created_org_plain_link_prefixes_are_not_blocks() {
+        // snapper-hctf: org_opens_block skip-cut only file:/http(s).
+        // Remaining org-element plain-link prefixes must stay off column 0.
+        for token in [
+            "shell:ls",
+            "elisp:(+)",
+            "mailto:dev@x.com",
+            "doi:10.1000/foo",
+            "id:abc-123",
+            "file+emacs:/tmp/x",
+            "attachment:plot.png",
+        ] {
+            let result = wrap_fmt(
+                &format!("The options are apples {token} extra words here."),
+                23,
+                crate::format::Format::Org,
+            );
+            assert_no_col0_block(&result, &[token]);
+            assert!(
+                result.contains(&format!("apples {token}")),
+                "{token} stays with the previous line:\n{result}"
+            );
+        }
     }
 
     #[test]
