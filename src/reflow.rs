@@ -804,6 +804,11 @@ fn rst_opens_block(line: &str) -> bool {
     if crate::parser::rst::rst_option_column_len(t).is_some() {
         return true;
     }
+    // Docutils Body.line: a solid adornment at column 0 is a section
+    // underline / transition, not wrap-created leftover prose.
+    if crate::parser::rst::is_underline(t) {
+        return true;
+    }
     false
 }
 
@@ -3156,6 +3161,49 @@ They are endowed with reason and conscience and should act towards one another i
             result.contains("apples .."),
             "RST skip-cut keeps the directive marker:\n{result}"
         );
+    }
+
+    #[test]
+    fn wrap_created_rst_section_adornment_is_not_a_block() {
+        // Docutils Body.line. "The options are apples" is 22 chars; width
+        // 23 would park a solid adornment at column 0 without skip-cut.
+        for token in ["====", "----", "****", "....", ".....", ":::::"] {
+            let result = wrap_fmt(
+                &format!("The options are apples {token}"),
+                23,
+                crate::format::Format::Rst,
+            );
+            assert_no_col0_block(&result, &[token]);
+            assert!(
+                result.contains(&format!("apples {token}")),
+                "RST skip-cut keeps the {token} adornment:\n{result}"
+            );
+        }
+    }
+
+    #[test]
+    fn wrap_created_rst_section_adornment_is_identity_under_format() {
+        let cfg = crate::FormatConfig {
+            format: crate::format::Format::Rst,
+            max_width: 23,
+            ..Default::default()
+        }
+        .without_safety_backstops();
+        let input = "The options are apples ====\n\nAfter. Next.\n";
+        let out = crate::format_text(input, &cfg).unwrap();
+        assert!(
+            !out.lines().any(|l| l == "===="),
+            "wrap must not park a column-0 section adornment:\n{out}"
+        );
+        assert!(
+            out.contains("apples ===="),
+            "skip-cut must keep ==== with the previous line:\n{out}"
+        );
+        assert!(
+            out.contains("After.\nNext."),
+            "following prose must still split, got:\n{out}"
+        );
+        assert_eq!(crate::format_text(&out, &cfg).unwrap(), out);
     }
 
     #[test]

@@ -1483,7 +1483,7 @@ fn rst_quoted_literal_continues(line: &str, quote: u8) -> bool {
 /// `>` adornments. `>>>>>` (and `>>` / `>>>>`) stay underlines.
 /// Body.explicit wins over Body.line: lone `..` is an empty comment
 /// (GitHub #343), not a `.` section underline. `...` / `....` stay underlines.
-fn is_underline(line: &str) -> bool {
+pub(crate) fn is_underline(line: &str) -> bool {
     let trimmed = line.trim();
     if trimmed.len() < 2 {
         return false;
