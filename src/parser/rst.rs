@@ -349,6 +349,14 @@ fn parse_line_based(input: &str) -> Vec<SpannedRegion> {
                         // indented line is leftover Prose, not opaque.
                         in_table_title = true;
                         list_hang = Some(marker_len);
+                    } else if rst_include_marker_len(line_text).is_some() {
+                        // include / raw / literalinclude leftover: hang
+                        // same-line Prose, then freeze the indented body
+                        // (snapper-5den).
+                        flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
+                        let leading = line_text.len() - trimmed.len();
+                        directive_indent = leading + 2;
+                        in_directive = true;
                     } else {
                         list_hang = Some(marker_len);
                     }
@@ -991,8 +999,10 @@ fn rst_table_marker_len(line: &str) -> Option<usize> {
     Some(colons_at + 2 + pad)
 }
 
-/// Docutils `include` leftover: `.. include:: filename` plus pad.
-/// Same-line leftover after the filename is hung Prose.
+/// Docutils `include` / `raw` and Sphinx `literalinclude` leftover:
+/// `.. include:: filename`, `.. raw:: format`, or
+/// `.. literalinclude:: filename` plus pad. Same-line leftover after
+/// the first argument is hung Prose.
 fn rst_include_marker_len(line: &str) -> Option<usize> {
     let indent = line.len() - line.trim_start().len();
     let trimmed = &line[indent..];
@@ -1004,7 +1014,7 @@ fn rst_include_marker_len(line: &str) -> Option<usize> {
     let after_ws = &rest[name_off..];
     let name_end = after_ws.find("::")?;
     let name = after_ws[..name_end].trim().to_ascii_lowercase();
-    if name != "include" {
+    if name != "include" && name != "raw" && name != "literalinclude" {
         return None;
     }
     let colons_at = indent + 2 + name_off + name_end;
