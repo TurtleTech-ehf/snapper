@@ -3340,6 +3340,9 @@ They are endowed with reason and conscience and should act towards one another i
             "man:org",
             "docview:/tmp/a.pdf",
             "shortdoc:org",
+            "bibtex:file.bib",
+            "eshell:ls",
+            "w3m:index.html",
         ] {
             let result = wrap_fmt(
                 &format!("The options are apples {token} extra words here."),
