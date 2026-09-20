@@ -1500,7 +1500,8 @@ pub(crate) fn is_underline(line: &str) -> bool {
 
 /// RST simple-table border: `=` column groups separated by spaces
 /// (`=====  =====`). A solid `=====` is a section underline, not a table.
-fn is_simple_table_border(line: &str) -> bool {
+/// Wrap skip-cut uses this so leftover `===== =====` cannot park at column 0.
+pub(crate) fn is_simple_table_border(line: &str) -> bool {
     let t = line.trim();
     if t.len() < 3 {
         return false;

@@ -809,6 +809,11 @@ fn rst_opens_block(line: &str) -> bool {
     if crate::parser::rst::is_underline(t) {
         return true;
     }
+    // Docutils isolate_simple_table: `===== =====` has interior spaces,
+    // so is_underline is false. Wrap-created leftover must skip-cut.
+    if crate::parser::rst::is_simple_table_border(t) {
+        return true;
+    }
     false
 }
 
@@ -3200,6 +3205,48 @@ They are endowed with reason and conscience and should act towards one another i
         assert!(
             out.contains("apples ===="),
             "skip-cut must keep ==== with the previous line:\n{out}"
+        );
+        assert!(
+            out.contains("After.\nNext."),
+            "following prose must still split, got:\n{out}"
+        );
+        assert_eq!(crate::format_text(&out, &cfg).unwrap(), out);
+    }
+
+    #[test]
+    fn wrap_created_rst_simple_table_border_is_not_a_block() {
+        // snapper-2knx: Docutils isolate_simple_table. Interior spaces
+        // mean is_underline is false, so skip-cut must name the border.
+        let result = wrap_fmt(
+            "The options are apples ===== =====",
+            23,
+            crate::format::Format::Rst,
+        );
+        assert_no_col0_block(&result, &["===== =====", "====="]);
+        assert!(
+            result.contains("apples ===== ====="),
+            "RST skip-cut keeps the simple-table border:\n{result}"
+        );
+    }
+
+    #[test]
+    fn wrap_created_rst_simple_table_border_is_identity_under_format() {
+        let cfg = crate::FormatConfig {
+            format: crate::format::Format::Rst,
+            max_width: 23,
+            ..Default::default()
+        }
+        .without_safety_backstops();
+        let input = "The options are apples ===== =====\n\nAfter. Next.\n";
+        let out = crate::format_text(input, &cfg).unwrap();
+        assert!(
+            !out.lines()
+                .any(|l| l.trim() == "===== =====" || l.trim() == "====="),
+            "wrap must not park a column-0 simple-table border:\n{out}"
+        );
+        assert!(
+            out.contains("apples ===== ====="),
+            "skip-cut must keep ===== ===== with the previous line:\n{out}"
         );
         assert!(
             out.contains("After.\nNext."),
