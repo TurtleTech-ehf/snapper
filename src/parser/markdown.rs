@@ -5339,9 +5339,8 @@ mod tests {
     #[test]
     fn html_type6_void_col_link_base_do_not_swallow_next_paragraph() {
         for tag in ["<col>", "<link>", "<base>"] {
-            let input = format!(
-                "Intro sentence here. Another intro sentence.\n{tag}\nAfter html. Next.\n"
-            );
+            let input =
+                format!("Intro sentence here. Another intro sentence.\n{tag}\nAfter html. Next.\n");
             let regions = MarkdownParser.parse(&input);
             assert!(
                 regions.iter().any(|r| matches!(

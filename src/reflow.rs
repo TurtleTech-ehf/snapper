@@ -3053,7 +3053,9 @@ They are endowed with reason and conscience and should act towards one another i
             crate::format::Format::Markdown,
         );
         assert!(
-            !strike.lines().any(|l| l.starts_with("~ ") || l.starts_with(": ")),
+            !strike
+                .lines()
+                .any(|l| l.starts_with("~ ") || l.starts_with(": ")),
             "~~ strike must not become a definition:\n{strike}"
         );
     }
