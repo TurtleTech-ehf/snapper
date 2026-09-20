@@ -14,7 +14,10 @@ This makes semantic line breaks transparent to collaborators who do not use snap
 :CUSTOM_ID: setup
 :END:
 
-Configure the filter in your local git config:
+=snapper init= writes this filter into the local git config as
+=snapper-fmt --native --stdin-filepath %f= (extension auto-detect; =snapper-fmt=
+avoids openSUSE's Btrfs =snapper=) plus a working pre-commit hook.
+To configure it by hand:
 
 #+begin_src bash
 git config filter.snapper.clean "snapper --native --format org"
