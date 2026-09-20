@@ -6,6 +6,7 @@ All notable changes to this project will be documented in this file. See [conven
 #### Bug Fixes
 - leftover type-6 void HTML (`param`/`track`) does not swallow following prose
 - leftover wrap-created RST simple-table border skip-cut
+- leftover org bibtex/eshell/w3m plain links hang and wrap
 
 - - -
 

@@ -432,6 +432,35 @@ fn leftover_shortdoc_plain_link_after_path_hangs_and_splits() {
 }
 
 #[test]
+fn leftover_bibtex_eshell_w3m_plain_link_after_path_hangs_and_splits() {
+    // snapper-zmue: ol-bibtex / ol-eshell / ol-w3m prefixes were missing.
+    for (path, needle) in [
+        ("bibtex:file.bib leftover. Next.\n", "bibtex:file.bib"),
+        ("eshell:ls leftover. Next.\n", "eshell:ls"),
+        ("w3m:index.html leftover. Next.\n", "w3m:index.html"),
+    ] {
+        let input = format!("{path}After. Next.\n");
+        let regions = OrgParser.parse(&input);
+        assert!(
+            regions
+                .iter()
+                .any(|r| matches!(r, Region::Structure(s) if s.contains(needle))),
+            "{needle} path must stay Structure, got {regions:?}"
+        );
+        let out = format_text(&input, &org_cfg()).unwrap();
+        assert!(
+            !out.contains(&format!("{needle} leftover. Next.")),
+            "leftover after {needle} must still split, got:\n{out}"
+        );
+        assert!(
+            out.contains("After.\nNext."),
+            "following prose must still split after {needle}, got:\n{out}"
+        );
+        assert_eq!(format_text(&out, &org_cfg()).unwrap(), out);
+    }
+}
+
+#[test]
 fn org_file_token_same_line_splits() {
     let two_line = "See file:/tmp/foo.\nNext sentence.\n";
     let out = format_text(two_line, &org_cfg()).unwrap();

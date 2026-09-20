@@ -168,11 +168,13 @@ struct OpenGreater {
 /// or Unicode word characters (letters and digits). `:END:` is the closer.
 /// org-element plain-link prefixes at column 0. `file+emacs:` /
 /// `file+sys:` must be matched before `file:`. `man:` / `docview:` /
-/// `shortdoc:` are ol.el built-ins (snapper-9aio).
+/// `shortdoc:` are ol.el built-ins (snapper-9aio). `bibtex:` / `eshell:` /
+/// `w3m:` are ol-bibtex / ol-eshell / ol-w3m (snapper-zmue).
 const ORG_PLAIN_LINK_PREFIXES: &[&str] = &[
     "file+emacs:",
     "file+sys:",
     "file:",
+    "eshell:",
     "shell:",
     "elisp:",
     "help:",
@@ -195,6 +197,8 @@ const ORG_PLAIN_LINK_PREFIXES: &[&str] = &[
     "attachment:",
     "docview:",
     "shortdoc:",
+    "bibtex:",
+    "w3m:",
     "id:",
 ];
 
