@@ -632,6 +632,11 @@ fn md_opens_block(line: &str) -> bool {
     if md_list_start(t) {
         return true;
     }
+    // pulldown leftover `:` / `~` definition marker. `~~` is strike
+    // and `~~~` is already a fence above.
+    if crate::parser::markdown::md_definition_list_marker_len(t).is_some() {
+        return true;
+    }
     if md_link_ref_def(t) {
         return true;
     }
@@ -639,6 +644,10 @@ fn md_opens_block(line: &str) -> bool {
         return true;
     }
     if t.starts_with("$$") {
+        return true;
+    }
+    // GFM leftover flanking-pipe row (TABLE_ROW_RE).
+    if t.starts_with('|') {
         return true;
     }
     false
@@ -680,19 +689,28 @@ fn org_opens_block(line: &str) -> bool {
     if t.starts_with("[[") {
         return true;
     }
-    if t.starts_with("file:") || t.starts_with("http://") || t.starts_with("https://") {
+    if crate::parser::org::org_plain_link_starts(t) {
         return true;
     }
     if t.starts_with("\\begin{") {
         return true;
     }
-    if crate::parser::org::is_org_drawer_begin(t) || org_fixed_width(t) || org_horizontal_rule(t) {
+    if org_drawer_first_token(t) || org_fixed_width(t) || org_horizontal_rule(t) {
         return true;
     }
     if org_planning_or_clock(t) {
         return true;
     }
     ordered_list_start(t)
+}
+
+/// First whitespace token is `:NAME:` or `:END:`.
+/// org-element drawer begin is the whole line; wrap leftover after the
+/// name is not a drawer, so skip-cut prefix-matches the token (snapper-8jgg).
+fn org_drawer_first_token(line: &str) -> bool {
+    let t = line.trim_start_matches([' ', '\t']);
+    let token = t.split([' ', '\t']).next().unwrap_or("");
+    crate::parser::org::is_org_drawer_begin(token) || token.eq_ignore_ascii_case(":END:")
 }
 
 /// org-element planning (`DEADLINE:`/`SCHEDULED:`/`CLOSED:`) or clock (`CLOCK:`).
@@ -3008,6 +3026,50 @@ They are endowed with reason and conscience and should act towards one another i
     }
 
     #[test]
+    fn wrap_created_md_definition_marker_is_not_a_block() {
+        // pulldown leftover `:` / `~` definition. Markdown escapes
+        // the wrap-created marker (same as `#` / `>`). `~~` is strike.
+        for token in [":", "~"] {
+            let result = wrap_fmt(
+                &format!("The options are apples {token} extra words here."),
+                23,
+                crate::format::Format::Markdown,
+            );
+            assert_no_col0_block(&result, &[token, &format!("{token} ")]);
+            let escaped = format!("\\{token} ");
+            assert!(
+                result.lines().any(|l| l.starts_with(&escaped)),
+                "wrap-created {token} must be markdown-escaped:\n{result}"
+            );
+        }
+        let strike = wrap_fmt(
+            "The options are apples ~~ extra words here.",
+            23,
+            crate::format::Format::Markdown,
+        );
+        assert!(
+            !strike.lines().any(|l| l.starts_with("~ ") || l.starts_with(": ")),
+            "~~ strike must not become a definition:\n{strike}"
+        );
+    }
+
+    #[test]
+    fn wrap_created_md_table_pipe_is_not_a_block() {
+        // TABLE_ROW_RE flanking pipes. Wrap-created leftover `| extra |`
+        // must not become a table row. Markdown escapes the opener.
+        let result = wrap_fmt(
+            "The options are apples | extra |",
+            23,
+            crate::format::Format::Markdown,
+        );
+        assert_no_col0_block(&result, &["| extra |", "| "]);
+        assert!(
+            result.lines().any(|l| l.starts_with("\\|")),
+            "wrap-created leftover pipe must be markdown-escaped:\n{result}"
+        );
+    }
+
+    #[test]
     fn wrap_created_html_tag_is_not_a_markdown_block() {
         // D. HTML tags
         let result = wrap_fmt(
@@ -3164,6 +3226,53 @@ They are endowed with reason and conscience and should act towards one another i
             result.contains("apples %%("),
             "%%( stays with the previous line:\n{result}"
         );
+    }
+
+    #[test]
+    fn wrap_created_org_plain_link_prefixes_are_not_blocks() {
+        // snapper-hctf: org_opens_block skip-cut only file:/http(s).
+        // Remaining org-element plain-link prefixes must stay off column 0.
+        for token in [
+            "shell:ls",
+            "elisp:(+)",
+            "mailto:dev@x.com",
+            "doi:10.1000/foo",
+            "id:abc-123",
+            "file+emacs:/tmp/x",
+            "attachment:plot.png",
+            "man:org",
+            "docview:/tmp/a.pdf",
+            "shortdoc:org",
+        ] {
+            let result = wrap_fmt(
+                &format!("The options are apples {token} extra words here."),
+                23,
+                crate::format::Format::Org,
+            );
+            assert_no_col0_block(&result, &[token]);
+            assert!(
+                result.contains(&format!("apples {token}")),
+                "{token} stays with the previous line:\n{result}"
+            );
+        }
+    }
+
+    #[test]
+    fn wrap_created_org_drawer_name_leftover_is_not_a_block() {
+        // snapper-8jgg: leftover after :NAME: is not a drawer line, so
+        // skip-cut must prefix-match the first token (same as DEADLINE:).
+        for token in [":PROPERTIES:", ":LOGBOOK:", ":END:"] {
+            let result = wrap_fmt(
+                &format!("The options are apples {token} extra words here."),
+                23,
+                crate::format::Format::Org,
+            );
+            assert_no_col0_block(&result, &[token]);
+            assert!(
+                result.contains(&format!("apples {token}")),
+                "{token} stays with the previous line:\n{result}"
+            );
+        }
     }
 
     #[test]
