@@ -246,6 +246,7 @@ These tokens within prose are not split across lines:
 - Literal blocks (text after =::= with indented or line-prefix-quoted content)
 - Section titles and underlines (=====, =-----=, etc.).
   A wrap cut that would park a solid Docutils =Body.line= adornment at column 0 skip-cuts the token onto the previous line (snapper-7xd3)
+  A wrap cut that would park a Docutils simple-table border at column 0 skip-cuts the token onto the previous line (snapper-2knx)
 - Field lists (=:Author:=, =:Date:=, etc.)
 - Empty list items, empty doctest openers, and empty field-list markers at EOL stay Structure
 - Comments (=..= without a directive)
