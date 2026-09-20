@@ -199,7 +199,7 @@ These tokens within prose are not split across lines:
 - Hard line breaks (two trailing spaces, or a trailing backslash)
 - HTML comments (=<!-- ... -->=, including multiline); =<!-- snapper:off -->= / =<!-- snapper:on -->= remain pragmas
 - Closed type-6 and type-7 HTML blocks end at the matching close tag; following prose stays Prose
-- Void type-6 tags (=<hr>= / =<col>= / =<link>= / =<base>=) end on the tag line; they have no closer, so leftover following prose stays Prose even without a blank
+- Void type-6 tags (=<hr>= / =<col>= / =<link>= / =<base>= / =<param>= / =<track>=) end on the tag line; they have no closer, so leftover following prose stays Prose even without a blank
 - Pipe tables
 
 *** Code regions (fenced =```= / =~~~=)

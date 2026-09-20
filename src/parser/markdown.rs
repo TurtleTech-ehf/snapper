@@ -255,11 +255,12 @@ fn is_html_block_tag(name: &str) -> bool {
 }
 
 /// Type-6 tags with no closer (HTML void elements on the CM type-6 list).
-/// snapper-56tj: nest never hits 0, so leftover following prose was Structure.
+/// snapper-56tj / snapper-18gq: nest never hits 0, so leftover following
+/// prose was Structure. `param` / `track` are the remaining CM type-6 voids.
 fn is_html_void_type6(name: &str) -> bool {
     matches!(
         name.to_ascii_lowercase().as_str(),
-        "base" | "basefont" | "col" | "frame" | "hr" | "link" | "menuitem"
+        "base" | "basefont" | "col" | "frame" | "hr" | "link" | "menuitem" | "param" | "track"
     )
 }
 
@@ -5377,6 +5378,60 @@ mod tests {
         let out = format_text(ticket_html_type6_void_hr_fixture(), &cfg).unwrap();
         assert!(
             out.contains("<hr>"),
+            "void type-6 tag must stay, got:\n{out}"
+        );
+        assert!(
+            out.contains("After html.\nNext."),
+            "following prose must still split, got:\n{out}"
+        );
+        assert_eq!(format_text(&out, &cfg).unwrap(), out);
+    }
+
+    /// snapper-18gq: CM type-6 void `param` / `track` were missing from
+    /// `is_html_void_type6`, so nest never hit 0 and leftover following
+    /// prose was Structure.
+    #[test]
+    fn html_type6_void_param_track_do_not_swallow_next_paragraph() {
+        for tag in ["<param>", "<track>"] {
+            let input =
+                format!("Intro sentence here. Another intro sentence.\n{tag}\nAfter html. Next.\n");
+            let regions = MarkdownParser.parse(&input);
+            assert!(
+                regions.iter().any(|r| matches!(
+                    r,
+                    Region::Structure(s) if s.contains(tag)
+                )),
+                "{tag} must be Structure, got {regions:?}"
+            );
+            assert!(
+                !regions.iter().any(|r| matches!(
+                    r,
+                    Region::Structure(s) if s.contains(tag) && s.contains("After html")
+                )),
+                "void type-6 {tag} must not swallow following prose, got {regions:?}"
+            );
+            assert!(
+                regions.iter().any(|r| matches!(
+                    r,
+                    Region::Prose(p) if p.contains("After html.") && p.contains("Next.")
+                )),
+                "following paragraph after {tag} must stay Prose: {regions:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn leftover_html_type6_void_param_following_prose_still_splits() {
+        use crate::{FormatConfig, format_text};
+        let cfg = FormatConfig {
+            format: crate::format::Format::Markdown,
+            ..Default::default()
+        }
+        .without_safety_backstops();
+        let input = "Intro sentence here. Another intro sentence.\n<param>\nAfter html. Next.\n";
+        let out = format_text(input, &cfg).unwrap();
+        assert!(
+            out.contains("<param>"),
             "void type-6 tag must stay, got:\n{out}"
         );
         assert!(
