@@ -735,3 +735,67 @@ fn leftover_include_same_line_after_filename_hangs_and_splits() {
     );
     assert_eq!(format_text(&out, &rst_cfg()).unwrap(), out);
 }
+
+#[test]
+fn leftover_literalinclude_same_line_after_filename_hangs_and_splits() {
+    let input = concat!(
+        ".. literalinclude:: foo.py leftover. Next.\n",
+        "After. Next.\n",
+    );
+    let out = format_text(input, &rst_cfg()).unwrap();
+    assert!(
+        !out.contains(".. literalinclude:: foo.py leftover. Next."),
+        "leftover after literalinclude filename must still split, got:\n{out}"
+    );
+    assert!(
+        out.contains("After.\nNext."),
+        "following prose must still split, got:\n{out}"
+    );
+    assert_eq!(format_text(&out, &rst_cfg()).unwrap(), out);
+}
+
+#[test]
+fn leftover_raw_same_line_after_format_hangs_and_splits() {
+    let input = concat!(".. raw:: html leftover. Next.\n", "After. Next.\n",);
+    let out = format_text(input, &rst_cfg()).unwrap();
+    assert!(
+        !out.contains(".. raw:: html leftover. Next."),
+        "leftover after raw format must still split, got:\n{out}"
+    );
+    assert!(
+        out.contains("After.\nNext."),
+        "following prose must still split, got:\n{out}"
+    );
+    assert_eq!(format_text(&out, &rst_cfg()).unwrap(), out);
+}
+
+#[test]
+fn leftover_raw_same_line_then_indented_html_stays_opaque() {
+    let input = concat!(
+        ".. raw:: html leftover. Next.\n",
+        "   <p>This is a long note sentence that must reflow. Second sentence.</p>\n",
+        "After. Next.\n",
+    );
+    let regions = RstParser.parse(input);
+    assert!(
+        !regions.iter().any(|r| matches!(
+            r,
+            Region::Prose(s) if s.contains("<p>This is a long")
+        )),
+        "indented raw body after leftover must stay Structure, got {regions:?}"
+    );
+    let out = format_text(input, &rst_cfg()).unwrap();
+    assert!(
+        !out.contains(".. raw:: html leftover. Next."),
+        "leftover after raw format must still split, got:\n{out}"
+    );
+    assert!(
+        out.contains("<p>This is a long note sentence that must reflow. Second sentence.</p>"),
+        "indented raw body must stay opaque, got:\n{out}"
+    );
+    assert!(
+        out.contains("After.\nNext."),
+        "following prose must still split, got:\n{out}"
+    );
+    assert_eq!(format_text(&out, &rst_cfg()).unwrap(), out);
+}

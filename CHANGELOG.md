@@ -6,6 +6,16 @@ All notable changes to this project will be documented in this file. See [conven
 
 - - -
 
+## v0.11.6 - 2026-09-20
+#### Bug Fixes
+- leftover wrap-created RST section adornment skip-cut (snapper-7xd3)
+- leftover type-6 void HTML (`hr`/`col`/`link`/`base`) does not swallow following prose (snapper-56tj)
+- leftover RST include/raw/literalinclude same-line hang
+- leftover wrap-created org/md markers and extra-compact DL hang
+- site 404 page instead of the landing page
+
+- - -
+
 ## v0.11.5 - 2026-09-15
 #### Bug Fixes
 - leftover native-parser walkers vs Docutils pulldown org-element and TeX (#482)

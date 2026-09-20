@@ -254,6 +254,15 @@ fn is_html_block_tag(name: &str) -> bool {
     HTML_BLOCK_TAGS.iter().any(|t| name.eq_ignore_ascii_case(t))
 }
 
+/// Type-6 tags with no closer (HTML void elements on the CM type-6 list).
+/// snapper-56tj: nest never hits 0, so leftover following prose was Structure.
+fn is_html_void_type6(name: &str) -> bool {
+    matches!(
+        name.to_ascii_lowercase().as_str(),
+        "base" | "basefont" | "col" | "frame" | "hr" | "link" | "menuitem"
+    )
+}
+
 /// Type-6 start tag name on `rest` (already indent-stripped), if any.
 fn type6_tag_name(rest: &str) -> Option<&str> {
     let after = if let Some(a) = rest.strip_prefix("</") {
@@ -336,7 +345,7 @@ fn apply_type6_named_tags(line: &str, tag: &str, nest: &mut i32) -> bool {
         }
         if is_close {
             *nest -= 1;
-        } else if !html_tag_self_closes(after_name) {
+        } else if !html_tag_self_closes(after_name) && !is_html_void_type6(tag) {
             *nest += 1;
         }
         if *nest <= 0 {
@@ -5293,6 +5302,88 @@ mod tests {
             )),
             "following paragraph must stay Prose: {regions:?}"
         );
+    }
+
+    /// snapper-56tj: void type-6 (`hr` / `col` / `link` / `base`) has no
+    /// closer. The block ends on the tag line so following prose stays
+    /// Prose even without a blank.
+    fn ticket_html_type6_void_hr_fixture() -> &'static str {
+        concat!(
+            "Intro sentence here. Another intro sentence.\n",
+            "<hr>\n",
+            "After html. Next.\n",
+        )
+    }
+
+    #[test]
+    fn html_type6_void_hr_does_not_swallow_next_paragraph() {
+        let regions = MarkdownParser.parse(ticket_html_type6_void_hr_fixture());
+        let hr = regions.iter().find_map(|r| match r {
+            Region::Structure(s) if s.contains("<hr>") => Some(s.as_str()),
+            _ => None,
+        });
+        let hr = hr.expect(&format!("hr block must be Structure, got {regions:?}"));
+        assert!(
+            !hr.contains("After html"),
+            "void type-6 must end on the hr line, got {hr}"
+        );
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(p) if p.contains("After html.") && p.contains("Next.")
+            )),
+            "following paragraph must stay Prose: {regions:?}"
+        );
+    }
+
+    #[test]
+    fn html_type6_void_col_link_base_do_not_swallow_next_paragraph() {
+        for tag in ["<col>", "<link>", "<base>"] {
+            let input =
+                format!("Intro sentence here. Another intro sentence.\n{tag}\nAfter html. Next.\n");
+            let regions = MarkdownParser.parse(&input);
+            assert!(
+                regions.iter().any(|r| matches!(
+                    r,
+                    Region::Structure(s) if s.contains(tag)
+                )),
+                "{tag} must be Structure, got {regions:?}"
+            );
+            assert!(
+                !regions.iter().any(|r| matches!(
+                    r,
+                    Region::Structure(s) if s.contains(tag) && s.contains("After html")
+                )),
+                "void type-6 {tag} must not swallow following prose, got {regions:?}"
+            );
+            assert!(
+                regions.iter().any(|r| matches!(
+                    r,
+                    Region::Prose(p) if p.contains("After html.") && p.contains("Next.")
+                )),
+                "following paragraph after {tag} must stay Prose: {regions:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn leftover_html_type6_void_hr_following_prose_still_splits() {
+        use crate::{FormatConfig, format_text};
+        let cfg = FormatConfig {
+            format: crate::format::Format::Markdown,
+            ..Default::default()
+        }
+        .without_safety_backstops();
+        let out = format_text(ticket_html_type6_void_hr_fixture(), &cfg).unwrap();
+        assert!(
+            out.contains("<hr>"),
+            "void type-6 tag must stay, got:\n{out}"
+        );
+        assert!(
+            out.contains("After html.\nNext."),
+            "following prose must still split, got:\n{out}"
+        );
+        assert_eq!(format_text(&out, &cfg).unwrap(), out);
     }
 
     #[test]
