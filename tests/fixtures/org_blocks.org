@@ -1,0 +1,10 @@
+#+BEGIN_SRC python
+x = 1. 2
+print("stay")
+#+END_SRC
+
+#+BEGIN_NOTE
+Quoted one. Quoted two.
+#+END_NOTE
+
+After. Next.
