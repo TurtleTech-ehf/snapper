@@ -199,6 +199,7 @@ These tokens within prose are not split across lines:
 - Hard line breaks (two trailing spaces, or a trailing backslash)
 - HTML comments (=<!-- ... -->=, including multiline); =<!-- snapper:off -->= / =<!-- snapper:on -->= remain pragmas
 - Closed type-6 and type-7 HTML blocks end at the matching close tag; following prose stays Prose
+- Void type-6 tags (=<hr>= / =<col>= / =<link>= / =<base>=) end on the tag line; they have no closer, so leftover following prose stays Prose even without a blank
 - Pipe tables
 
 *** Code regions (fenced =```= / =~~~=)
@@ -243,7 +244,8 @@ These tokens within prose are not split across lines:
 - Same-line body after =::= on those containers, leftover =.. parsed-literal::=, =.. header::=, =.. footer::=, =.. |name| replace::=, and =.. meta::= fields hangs and splits.
   Flush bibliographic fields close a meta leftover
 - Literal blocks (text after =::= with indented or line-prefix-quoted content)
-- Section titles and underlines (=====, =-----=, etc.)
+- Section titles and underlines (=====, =-----=, etc.).
+  A wrap cut that would park a solid Docutils =Body.line= adornment at column 0 skip-cuts the token onto the previous line (snapper-7xd3)
 - Field lists (=:Author:=, =:Date:=, etc.)
 - Empty list items, empty doctest openers, and empty field-list markers at EOL stay Structure
 - Comments (=..= without a directive)
