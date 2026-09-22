@@ -819,6 +819,16 @@ fn rst_opens_block(line: &str) -> bool {
     if crate::parser::rst::is_rst_grid_table_top(t) {
         return true;
     }
+    // sphinx-jinja / Jinja2 `{% ... %}`. Not an underline. A wrap cut
+    // that parks the statement at column 0 mints a structure line.
+    if crate::parser::rst::is_rst_jinja_statement(t) {
+        return true;
+    }
+    // Docutils anonymous hyperlink target `__` / `__ uri`. A solid `__`
+    // is already an underline; `__ uri` is not.
+    if crate::parser::rst::is_rst_anonymous_target(t) {
+        return true;
+    }
     false
 }
 
@@ -3300,6 +3310,46 @@ They are endowed with reason and conscience and should act towards one another i
             "following prose must still split, got:\n{out}"
         );
         assert_eq!(crate::format_text(&out, &cfg).unwrap(), out);
+    }
+
+    #[test]
+    fn wrap_created_rst_jinja_statement_is_not_a_block() {
+        for token in ["{%endfor%}", "{%-endfor-%}", "{%+endfor+%}"] {
+            let result = wrap_fmt(
+                &format!("The options are apples {token}"),
+                23,
+                crate::format::Format::Rst,
+            );
+            assert_no_col0_block(&result, &[token]);
+            assert!(
+                result.contains(&format!("apples {token}")),
+                "RST skip-cut keeps the {token} jinja statement:\n{result}"
+            );
+        }
+        let spaced = wrap_fmt(
+            r#"The options are apples {% set x = 1 %}"#,
+            23,
+            crate::format::Format::Rst,
+        );
+        assert_no_col0_block(&spaced, &["{% set x = 1 %}", "{%"]);
+        assert!(
+            spaced.contains("{%"),
+            "jinja opener stays with the previous line:\n{spaced}"
+        );
+    }
+
+    #[test]
+    fn wrap_created_rst_anonymous_target_is_not_a_block() {
+        let result = wrap_fmt(
+            "The options are apples __ https://x.test",
+            23,
+            crate::format::Format::Rst,
+        );
+        assert_no_col0_block(&result, &["__ https://x.test", "__"]);
+        assert!(
+            result.contains("apples __"),
+            "anonymous target marker stays with the previous line:\n{result}"
+        );
     }
 
     #[test]
