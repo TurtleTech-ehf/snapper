@@ -4,6 +4,7 @@ All notable changes to this project will be documented in this file. See [conven
 - - -
 ## Unreleased (main)
 #### Bug Fixes
+- leftover org ordered marker past nine digits skip-cut
 - leftover short markdown setext underline is escaped
 - leftover wrap-created LaTeX sectioning command skip-cut
 - leftover org item bullet allows a tab
