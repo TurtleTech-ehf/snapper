@@ -1348,8 +1348,11 @@ impl FormatParser for OrgParser {
             if let Some(caps) = LIST_ITEM_RE.captures(line_text) {
                 flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
                 let marker = caps.get(1).unwrap().as_str();
-                // Track indent for continuation detection: text starts at marker length
-                list_item_indent = Some(marker.len());
+                // An item ends at a line indented <= its bullet. The text
+                // column (`1. ` is three) is the hang, not that test, so a
+                // two-space line stays in a column-0 item.
+                let bullet_col = marker.len() - marker.trim_start().len();
+                list_item_indent = Some(bullet_col + 1);
                 list_saw_blank = false;
                 in_footnote_def = false;
                 footnote_saw_blank = false;
@@ -1736,6 +1739,35 @@ mod tests {
             !out.lines()
                 .any(|l| l.contains("keep reading") && l.contains("Tab after")),
             "tab item must not join the intro, got:\n{out}"
+        );
+        assert_eq!(crate::format_text(&out, &cfg).unwrap(), out);
+    }
+
+    #[test]
+    fn org_item_ends_at_bullet_column() {
+        // Org manual: an item ends before the next line indented less
+        // than or equal to its bullet. A two-space line stays in a
+        // column-0 ordered item. The flush line does not.
+        let input = "1. Ordered item text\n  still inside here\nplus outside text.\n";
+        let cfg = crate::FormatConfig {
+            format: crate::format::Format::Org,
+            max_width: 23,
+            ..Default::default()
+        }
+        .without_safety_backstops();
+        let out = crate::format_text(input, &cfg).unwrap();
+        assert!(
+            !out.lines()
+                .any(|l| l.contains("still") && l.contains("plus")),
+            "continuation must not join the following paragraph, got:\n{out}"
+        );
+        assert!(
+            out.contains("still inside"),
+            "indented line must stay, got:\n{out}"
+        );
+        assert!(
+            out.lines().any(|l| l.starts_with("plus outside")),
+            "flush line ends the item, got:\n{out}"
         );
         assert_eq!(crate::format_text(&out, &cfg).unwrap(), out);
     }
