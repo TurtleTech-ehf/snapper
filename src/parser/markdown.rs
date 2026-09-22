@@ -397,7 +397,11 @@ fn named_html_end_idx(lines: &[Line<'_>], start_idx: usize, tag: &str) -> usize 
     let mut nest = 0i32;
     let mut j = start_idx;
     loop {
-        if apply_type6_named_tags(lines[j].text, tag, &mut nest) {
+        let closed = apply_type6_named_tags(lines[j].text, tag, &mut nest);
+        // A void tag has no body, so the block is that line. A matching
+        // end tag does not end type 6 or 7; CommonMark runs to the next
+        // blank line.
+        if closed && is_html_void_type6(tag) {
             return j;
         }
         if j + 1 >= lines.len() || lines[j + 1].text.trim().is_empty() {
@@ -465,9 +469,9 @@ fn html_block_line_ends(line: &str, kind: HtmlBlock) -> bool {
 fn html_block_end_idx(kind: HtmlBlock, lines: &[Line<'_>], start_idx: usize) -> usize {
     match kind {
         HtmlBlock::Type6 | HtmlBlock::Type7 => {
-            // Closed type-6 (`<div>…</div>`) and type-7 (`<span>…</span>`)
-            // end at the matching close so the next paragraph stays Prose
-            // (GitHub #332 / #356). Unclosed still runs to a following blank.
+            // CommonMark 0.31.2: type 6 and 7 end at the next blank line.
+            // A matching end tag does not end the block. Void tags still
+            // stop on the tag line.
             let rest = html_block_rest(lines[start_idx].text);
             let tag = if kind == HtmlBlock::Type6 {
                 type6_tag_name(rest)
@@ -563,7 +567,8 @@ fn quoted_named_html_end_idx(
     let mut j = start_idx;
     loop {
         if let Some(inner) = quoted_html_inner(lines[j].text, depth) {
-            if apply_type6_named_tags(inner, tag, &mut nest) {
+            let closed = apply_type6_named_tags(inner, tag, &mut nest);
+            if closed && is_html_void_type6(tag) {
                 return j;
             }
         } else {
@@ -2674,8 +2679,8 @@ impl FormatParser for MarkdownParser {
             }
 
             // CommonMark 4.6 HTML blocks types 1 and 3–7. Type 2 is above.
-            // Unclosed type-7 cannot interrupt a paragraph. Closed type-7
-            // (`<span>…</span>`) is a leaf island (GitHub #356).
+            // Unclosed type-7 cannot interrupt a paragraph. Type 6 and 7
+            // run to the next blank line.
             if let Some(kind) = html_block_kind(line_text) {
                 let in_paragraph = !current_prose.is_empty() || in_list_item;
                 if kind.can_interrupt()
@@ -5583,8 +5588,8 @@ mod tests {
         );
     }
 
-    /// GitHub #332 / snapper-v85k: closed type-6 must not swallow
-    /// the following paragraph.
+    /// CommonMark type 6 runs to the next blank line. Text after
+    /// `</div>` with no blank stays in the block.
     fn ticket_html_type6_close_fixture() -> &'static str {
         concat!(
             "Intro sentence here. Another intro sentence.\n",
@@ -5607,22 +5612,15 @@ mod tests {
         assert!(div.contains("First. Second."), "{div}");
         assert!(div.contains("</div>"), "{div}");
         assert!(
-            !div.contains("After html"),
-            "closed type-6 must end at </div>, got {div}"
+            div.contains("After html. Next."),
+            "text before a blank stays in the type-6 block, got {div}"
         );
         assert!(
             !regions.iter().any(|r| matches!(
                 r,
-                Region::Prose(p) if p.contains("First.") || p.contains("<div")
+                Region::Prose(p) if p.contains("First.") || p.contains("<div") || p.contains("After html")
             )),
             "div body must not be Prose: {regions:?}"
-        );
-        assert!(
-            regions.iter().any(|r| matches!(
-                r,
-                Region::Prose(p) if p.contains("After html.") && p.contains("Next.")
-            )),
-            "following paragraph must stay Prose: {regions:?}"
         );
     }
 
@@ -5907,8 +5905,8 @@ mod tests {
         );
     }
 
-    /// GitHub #356 / snapper-615s: closed type-7 must not swallow
-    /// the following paragraph.
+    /// CommonMark type 7 runs to the next blank line. Text after
+    /// `</span>` with no blank stays in the block.
     fn ticket_html_type7_close_fixture() -> &'static str {
         concat!(
             "Intro sentence here. Another intro sentence.\n",
@@ -5931,22 +5929,15 @@ mod tests {
         assert!(span.contains("First. Second."), "{span}");
         assert!(span.contains("</span>"), "{span}");
         assert!(
-            !span.contains("After html"),
-            "closed type-7 must end at </span>, got {span}"
+            span.contains("After html. Next."),
+            "text before a blank stays in the type-7 block, got {span}"
         );
         assert!(
             !regions.iter().any(|r| matches!(
                 r,
-                Region::Prose(p) if p.contains("First.") || p.contains("<span")
+                Region::Prose(p) if p.contains("First.") || p.contains("<span") || p.contains("After html")
             )),
             "span body must not be Prose: {regions:?}"
-        );
-        assert!(
-            regions.iter().any(|r| matches!(
-                r,
-                Region::Prose(p) if p.contains("After html.") && p.contains("Next.")
-            )),
-            "following paragraph must stay Prose: {regions:?}"
         );
     }
 
@@ -5970,8 +5961,12 @@ mod tests {
             "span HTML block must stay raw through </span>, got:\n{out}"
         );
         assert!(
-            out.contains("After html.\nNext.\n"),
-            "following paragraph must stay Prose and split, got:\n{out}"
+            out.contains("After html. Next.\n"),
+            "text before a blank stays in the span block, got:\n{out}"
+        );
+        assert!(
+            !out.contains("After html.\nNext."),
+            "type-7 text must not sentence-split before a blank, got:\n{out}"
         );
         assert!(
             !out.contains("First.\nSecond."),
@@ -6054,8 +6049,12 @@ mod tests {
             "div HTML block must stay raw through </div>, got:\n{out}"
         );
         assert!(
-            out.contains("After html.\nNext.\n"),
-            "following paragraph must stay Prose and split, got:\n{out}"
+            out.contains("After html. Next.\n"),
+            "text before a blank stays in the div block, got:\n{out}"
+        );
+        assert!(
+            !out.contains("After html.\nNext."),
+            "type-6 text must not sentence-split before a blank, got:\n{out}"
         );
         assert!(
             !out.contains("First.\nSecond."),
@@ -7042,6 +7041,53 @@ mod tests {
                     if s.contains("fig. 1 is here.") || s.contains("Continuation.")
             )),
             "footnote body must not stay Structure, got: {regions:?}"
+        );
+    }
+
+    #[test]
+    fn html_type6_runs_to_a_blank_line() {
+        // CommonMark 0.31.2 type 6 ends at a blank line. The matching
+        // close tag does not end the block.
+        let input = "<div>\nFirst. Second.\n</div>\nAfter html. Next.\n";
+        let regions = MarkdownParser.parse(input);
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Structure(s)
+                    if s.contains("</div>") && s.contains("After html. Next.")
+            )),
+            "text after </div> stays in the html block, got {regions:?}"
+        );
+        assert!(
+            !regions
+                .iter()
+                .any(|r| matches!(r, Region::Prose(p) if p.contains("After html"))),
+            "text before the blank must not be prose, got {regions:?}"
+        );
+        let cfg = crate::FormatConfig {
+            format: crate::format::Format::Markdown,
+            max_width: 0,
+            ..Default::default()
+        }
+        .without_safety_backstops();
+        let out = crate::format_text(input, &cfg).unwrap();
+        assert!(
+            out.contains("After html. Next.\n"),
+            "html block must not sentence-split, got:\n{out}"
+        );
+        assert_eq!(crate::format_text(&out, &cfg).unwrap(), out);
+
+        let blanked = "<div>\nFirst. Second.\n</div>\n\nAfter html. Next.\n";
+        let blanked_out = crate::format_text(blanked, &cfg).unwrap();
+        assert!(
+            blanked_out.contains("After html.\nNext.\n"),
+            "a blank line ends the block, got:\n{blanked_out}"
+        );
+        let hr = "<hr>\nAfter html. Next.\n";
+        let hr_out = crate::format_text(hr, &cfg).unwrap();
+        assert!(
+            hr_out.contains("After html.\nNext.\n"),
+            "a void tag does not swallow the next line, got:\n{hr_out}"
         );
     }
 

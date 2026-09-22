@@ -1,7 +1,5 @@
-//! GitHub #356 / snapper-615s: CommonMark 0.31.2 sec 4.6 HTML type 7.
-//! A closed `<span>…</span>` must not include the next paragraph.
-//! `After html.` / `Next.` stay Prose and still split. Type-6 close
-//! (`<div>…</div>`) and quoted HTML stay intact.
+//! CommonMark 0.31.2 sec 4.6 HTML type 7 ends at a blank line.
+//! Text after `</span>` and before a blank stays in the block.
 
 use snapper_fmt::format::Format;
 use snapper_fmt::parser::markdown::MarkdownParser;
@@ -35,8 +33,7 @@ fn expected_ticket() -> &'static str {
         "<span class=\"note\">\n",
         "First. Second.\n",
         "</span>\n",
-        "After html.\n",
-        "Next.\n",
+        "After html. Next.\n",
     )
 }
 
@@ -52,8 +49,8 @@ fn closed_span_is_structure_through_close() {
     assert!(span.contains("First. Second."), "{span}");
     assert!(span.contains("</span>"), "{span}");
     assert!(
-        !span.contains("After html"),
-        "closed type-7 must end at </span>, got {span}"
+        span.contains("After html. Next."),
+        "text before a blank stays in the type-7 block, got {span}"
     );
     assert!(
         !regions.iter().any(|r| matches!(
@@ -65,14 +62,21 @@ fn closed_span_is_structure_through_close() {
 }
 
 #[test]
-fn after_html_stays_prose() {
-    let regions = MarkdownParser.parse(ticket_fixture());
+fn blank_line_ends_type7_and_the_next_paragraph_splits() {
+    let input = concat!(
+        "<span class=\"note\">\n",
+        "First. Second.\n",
+        "</span>\n",
+        "\n",
+        "After html. Next.\n",
+    );
+    let regions = MarkdownParser.parse(input);
     assert!(
         regions.iter().any(|r| matches!(
             r,
             Region::Prose(p) if p.contains("After html.") && p.contains("Next.")
         )),
-        "After html. / Next. must stay Prose, got {regions:?}"
+        "a blank line ends the block, got {regions:?}"
     );
 }
 
@@ -85,7 +89,7 @@ fn ticket_fixture_keeps_span_and_splits_next() {
 }
 
 #[test]
-fn type6_closed_div_still_ends_at_close() {
+fn type6_closed_div_runs_to_a_blank_line() {
     let input = concat!(
         "Intro sentence here. Another intro sentence.\n",
         "<div>\n",
@@ -101,8 +105,8 @@ fn type6_closed_div_still_ends_at_close() {
     let div = div.expect(&format!("div block must be Structure, got {regions:?}"));
     assert!(div.contains("</div>"), "{div}");
     assert!(
-        !div.contains("After html"),
-        "type-6 close intact, got {div}"
+        div.contains("After html. Next."),
+        "type-6 runs to a blank line, got {div}"
     );
     let out = format_text(input, &md_cfg()).unwrap();
     assert_eq!(
@@ -113,10 +117,9 @@ fn type6_closed_div_still_ends_at_close() {
             "<div>\n",
             "First. Second.\n",
             "</div>\n",
-            "After html.\n",
-            "Next.\n",
+            "After html. Next.\n",
         ),
-        "type-6 close must stay intact, got:\n{out}"
+        "type-6 runs to a blank line, got:\n{out}"
     );
 }
 
