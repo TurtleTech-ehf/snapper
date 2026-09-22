@@ -4,6 +4,7 @@ All notable changes to this project will be documented in this file. See [conven
 - - -
 ## Unreleased (main)
 #### Bug Fixes
+- leftover bare colon paragraph opens an RST literal block
 - leftover org ordered marker past nine digits skip-cut
 - leftover short markdown setext underline is escaped
 - leftover wrap-created LaTeX sectioning command skip-cut
