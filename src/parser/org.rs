@@ -926,6 +926,9 @@ impl FormatParser for OrgParser {
         // Track list item context: indent level of the marker text.
         // Continuation lines indented at or beyond this level belong to the item.
         let mut list_item_indent: Option<usize> = None;
+        // org-list-end-re ends a plain list on two blanks. One blank
+        // keeps the item open for an indented paragraph.
+        let mut list_saw_blank = false;
         // org-element footnote-separator is headline / next `[fn:]` /
         // two consecutive blanks. One blank plus an indented
         // continuation stays in the definition.
@@ -1170,10 +1173,13 @@ impl FormatParser for OrgParser {
                 flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
                 if in_footnote_def && !footnote_saw_blank {
                     footnote_saw_blank = true;
+                } else if !in_footnote_def && list_item_indent.is_some() && !list_saw_blank {
+                    list_saw_blank = true;
                 } else {
                     in_footnote_def = false;
                     footnote_saw_blank = false;
                     list_item_indent = None;
+                    list_saw_blank = false;
                 }
                 regions.push(SpannedRegion::blank(input, line.span()));
                 continue;
@@ -1207,6 +1213,7 @@ impl FormatParser for OrgParser {
             if let Some(marker_len) = org_caption_marker_len(line_text) {
                 flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
                 list_item_indent = Some(marker_len);
+                list_saw_blank = false;
                 let marker_span = ByteSpan::new(line.start, line.start + marker_len);
                 regions.push(SpannedRegion::structure(input, marker_span));
                 Self::emit_hung_text(input, &line, marker_len, &mut regions);
@@ -1239,6 +1246,7 @@ impl FormatParser for OrgParser {
             if let Some(marker_len) = org_plain_link_marker_len(line_text) {
                 flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
                 list_item_indent = None;
+                list_saw_blank = false;
                 let body = &line_text[marker_len..];
                 if body.trim().is_empty() {
                     regions.push(SpannedRegion::structure(input, line.span()));
@@ -1254,6 +1262,7 @@ impl FormatParser for OrgParser {
             if Self::is_standalone_org_link(line_text) {
                 flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
                 list_item_indent = None;
+                list_saw_blank = false;
                 regions.push(SpannedRegion::structure(input, line.span()));
                 continue;
             }
@@ -1283,6 +1292,7 @@ impl FormatParser for OrgParser {
                         ByteSpan::new(line.start, line.start + marker_len),
                     ));
                     list_item_indent = Some(marker_len);
+                    list_saw_blank = false;
                     Self::emit_hung_text(input, &line, marker_len, &mut regions);
                 }
                 continue;
@@ -1306,6 +1316,7 @@ impl FormatParser for OrgParser {
             if let Some(marker_len) = org_footnote_definition_marker_len(line_text) {
                 flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
                 list_item_indent = Some(marker_len);
+                list_saw_blank = false;
                 in_footnote_def = true;
                 footnote_saw_blank = false;
                 let marker_span = ByteSpan::new(line.start, line.start + marker_len);
@@ -1320,6 +1331,7 @@ impl FormatParser for OrgParser {
                 if leading > 0 {
                     flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
                     list_item_indent = Some(leading);
+                    list_saw_blank = false;
                     footnote_saw_blank = false;
                     regions.push(SpannedRegion::structure(
                         input,
@@ -1338,6 +1350,7 @@ impl FormatParser for OrgParser {
                 let marker = caps.get(1).unwrap().as_str();
                 // Track indent for continuation detection: text starts at marker length
                 list_item_indent = Some(marker.len());
+                list_saw_blank = false;
                 in_footnote_def = false;
                 footnote_saw_blank = false;
                 let marker_span = ByteSpan::new(line.start, line.start + marker.len());
@@ -1414,11 +1427,25 @@ impl FormatParser for OrgParser {
                             ));
                         }
                         Self::emit_hung_text(input, &line, leading, &mut regions);
+                        list_saw_blank = false;
+                        continue;
+                    }
+                    // One blank, then an indented paragraph: still the item.
+                    if list_saw_blank {
+                        if leading > 0 {
+                            regions.push(SpannedRegion::structure(
+                                input,
+                                ByteSpan::new(line.start, line.start + leading),
+                            ));
+                        }
+                        Self::emit_hung_text(input, &line, leading, &mut regions);
+                        list_saw_blank = false;
                         continue;
                     }
                 }
                 // Not a continuation: leave list context
                 list_item_indent = None;
+                list_saw_blank = false;
             }
 
             // org-syntax 5.2: `\[CONTENTS\]` may be mid-line (Kang: Structure).
@@ -1709,6 +1736,43 @@ mod tests {
             !out.lines()
                 .any(|l| l.contains("keep reading") && l.contains("Tab after")),
             "tab item must not join the intro, got:\n{out}"
+        );
+        assert_eq!(crate::format_text(&out, &cfg).unwrap(), out);
+    }
+
+    #[test]
+    fn org_list_second_paragraph_stays_in_the_item() {
+        // org-list-end-re: one blank stays in the item; two blanks end it.
+        let input = concat!(
+            "- First paragraph in the item. It has two sentences.\n",
+            "\n",
+            "  Second paragraph stays in the item. Another sentence.\n",
+            "\n",
+            "\n",
+            "After the list. Next sentence.\n",
+        );
+        let cfg = crate::FormatConfig {
+            format: crate::format::Format::Org,
+            max_width: 0,
+            ..Default::default()
+        }
+        .without_safety_backstops();
+        let out = crate::format_text(input, &cfg).unwrap();
+        let second = out
+            .lines()
+            .find(|l| l.contains("Second paragraph"))
+            .unwrap_or("");
+        assert!(
+            second.starts_with(' ') || second.starts_with('\t'),
+            "second item paragraph must stay indented, got:\n{out}"
+        );
+        assert!(
+            out.lines().any(|l| l.starts_with("After the list.")),
+            "two blanks end the list, got:\n{out}"
+        );
+        assert!(
+            out.contains("Next sentence."),
+            "prose after the list must still split, got:\n{out}"
         );
         assert_eq!(crate::format_text(&out, &cfg).unwrap(), out);
     }
