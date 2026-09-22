@@ -204,7 +204,7 @@ These tokens within prose are not split across lines:
 - GFM footnote definitions (=[^label]:=); the marker is Structure and the body hangs
 - Hard line breaks (two trailing spaces, or a trailing backslash)
 - HTML comments (=<!-- ... -->=, including multiline); =<!-- snapper:off -->= / =<!-- snapper:on -->= remain pragmas
-- Closed type-6 and type-7 HTML blocks end at the matching close tag; following prose stays Prose
+- Type-6 and type-7 HTML blocks run to the next blank line. A matching end tag does not end the block
 - Void type-6 tags (=<hr>= / =<col>= / =<link>= / =<base>= / =<param>= / =<track>=) end on the tag line; they have no closer, so leftover following prose stays Prose even without a blank
 - Pipe tables
 

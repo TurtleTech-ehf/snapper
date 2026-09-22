@@ -1,6 +1,6 @@
-//! GitHub #332 / snapper-v85k: CommonMark 0.31.2 sec 4.6 HTML type 6.
-//! A closed `<div>…</div>` must not include the next paragraph.
-//! `After html.` / `Next.` stay Prose and still split. Type-1 `<pre>`
+//! CommonMark 0.31.2 sec 4.6 HTML type 6 ends at a blank line.
+//! Text after `</div>` and before a blank stays in the block.
+//! A blank line lets the next paragraph split. Type-1 `<pre>`
 //! still ends at `</pre>`.
 
 use snapper_fmt::format::Format;
@@ -35,8 +35,7 @@ fn expected_ticket() -> &'static str {
         "<div>\n",
         "First. Second.\n",
         "</div>\n",
-        "After html.\n",
-        "Next.\n",
+        "After html. Next.\n",
     )
 }
 
@@ -52,8 +51,8 @@ fn closed_div_is_structure_through_close() {
     assert!(div.contains("First. Second."), "{div}");
     assert!(div.contains("</div>"), "{div}");
     assert!(
-        !div.contains("After html"),
-        "closed type-6 must end at </div>, got {div}"
+        div.contains("After html. Next."),
+        "text before a blank stays in the type-6 block, got {div}"
     );
     assert!(
         !regions.iter().any(|r| matches!(
@@ -65,14 +64,26 @@ fn closed_div_is_structure_through_close() {
 }
 
 #[test]
-fn after_html_stays_prose() {
-    let regions = MarkdownParser.parse(ticket_fixture());
+fn blank_line_ends_type6_and_the_next_paragraph_splits() {
+    let input = concat!(
+        "<div>\n",
+        "First. Second.\n",
+        "</div>\n",
+        "\n",
+        "After html. Next.\n",
+    );
+    let regions = MarkdownParser.parse(input);
     assert!(
         regions.iter().any(|r| matches!(
             r,
             Region::Prose(p) if p.contains("After html.") && p.contains("Next.")
         )),
-        "After html. / Next. must stay Prose, got {regions:?}"
+        "a blank line ends the block, got {regions:?}"
+    );
+    let out = format_text(input, &md_cfg()).unwrap();
+    assert!(
+        out.contains("After html.\nNext.\n"),
+        "paragraph after the blank still splits, got:\n{out}"
     );
 }
 
