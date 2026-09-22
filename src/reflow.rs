@@ -3198,6 +3198,33 @@ They are endowed with reason and conscience and should act towards one another i
     }
 
     #[test]
+    fn latex_verb_with_space_is_not_split_by_wrap() {
+        // Sentence splitting keeps `\verb|foo bar|` whole. Width wrap
+        // still splits on the space inside the delimiter.
+        let cfg = crate::FormatConfig {
+            format: crate::format::Format::Latex,
+            max_width: 16,
+            ..Default::default()
+        }
+        .without_safety_backstops();
+        let input = "Use \\verb|foo bar| here. Next sentence.\n";
+        let out = crate::format_text(input, &cfg).unwrap();
+        assert!(
+            out.contains("\\verb|foo bar|"),
+            "verb span must stay one token, got:\n{out}"
+        );
+        assert!(
+            !out.contains("\\verb|foo\n") && !out.contains("\\verb|foo\r"),
+            "wrap must not break inside the verb, got:\n{out}"
+        );
+        assert!(
+            out.contains("Next sentence."),
+            "following sentence must remain, got:\n{out}"
+        );
+        assert_eq!(crate::format_text(&out, &cfg).unwrap(), out);
+    }
+
+    #[test]
     fn wrap_created_latex_section_optional_and_koma_are_not_blocks() {
         // Optional [short] and KOMA \addsec/\addchap/\addpart are sectioning
         // lines. Width 23 would park the command at column 0.
