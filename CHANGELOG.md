@@ -4,6 +4,7 @@ All notable changes to this project will be documented in this file. See [conven
 - - -
 ## Unreleased (main)
 #### Bug Fixes
+- leftover markdown list marker remainder stays blocks
 - leftover org plain list ends on two blanks
 - leftover RST anonymous target keeps its indented link block
 - leftover bare colon paragraph opens an RST literal block
