@@ -482,8 +482,13 @@ fn parse_line_based(input: &str) -> Vec<SpannedRegion> {
             continue;
         }
 
-        // Section underline
-        if is_underline(line_text) {
+        // Section underline. A paragraph whose text is only `::`, at the
+        // start of the document or after a blank, is a literal marker
+        // (Docutils), not a two-colon adornment. `Hi\n::` has a non-blank
+        // previous line, so `is_underline` still promotes that title.
+        let bare_colon_literal =
+            line_text.trim() == "::" && (i == 0 || lines[i - 1].text.trim().is_empty());
+        if is_underline(line_text) && !bare_colon_literal {
             flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
             regions.push(SpannedRegion::structure(input, line.span()));
             i += 1;
@@ -1846,6 +1851,88 @@ mod tests {
             .filter(|r| matches!(r, Region::Structure(_)))
             .count();
         assert!(structure_count >= 3);
+    }
+
+    #[test]
+    fn bare_colon_paragraph_opens_a_literal_block() {
+        // Docutils: a paragraph whose text is only `::` is an empty
+        // paragraph plus a literal block. It is not a section underline.
+        let input = "::\n\n    kept verbatim. Not wrapped.\n\nAfter. Next.\n";
+        let regions = RstParser.parse(input);
+        assert!(
+            regions
+                .iter()
+                .any(|r| matches!(r, Region::Structure(s) if s.trim() == "::")),
+            "bare :: stays the literal marker, got {regions:?}"
+        );
+        assert!(
+            regions.iter().any(
+                |r| matches!(r, Region::Structure(s) if s.contains("kept verbatim. Not wrapped."))
+            ),
+            "indented body stays literal structure, got {regions:?}"
+        );
+        assert!(
+            !regions
+                .iter()
+                .any(|r| matches!(r, Region::Prose(p) if p.contains("kept verbatim"))),
+            "literal body must not be a block quote, got {regions:?}"
+        );
+        let cfg = crate::FormatConfig {
+            format: crate::format::Format::Rst,
+            max_width: 0,
+            ..Default::default()
+        }
+        .without_safety_backstops();
+        let out = crate::format_text(input, &cfg).unwrap();
+        assert!(
+            out.contains("kept verbatim. Not wrapped.\n"),
+            "literal body must not sentence-split, got:\n{out}"
+        );
+        assert!(
+            out.contains("After.\nNext."),
+            "prose after the literal must still split, got:\n{out}"
+        );
+        assert_eq!(crate::format_text(&out, &cfg).unwrap(), out);
+    }
+
+    #[test]
+    fn two_char_colon_underline_stays_a_section() {
+        let input = "Hi\n::\n\nAfter. Next.\n";
+        let regions = RstParser.parse(input);
+        assert!(
+            regions
+                .iter()
+                .any(|r| matches!(r, Region::Structure(s) if s.trim() == "Hi")),
+            "two-character title stays structure, got {regions:?}"
+        );
+        assert!(
+            regions
+                .iter()
+                .any(|r| matches!(r, Region::Structure(s) if s.trim() == "::")),
+            "colon underline stays structure, got {regions:?}"
+        );
+        assert!(
+            !regions
+                .iter()
+                .any(|r| matches!(r, Region::Prose(p) if p.contains("kept") || p.trim() == "Hi")),
+            "title must not become prose, got {regions:?}"
+        );
+        let cfg = crate::FormatConfig {
+            format: crate::format::Format::Rst,
+            max_width: 0,
+            ..Default::default()
+        }
+        .without_safety_backstops();
+        let out = crate::format_text(input, &cfg).unwrap();
+        assert!(
+            out.contains("Hi\n::\n"),
+            "section adornment must stay, got:\n{out}"
+        );
+        assert!(
+            out.contains("After.\nNext."),
+            "prose after the section must still split, got:\n{out}"
+        );
+        assert_eq!(crate::format_text(&out, &cfg).unwrap(), out);
     }
 
     #[test]

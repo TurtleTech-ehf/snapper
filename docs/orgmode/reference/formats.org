@@ -248,7 +248,8 @@ These tokens within prose are not split across lines:
 - Container directive openers (=.. note::=, =.. warning::=, =.. figure::=, =.. topic::=, =.. sidebar::=, =.. container::=, leftover =.. parsed-literal::=, =.. epigraph::=, =.. highlights::=, =.. pull-quote::=, =.. compound::=, =.. header::=, =.. footer::=) and their =:option:= fields; the indented body is prose
 - Same-line body after =::= on those containers, leftover =.. parsed-literal::=, =.. header::=, =.. footer::=, =.. |name| replace::=, and =.. meta::= fields hangs and splits.
   Flush bibliographic fields close a meta leftover
-- Literal blocks (text after =::= with indented or line-prefix-quoted content)
+- Literal blocks (text after =::= with indented or line-prefix-quoted content).
+  A paragraph whose text is only =::= is that marker. A two-character title underlined with =::= stays a section
 - Section titles and underlines (=====, =-----=, etc.).
   A wrap cut that would park a solid Docutils =Body.line= adornment at column 0 skip-cuts the token onto the previous line (snapper-7xd3)
   A wrap cut that would park a Docutils simple-table border at column 0 skip-cuts the token onto the previous line (snapper-2knx)
