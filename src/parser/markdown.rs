@@ -2444,6 +2444,17 @@ impl FormatParser for MarkdownParser {
                     let row = &lines[j];
                     let hang = line_indent(row.text);
                     let inner = row.text.get(hang..).unwrap_or("");
+                    if HEADING_RE.is_match(inner) {
+                        flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
+                        if let Some(span) = list_term.take() {
+                            if !span.is_empty() {
+                                regions.push(SpannedRegion::structure(input, span));
+                            }
+                        }
+                        regions.push(SpannedRegion::structure(input, row.span()));
+                        j += 1;
+                        continue;
+                    }
                     if FENCED_CODE_RE.is_match(inner.trim_start()) {
                         flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
                         let fence = FENCED_CODE_RE
@@ -7032,6 +7043,46 @@ mod tests {
             )),
             "footnote body must not stay Structure, got: {regions:?}"
         );
+    }
+
+    #[test]
+    fn footnote_continuation_heading_stays_one_line() {
+        let input = concat!(
+            "[^1]: Note text.\n",
+            "\n",
+            "    # Heading one. Heading two must not split.\n",
+            "\n",
+            "After. Next.\n",
+        );
+        let regions = MarkdownParser.parse(input);
+        assert!(
+            regions.iter().any(
+                |r| matches!(r, Region::Structure(s) if s.contains("# Heading one. Heading two"))
+            ),
+            "footnote heading stays structure, got {regions:?}"
+        );
+        assert!(
+            !regions
+                .iter()
+                .any(|r| matches!(r, Region::Prose(p) if p.contains("Heading two"))),
+            "footnote heading must not be prose, got {regions:?}"
+        );
+        let cfg = crate::FormatConfig {
+            format: crate::format::Format::Markdown,
+            max_width: 0,
+            ..Default::default()
+        }
+        .without_safety_backstops();
+        let out = crate::format_text(input, &cfg).unwrap();
+        assert!(
+            out.contains("# Heading one. Heading two must not split.\n"),
+            "heading must stay one line, got:\n{out}"
+        );
+        assert!(
+            out.contains("After.\nNext."),
+            "prose after the footnote must still split, got:\n{out}"
+        );
+        assert_eq!(crate::format_text(&out, &cfg).unwrap(), out);
     }
 
     #[test]
