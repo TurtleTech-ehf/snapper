@@ -4,6 +4,7 @@ All notable changes to this project will be documented in this file. See [conven
 - - -
 ## Unreleased (main)
 #### Bug Fixes
+- leftover org nested item returns to the parent list
 - leftover org item ends at the bullet column
 - leftover LaTeX verb with an internal space stays one wrap token
 - leftover markdown HTML type 6 and 7 blocks run to a blank line

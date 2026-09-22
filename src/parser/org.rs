@@ -926,6 +926,9 @@ impl FormatParser for OrgParser {
         // Track list item context: indent level of the marker text.
         // Continuation lines indented at or beyond this level belong to the item.
         let mut list_item_indent: Option<usize> = None;
+        // Bullet columns, outer first. A line indented at or before a
+        // bullet ends that item; an outer bullet stays open.
+        let mut list_stack: Vec<usize> = Vec::new();
         // org-list-end-re ends a plain list on two blanks. One blank
         // keeps the item open for an indented paragraph.
         let mut list_saw_blank = false;
@@ -1178,6 +1181,7 @@ impl FormatParser for OrgParser {
                 } else {
                     in_footnote_def = false;
                     footnote_saw_blank = false;
+                    list_stack.clear();
                     list_item_indent = None;
                     list_saw_blank = false;
                 }
@@ -1212,6 +1216,7 @@ impl FormatParser for OrgParser {
             // value hangs. `#+NAME:` / `#+ATTR_*` stay whole-line.
             if let Some(marker_len) = org_caption_marker_len(line_text) {
                 flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
+                list_stack.clear();
                 list_item_indent = Some(marker_len);
                 list_saw_blank = false;
                 let marker_span = ByteSpan::new(line.start, line.start + marker_len);
@@ -1245,6 +1250,7 @@ impl FormatParser for OrgParser {
             // the path is hung Prose (org-element plain link).
             if let Some(marker_len) = org_plain_link_marker_len(line_text) {
                 flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
+                list_stack.clear();
                 list_item_indent = None;
                 list_saw_blank = false;
                 let body = &line_text[marker_len..];
@@ -1261,6 +1267,7 @@ impl FormatParser for OrgParser {
             }
             if Self::is_standalone_org_link(line_text) {
                 flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
+                list_stack.clear();
                 list_item_indent = None;
                 list_saw_blank = false;
                 regions.push(SpannedRegion::structure(input, line.span()));
@@ -1291,6 +1298,7 @@ impl FormatParser for OrgParser {
                         input,
                         ByteSpan::new(line.start, line.start + marker_len),
                     ));
+                    list_stack.clear();
                     list_item_indent = Some(marker_len);
                     list_saw_blank = false;
                     Self::emit_hung_text(input, &line, marker_len, &mut regions);
@@ -1315,6 +1323,7 @@ impl FormatParser for OrgParser {
             // Marker is Structure; same-line body is hung Prose (GitHub #180).
             if let Some(marker_len) = org_footnote_definition_marker_len(line_text) {
                 flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
+                list_stack.clear();
                 list_item_indent = Some(marker_len);
                 list_saw_blank = false;
                 in_footnote_def = true;
@@ -1330,6 +1339,7 @@ impl FormatParser for OrgParser {
                 let leading = line_text.len() - line_text.trim_start().len();
                 if leading > 0 {
                     flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
+                    list_stack.clear();
                     list_item_indent = Some(leading);
                     list_saw_blank = false;
                     footnote_saw_blank = false;
@@ -1352,6 +1362,10 @@ impl FormatParser for OrgParser {
                 // column (`1. ` is three) is the hang, not that test, so a
                 // two-space line stays in a column-0 item.
                 let bullet_col = marker.len() - marker.trim_start().len();
+                while list_stack.last().is_some_and(|&col| col >= bullet_col) {
+                    list_stack.pop();
+                }
+                list_stack.push(bullet_col);
                 list_item_indent = Some(bullet_col + 1);
                 list_saw_blank = false;
                 in_footnote_def = false;
@@ -1362,9 +1376,25 @@ impl FormatParser for OrgParser {
                 continue;
             }
 
-            // List item continuation: indented line following a list item
+            // List item continuation: indented line following a list item.
+            // Pop bullets this line ends, then keep an outer item whose
+            // bullet is still to the left.
+            let leading = line_text.len() - line_text.trim_start().len();
+            // Popping a child must not append this line onto the child's prose.
+            let mut returned_to_outer = false;
+            if !list_stack.is_empty() {
+                while list_stack.last().is_some_and(|&col| leading <= col) {
+                    list_stack.pop();
+                    returned_to_outer = true;
+                }
+                if list_stack.is_empty() {
+                    list_item_indent = None;
+                    list_saw_blank = false;
+                } else {
+                    list_item_indent = Some(list_stack.last().copied().unwrap() + 1);
+                }
+            }
             if let Some(indent) = list_item_indent {
-                let leading = line_text.len() - line_text.trim_start().len();
                 if leading >= indent
                     && !line_text.trim().is_empty()
                     && Self::find_unescaped_display_bracket(line_text, 0, b'[').is_none()
@@ -1386,6 +1416,17 @@ impl FormatParser for OrgParser {
                             ..
                         }) if is_org_line_break_structure(s)
                     );
+                    if returned_to_outer {
+                        if leading > 0 {
+                            regions.push(SpannedRegion::structure(
+                                input,
+                                ByteSpan::new(line.start, line.start + leading),
+                            ));
+                        }
+                        Self::emit_hung_text(input, &line, leading, &mut regions);
+                        list_saw_blank = false;
+                        continue;
+                    }
                     if is_term {
                         regions.pop();
                         if let Some(break_at) = org_line_break_at(line_text) {
@@ -1447,6 +1488,7 @@ impl FormatParser for OrgParser {
                     }
                 }
                 // Not a continuation: leave list context
+                list_stack.clear();
                 list_item_indent = None;
                 list_saw_blank = false;
             }
@@ -1739,6 +1781,39 @@ mod tests {
             !out.lines()
                 .any(|l| l.contains("keep reading") && l.contains("Tab after")),
             "tab item must not join the intro, got:\n{out}"
+        );
+        assert_eq!(crate::format_text(&out, &cfg).unwrap(), out);
+    }
+
+    #[test]
+    fn org_nested_item_returns_to_the_parent() {
+        // A line indented like the child bullet ends the child and
+        // stays in the parent. It must not join the flush paragraph.
+        let input = "- Parent item\n  1. Child item\n  back in the parent\nAfter.\n";
+        let cfg = crate::FormatConfig {
+            format: crate::format::Format::Org,
+            max_width: 40,
+            ..Default::default()
+        }
+        .without_safety_backstops();
+        let out = crate::format_text(input, &cfg).unwrap();
+        assert!(
+            !out.lines()
+                .any(|l| l.contains("back in the parent") && l.contains("After")),
+            "parent continuation must not join the following paragraph, got:\n{out}"
+        );
+        assert!(
+            out.contains("back in the parent"),
+            "parent line must stay, got:\n{out}"
+        );
+        assert!(
+            !out.lines()
+                .any(|l| l.contains("Child") && l.contains("back in the parent")),
+            "the line returns to the parent, not the child, got:\n{out}"
+        );
+        assert!(
+            out.lines().any(|l| l.starts_with("After")),
+            "flush line ends the list, got:\n{out}"
         );
         assert_eq!(crate::format_text(&out, &cfg).unwrap(), out);
     }
