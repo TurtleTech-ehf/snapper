@@ -458,9 +458,15 @@ fn ordered_list_start(text: &str) -> bool {
 
 fn thematic_or_setext_token(text: &str) -> bool {
     let first = text.split_whitespace().next().unwrap_or("");
-    if first.len() >= 3 {
+    if !first.is_empty() {
         let b = first.as_bytes()[0];
-        if matches!(b, b'-' | b'=' | b'*' | b'_') && first.bytes().all(|c| c == b) {
+        let solid = first.bytes().all(|c| c == b);
+        // CommonMark setext underlines are one or more `=` or `-`.
+        // Thematic breaks (`*`, `_`, and `-` of length >= 3) stay below.
+        if solid && matches!(b, b'=' | b'-') {
+            return true;
+        }
+        if solid && first.len() >= 3 && matches!(b, b'*' | b'_') {
             return true;
         }
     }
@@ -3580,6 +3586,50 @@ They are endowed with reason and conscience and should act towards one another i
                 "{token} stays with the previous line:\n{result}"
             );
         }
+    }
+
+    #[test]
+    fn wrap_created_md_short_setext_is_escaped() {
+        // CommonMark setext underlines are one or more = or -. A run of
+        // length 1 or 2 is not a thematic break, and it still promotes
+        // the previous line when it is the whole next line.
+        for token in ["=", "==", "--"] {
+            let result = wrap_fmt(
+                &format!("The options are apples {token}"),
+                23,
+                crate::format::Format::Markdown,
+            );
+            assert!(
+                !result.lines().any(|l| l.trim() == token),
+                "wrap must not leave a column-0 setext underline {token:?}:\n{result}"
+            );
+            let escaped = format!("\\{token}");
+            assert!(
+                result.lines().any(|l| l.trim() == escaped),
+                "short setext {token:?} must be markdown-escaped:\n{result}"
+            );
+        }
+    }
+
+    #[test]
+    fn wrap_created_md_short_setext_is_identity_under_format() {
+        let cfg = crate::FormatConfig {
+            format: crate::format::Format::Markdown,
+            max_width: 23,
+            ..Default::default()
+        }
+        .without_safety_backstops();
+        let input = "The options are apples ==\n\nAfter. Next.\n";
+        let out = crate::format_text(input, &cfg).unwrap();
+        assert!(
+            !out.lines().any(|l| l.trim() == "=="),
+            "wrap must not emit a setext underline:\n{out}"
+        );
+        assert!(
+            out.contains("After.\nNext."),
+            "following prose must still split, got:\n{out}"
+        );
+        assert_eq!(crate::format_text(&out, &cfg).unwrap(), out);
     }
 
     #[test]

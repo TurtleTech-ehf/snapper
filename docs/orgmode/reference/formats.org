@@ -188,7 +188,8 @@ These tokens within prose are not split across lines:
 - Front matter (=---= or =+++=  delimited at file start)
 - Full ATX heading lines (=#= … =######= including title text)
 - Empty ATX headings (a mark line with no title text) stay Structure
-- Setext headings (title line plus ====== or ------ underline)
+- Setext headings (title line plus a line of one or more = or - characters).
+  A wrap cut that would park a short underline at column 0 escapes it
 - List item markers (=-=, =*=, =+=, =1.=); continuation sentences hang at the marker width
 - Empty list markers (including quoted) stay Structure
 - Definition-list terms and =: = markers (pulldown =ENABLE_DEFINITION_LIST=); the body hangs at the marker width
