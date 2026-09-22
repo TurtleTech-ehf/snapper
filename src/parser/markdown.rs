@@ -1277,6 +1277,67 @@ fn list_item_empty_pad(rest: &str) -> usize {
     usize::from(rest == " ")
 }
 
+/// Block that starts in the text after a list marker: ATX heading,
+/// thematic break, HTML block, or GFM table. The returned index is the
+/// last source line of that block. A fence is handled by the caller so
+/// the body stays `Code`.
+fn list_remainder_raw_end(lines: &[Line<'_>], start: usize, rest: &str) -> Option<usize> {
+    let content = rest.trim_start();
+    if content.is_empty() || FENCED_CODE_RE.is_match(content) {
+        return None;
+    }
+    if HEADING_RE.is_match(content) || is_thematic_break(content) {
+        return Some(start);
+    }
+    if let Some(kind) = html_block_kind(content) {
+        return Some(match kind {
+            HtmlBlock::Type6 | HtmlBlock::Type7 => {
+                let tag = if kind == HtmlBlock::Type6 {
+                    type6_tag_name(content)
+                } else {
+                    type7_tag_name(content)
+                };
+                if let Some(tag) = tag {
+                    named_html_end_idx(lines, start, tag)
+                } else {
+                    let mut j = start;
+                    while j + 1 < lines.len() && !lines[j + 1].text.trim().is_empty() {
+                        j += 1;
+                    }
+                    j
+                }
+            }
+            _ => {
+                if html_block_line_ends(content, kind)
+                    || html_block_line_ends(lines[start].text, kind)
+                {
+                    start
+                } else {
+                    let mut j = start + 1;
+                    while j < lines.len() && !html_block_line_ends(lines[j].text, kind) {
+                        j += 1;
+                    }
+                    j.min(lines.len().saturating_sub(1))
+                }
+            }
+        });
+    }
+    let header = gfm_table_cells(content)?;
+    let delim = lines.get(start + 1)?;
+    let dcells = gfm_table_cells(delim.text)?;
+    if header.len() != dcells.len() || !dcells.iter().all(|c| is_gfm_delimiter_cell(c)) {
+        return None;
+    }
+    let mut end = start + 1;
+    for (j, line) in lines.iter().enumerate().skip(start + 2) {
+        if !is_gfm_table_row(line.text) {
+            break;
+        }
+        end = j;
+    }
+    Some(end)
+}
+
 /// CommonMark 5.2 hang: marker width after quote markers (`- ` is 2,
 /// `1. ` is 3, lone `-` is W+1). A setext underline shallower than this
 /// hang is lazy paragraph text, not a closer (GitHub #261).
@@ -2934,6 +2995,37 @@ impl FormatParser for MarkdownParser {
                     // item stays empty and the next unindented line is not
                     // lazy continuation (GitHub #337).
                     let marker_len = marker.len() + list_item_empty_pad(rest);
+                    let content = rest.get(list_item_empty_pad(rest)..).unwrap_or("");
+                    // pulldown parses the remainder as blocks. A fence,
+                    // heading, thematic break, HTML block, or GFM table
+                    // there is not item prose.
+                    if let Some(fcaps) = FENCED_CODE_RE.captures(content.trim_start()) {
+                        let spaces = content.len() - content.trim_start().len();
+                        fence_marker = fcaps.get(1).unwrap().as_str().to_string();
+                        fence_indent = marker_len + spaces;
+                        fence_quote_depth = 0;
+                        in_fenced_code = true;
+                        in_list_item = false;
+                        list_hang = None;
+                        code_lang = FENCED_LANG_RE
+                            .captures(content.trim_start())
+                            .map(|c| c.get(1).unwrap().as_str().to_string());
+                        code_header = line.span();
+                        code_body_start = line.end;
+                        i += 1;
+                        continue;
+                    }
+                    if let Some(end) = list_remainder_raw_end(&lines, i, content) {
+                        in_list_item = true;
+                        list_hang = Some(list_marker_hang(marker));
+                        list_after_blank = false;
+                        in_definition_list = false;
+                        for row in &lines[i..=end] {
+                            regions.push(SpannedRegion::structure(input, row.span()));
+                        }
+                        i = end + 1;
+                        continue;
+                    }
                     let marker_span = ByteSpan::new(line.start, line.start + marker_len);
                     regions.push(SpannedRegion::structure(input, marker_span));
                     in_list_item = true;
@@ -3300,6 +3392,137 @@ mod tests {
         assert_eq!(format_text(input, &cfg).unwrap(), input);
         cfg = cfg.without_safety_backstops();
         assert_eq!(format_text(input, &cfg).unwrap(), input);
+    }
+
+    #[test]
+    fn list_marker_fence_remainder_stays_code() {
+        // pulldown parses the text after a list marker as blocks.
+        // The fence opener on that line is not item prose.
+        let input = concat!(
+            "- ```\n",
+            "  Keep this sentence in the fence. Keep this one too.\n",
+            "  ```\n",
+        );
+        let regions = MarkdownParser.parse(input);
+        match regions.iter().find(|r| matches!(r, Region::Code { .. })) {
+            Some(Region::Code { body, footer, .. }) => {
+                assert!(
+                    body.contains("Keep this sentence in the fence. Keep this one too.\n"),
+                    "fence body stays one code line, got {body:?}"
+                );
+                assert!(
+                    footer.contains("```"),
+                    "indented closer ends the fence, got {footer:?}"
+                );
+            }
+            other => panic!("list-marker fence must be Code, got {other:?} in {regions:?}"),
+        }
+        assert!(
+            !regions
+                .iter()
+                .any(|r| matches!(r, Region::Prose(p) if p.contains("Keep this"))),
+            "fence body must not be prose: {regions:?}"
+        );
+        let cfg = crate::FormatConfig {
+            format: crate::format::Format::Markdown,
+            max_width: 0,
+            ..Default::default()
+        }
+        .without_safety_backstops();
+        let out = crate::format_text(input, &cfg).unwrap();
+        assert!(
+            out.contains("Keep this sentence in the fence. Keep this one too.\n"),
+            "fence body must not sentence-split, got:\n{out}"
+        );
+        assert_eq!(crate::format_text(&out, &cfg).unwrap(), out);
+    }
+
+    #[test]
+    fn list_marker_html_remainder_stays_raw() {
+        let input = concat!(
+            "- <div>\n",
+            "  Inside the block. Second sentence.\n",
+            "  </div>\n",
+            "\n",
+            "After. Next.\n",
+        );
+        let cfg = crate::FormatConfig {
+            format: crate::format::Format::Markdown,
+            max_width: 0,
+            ..Default::default()
+        }
+        .without_safety_backstops();
+        let out = crate::format_text(input, &cfg).unwrap();
+        assert!(
+            out.contains("Inside the block. Second sentence.\n"),
+            "html remainder must not sentence-split, got:\n{out}"
+        );
+        assert!(
+            out.contains("After.\nNext."),
+            "prose after the html block must still split, got:\n{out}"
+        );
+        assert_eq!(crate::format_text(&out, &cfg).unwrap(), out);
+    }
+
+    #[test]
+    fn list_marker_table_remainder_stays_raw() {
+        let input = concat!(
+            "- | a | b |\n",
+            "  | --- | --- |\n",
+            "  | one. | two. |\n",
+            "\n",
+            "After. Next.\n",
+        );
+        let cfg = crate::FormatConfig {
+            format: crate::format::Format::Markdown,
+            max_width: 0,
+            ..Default::default()
+        }
+        .without_safety_backstops();
+        let out = crate::format_text(input, &cfg).unwrap();
+        assert!(
+            out.contains("| one. | two. |\n"),
+            "table remainder must stay one row, got:\n{out}"
+        );
+        assert!(
+            out.contains("After.\nNext."),
+            "prose after the table must still split, got:\n{out}"
+        );
+        assert_eq!(crate::format_text(&out, &cfg).unwrap(), out);
+    }
+
+    #[test]
+    fn list_marker_heading_remainder_stays_one_line() {
+        let input = "- # Heading one. Heading two must not split.\n\nAfter. Next.\n";
+        let regions = MarkdownParser.parse(input);
+        assert!(
+            regions.iter().any(
+                |r| matches!(r, Region::Structure(s) if s.contains("Heading one. Heading two"))
+            ),
+            "heading remainder stays structure, got {regions:?}"
+        );
+        assert!(
+            !regions
+                .iter()
+                .any(|r| matches!(r, Region::Prose(p) if p.contains("Heading two"))),
+            "heading remainder must not be prose, got {regions:?}"
+        );
+        let cfg = crate::FormatConfig {
+            format: crate::format::Format::Markdown,
+            max_width: 0,
+            ..Default::default()
+        }
+        .without_safety_backstops();
+        let out = crate::format_text(input, &cfg).unwrap();
+        assert!(
+            out.contains("- # Heading one. Heading two must not split.\n"),
+            "heading must stay one line, got:\n{out}"
+        );
+        assert!(
+            out.contains("After.\nNext."),
+            "following prose must still split, got:\n{out}"
+        );
+        assert_eq!(crate::format_text(&out, &cfg).unwrap(), out);
     }
 
     #[test]
