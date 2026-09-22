@@ -1264,7 +1264,7 @@ pub(crate) fn rst_line_block_marker_len(line: &str) -> Option<usize> {
 }
 
 /// Docutils `Body.grid_table_top_pat`: `\+-[-+]+-\+ *$`.
-fn is_rst_grid_table_top(trimmed: &str) -> bool {
+pub(crate) fn is_rst_grid_table_top(trimmed: &str) -> bool {
     GRID_TABLE_TOP_RE.is_match(trimmed)
 }
 

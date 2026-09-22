@@ -814,6 +814,11 @@ fn rst_opens_block(line: &str) -> bool {
     if crate::parser::rst::is_simple_table_border(t) {
         return true;
     }
+    // Docutils grid_table_top: `+---+` is not an underline and not a
+    // simple-table border. A wrap cut that parks it at column 0 mints a table.
+    if crate::parser::rst::is_rst_grid_table_top(t) {
+        return true;
+    }
     false
 }
 
@@ -3247,6 +3252,48 @@ They are endowed with reason and conscience and should act towards one another i
         assert!(
             out.contains("apples ===== ====="),
             "skip-cut must keep ===== ===== with the previous line:\n{out}"
+        );
+        assert!(
+            out.contains("After.\nNext."),
+            "following prose must still split, got:\n{out}"
+        );
+        assert_eq!(crate::format_text(&out, &cfg).unwrap(), out);
+    }
+
+    #[test]
+    fn wrap_created_rst_grid_table_top_is_not_a_block() {
+        // Docutils Body.grid_table_top. Width 23 would park +---+ at column 0.
+        for token in ["+---+", "+---+---+"] {
+            let result = wrap_fmt(
+                &format!("The options are apples {token}"),
+                23,
+                crate::format::Format::Rst,
+            );
+            assert_no_col0_block(&result, &[token]);
+            assert!(
+                result.contains(&format!("apples {token}")),
+                "RST skip-cut keeps the {token} grid top:\n{result}"
+            );
+        }
+    }
+
+    #[test]
+    fn wrap_created_rst_grid_table_top_is_identity_under_format() {
+        let cfg = crate::FormatConfig {
+            format: crate::format::Format::Rst,
+            max_width: 23,
+            ..Default::default()
+        }
+        .without_safety_backstops();
+        let input = "The options are apples +---+\n\nAfter. Next.\n";
+        let out = crate::format_text(input, &cfg).unwrap();
+        assert!(
+            !out.lines().any(|l| l.trim() == "+---+"),
+            "wrap must not park a column-0 grid-table top:\n{out}"
+        );
+        assert!(
+            out.contains("apples +---+"),
+            "skip-cut must keep +---+ with the previous line:\n{out}"
         );
         assert!(
             out.contains("After.\nNext."),
