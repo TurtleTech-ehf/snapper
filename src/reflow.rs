@@ -443,13 +443,15 @@ fn is_ordered_list_marker(word: &str) -> bool {
     (1..=9).contains(&digits.len()) && digits.iter().all(|b| b.is_ascii_digit())
 }
 
+/// Org ordered item. Emacs `org-item-re` is `[0-9]+`, not CommonMark's
+/// 1–9 digit cap (`md_ordered_list_start`).
 fn ordered_list_start(text: &str) -> bool {
     let bytes = text.as_bytes();
     let mut i = 0;
     while i < bytes.len() && bytes[i].is_ascii_digit() {
         i += 1;
     }
-    if i == 0 || i > 9 {
+    if i == 0 {
         return false;
     }
     matches!(bytes.get(i), Some(b'.') | Some(b')'))
@@ -3649,6 +3651,47 @@ They are endowed with reason and conscience and should act towards one another i
                 "{token} must not open a column-0 list/setext:\n{result}"
             );
         }
+    }
+
+    #[test]
+    fn wrap_created_org_long_ordered_marker_is_not_a_block() {
+        // Org ordered markers have no digit cap. Width 23 would park
+        // 1234567890. at column 0 and the next parse reads an item.
+        let result = wrap_fmt(
+            "The options are apples 1234567890. extra words here.",
+            23,
+            crate::format::Format::Org,
+        );
+        assert_no_col0_block(&result, &["1234567890.", "1234567890"]);
+        assert!(
+            result.contains("apples 1234567890."),
+            "Org skip-cut keeps the long marker:\n{result}"
+        );
+    }
+
+    #[test]
+    fn wrap_created_org_long_ordered_marker_is_identity_under_format() {
+        let cfg = crate::FormatConfig {
+            format: crate::format::Format::Org,
+            max_width: 23,
+            ..Default::default()
+        }
+        .without_safety_backstops();
+        let input = "The options are apples 1234567890. extra words here.\n\nAfter. Next.\n";
+        let out = crate::format_text(input, &cfg).unwrap();
+        assert!(
+            !out.lines().any(|l| l.starts_with("1234567890.")),
+            "wrap must not park a column-0 ordered marker:\n{out}"
+        );
+        assert!(
+            out.contains("apples 1234567890."),
+            "skip-cut must keep the marker:\n{out}"
+        );
+        assert!(
+            out.contains("After.\nNext."),
+            "following prose must still split, got:\n{out}"
+        );
+        assert_eq!(crate::format_text(&out, &cfg).unwrap(), out);
     }
 
     #[test]
