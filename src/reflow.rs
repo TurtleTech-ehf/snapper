@@ -452,7 +452,8 @@ fn ordered_list_start(text: &str) -> bool {
     if i == 0 || i > 9 {
         return false;
     }
-    matches!(bytes.get(i), Some(b'.') | Some(b')')) && matches!(bytes.get(i + 1), Some(b' ') | None)
+    matches!(bytes.get(i), Some(b'.') | Some(b')'))
+        && matches!(bytes.get(i + 1), Some(b' ') | Some(b'\t') | None)
 }
 
 fn thematic_or_setext_token(text: &str) -> bool {
@@ -674,7 +675,14 @@ fn org_opens_block(line: &str) -> bool {
     }
     // Emacs org-item-re: `-`/`+` then space or EOL. Lone markers must
     // not be wrap-created at column 0 (GitHub #320).
-    if t == "-" || t == "+" || t.starts_with("- ") || t.starts_with("+ ") {
+    // Emacs org-item-re: bullet then space, tab, or EOL.
+    if t == "-"
+        || t == "+"
+        || t.starts_with("- ")
+        || t.starts_with("+ ")
+        || t.starts_with("-\t")
+        || t.starts_with("+\t")
+    {
         return true;
     }
     if t.starts_with("$$") {

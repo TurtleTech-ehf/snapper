@@ -9,12 +9,13 @@ use crate::parser::{
 static HEADLINE_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"^(\*+\s+(?:TODO\s+|DONE\s+|NEXT\s+|WAIT\s+)?)(.*)$").unwrap());
 
-/// Org unordered/ordered marker plus a trailing space or EOL.
+/// Org unordered/ordered marker plus a trailing space, tab, or EOL.
 /// Emacs 30.2 `org-item-re` is bullet then `[ \t]+` or `$` (GitHub #320).
 /// org-syntax 4.2.6 / orgize: `*` is a bullet only when indent > 0;
 /// column-0 `*` is a headline (`HEADLINE_RE` is matched first).
-static LIST_ITEM_RE: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"^(\s*(?:[-+]|\d+[.)])(?: |$)|[ \t]+\*(?: |$))(.*)$").unwrap());
+static LIST_ITEM_RE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"^(\s*(?:[-+]|\d+[.)])(?:[ \t]|$)|[ \t]+\*(?:[ \t]|$))(.*)$").unwrap()
+});
 
 /// org-element-export-snippet-parser prefix: `@@BACKEND:VALUE@@`.
 /// Backend is `[-A-Za-z0-9]+`. Value runs to the next `@@` (may contain
@@ -1670,6 +1671,46 @@ mod tests {
             )),
             "following prose must stay Prose, got {regions:?}"
         );
+    }
+
+    #[test]
+    fn tab_after_item_bullet_stays_a_list() {
+        // Emacs org-item-re: bullet then [ \t]+ or EOL.
+        let input = "See the note below and keep reading.\n-\tTab after the bullet. Second sentence stays in the item.\n";
+        let regions = OrgParser.parse(input);
+        assert!(
+            regions
+                .iter()
+                .any(|r| matches!(r, Region::Structure(s) if s == "-\t")),
+            "tab after a dash is the item marker, got {regions:?}"
+        );
+        assert!(
+            regions.iter().any(|r| {
+                matches!(r, Region::Prose(p) if p.contains("Tab after the bullet.") && !p.contains("keep reading"))
+            }),
+            "item body stays apart from the intro, got {regions:?}"
+        );
+        let cfg = crate::FormatConfig {
+            format: crate::format::Format::Org,
+            max_width: 0,
+            ..Default::default()
+        }
+        .without_safety_backstops();
+        let out = crate::format_text(input, &cfg).unwrap();
+        assert!(
+            out.contains("-\tTab after the bullet.\n"),
+            "item body still splits, got:\n{out}"
+        );
+        assert!(
+            out.contains("Second sentence stays in the item."),
+            "second sentence stays in the item, got:\n{out}"
+        );
+        assert!(
+            !out.lines()
+                .any(|l| l.contains("keep reading") && l.contains("Tab after")),
+            "tab item must not join the intro, got:\n{out}"
+        );
+        assert_eq!(crate::format_text(&out, &cfg).unwrap(), out);
     }
 
     #[test]

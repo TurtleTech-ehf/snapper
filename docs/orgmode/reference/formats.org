@@ -32,7 +32,7 @@ The classification depends on the format.
 - Comment lines (starting with =#= but not =#+= )
 - Column-0 diary-sexp lines (=%%(...)=; org-element-diary-sexp-parser)
 - Full headline lines (stars, optional TODO keyword, and title text)
-- List item markers (=-=, =+=, =1.=); continuation sentences hang at the marker width
+- List item markers (=-=, =+=, =1.=, including a tab after the bullet); continuation sentences hang at the marker width
 - LaTeX environments (=\begin{equation}= ... =\end{equation}=, =\begin{align}=, etc.). An unmatched =\begin{env}= is a paragraph (org-element latex-environment-parser)
 - Display math (=\[= ... =\]=)
 - Line breaks (org-element-line-break-parser: =\\= plus optional spaces or tabs at end of line)
