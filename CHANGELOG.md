@@ -4,6 +4,7 @@ All notable changes to this project will be documented in this file. See [conven
 - - -
 ## Unreleased (main)
 #### Bug Fixes
+- leftover wrap-created RST plus-fragment skip-cut
 - leftover wrap-created RST jinja statement and anonymous target skip-cut
 - leftover wrap-created RST grid-table top skip-cut
 - leftover type-6 void HTML (`param`/`track`) does not swallow following prose
