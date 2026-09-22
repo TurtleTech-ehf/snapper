@@ -79,6 +79,10 @@ fn parse_line_based(input: &str) -> Vec<SpannedRegion> {
     // A blank closes the comment (GitHub #176).
     let mut in_comment = false;
     let mut comment_indent: usize = 0;
+    // Anonymous-target link block: indented lines after `__` / `__ uri`
+    // stay Structure until a blank (Docutils get_first_known_indented).
+    let mut in_anon_block = false;
+    let mut anon_indent: usize = 0;
     // Hang column of the current list item (`- ` → 2) or block quote.
     // Continuation paragraphs after a blank stay in the item when
     // indented this far.
@@ -267,6 +271,22 @@ fn parse_line_based(input: &str) -> Vec<SpannedRegion> {
             }
         }
 
+        // Anonymous-target link block. A blank ends it, same as a comment,
+        // so a later indent is a block quote rather than more target text.
+        if in_anon_block {
+            if line_text.trim().is_empty() {
+                in_anon_block = false;
+            } else {
+                let leading = line_text.len() - line_text.trim_start().len();
+                if leading >= anon_indent {
+                    regions.push(SpannedRegion::structure(input, line.span()));
+                    i += 1;
+                    continue;
+                }
+                in_anon_block = false;
+            }
+        }
+
         // Blank line
         if line_text.trim().is_empty() {
             flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
@@ -443,6 +463,9 @@ fn parse_line_based(input: &str) -> Vec<SpannedRegion> {
         if is_rst_anonymous_target(trimmed) {
             flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
             regions.push(SpannedRegion::structure(input, line.span()));
+            let leading = line_text.len() - trimmed.len();
+            anon_indent = leading + 1;
+            in_anon_block = true;
             i += 1;
             continue;
         }
@@ -5284,6 +5307,47 @@ mod tests {
                 .any(|l| l == "__ https://www.python.org/some/very/long/path"),
             "narrow wrap must not break the URI, got:\n{wrap_out}"
         );
+    }
+
+    #[test]
+    fn anonymous_target_keeps_its_indented_link_block() {
+        // Docutils anonymous_target: get_first_known_indented until a blank.
+        let input = "__\n    See the target. Next sentence.\n\nAfter. Next.\n";
+        let regions = RstParser.parse(input);
+        assert!(
+            regions
+                .iter()
+                .any(|r| matches!(r, Region::Structure(s) if s.trim() == "__")),
+            "anonymous opener stays structure, got {regions:?}"
+        );
+        assert!(
+            regions.iter().any(
+                |r| matches!(r, Region::Structure(s) if s.contains("See the target. Next sentence."))
+            ),
+            "indented link block stays structure, got {regions:?}"
+        );
+        assert!(
+            !regions
+                .iter()
+                .any(|r| matches!(r, Region::Prose(p) if p.contains("See the target"))),
+            "link block must not be a block quote, got {regions:?}"
+        );
+        let cfg = crate::FormatConfig {
+            format: crate::format::Format::Rst,
+            max_width: 0,
+            ..Default::default()
+        }
+        .without_safety_backstops();
+        let out = crate::format_text(input, &cfg).unwrap();
+        assert!(
+            out.contains("See the target. Next sentence.\n"),
+            "link block must not sentence-split, got:\n{out}"
+        );
+        assert!(
+            out.contains("After.\nNext."),
+            "prose after the target must still split, got:\n{out}"
+        );
+        assert_eq!(crate::format_text(&out, &cfg).unwrap(), out);
     }
 
     #[test]

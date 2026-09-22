@@ -254,7 +254,8 @@ These tokens within prose are not split across lines:
   A wrap cut that would park a solid Docutils =Body.line= adornment at column 0 skip-cuts the token onto the previous line (snapper-7xd3)
   A wrap cut that would park a Docutils simple-table border at column 0 skip-cuts the token onto the previous line (snapper-2knx)
   A wrap cut that would park a Docutils grid-table top (=+---+=) at column 0 skip-cuts the token onto the previous line
-  A wrap cut that would park a Jinja statement (=\{% ... %\}=) or a Docutils anonymous target (=__ uri=) at column 0 skip-cuts the token onto the previous line
+  A wrap cut that would park a Jinja statement (=\{% ... %\}=) or a Docutils anonymous target (=__ uri=) at column 0 skip-cuts the token onto the previous line.
+  The indented link block under that target stays structure until a blank
   A wrap cut that would park a leftover plus fragment (=+===+=, =+foo=) at column 0 skip-cuts the token onto the previous line
 - Field lists (=:Author:=, =:Date:=, etc.)
 - Empty list items, empty doctest openers, and empty field-list markers at EOL stay Structure
