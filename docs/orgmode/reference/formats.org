@@ -36,7 +36,8 @@ The classification depends on the format.
   An ordered marker is one or more digits. A wrap cut that would park it at column 0 skip-cuts the token onto the previous line.
   Continuation sentences hang at the marker width.
   One blank line stays inside the item. Two blank lines end the plain list.
-  An item also ends at a line indented less than or equal to its bullet, so a two-space line stays in a column-0 item
+  An item also ends at a line indented less than or equal to its bullet, so a two-space line stays in a column-0 item.
+  A line indented like a child bullet ends that child and stays in the parent
 - LaTeX environments (=\begin{equation}= ... =\end{equation}=, =\begin{align}=, etc.). An unmatched =\begin{env}= is a paragraph (org-element latex-environment-parser)
 - Display math (=\[= ... =\]=)
 - Line breaks (org-element-line-break-parser: =\\= plus optional spaces or tabs at end of line)
