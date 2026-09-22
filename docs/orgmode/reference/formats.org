@@ -98,7 +98,8 @@ These tokens within prose are not split across lines:
 - =\iffalse= through =\fi= (tree-sitter =block_comment=)
 - Comment lines (starting with =%=)
 - =\end{document}=
-- Full sectioning command lines (=\section{...}=, =\subsection{...}=, and friends, including title text)
+- Full sectioning command lines (=\section{...}=, =\subsection{...}=, KOMA =\addsec= / =\addchap= / =\addpart=, including an optional short title and the title text).
+  A wrap cut that would park one of those commands at column 0 skip-cuts the token onto the previous line
 
 *** Code regions (=minted=, =lstlisting=, =verbatim=, =comment=, =Piton=)
 :PROPERTIES:

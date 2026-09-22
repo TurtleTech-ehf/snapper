@@ -776,11 +776,16 @@ fn latex_opens_block(line: &str) -> bool {
         "\\subsubsection",
         "\\paragraph",
         "\\subparagraph",
+        "\\addsec",
+        "\\addchap",
+        "\\addpart",
     ];
     for cmd in CMDS {
         if let Some(after) = t.strip_prefix(cmd) {
+            // Optional short title is `[...]` before the brace (KOMA too).
             if after.is_empty()
                 || after.starts_with('{')
+                || after.starts_with('[')
                 || after.starts_with('*')
                 || after.starts_with(' ')
             {
@@ -3182,6 +3187,54 @@ They are endowed with reason and conscience and should act towards one another i
             item.contains("apples \\item"),
             "\\item is not an MD escape; skip-cut must keep it:\n{item}"
         );
+    }
+
+    #[test]
+    fn wrap_created_latex_section_optional_and_koma_are_not_blocks() {
+        // Optional [short] and KOMA \addsec/\addchap/\addpart are sectioning
+        // lines. Width 23 would park the command at column 0.
+        for token in [
+            "\\section[Short]{Long}",
+            "\\addsec{Title}",
+            "\\addchap{Title}",
+            "\\addpart{Title}",
+        ] {
+            let result = wrap_fmt(
+                &format!("The options are apples {token} extra words."),
+                23,
+                crate::format::Format::Latex,
+            );
+            assert_no_col0_block(&result, &[token]);
+            assert!(
+                result.contains(&format!("apples {token}")),
+                "LaTeX skip-cut keeps {token}:\n{result}"
+            );
+        }
+    }
+
+    #[test]
+    fn wrap_created_latex_section_optional_is_identity_under_format() {
+        let cfg = crate::FormatConfig {
+            format: crate::format::Format::Latex,
+            max_width: 23,
+            ..Default::default()
+        }
+        .without_safety_backstops();
+        let input = "The options are apples \\section[Short]{Long} extra words.\n\nAfter. Next.\n";
+        let out = crate::format_text(input, &cfg).unwrap();
+        assert!(
+            !out.lines().any(|l| l.starts_with("\\section")),
+            "wrap must not park a column-0 section command:\n{out}"
+        );
+        assert!(
+            out.contains("apples \\section[Short]{Long}"),
+            "skip-cut must keep the section command:\n{out}"
+        );
+        assert!(
+            out.contains("After.\nNext."),
+            "following prose must still split, got:\n{out}"
+        );
+        assert_eq!(crate::format_text(&out, &cfg).unwrap(), out);
     }
 
     #[test]
