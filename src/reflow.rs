@@ -829,6 +829,12 @@ fn rst_opens_block(line: &str) -> bool {
     if crate::parser::rst::is_rst_anonymous_target(t) {
         return true;
     }
+    // Leftover `+` fragment. A grid-table top is `+---+` and a list
+    // marker is `+ `. Any other column-0 `+` line (`+===+`, `+foo`)
+    // is Structure, including the words after the fragment.
+    if t.starts_with('+') {
+        return true;
+    }
     false
 }
 
@@ -3350,6 +3356,49 @@ They are endowed with reason and conscience and should act towards one another i
             result.contains("apples __"),
             "anonymous target marker stays with the previous line:\n{result}"
         );
+    }
+
+    #[test]
+    fn wrap_created_rst_plus_fragment_is_not_a_block() {
+        // Leftover `+` that is not `grid_table_top` (`+---+`). Width 23
+        // would park `+===+` at column 0 and freeze the rest of the line.
+        for token in ["+===+", "+===+===+", "+foo"] {
+            let result = wrap_fmt(
+                &format!("The options are apples {token} extra words."),
+                23,
+                crate::format::Format::Rst,
+            );
+            assert_no_col0_block(&result, &[token, "+"]);
+            assert!(
+                result.contains(&format!("apples {token}")),
+                "RST skip-cut keeps the {token} plus fragment:\n{result}"
+            );
+        }
+    }
+
+    #[test]
+    fn wrap_created_rst_plus_fragment_is_identity_under_format() {
+        let cfg = crate::FormatConfig {
+            format: crate::format::Format::Rst,
+            max_width: 23,
+            ..Default::default()
+        }
+        .without_safety_backstops();
+        let input = "The options are apples +===+ extra words.\n\nAfter. Next.\n";
+        let out = crate::format_text(input, &cfg).unwrap();
+        assert!(
+            !out.lines().any(|l| l.starts_with('+')),
+            "wrap must not park a column-0 plus fragment:\n{out}"
+        );
+        assert!(
+            out.contains("apples +===+"),
+            "skip-cut must keep +===+ with the previous line:\n{out}"
+        );
+        assert!(
+            out.contains("After.\nNext."),
+            "following prose must still split, got:\n{out}"
+        );
+        assert_eq!(crate::format_text(&out, &cfg).unwrap(), out);
     }
 
     #[test]
