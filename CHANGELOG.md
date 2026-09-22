@@ -4,6 +4,7 @@ All notable changes to this project will be documented in this file. See [conven
 - - -
 ## Unreleased (main)
 #### Bug Fixes
+- leftover short markdown setext underline is escaped
 - leftover wrap-created LaTeX sectioning command skip-cut
 - leftover org item bullet allows a tab
 - leftover markdown closing fence with a non-space tail stays inside the code block
