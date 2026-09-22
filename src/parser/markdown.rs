@@ -1534,18 +1534,26 @@ fn quoted_setext_ok(title: &str, underline: &str, prev: Option<&str>) -> bool {
 }
 
 /// Closing fence: same marker char, length at least the opener, indent at
-/// most `max(3, opener_indent)`. CommonMark allows 0–3 spaces on a closer;
-/// list-nested openers keep their own indent so a matching 4-space closer
-/// still ends the block. Deeper inner fences stay content.
+/// most `max(3, opener_indent)`. CommonMark 0.31.2 allows 0–3 spaces on a
+/// closer and only spaces or tabs after the marker. List-nested openers
+/// keep their own indent so a matching 4-space closer still ends the
+/// block. Deeper inner fences stay content. A tail such as
+/// `` ``` not a closer `` is still code.
 fn is_closing_fence(line: &str, fence_marker: &str, opener_indent: usize) -> bool {
     if line_indent(line) > opener_indent.max(3) {
         return false;
     }
-    let Some(caps) = FENCED_CODE_RE.captures(line.trim_start()) else {
+    let trimmed = line.trim_start();
+    let Some(caps) = FENCED_CODE_RE.captures(trimmed) else {
         return false;
     };
     let marker = caps.get(1).unwrap().as_str();
-    marker.chars().next() == fence_marker.chars().next() && marker.len() >= fence_marker.len()
+    if marker.chars().next() != fence_marker.chars().next() || marker.len() < fence_marker.len() {
+        return false;
+    }
+    trimmed[marker.len()..]
+        .bytes()
+        .all(|b| b == b' ' || b == b'\t')
 }
 
 /// True when `s` contains an unescaped `|` (GFM table cell separator).
@@ -3331,6 +3339,85 @@ mod tests {
                 assert_eq!(footer, "   ```\n");
             }
             other => panic!("expected Code closed by 3-space fence, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn closing_fence_tail_is_still_code() {
+        // CommonMark 0.31.2: a closing fence may be followed only by
+        // spaces or tabs. ` ``` not a closer` stays inside the block.
+        for closer in ["``` not a closer", "~~~ not a closer", "```not"] {
+            let fence = &closer[..3];
+            let input = format!(
+                "{fence}\nKeep this sentence in the fence. Keep this one too.\n{closer}\nStill inside the fence. Must not split.\n{fence}\n"
+            );
+            let regions = MarkdownParser.parse(&input);
+            match &regions[0] {
+                Region::Code { body, footer, .. } => {
+                    assert!(
+                        body.contains(closer),
+                        "tailed fence {closer:?} stays in the body, got {body:?}"
+                    );
+                    assert!(
+                        body.contains("Still inside the fence. Must not split.\n"),
+                        "text after {closer:?} stays in the body, got {body:?}"
+                    );
+                    assert_eq!(footer.as_str(), format!("{fence}\n").as_str());
+                }
+                other => panic!("tailed fence {closer:?} must not close, got {other:?}"),
+            }
+            assert!(
+                !regions
+                    .iter()
+                    .any(|r| matches!(r, Region::Prose(p) if p.contains("Must not split"))),
+                "fence body must not become prose for {closer:?}: {regions:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn closing_fence_tail_is_identity_under_format() {
+        use crate::format::Format;
+        use crate::{FormatConfig, format_text};
+
+        let input = concat!(
+            "```\n",
+            "Keep this sentence in the fence. Keep this one too.\n",
+            "``` not a closer\n",
+            "Still inside the fence. Must not split.\n",
+            "```\n",
+        );
+        let cfg = FormatConfig {
+            format: Format::Markdown,
+            max_width: 0,
+            ..Default::default()
+        }
+        .without_safety_backstops();
+        let out = format_text(input, &cfg).unwrap();
+        assert!(
+            out.contains("Still inside the fence. Must not split.\n"),
+            "fence body must not sentence-split, got:\n{out}"
+        );
+        assert_eq!(format_text(&out, &cfg).unwrap(), out);
+    }
+
+    #[test]
+    fn closing_fence_trailing_blank_still_closes() {
+        for closer in ["```   ", "```\t", "~~~~  "] {
+            let fence = if closer.starts_with('`') {
+                "```"
+            } else {
+                "~~~~"
+            };
+            let input = format!("{fence}\ncode\n{closer}\n");
+            let regions = MarkdownParser.parse(&input);
+            match &regions[0] {
+                Region::Code { body, footer, .. } => {
+                    assert_eq!(body, "code\n");
+                    assert_eq!(footer.as_str(), format!("{closer}\n").as_str());
+                }
+                other => panic!("blank tail {closer:?} must close, got {other:?}"),
+            }
         }
     }
 

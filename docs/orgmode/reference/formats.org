@@ -206,7 +206,8 @@ These tokens within prose are not split across lines:
 :PROPERTIES:
 :CUSTOM_ID: markdown-code
 :END:
-- Opening and closing fence lines are structure
+- Opening and closing fence lines are structure.
+  A closing fence may be followed only by spaces or tabs; any other tail stays inside the code block
 - Indented fence bodies preserve indentation on reflowed comment lines
 - Language from the fence info string selects =[code.<lang>]=; unknown or missing lang passes the body through unchanged (unless =--format-code= is not applicable without a formatter entry)
 
