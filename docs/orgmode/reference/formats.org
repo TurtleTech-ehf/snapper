@@ -224,7 +224,8 @@ These tokens within prose are not split across lines:
 - Paragraph text
 - List item text (after the marker); continuation sentences hang at the marker width
 - Definition-list body (after the =: = marker); continuation sentences hang at the marker width
-- GFM footnote-definition body (after =[^label]:=); continuation sentences hang at the marker width
+- GFM footnote-definition body (after =[^label]:=); continuation sentences hang at the marker width.
+  An ATX heading in that continuation stays one structure line
 - Blockquote inner text (after the =>= marker); continuation sentences repeat the quote prefix
 
 *** Inline tokens (kept atomic)
