@@ -2,7 +2,7 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 - - -
-## Unreleased (main)
+## v0.11.7 - 2026-09-23
 #### Bug Fixes
 - leftover LaTeX yquant body stays non-prose
 - leftover LaTeX quantikz body stays non-prose
