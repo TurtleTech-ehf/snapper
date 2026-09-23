@@ -103,6 +103,12 @@ static NON_PROSE_ENVS: &[&str] = &[
     "Bmatrix",
     "vmatrix",
     "Vmatrix",
+    "smallmatrix",
+    "psmallmatrix",
+    "bsmallmatrix",
+    "Bsmallmatrix",
+    "vsmallmatrix",
+    "Vsmallmatrix",
     "cases",
     "cases*",
     "dcases",
@@ -2879,6 +2885,53 @@ More text.
             .count();
         // Preamble line + begin{equation} + E=mc^2 + end{equation} + end{document}
         assert!(structure_count >= 4);
+    }
+
+    #[test]
+    fn smallmatrix_body_is_not_sentence_split() {
+        // amsmath smallmatrix is a math array, same class as matrix.
+        let input = concat!(
+            "\\begin{smallmatrix}\n",
+            "a & b. Another sentence stays put.\n",
+            "\\end{smallmatrix}\n",
+            "After the array. Second sentence.\n",
+        );
+        let cfg = crate::FormatConfig {
+            format: crate::format::Format::Latex,
+            max_width: 0,
+            ..Default::default()
+        }
+        .without_safety_backstops();
+        let out = crate::format_text(input, &cfg).unwrap();
+        assert!(
+            out.contains("a & b. Another sentence stays put.\n"),
+            "smallmatrix body must stay one line, got:\n{out}"
+        );
+        assert!(
+            out.contains("After the array.\nSecond sentence."),
+            "prose after the array must still split, got:\n{out}"
+        );
+        assert_eq!(crate::format_text(&out, &cfg).unwrap(), out);
+        for name in [
+            "psmallmatrix",
+            "bsmallmatrix",
+            "Bsmallmatrix",
+            "vsmallmatrix",
+            "Vsmallmatrix",
+        ] {
+            let env = format!(
+                "\\begin{{{name}}}\na & b. Another sentence stays put.\n\\end{{{name}}}\nAfter the array. Second sentence.\n"
+            );
+            let env_out = crate::format_text(&env, &cfg).unwrap();
+            assert!(
+                env_out.contains("a & b. Another sentence stays put.\n"),
+                "{name} body must stay one line, got:\n{env_out}"
+            );
+            assert!(
+                env_out.contains("After the array.\nSecond sentence."),
+                "prose after {name} must still split, got:\n{env_out}"
+            );
+        }
     }
 
     #[test]
