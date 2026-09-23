@@ -443,23 +443,32 @@ fn is_ordered_list_marker(word: &str) -> bool {
     (1..=9).contains(&digits.len()) && digits.iter().all(|b| b.is_ascii_digit())
 }
 
+/// Org ordered item. Emacs `org-item-re` is `[0-9]+`, not CommonMark's
+/// 1–9 digit cap (`md_ordered_list_start`).
 fn ordered_list_start(text: &str) -> bool {
     let bytes = text.as_bytes();
     let mut i = 0;
     while i < bytes.len() && bytes[i].is_ascii_digit() {
         i += 1;
     }
-    if i == 0 || i > 9 {
+    if i == 0 {
         return false;
     }
-    matches!(bytes.get(i), Some(b'.') | Some(b')')) && matches!(bytes.get(i + 1), Some(b' ') | None)
+    matches!(bytes.get(i), Some(b'.') | Some(b')'))
+        && matches!(bytes.get(i + 1), Some(b' ') | Some(b'\t') | None)
 }
 
 fn thematic_or_setext_token(text: &str) -> bool {
     let first = text.split_whitespace().next().unwrap_or("");
-    if first.len() >= 3 {
+    if !first.is_empty() {
         let b = first.as_bytes()[0];
-        if matches!(b, b'-' | b'=' | b'*' | b'_') && first.bytes().all(|c| c == b) {
+        let solid = first.bytes().all(|c| c == b);
+        // CommonMark setext underlines are one or more `=` or `-`.
+        // Thematic breaks (`*`, `_`, and `-` of length >= 3) stay below.
+        if solid && matches!(b, b'=' | b'-') {
+            return true;
+        }
+        if solid && first.len() >= 3 && matches!(b, b'*' | b'_') {
             return true;
         }
     }
@@ -674,7 +683,14 @@ fn org_opens_block(line: &str) -> bool {
     }
     // Emacs org-item-re: `-`/`+` then space or EOL. Lone markers must
     // not be wrap-created at column 0 (GitHub #320).
-    if t == "-" || t == "+" || t.starts_with("- ") || t.starts_with("+ ") {
+    // Emacs org-item-re: bullet then space, tab, or EOL.
+    if t == "-"
+        || t == "+"
+        || t.starts_with("- ")
+        || t.starts_with("+ ")
+        || t.starts_with("-\t")
+        || t.starts_with("+\t")
+    {
         return true;
     }
     if t.starts_with("$$") {
@@ -768,11 +784,16 @@ fn latex_opens_block(line: &str) -> bool {
         "\\subsubsection",
         "\\paragraph",
         "\\subparagraph",
+        "\\addsec",
+        "\\addchap",
+        "\\addpart",
     ];
     for cmd in CMDS {
         if let Some(after) = t.strip_prefix(cmd) {
+            // Optional short title is `[...]` before the brace (KOMA too).
             if after.is_empty()
                 || after.starts_with('{')
+                || after.starts_with('[')
                 || after.starts_with('*')
                 || after.starts_with(' ')
             {
@@ -807,6 +828,32 @@ fn rst_opens_block(line: &str) -> bool {
     // Docutils Body.line: a solid adornment at column 0 is a section
     // underline / transition, not wrap-created leftover prose.
     if crate::parser::rst::is_underline(t) {
+        return true;
+    }
+    // Docutils isolate_simple_table: `===== =====` has interior spaces,
+    // so is_underline is false. Wrap-created leftover must skip-cut.
+    if crate::parser::rst::is_simple_table_border(t) {
+        return true;
+    }
+    // Docutils grid_table_top: `+---+` is not an underline and not a
+    // simple-table border. A wrap cut that parks it at column 0 mints a table.
+    if crate::parser::rst::is_rst_grid_table_top(t) {
+        return true;
+    }
+    // sphinx-jinja / Jinja2 `{% ... %}`. Not an underline. A wrap cut
+    // that parks the statement at column 0 mints a structure line.
+    if crate::parser::rst::is_rst_jinja_statement(t) {
+        return true;
+    }
+    // Docutils anonymous hyperlink target `__` / `__ uri`. A solid `__`
+    // is already an underline; `__ uri` is not.
+    if crate::parser::rst::is_rst_anonymous_target(t) {
+        return true;
+    }
+    // Leftover `+` fragment. A grid-table top is `+---+` and a list
+    // marker is `+ `. Any other column-0 `+` line (`+===+`, `+foo`)
+    // is Structure, including the words after the fragment.
+    if t.starts_with('+') {
         return true;
     }
     false
@@ -3151,6 +3198,81 @@ They are endowed with reason and conscience and should act towards one another i
     }
 
     #[test]
+    fn latex_verb_with_space_is_not_split_by_wrap() {
+        // Sentence splitting keeps `\verb|foo bar|` whole. Width wrap
+        // still splits on the space inside the delimiter.
+        let cfg = crate::FormatConfig {
+            format: crate::format::Format::Latex,
+            max_width: 16,
+            ..Default::default()
+        }
+        .without_safety_backstops();
+        let input = "Use \\verb|foo bar| here. Next sentence.\n";
+        let out = crate::format_text(input, &cfg).unwrap();
+        assert!(
+            out.contains("\\verb|foo bar|"),
+            "verb span must stay one token, got:\n{out}"
+        );
+        assert!(
+            !out.contains("\\verb|foo\n") && !out.contains("\\verb|foo\r"),
+            "wrap must not break inside the verb, got:\n{out}"
+        );
+        assert!(
+            out.contains("Next sentence."),
+            "following sentence must remain, got:\n{out}"
+        );
+        assert_eq!(crate::format_text(&out, &cfg).unwrap(), out);
+    }
+
+    #[test]
+    fn wrap_created_latex_section_optional_and_koma_are_not_blocks() {
+        // Optional [short] and KOMA \addsec/\addchap/\addpart are sectioning
+        // lines. Width 23 would park the command at column 0.
+        for token in [
+            "\\section[Short]{Long}",
+            "\\addsec{Title}",
+            "\\addchap{Title}",
+            "\\addpart{Title}",
+        ] {
+            let result = wrap_fmt(
+                &format!("The options are apples {token} extra words."),
+                23,
+                crate::format::Format::Latex,
+            );
+            assert_no_col0_block(&result, &[token]);
+            assert!(
+                result.contains(&format!("apples {token}")),
+                "LaTeX skip-cut keeps {token}:\n{result}"
+            );
+        }
+    }
+
+    #[test]
+    fn wrap_created_latex_section_optional_is_identity_under_format() {
+        let cfg = crate::FormatConfig {
+            format: crate::format::Format::Latex,
+            max_width: 23,
+            ..Default::default()
+        }
+        .without_safety_backstops();
+        let input = "The options are apples \\section[Short]{Long} extra words.\n\nAfter. Next.\n";
+        let out = crate::format_text(input, &cfg).unwrap();
+        assert!(
+            !out.lines().any(|l| l.starts_with("\\section")),
+            "wrap must not park a column-0 section command:\n{out}"
+        );
+        assert!(
+            out.contains("apples \\section[Short]{Long}"),
+            "skip-cut must keep the section command:\n{out}"
+        );
+        assert!(
+            out.contains("After.\nNext."),
+            "following prose must still split, got:\n{out}"
+        );
+        assert_eq!(crate::format_text(&out, &cfg).unwrap(), out);
+    }
+
+    #[test]
     fn wrap_created_rst_directive_is_not_a_block() {
         // G. RST ..
         let result = wrap_fmt(
@@ -3200,6 +3322,173 @@ They are endowed with reason and conscience and should act towards one another i
         assert!(
             out.contains("apples ===="),
             "skip-cut must keep ==== with the previous line:\n{out}"
+        );
+        assert!(
+            out.contains("After.\nNext."),
+            "following prose must still split, got:\n{out}"
+        );
+        assert_eq!(crate::format_text(&out, &cfg).unwrap(), out);
+    }
+
+    #[test]
+    fn wrap_created_rst_simple_table_border_is_not_a_block() {
+        // snapper-2knx: Docutils isolate_simple_table. Interior spaces
+        // mean is_underline is false, so skip-cut must name the border.
+        let result = wrap_fmt(
+            "The options are apples ===== =====",
+            23,
+            crate::format::Format::Rst,
+        );
+        assert_no_col0_block(&result, &["===== =====", "====="]);
+        assert!(
+            result.contains("apples ===== ====="),
+            "RST skip-cut keeps the simple-table border:\n{result}"
+        );
+    }
+
+    #[test]
+    fn wrap_created_rst_simple_table_border_is_identity_under_format() {
+        let cfg = crate::FormatConfig {
+            format: crate::format::Format::Rst,
+            max_width: 23,
+            ..Default::default()
+        }
+        .without_safety_backstops();
+        let input = "The options are apples ===== =====\n\nAfter. Next.\n";
+        let out = crate::format_text(input, &cfg).unwrap();
+        assert!(
+            !out.lines()
+                .any(|l| l.trim() == "===== =====" || l.trim() == "====="),
+            "wrap must not park a column-0 simple-table border:\n{out}"
+        );
+        assert!(
+            out.contains("apples ===== ====="),
+            "skip-cut must keep ===== ===== with the previous line:\n{out}"
+        );
+        assert!(
+            out.contains("After.\nNext."),
+            "following prose must still split, got:\n{out}"
+        );
+        assert_eq!(crate::format_text(&out, &cfg).unwrap(), out);
+    }
+
+    #[test]
+    fn wrap_created_rst_grid_table_top_is_not_a_block() {
+        // Docutils Body.grid_table_top. Width 23 would park +---+ at column 0.
+        for token in ["+---+", "+---+---+"] {
+            let result = wrap_fmt(
+                &format!("The options are apples {token}"),
+                23,
+                crate::format::Format::Rst,
+            );
+            assert_no_col0_block(&result, &[token]);
+            assert!(
+                result.contains(&format!("apples {token}")),
+                "RST skip-cut keeps the {token} grid top:\n{result}"
+            );
+        }
+    }
+
+    #[test]
+    fn wrap_created_rst_grid_table_top_is_identity_under_format() {
+        let cfg = crate::FormatConfig {
+            format: crate::format::Format::Rst,
+            max_width: 23,
+            ..Default::default()
+        }
+        .without_safety_backstops();
+        let input = "The options are apples +---+\n\nAfter. Next.\n";
+        let out = crate::format_text(input, &cfg).unwrap();
+        assert!(
+            !out.lines().any(|l| l.trim() == "+---+"),
+            "wrap must not park a column-0 grid-table top:\n{out}"
+        );
+        assert!(
+            out.contains("apples +---+"),
+            "skip-cut must keep +---+ with the previous line:\n{out}"
+        );
+        assert!(
+            out.contains("After.\nNext."),
+            "following prose must still split, got:\n{out}"
+        );
+        assert_eq!(crate::format_text(&out, &cfg).unwrap(), out);
+    }
+
+    #[test]
+    fn wrap_created_rst_jinja_statement_is_not_a_block() {
+        for token in ["{%endfor%}", "{%-endfor-%}", "{%+endfor+%}"] {
+            let result = wrap_fmt(
+                &format!("The options are apples {token}"),
+                23,
+                crate::format::Format::Rst,
+            );
+            assert_no_col0_block(&result, &[token]);
+            assert!(
+                result.contains(&format!("apples {token}")),
+                "RST skip-cut keeps the {token} jinja statement:\n{result}"
+            );
+        }
+        let spaced = wrap_fmt(
+            r#"The options are apples {% set x = 1 %}"#,
+            23,
+            crate::format::Format::Rst,
+        );
+        assert_no_col0_block(&spaced, &["{% set x = 1 %}", "{%"]);
+        assert!(
+            spaced.contains("{%"),
+            "jinja opener stays with the previous line:\n{spaced}"
+        );
+    }
+
+    #[test]
+    fn wrap_created_rst_anonymous_target_is_not_a_block() {
+        let result = wrap_fmt(
+            "The options are apples __ https://x.test",
+            23,
+            crate::format::Format::Rst,
+        );
+        assert_no_col0_block(&result, &["__ https://x.test", "__"]);
+        assert!(
+            result.contains("apples __"),
+            "anonymous target marker stays with the previous line:\n{result}"
+        );
+    }
+
+    #[test]
+    fn wrap_created_rst_plus_fragment_is_not_a_block() {
+        // Leftover `+` that is not `grid_table_top` (`+---+`). Width 23
+        // would park `+===+` at column 0 and freeze the rest of the line.
+        for token in ["+===+", "+===+===+", "+foo"] {
+            let result = wrap_fmt(
+                &format!("The options are apples {token} extra words."),
+                23,
+                crate::format::Format::Rst,
+            );
+            assert_no_col0_block(&result, &[token, "+"]);
+            assert!(
+                result.contains(&format!("apples {token}")),
+                "RST skip-cut keeps the {token} plus fragment:\n{result}"
+            );
+        }
+    }
+
+    #[test]
+    fn wrap_created_rst_plus_fragment_is_identity_under_format() {
+        let cfg = crate::FormatConfig {
+            format: crate::format::Format::Rst,
+            max_width: 23,
+            ..Default::default()
+        }
+        .without_safety_backstops();
+        let input = "The options are apples +===+ extra words.\n\nAfter. Next.\n";
+        let out = crate::format_text(input, &cfg).unwrap();
+        assert!(
+            !out.lines().any(|l| l.starts_with('+')),
+            "wrap must not park a column-0 plus fragment:\n{out}"
+        );
+        assert!(
+            out.contains("apples +===+"),
+            "skip-cut must keep +===+ with the previous line:\n{out}"
         );
         assert!(
             out.contains("After.\nNext."),
@@ -3293,6 +3582,9 @@ They are endowed with reason and conscience and should act towards one another i
             "man:org",
             "docview:/tmp/a.pdf",
             "shortdoc:org",
+            "bibtex:file.bib",
+            "eshell:ls",
+            "w3m:index.html",
         ] {
             let result = wrap_fmt(
                 &format!("The options are apples {token} extra words here."),
@@ -3326,6 +3618,50 @@ They are endowed with reason and conscience and should act towards one another i
     }
 
     #[test]
+    fn wrap_created_md_short_setext_is_escaped() {
+        // CommonMark setext underlines are one or more = or -. A run of
+        // length 1 or 2 is not a thematic break, and it still promotes
+        // the previous line when it is the whole next line.
+        for token in ["=", "==", "--"] {
+            let result = wrap_fmt(
+                &format!("The options are apples {token}"),
+                23,
+                crate::format::Format::Markdown,
+            );
+            assert!(
+                !result.lines().any(|l| l.trim() == token),
+                "wrap must not leave a column-0 setext underline {token:?}:\n{result}"
+            );
+            let escaped = format!("\\{token}");
+            assert!(
+                result.lines().any(|l| l.trim() == escaped),
+                "short setext {token:?} must be markdown-escaped:\n{result}"
+            );
+        }
+    }
+
+    #[test]
+    fn wrap_created_md_short_setext_is_identity_under_format() {
+        let cfg = crate::FormatConfig {
+            format: crate::format::Format::Markdown,
+            max_width: 23,
+            ..Default::default()
+        }
+        .without_safety_backstops();
+        let input = "The options are apples ==\n\nAfter. Next.\n";
+        let out = crate::format_text(input, &cfg).unwrap();
+        assert!(
+            !out.lines().any(|l| l.trim() == "=="),
+            "wrap must not emit a setext underline:\n{out}"
+        );
+        assert!(
+            out.contains("After.\nNext."),
+            "following prose must still split, got:\n{out}"
+        );
+        assert_eq!(crate::format_text(&out, &cfg).unwrap(), out);
+    }
+
+    #[test]
     fn wrap_created_md_empty_list_marker_is_not_a_block() {
         for token in ["-", "*", "+"] {
             let result = wrap_fmt(
@@ -3342,6 +3678,47 @@ They are endowed with reason and conscience and should act towards one another i
                 "{token} must not open a column-0 list/setext:\n{result}"
             );
         }
+    }
+
+    #[test]
+    fn wrap_created_org_long_ordered_marker_is_not_a_block() {
+        // Org ordered markers have no digit cap. Width 23 would park
+        // 1234567890. at column 0 and the next parse reads an item.
+        let result = wrap_fmt(
+            "The options are apples 1234567890. extra words here.",
+            23,
+            crate::format::Format::Org,
+        );
+        assert_no_col0_block(&result, &["1234567890.", "1234567890"]);
+        assert!(
+            result.contains("apples 1234567890."),
+            "Org skip-cut keeps the long marker:\n{result}"
+        );
+    }
+
+    #[test]
+    fn wrap_created_org_long_ordered_marker_is_identity_under_format() {
+        let cfg = crate::FormatConfig {
+            format: crate::format::Format::Org,
+            max_width: 23,
+            ..Default::default()
+        }
+        .without_safety_backstops();
+        let input = "The options are apples 1234567890. extra words here.\n\nAfter. Next.\n";
+        let out = crate::format_text(input, &cfg).unwrap();
+        assert!(
+            !out.lines().any(|l| l.starts_with("1234567890.")),
+            "wrap must not park a column-0 ordered marker:\n{out}"
+        );
+        assert!(
+            out.contains("apples 1234567890."),
+            "skip-cut must keep the marker:\n{out}"
+        );
+        assert!(
+            out.contains("After.\nNext."),
+            "following prose must still split, got:\n{out}"
+        );
+        assert_eq!(crate::format_text(&out, &cfg).unwrap(), out);
     }
 
     #[test]

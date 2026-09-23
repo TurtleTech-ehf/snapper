@@ -2,7 +2,40 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 - - -
-## Unreleased (main)
+## v0.11.7 - 2026-09-23
+#### Bug Fixes
+- generated pre-commit hook runs under bash so the format loop runs on Ubuntu
+- leftover LaTeX yquant body stays non-prose
+- leftover LaTeX quantikz body stays non-prose
+- leftover LaTeX numcases body stays non-prose
+- leftover LaTeX intertext argument stays prose
+- leftover LaTeX empheq body stays non-prose
+- leftover LaTeX prooftree body stays non-prose
+- leftover LaTeX CD diagram body stays non-prose
+- leftover LaTeX subarray body stays non-prose
+- leftover LaTeX xalignat body stays non-prose
+- leftover LaTeX smallmatrix body stays non-prose
+- leftover markdown hang-plus-four line stays in an open list paragraph
+- leftover org nested item returns to the parent list
+- leftover org item ends at the bullet column
+- leftover LaTeX verb with an internal space stays one wrap token
+- leftover markdown HTML type 6 and 7 blocks run to a blank line
+- leftover markdown footnote continuation keeps an ATX heading
+- leftover markdown list marker remainder stays blocks
+- leftover org plain list ends on two blanks
+- leftover RST anonymous target keeps its indented link block
+- leftover bare colon paragraph opens an RST literal block
+- leftover org ordered marker past nine digits skip-cut
+- leftover short markdown setext underline is escaped
+- leftover wrap-created LaTeX sectioning command skip-cut
+- leftover org item bullet allows a tab
+- leftover markdown closing fence with a non-space tail stays inside the code block
+- leftover wrap-created RST plus-fragment skip-cut
+- leftover wrap-created RST jinja statement and anonymous target skip-cut
+- leftover wrap-created RST grid-table top skip-cut
+- leftover type-6 void HTML (`param`/`track`) does not swallow following prose
+- leftover wrap-created RST simple-table border skip-cut
+- leftover org bibtex/eshell/w3m plain links hang and wrap
 
 - - -
 

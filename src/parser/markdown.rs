@@ -255,11 +255,12 @@ fn is_html_block_tag(name: &str) -> bool {
 }
 
 /// Type-6 tags with no closer (HTML void elements on the CM type-6 list).
-/// snapper-56tj: nest never hits 0, so leftover following prose was Structure.
+/// snapper-56tj / snapper-18gq: nest never hits 0, so leftover following
+/// prose was Structure. `param` / `track` are the remaining CM type-6 voids.
 fn is_html_void_type6(name: &str) -> bool {
     matches!(
         name.to_ascii_lowercase().as_str(),
-        "base" | "basefont" | "col" | "frame" | "hr" | "link" | "menuitem"
+        "base" | "basefont" | "col" | "frame" | "hr" | "link" | "menuitem" | "param" | "track"
     )
 }
 
@@ -396,7 +397,11 @@ fn named_html_end_idx(lines: &[Line<'_>], start_idx: usize, tag: &str) -> usize 
     let mut nest = 0i32;
     let mut j = start_idx;
     loop {
-        if apply_type6_named_tags(lines[j].text, tag, &mut nest) {
+        let closed = apply_type6_named_tags(lines[j].text, tag, &mut nest);
+        // A void tag has no body, so the block is that line. A matching
+        // end tag does not end type 6 or 7; CommonMark runs to the next
+        // blank line.
+        if closed && is_html_void_type6(tag) {
             return j;
         }
         if j + 1 >= lines.len() || lines[j + 1].text.trim().is_empty() {
@@ -464,9 +469,9 @@ fn html_block_line_ends(line: &str, kind: HtmlBlock) -> bool {
 fn html_block_end_idx(kind: HtmlBlock, lines: &[Line<'_>], start_idx: usize) -> usize {
     match kind {
         HtmlBlock::Type6 | HtmlBlock::Type7 => {
-            // Closed type-6 (`<div>…</div>`) and type-7 (`<span>…</span>`)
-            // end at the matching close so the next paragraph stays Prose
-            // (GitHub #332 / #356). Unclosed still runs to a following blank.
+            // CommonMark 0.31.2: type 6 and 7 end at the next blank line.
+            // A matching end tag does not end the block. Void tags still
+            // stop on the tag line.
             let rest = html_block_rest(lines[start_idx].text);
             let tag = if kind == HtmlBlock::Type6 {
                 type6_tag_name(rest)
@@ -562,7 +567,8 @@ fn quoted_named_html_end_idx(
     let mut j = start_idx;
     loop {
         if let Some(inner) = quoted_html_inner(lines[j].text, depth) {
-            if apply_type6_named_tags(inner, tag, &mut nest) {
+            let closed = apply_type6_named_tags(inner, tag, &mut nest);
+            if closed && is_html_void_type6(tag) {
                 return j;
             }
         } else {
@@ -1276,6 +1282,67 @@ fn list_item_empty_pad(rest: &str) -> usize {
     usize::from(rest == " ")
 }
 
+/// Block that starts in the text after a list marker: ATX heading,
+/// thematic break, HTML block, or GFM table. The returned index is the
+/// last source line of that block. A fence is handled by the caller so
+/// the body stays `Code`.
+fn list_remainder_raw_end(lines: &[Line<'_>], start: usize, rest: &str) -> Option<usize> {
+    let content = rest.trim_start();
+    if content.is_empty() || FENCED_CODE_RE.is_match(content) {
+        return None;
+    }
+    if HEADING_RE.is_match(content) || is_thematic_break(content) {
+        return Some(start);
+    }
+    if let Some(kind) = html_block_kind(content) {
+        return Some(match kind {
+            HtmlBlock::Type6 | HtmlBlock::Type7 => {
+                let tag = if kind == HtmlBlock::Type6 {
+                    type6_tag_name(content)
+                } else {
+                    type7_tag_name(content)
+                };
+                if let Some(tag) = tag {
+                    named_html_end_idx(lines, start, tag)
+                } else {
+                    let mut j = start;
+                    while j + 1 < lines.len() && !lines[j + 1].text.trim().is_empty() {
+                        j += 1;
+                    }
+                    j
+                }
+            }
+            _ => {
+                if html_block_line_ends(content, kind)
+                    || html_block_line_ends(lines[start].text, kind)
+                {
+                    start
+                } else {
+                    let mut j = start + 1;
+                    while j < lines.len() && !html_block_line_ends(lines[j].text, kind) {
+                        j += 1;
+                    }
+                    j.min(lines.len().saturating_sub(1))
+                }
+            }
+        });
+    }
+    let header = gfm_table_cells(content)?;
+    let delim = lines.get(start + 1)?;
+    let dcells = gfm_table_cells(delim.text)?;
+    if header.len() != dcells.len() || !dcells.iter().all(|c| is_gfm_delimiter_cell(c)) {
+        return None;
+    }
+    let mut end = start + 1;
+    for (j, line) in lines.iter().enumerate().skip(start + 2) {
+        if !is_gfm_table_row(line.text) {
+            break;
+        }
+        end = j;
+    }
+    Some(end)
+}
+
 /// CommonMark 5.2 hang: marker width after quote markers (`- ` is 2,
 /// `1. ` is 3, lone `-` is W+1). A setext underline shallower than this
 /// hang is lazy paragraph text, not a closer (GitHub #261).
@@ -1533,18 +1600,26 @@ fn quoted_setext_ok(title: &str, underline: &str, prev: Option<&str>) -> bool {
 }
 
 /// Closing fence: same marker char, length at least the opener, indent at
-/// most `max(3, opener_indent)`. CommonMark allows 0–3 spaces on a closer;
-/// list-nested openers keep their own indent so a matching 4-space closer
-/// still ends the block. Deeper inner fences stay content.
+/// most `max(3, opener_indent)`. CommonMark 0.31.2 allows 0–3 spaces on a
+/// closer and only spaces or tabs after the marker. List-nested openers
+/// keep their own indent so a matching 4-space closer still ends the
+/// block. Deeper inner fences stay content. A tail such as
+/// `` ``` not a closer `` is still code.
 fn is_closing_fence(line: &str, fence_marker: &str, opener_indent: usize) -> bool {
     if line_indent(line) > opener_indent.max(3) {
         return false;
     }
-    let Some(caps) = FENCED_CODE_RE.captures(line.trim_start()) else {
+    let trimmed = line.trim_start();
+    let Some(caps) = FENCED_CODE_RE.captures(trimmed) else {
         return false;
     };
     let marker = caps.get(1).unwrap().as_str();
-    marker.chars().next() == fence_marker.chars().next() && marker.len() >= fence_marker.len()
+    if marker.chars().next() != fence_marker.chars().next() || marker.len() < fence_marker.len() {
+        return false;
+    }
+    trimmed[marker.len()..]
+        .bytes()
+        .all(|b| b == b' ' || b == b'\t')
 }
 
 /// True when `s` contains an unescaped `|` (GFM table cell separator).
@@ -2374,6 +2449,17 @@ impl FormatParser for MarkdownParser {
                     let row = &lines[j];
                     let hang = line_indent(row.text);
                     let inner = row.text.get(hang..).unwrap_or("");
+                    if HEADING_RE.is_match(inner) {
+                        flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
+                        if let Some(span) = list_term.take() {
+                            if !span.is_empty() {
+                                regions.push(SpannedRegion::structure(input, span));
+                            }
+                        }
+                        regions.push(SpannedRegion::structure(input, row.span()));
+                        j += 1;
+                        continue;
+                    }
                     if FENCED_CODE_RE.is_match(inner.trim_start()) {
                         flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
                         let fence = FENCED_CODE_RE
@@ -2593,8 +2679,8 @@ impl FormatParser for MarkdownParser {
             }
 
             // CommonMark 4.6 HTML blocks types 1 and 3–7. Type 2 is above.
-            // Unclosed type-7 cannot interrupt a paragraph. Closed type-7
-            // (`<span>…</span>`) is a leaf island (GitHub #356).
+            // Unclosed type-7 cannot interrupt a paragraph. Type 6 and 7
+            // run to the next blank line.
             if let Some(kind) = html_block_kind(line_text) {
                 let in_paragraph = !current_prose.is_empty() || in_list_item;
                 if kind.can_interrupt()
@@ -2925,6 +3011,37 @@ impl FormatParser for MarkdownParser {
                     // item stays empty and the next unindented line is not
                     // lazy continuation (GitHub #337).
                     let marker_len = marker.len() + list_item_empty_pad(rest);
+                    let content = rest.get(list_item_empty_pad(rest)..).unwrap_or("");
+                    // pulldown parses the remainder as blocks. A fence,
+                    // heading, thematic break, HTML block, or GFM table
+                    // there is not item prose.
+                    if let Some(fcaps) = FENCED_CODE_RE.captures(content.trim_start()) {
+                        let spaces = content.len() - content.trim_start().len();
+                        fence_marker = fcaps.get(1).unwrap().as_str().to_string();
+                        fence_indent = marker_len + spaces;
+                        fence_quote_depth = 0;
+                        in_fenced_code = true;
+                        in_list_item = false;
+                        list_hang = None;
+                        code_lang = FENCED_LANG_RE
+                            .captures(content.trim_start())
+                            .map(|c| c.get(1).unwrap().as_str().to_string());
+                        code_header = line.span();
+                        code_body_start = line.end;
+                        i += 1;
+                        continue;
+                    }
+                    if let Some(end) = list_remainder_raw_end(&lines, i, content) {
+                        in_list_item = true;
+                        list_hang = Some(list_marker_hang(marker));
+                        list_after_blank = false;
+                        in_definition_list = false;
+                        for row in &lines[i..=end] {
+                            regions.push(SpannedRegion::structure(input, row.span()));
+                        }
+                        i = end + 1;
+                        continue;
+                    }
                     let marker_span = ByteSpan::new(line.start, line.start + marker_len);
                     regions.push(SpannedRegion::structure(input, marker_span));
                     in_list_item = true;
@@ -3029,11 +3146,17 @@ impl FormatParser for MarkdownParser {
             }
             last_was_def_term = false;
 
-            // hang+4 indented code inside a list item, with or without a
-            // blank. CM 5.2: indent ≥ hang+4 is code, not lazy paragraph.
+            // hang+4 indented code inside a list item only after the
+            // paragraph has closed. CommonMark 4.4: indented code cannot
+            // interrupt an open paragraph, so a hang+4 line with no blank
+            // stays in the item. A blank flushes prose; the next hang+4
+            // line is code.
             if in_list_item {
                 if let Some(hang) = list_hang {
-                    if is_indented_code_line(line_text) && line_indent(line_text) >= hang + 4 {
+                    if current_prose.is_empty()
+                        && is_indented_code_line(line_text)
+                        && line_indent(line_text) >= hang + 4
+                    {
                         flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
                         if let Some(span) = list_term.take() {
                             if !span.is_empty() {
@@ -3294,6 +3417,137 @@ mod tests {
     }
 
     #[test]
+    fn list_marker_fence_remainder_stays_code() {
+        // pulldown parses the text after a list marker as blocks.
+        // The fence opener on that line is not item prose.
+        let input = concat!(
+            "- ```\n",
+            "  Keep this sentence in the fence. Keep this one too.\n",
+            "  ```\n",
+        );
+        let regions = MarkdownParser.parse(input);
+        match regions.iter().find(|r| matches!(r, Region::Code { .. })) {
+            Some(Region::Code { body, footer, .. }) => {
+                assert!(
+                    body.contains("Keep this sentence in the fence. Keep this one too.\n"),
+                    "fence body stays one code line, got {body:?}"
+                );
+                assert!(
+                    footer.contains("```"),
+                    "indented closer ends the fence, got {footer:?}"
+                );
+            }
+            other => panic!("list-marker fence must be Code, got {other:?} in {regions:?}"),
+        }
+        assert!(
+            !regions
+                .iter()
+                .any(|r| matches!(r, Region::Prose(p) if p.contains("Keep this"))),
+            "fence body must not be prose: {regions:?}"
+        );
+        let cfg = crate::FormatConfig {
+            format: crate::format::Format::Markdown,
+            max_width: 0,
+            ..Default::default()
+        }
+        .without_safety_backstops();
+        let out = crate::format_text(input, &cfg).unwrap();
+        assert!(
+            out.contains("Keep this sentence in the fence. Keep this one too.\n"),
+            "fence body must not sentence-split, got:\n{out}"
+        );
+        assert_eq!(crate::format_text(&out, &cfg).unwrap(), out);
+    }
+
+    #[test]
+    fn list_marker_html_remainder_stays_raw() {
+        let input = concat!(
+            "- <div>\n",
+            "  Inside the block. Second sentence.\n",
+            "  </div>\n",
+            "\n",
+            "After. Next.\n",
+        );
+        let cfg = crate::FormatConfig {
+            format: crate::format::Format::Markdown,
+            max_width: 0,
+            ..Default::default()
+        }
+        .without_safety_backstops();
+        let out = crate::format_text(input, &cfg).unwrap();
+        assert!(
+            out.contains("Inside the block. Second sentence.\n"),
+            "html remainder must not sentence-split, got:\n{out}"
+        );
+        assert!(
+            out.contains("After.\nNext."),
+            "prose after the html block must still split, got:\n{out}"
+        );
+        assert_eq!(crate::format_text(&out, &cfg).unwrap(), out);
+    }
+
+    #[test]
+    fn list_marker_table_remainder_stays_raw() {
+        let input = concat!(
+            "- | a | b |\n",
+            "  | --- | --- |\n",
+            "  | one. | two. |\n",
+            "\n",
+            "After. Next.\n",
+        );
+        let cfg = crate::FormatConfig {
+            format: crate::format::Format::Markdown,
+            max_width: 0,
+            ..Default::default()
+        }
+        .without_safety_backstops();
+        let out = crate::format_text(input, &cfg).unwrap();
+        assert!(
+            out.contains("| one. | two. |\n"),
+            "table remainder must stay one row, got:\n{out}"
+        );
+        assert!(
+            out.contains("After.\nNext."),
+            "prose after the table must still split, got:\n{out}"
+        );
+        assert_eq!(crate::format_text(&out, &cfg).unwrap(), out);
+    }
+
+    #[test]
+    fn list_marker_heading_remainder_stays_one_line() {
+        let input = "- # Heading one. Heading two must not split.\n\nAfter. Next.\n";
+        let regions = MarkdownParser.parse(input);
+        assert!(
+            regions.iter().any(
+                |r| matches!(r, Region::Structure(s) if s.contains("Heading one. Heading two"))
+            ),
+            "heading remainder stays structure, got {regions:?}"
+        );
+        assert!(
+            !regions
+                .iter()
+                .any(|r| matches!(r, Region::Prose(p) if p.contains("Heading two"))),
+            "heading remainder must not be prose, got {regions:?}"
+        );
+        let cfg = crate::FormatConfig {
+            format: crate::format::Format::Markdown,
+            max_width: 0,
+            ..Default::default()
+        }
+        .without_safety_backstops();
+        let out = crate::format_text(input, &cfg).unwrap();
+        assert!(
+            out.contains("- # Heading one. Heading two must not split.\n"),
+            "heading must stay one line, got:\n{out}"
+        );
+        assert!(
+            out.contains("After.\nNext."),
+            "following prose must still split, got:\n{out}"
+        );
+        assert_eq!(crate::format_text(&out, &cfg).unwrap(), out);
+    }
+
+    #[test]
     fn list_nested_fence_still_closes_at_opener_indent() {
         let input = concat!(
             "- item:\n",
@@ -3330,6 +3584,85 @@ mod tests {
                 assert_eq!(footer, "   ```\n");
             }
             other => panic!("expected Code closed by 3-space fence, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn closing_fence_tail_is_still_code() {
+        // CommonMark 0.31.2: a closing fence may be followed only by
+        // spaces or tabs. ` ``` not a closer` stays inside the block.
+        for closer in ["``` not a closer", "~~~ not a closer", "```not"] {
+            let fence = &closer[..3];
+            let input = format!(
+                "{fence}\nKeep this sentence in the fence. Keep this one too.\n{closer}\nStill inside the fence. Must not split.\n{fence}\n"
+            );
+            let regions = MarkdownParser.parse(&input);
+            match &regions[0] {
+                Region::Code { body, footer, .. } => {
+                    assert!(
+                        body.contains(closer),
+                        "tailed fence {closer:?} stays in the body, got {body:?}"
+                    );
+                    assert!(
+                        body.contains("Still inside the fence. Must not split.\n"),
+                        "text after {closer:?} stays in the body, got {body:?}"
+                    );
+                    assert_eq!(footer.as_str(), format!("{fence}\n").as_str());
+                }
+                other => panic!("tailed fence {closer:?} must not close, got {other:?}"),
+            }
+            assert!(
+                !regions
+                    .iter()
+                    .any(|r| matches!(r, Region::Prose(p) if p.contains("Must not split"))),
+                "fence body must not become prose for {closer:?}: {regions:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn closing_fence_tail_is_identity_under_format() {
+        use crate::format::Format;
+        use crate::{FormatConfig, format_text};
+
+        let input = concat!(
+            "```\n",
+            "Keep this sentence in the fence. Keep this one too.\n",
+            "``` not a closer\n",
+            "Still inside the fence. Must not split.\n",
+            "```\n",
+        );
+        let cfg = FormatConfig {
+            format: Format::Markdown,
+            max_width: 0,
+            ..Default::default()
+        }
+        .without_safety_backstops();
+        let out = format_text(input, &cfg).unwrap();
+        assert!(
+            out.contains("Still inside the fence. Must not split.\n"),
+            "fence body must not sentence-split, got:\n{out}"
+        );
+        assert_eq!(format_text(&out, &cfg).unwrap(), out);
+    }
+
+    #[test]
+    fn closing_fence_trailing_blank_still_closes() {
+        for closer in ["```   ", "```\t", "~~~~  "] {
+            let fence = if closer.starts_with('`') {
+                "```"
+            } else {
+                "~~~~"
+            };
+            let input = format!("{fence}\ncode\n{closer}\n");
+            let regions = MarkdownParser.parse(&input);
+            match &regions[0] {
+                Region::Code { body, footer, .. } => {
+                    assert_eq!(body, "code\n");
+                    assert_eq!(footer.as_str(), format!("{closer}\n").as_str());
+                }
+                other => panic!("blank tail {closer:?} must close, got {other:?}"),
+            }
         }
     }
 
@@ -3964,6 +4297,41 @@ mod tests {
             !regions.iter().any(|r| matches!(r, Region::Code { .. })),
             "indent 4 with hang 3 must not be Code, got {regions:?}"
         );
+    }
+
+    #[test]
+    fn hang_plus_four_without_blank_joins_the_paragraph() {
+        // CommonMark 4.4: indented code cannot interrupt a paragraph.
+        // hang+4 with no blank stays in the open item and splits.
+        let input = "- foo bar sentence.\n      continues the item. Second sentence.\n";
+        let regions = MarkdownParser.parse(input);
+        assert!(
+            !regions.iter().any(|r| matches!(r, Region::Code { .. })),
+            "open paragraph must not become indented code, got {regions:?}"
+        );
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(p) if p.contains("foo bar sentence.") && p.contains("continues the item.")
+            )),
+            "hang+4 line joins the item paragraph, got {regions:?}"
+        );
+        let cfg = crate::FormatConfig {
+            format: crate::format::Format::Markdown,
+            max_width: 0,
+            ..Default::default()
+        }
+        .without_safety_backstops();
+        let out = crate::format_text(input, &cfg).unwrap();
+        assert!(
+            out.contains("continues the item.\n"),
+            "joined paragraph must sentence-split, got:\n{out}"
+        );
+        assert!(
+            !out.contains("      continues"),
+            "the line must not stay a six-space code line, got:\n{out}"
+        );
+        assert_eq!(crate::format_text(&out, &cfg).unwrap(), out);
     }
 
     #[test]
@@ -5261,8 +5629,8 @@ mod tests {
         );
     }
 
-    /// GitHub #332 / snapper-v85k: closed type-6 must not swallow
-    /// the following paragraph.
+    /// CommonMark type 6 runs to the next blank line. Text after
+    /// `</div>` with no blank stays in the block.
     fn ticket_html_type6_close_fixture() -> &'static str {
         concat!(
             "Intro sentence here. Another intro sentence.\n",
@@ -5285,22 +5653,15 @@ mod tests {
         assert!(div.contains("First. Second."), "{div}");
         assert!(div.contains("</div>"), "{div}");
         assert!(
-            !div.contains("After html"),
-            "closed type-6 must end at </div>, got {div}"
+            div.contains("After html. Next."),
+            "text before a blank stays in the type-6 block, got {div}"
         );
         assert!(
             !regions.iter().any(|r| matches!(
                 r,
-                Region::Prose(p) if p.contains("First.") || p.contains("<div")
+                Region::Prose(p) if p.contains("First.") || p.contains("<div") || p.contains("After html")
             )),
             "div body must not be Prose: {regions:?}"
-        );
-        assert!(
-            regions.iter().any(|r| matches!(
-                r,
-                Region::Prose(p) if p.contains("After html.") && p.contains("Next.")
-            )),
-            "following paragraph must stay Prose: {regions:?}"
         );
     }
 
@@ -5377,6 +5738,60 @@ mod tests {
         let out = format_text(ticket_html_type6_void_hr_fixture(), &cfg).unwrap();
         assert!(
             out.contains("<hr>"),
+            "void type-6 tag must stay, got:\n{out}"
+        );
+        assert!(
+            out.contains("After html.\nNext."),
+            "following prose must still split, got:\n{out}"
+        );
+        assert_eq!(format_text(&out, &cfg).unwrap(), out);
+    }
+
+    /// snapper-18gq: CM type-6 void `param` / `track` were missing from
+    /// `is_html_void_type6`, so nest never hit 0 and leftover following
+    /// prose was Structure.
+    #[test]
+    fn html_type6_void_param_track_do_not_swallow_next_paragraph() {
+        for tag in ["<param>", "<track>"] {
+            let input =
+                format!("Intro sentence here. Another intro sentence.\n{tag}\nAfter html. Next.\n");
+            let regions = MarkdownParser.parse(&input);
+            assert!(
+                regions.iter().any(|r| matches!(
+                    r,
+                    Region::Structure(s) if s.contains(tag)
+                )),
+                "{tag} must be Structure, got {regions:?}"
+            );
+            assert!(
+                !regions.iter().any(|r| matches!(
+                    r,
+                    Region::Structure(s) if s.contains(tag) && s.contains("After html")
+                )),
+                "void type-6 {tag} must not swallow following prose, got {regions:?}"
+            );
+            assert!(
+                regions.iter().any(|r| matches!(
+                    r,
+                    Region::Prose(p) if p.contains("After html.") && p.contains("Next.")
+                )),
+                "following paragraph after {tag} must stay Prose: {regions:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn leftover_html_type6_void_param_following_prose_still_splits() {
+        use crate::{FormatConfig, format_text};
+        let cfg = FormatConfig {
+            format: crate::format::Format::Markdown,
+            ..Default::default()
+        }
+        .without_safety_backstops();
+        let input = "Intro sentence here. Another intro sentence.\n<param>\nAfter html. Next.\n";
+        let out = format_text(input, &cfg).unwrap();
+        assert!(
+            out.contains("<param>"),
             "void type-6 tag must stay, got:\n{out}"
         );
         assert!(
@@ -5531,8 +5946,8 @@ mod tests {
         );
     }
 
-    /// GitHub #356 / snapper-615s: closed type-7 must not swallow
-    /// the following paragraph.
+    /// CommonMark type 7 runs to the next blank line. Text after
+    /// `</span>` with no blank stays in the block.
     fn ticket_html_type7_close_fixture() -> &'static str {
         concat!(
             "Intro sentence here. Another intro sentence.\n",
@@ -5555,22 +5970,15 @@ mod tests {
         assert!(span.contains("First. Second."), "{span}");
         assert!(span.contains("</span>"), "{span}");
         assert!(
-            !span.contains("After html"),
-            "closed type-7 must end at </span>, got {span}"
+            span.contains("After html. Next."),
+            "text before a blank stays in the type-7 block, got {span}"
         );
         assert!(
             !regions.iter().any(|r| matches!(
                 r,
-                Region::Prose(p) if p.contains("First.") || p.contains("<span")
+                Region::Prose(p) if p.contains("First.") || p.contains("<span") || p.contains("After html")
             )),
             "span body must not be Prose: {regions:?}"
-        );
-        assert!(
-            regions.iter().any(|r| matches!(
-                r,
-                Region::Prose(p) if p.contains("After html.") && p.contains("Next.")
-            )),
-            "following paragraph must stay Prose: {regions:?}"
         );
     }
 
@@ -5594,8 +6002,12 @@ mod tests {
             "span HTML block must stay raw through </span>, got:\n{out}"
         );
         assert!(
-            out.contains("After html.\nNext.\n"),
-            "following paragraph must stay Prose and split, got:\n{out}"
+            out.contains("After html. Next.\n"),
+            "text before a blank stays in the span block, got:\n{out}"
+        );
+        assert!(
+            !out.contains("After html.\nNext."),
+            "type-7 text must not sentence-split before a blank, got:\n{out}"
         );
         assert!(
             !out.contains("First.\nSecond."),
@@ -5678,8 +6090,12 @@ mod tests {
             "div HTML block must stay raw through </div>, got:\n{out}"
         );
         assert!(
-            out.contains("After html.\nNext.\n"),
-            "following paragraph must stay Prose and split, got:\n{out}"
+            out.contains("After html. Next.\n"),
+            "text before a blank stays in the div block, got:\n{out}"
+        );
+        assert!(
+            !out.contains("After html.\nNext."),
+            "type-6 text must not sentence-split before a blank, got:\n{out}"
         );
         assert!(
             !out.contains("First.\nSecond."),
@@ -6667,6 +7083,93 @@ mod tests {
             )),
             "footnote body must not stay Structure, got: {regions:?}"
         );
+    }
+
+    #[test]
+    fn html_type6_runs_to_a_blank_line() {
+        // CommonMark 0.31.2 type 6 ends at a blank line. The matching
+        // close tag does not end the block.
+        let input = "<div>\nFirst. Second.\n</div>\nAfter html. Next.\n";
+        let regions = MarkdownParser.parse(input);
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Structure(s)
+                    if s.contains("</div>") && s.contains("After html. Next.")
+            )),
+            "text after </div> stays in the html block, got {regions:?}"
+        );
+        assert!(
+            !regions
+                .iter()
+                .any(|r| matches!(r, Region::Prose(p) if p.contains("After html"))),
+            "text before the blank must not be prose, got {regions:?}"
+        );
+        let cfg = crate::FormatConfig {
+            format: crate::format::Format::Markdown,
+            max_width: 0,
+            ..Default::default()
+        }
+        .without_safety_backstops();
+        let out = crate::format_text(input, &cfg).unwrap();
+        assert!(
+            out.contains("After html. Next.\n"),
+            "html block must not sentence-split, got:\n{out}"
+        );
+        assert_eq!(crate::format_text(&out, &cfg).unwrap(), out);
+
+        let blanked = "<div>\nFirst. Second.\n</div>\n\nAfter html. Next.\n";
+        let blanked_out = crate::format_text(blanked, &cfg).unwrap();
+        assert!(
+            blanked_out.contains("After html.\nNext.\n"),
+            "a blank line ends the block, got:\n{blanked_out}"
+        );
+        let hr = "<hr>\nAfter html. Next.\n";
+        let hr_out = crate::format_text(hr, &cfg).unwrap();
+        assert!(
+            hr_out.contains("After html.\nNext.\n"),
+            "a void tag does not swallow the next line, got:\n{hr_out}"
+        );
+    }
+
+    #[test]
+    fn footnote_continuation_heading_stays_one_line() {
+        let input = concat!(
+            "[^1]: Note text.\n",
+            "\n",
+            "    # Heading one. Heading two must not split.\n",
+            "\n",
+            "After. Next.\n",
+        );
+        let regions = MarkdownParser.parse(input);
+        assert!(
+            regions.iter().any(
+                |r| matches!(r, Region::Structure(s) if s.contains("# Heading one. Heading two"))
+            ),
+            "footnote heading stays structure, got {regions:?}"
+        );
+        assert!(
+            !regions
+                .iter()
+                .any(|r| matches!(r, Region::Prose(p) if p.contains("Heading two"))),
+            "footnote heading must not be prose, got {regions:?}"
+        );
+        let cfg = crate::FormatConfig {
+            format: crate::format::Format::Markdown,
+            max_width: 0,
+            ..Default::default()
+        }
+        .without_safety_backstops();
+        let out = crate::format_text(input, &cfg).unwrap();
+        assert!(
+            out.contains("# Heading one. Heading two must not split.\n"),
+            "heading must stay one line, got:\n{out}"
+        );
+        assert!(
+            out.contains("After.\nNext."),
+            "prose after the footnote must still split, got:\n{out}"
+        );
+        assert_eq!(crate::format_text(&out, &cfg).unwrap(), out);
     }
 
     #[test]

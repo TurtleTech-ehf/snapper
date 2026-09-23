@@ -2,7 +2,7 @@
 
 Office add-in that formats document prose with **semantic line breaks** (one sentence per line) using the **snapper WASM** build (`@snapper/wasm`). Useful when drafting in Word and exporting to Org, Markdown, or LaTeX for git-friendly diffs.
 
-**Version:** 0.11.6 (tracks snapper-fmt)
+**Version:** 0.11.7 (tracks snapper-fmt)
 
 Development preview; not published in AppSource.
 
@@ -34,7 +34,7 @@ CI builds the Word add-in in `.github/workflows/wasm.yml` (`build-word` job).
 
 ## Relationship to the CLI
 
-Word uses the **plaintext** format path in WASM. For Org/LaTeX fidelity, prefer the CLI or VS Code extension (LSP). Delimiter-span and abbreviation behavior matches the current WASM API (requires snapper **0.11.6+**).
+Word uses the **plaintext** format path in WASM. For Org/LaTeX fidelity, prefer the CLI or VS Code extension (LSP). Delimiter-span and abbreviation behavior matches the current WASM API (requires snapper **0.11.7+**).
 
 ## License
 
