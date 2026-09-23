@@ -104,6 +104,8 @@ static NON_PROSE_ENVS: &[&str] = &[
     "subarray",
     "CD",
     "prooftree",
+    "empheq",
+    "empheq*",
     "matrix",
     "pmatrix",
     "bmatrix",
@@ -2892,6 +2894,34 @@ More text.
             .count();
         // Preamble line + begin{equation} + E=mc^2 + end{equation} + end{document}
         assert!(structure_count >= 4);
+    }
+
+    #[test]
+    fn empheq_body_is_not_sentence_split() {
+        // empheq wraps a display. A line that is not itself an inner
+        // non-prose environment still must not sentence-split.
+        let cfg = crate::FormatConfig {
+            format: crate::format::Format::Latex,
+            max_width: 0,
+            ..Default::default()
+        }
+        .without_safety_backstops();
+        let input = concat!(
+            "\\begin{empheq}{align}\n",
+            "The premise holds. The next claim stays put.\n",
+            "\\end{empheq}\n",
+            "After the display. Next.\n",
+        );
+        let out = crate::format_text(input, &cfg).unwrap();
+        assert!(
+            out.contains("The premise holds. The next claim stays put.\n"),
+            "empheq body must stay one line, got:\n{out}"
+        );
+        assert!(
+            out.contains("After the display.\nNext."),
+            "prose after the display must still split, got:\n{out}"
+        );
+        assert_eq!(crate::format_text(&out, &cfg).unwrap(), out);
     }
 
     #[test]
