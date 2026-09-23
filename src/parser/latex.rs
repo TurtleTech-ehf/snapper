@@ -102,6 +102,7 @@ static NON_PROSE_ENVS: &[&str] = &[
     "array",
     "array*",
     "subarray",
+    "CD",
     "matrix",
     "pmatrix",
     "bmatrix",
@@ -2890,6 +2891,33 @@ More text.
             .count();
         // Preamble line + begin{equation} + E=mc^2 + end{equation} + end{document}
         assert!(structure_count >= 4);
+    }
+
+    #[test]
+    fn cd_body_is_not_sentence_split() {
+        // amscd CD is a commutative diagram, same class as a math array.
+        let cfg = crate::FormatConfig {
+            format: crate::format::Format::Latex,
+            max_width: 0,
+            ..Default::default()
+        }
+        .without_safety_backstops();
+        let input = concat!(
+            "\\begin{CD}\n",
+            "Arrow to the target. Second sentence stays put.\n",
+            "\\end{CD}\n",
+            "After the diagram. Next.\n",
+        );
+        let out = crate::format_text(input, &cfg).unwrap();
+        assert!(
+            out.contains("Arrow to the target. Second sentence stays put.\n"),
+            "CD body must stay one line, got:\n{out}"
+        );
+        assert!(
+            out.contains("After the diagram.\nNext."),
+            "prose after the diagram must still split, got:\n{out}"
+        );
+        assert_eq!(crate::format_text(&out, &cfg).unwrap(), out);
     }
 
     #[test]
