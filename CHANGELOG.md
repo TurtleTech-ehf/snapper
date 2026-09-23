@@ -4,6 +4,7 @@ All notable changes to this project will be documented in this file. See [conven
 - - -
 ## Unreleased (main)
 #### Bug Fixes
+- leftover LaTeX subarray body stays non-prose
 - leftover LaTeX xalignat body stays non-prose
 - leftover LaTeX smallmatrix body stays non-prose
 - leftover markdown hang-plus-four line stays in an open list paragraph
