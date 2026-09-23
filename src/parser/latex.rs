@@ -96,6 +96,7 @@ static NON_PROSE_ENVS: &[&str] = &[
     "tikzcd",
     "tikzcd*",
     "quantikz",
+    "yquant",
     "pgfpicture",
     "pgfpicture*",
     "axis",
@@ -2946,6 +2947,33 @@ More text.
             .count();
         // Preamble line + begin{equation} + E=mc^2 + end{equation} + end{document}
         assert!(structure_count >= 4);
+    }
+
+    #[test]
+    fn yquant_body_is_not_sentence_split() {
+        // yquant is a circuit diagram, same class as quantikz.
+        let cfg = crate::FormatConfig {
+            format: crate::format::Format::Latex,
+            max_width: 0,
+            ..Default::default()
+        }
+        .without_safety_backstops();
+        let input = concat!(
+            "\\begin{yquant}\n",
+            "The wire is open. The next claim stays put.\n",
+            "\\end{yquant}\n",
+            "After the circuit. Next.\n",
+        );
+        let out = crate::format_text(input, &cfg).unwrap();
+        assert!(
+            out.contains("The wire is open. The next claim stays put.\n"),
+            "yquant body must stay one line, got:\n{out}"
+        );
+        assert!(
+            out.contains("After the circuit.\nNext."),
+            "prose after the circuit must still split, got:\n{out}"
+        );
+        assert_eq!(crate::format_text(&out, &cfg).unwrap(), out);
     }
 
     #[test]
