@@ -4,6 +4,7 @@ All notable changes to this project will be documented in this file. See [conven
 - - -
 ## Unreleased (main)
 #### Bug Fixes
+- leftover LaTeX quantikz body stays non-prose
 - leftover LaTeX numcases body stays non-prose
 - leftover LaTeX intertext argument stays prose
 - leftover LaTeX empheq body stays non-prose
