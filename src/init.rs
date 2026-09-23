@@ -403,7 +403,8 @@ mod tests {
     #[test]
     fn generate_precommit_hook_is_native_and_has_fmt_fallback() {
         let hook = generate_precommit_hook();
-        assert!(hook.starts_with("#!/bin/sh"));
+        // NUL-delimited `read -d ''` is not POSIX. Ubuntu dash skips the loop.
+        assert!(hook.starts_with("#!/usr/bin/env bash\n"));
         assert!(hook.contains(HOOK_MARKER));
         assert!(hook.contains("--native"));
         assert!(
