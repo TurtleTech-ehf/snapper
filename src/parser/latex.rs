@@ -740,6 +740,45 @@ fn caption_open_brace(line: &str, cmd_end: usize, stop: usize) -> Option<usize> 
 }
 
 /// Matching `}` for the `{` at `open_at`, skipping `\{` / `\}` and `\verb`.
+/// Index of the `{` that opens `\intertext` or `\shortintertext`.
+fn find_intertext_brace(line: &str, extra: &[String]) -> Option<usize> {
+    let bytes = line.as_bytes();
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] != b'\\' {
+            i += 1;
+            continue;
+        }
+        if let Some(end) = latex_verb_span_end_with(line, i, extra) {
+            i = end;
+            continue;
+        }
+        let rest = &line[i + 1..];
+        let name = if rest.starts_with("shortintertext") {
+            "shortintertext"
+        } else if rest.starts_with("intertext") {
+            "intertext"
+        } else {
+            i += 1;
+            continue;
+        };
+        let after_name = i + 1 + name.len();
+        if after_name < bytes.len() && bytes[after_name].is_ascii_alphabetic() {
+            i += 1;
+            continue;
+        }
+        let mut j = after_name;
+        while j < bytes.len() && matches!(bytes[j], b' ' | b'\t') {
+            j += 1;
+        }
+        if j < bytes.len() && bytes[j] == b'{' {
+            return Some(j);
+        }
+        i += 1;
+    }
+    None
+}
+
 fn find_matching_curly(s: &str, open_at: usize, extra_cmds: &[String]) -> Option<usize> {
     let bytes = s.as_bytes();
     let mut depth = 0;
@@ -1941,6 +1980,16 @@ impl<'a> ParseState<'a> {
                 i = hit.end;
             }
         }
+        let extra = self.parser.extra_verbatim_commands.clone();
+        if let Some(open) = find_intertext_brace(line.text, &extra) {
+            if find_matching_curly(line.text, open, &extra).is_some() {
+                // amsmath \intertext / mathtools \shortintertext is a
+                // paragraph between alignment rows, not a math row.
+                self.push_structure(ByteSpan::new(line.start, line.start + open + 1));
+                self.emit_caption_group(line, open);
+                return;
+            }
+        }
         self.regions
             .push(SpannedRegion::structure(self.input, line.span()));
     }
@@ -2922,6 +2971,39 @@ More text.
             "prose after the display must still split, got:\n{out}"
         );
         assert_eq!(crate::format_text(&out, &cfg).unwrap(), out);
+    }
+
+    #[test]
+    fn intertext_argument_is_prose() {
+        // amsmath \intertext / mathtools \shortintertext are paragraphs
+        // between alignment rows. The math rows stay structure.
+        let cfg = crate::FormatConfig {
+            format: crate::format::Format::Latex,
+            max_width: 0,
+            ..Default::default()
+        }
+        .without_safety_backstops();
+        for cmd in ["intertext", "shortintertext"] {
+            let input = format!(
+                "\\begin{{align}}\na &= b \\\\\n\\{cmd}{{The note holds. The next claim stays put.}}\nc &= d\n\\end{{align}}\nAfter the align. Next.\n"
+            );
+            let out = crate::format_text(&input, &cfg).unwrap();
+            assert!(
+                out.contains(&format!(
+                    "\\{cmd}{{The note holds.\nThe next claim stays put.}}"
+                )),
+                "{cmd} argument must split, got:\n{out}"
+            );
+            assert!(
+                out.contains("a &= b \\\\"),
+                "alignment row must stay intact, got:\n{out}"
+            );
+            assert!(
+                out.contains("After the align.\nNext."),
+                "prose after the align must still split, got:\n{out}"
+            );
+            assert_eq!(crate::format_text(&out, &cfg).unwrap(), out);
+        }
     }
 
     #[test]
