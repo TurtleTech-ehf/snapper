@@ -2929,6 +2929,7 @@ fn find_md_code_span(text: &str, open_at: usize) -> Option<usize> {
 /// Org `{{{name}}}` / `{{{name(args)}}}`, Org timestamps
 /// (`<YYYY-MM-DD…>`, `[YYYY-MM-DD…]`, ranges `--`, diary `<%%(...)>`),
 /// Org latex-fragments (`\(...\)`, `$...$`, `\cmd{arg}`, `\cmd[opt]{arg}`),
+/// LaTeX `\verb|...|` and the other delimiter verbs,
 /// Org `src_lang{...}` / `call_name(...)`, Org brace `H_{...}` / `x^{...}`
 /// (org-match-substring-regexp), RST `|fig. 1|` / `|name|_` / `|name|__`,
 /// paired spans).
@@ -2962,6 +2963,15 @@ pub fn atomic_inline_spans(text: &str) -> Vec<(usize, usize)> {
             org_src_call_spans.push((i, end));
             i = end;
             continue;
+        }
+        if bytes[i] == b'\\' {
+            // `\verb|foo bar|` is one token. Sentence splitting already
+            // hides it; width wrap still sees the restored spaces.
+            if let Some(end) = latex_verb_span_end_with(text, i, &[]) {
+                spans.push((i, end));
+                i = end;
+                continue;
+            }
         }
         if bytes[i] == b'`' {
             if let Some(end) = find_md_code_span(text, i) {

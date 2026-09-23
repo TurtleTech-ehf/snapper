@@ -1,9 +1,9 @@
 # snapper - Semantic Line Breaks
 
-Requires the **snapper** / **snapper-fmt** CLI **0.11.6+** on your PATH (or set `snapper.path`).
+Requires the **snapper** / **snapper-fmt** CLI **0.11.7+** on your PATH (or set `snapper.path`).
 The crate is `snapper-fmt`; installers ship both names.
 If [openSUSE snapper](https://github.com/openSUSE/snapper) already owns `/usr/bin/snapper`, call `snapper-fmt` or set `snapper.path`.
-Install: `cargo install snapper-fmt` or the [release installer](https://github.com/TurtleTech-ehf/snapper/releases/tag/v0.11.6).
+Install: `cargo install snapper-fmt` or the [release installer](https://github.com/TurtleTech-ehf/snapper/releases/tag/v0.11.7).
 
 
 Format prose so each sentence occupies its own line, producing clean git diffs for collaborative writing.

@@ -30,6 +30,10 @@ static NON_PROSE_ENVS: &[&str] = &[
     "align*",
     "alignat",
     "alignat*",
+    "xalignat",
+    "xalignat*",
+    "xxalignat",
+    "xxalignat*",
     "aligned",
     "aligned*",
     "alignedat",
@@ -91,20 +95,35 @@ static NON_PROSE_ENVS: &[&str] = &[
     "tikzpicture",
     "tikzcd",
     "tikzcd*",
+    "quantikz",
+    "yquant",
     "pgfpicture",
     "pgfpicture*",
     "axis",
     "axis*",
     "array",
     "array*",
+    "subarray",
+    "CD",
+    "prooftree",
+    "empheq",
+    "empheq*",
     "matrix",
     "pmatrix",
     "bmatrix",
     "Bmatrix",
     "vmatrix",
     "Vmatrix",
+    "smallmatrix",
+    "psmallmatrix",
+    "bsmallmatrix",
+    "Bsmallmatrix",
+    "vsmallmatrix",
+    "Vsmallmatrix",
     "cases",
     "cases*",
+    "numcases",
+    "subnumcases",
     "dcases",
     "dcases*",
     "rcases",
@@ -725,6 +744,45 @@ fn caption_open_brace(line: &str, cmd_end: usize, stop: usize) -> Option<usize> 
 }
 
 /// Matching `}` for the `{` at `open_at`, skipping `\{` / `\}` and `\verb`.
+/// Index of the `{` that opens `\intertext` or `\shortintertext`.
+fn find_intertext_brace(line: &str, extra: &[String]) -> Option<usize> {
+    let bytes = line.as_bytes();
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] != b'\\' {
+            i += 1;
+            continue;
+        }
+        if let Some(end) = latex_verb_span_end_with(line, i, extra) {
+            i = end;
+            continue;
+        }
+        let rest = &line[i + 1..];
+        let name = if rest.starts_with("shortintertext") {
+            "shortintertext"
+        } else if rest.starts_with("intertext") {
+            "intertext"
+        } else {
+            i += 1;
+            continue;
+        };
+        let after_name = i + 1 + name.len();
+        if after_name < bytes.len() && bytes[after_name].is_ascii_alphabetic() {
+            i += 1;
+            continue;
+        }
+        let mut j = after_name;
+        while j < bytes.len() && matches!(bytes[j], b' ' | b'\t') {
+            j += 1;
+        }
+        if j < bytes.len() && bytes[j] == b'{' {
+            return Some(j);
+        }
+        i += 1;
+    }
+    None
+}
+
 fn find_matching_curly(s: &str, open_at: usize, extra_cmds: &[String]) -> Option<usize> {
     let bytes = s.as_bytes();
     let mut depth = 0;
@@ -1926,6 +1984,16 @@ impl<'a> ParseState<'a> {
                 i = hit.end;
             }
         }
+        let extra = self.parser.extra_verbatim_commands.clone();
+        if let Some(open) = find_intertext_brace(line.text, &extra) {
+            if find_matching_curly(line.text, open, &extra).is_some() {
+                // amsmath \intertext / mathtools \shortintertext is a
+                // paragraph between alignment rows, not a math row.
+                self.push_structure(ByteSpan::new(line.start, line.start + open + 1));
+                self.emit_caption_group(line, open);
+                return;
+            }
+        }
         self.regions
             .push(SpannedRegion::structure(self.input, line.span()));
     }
@@ -2879,6 +2947,303 @@ More text.
             .count();
         // Preamble line + begin{equation} + E=mc^2 + end{equation} + end{document}
         assert!(structure_count >= 4);
+    }
+
+    #[test]
+    fn yquant_body_is_not_sentence_split() {
+        // yquant is a circuit diagram, same class as quantikz.
+        let cfg = crate::FormatConfig {
+            format: crate::format::Format::Latex,
+            max_width: 0,
+            ..Default::default()
+        }
+        .without_safety_backstops();
+        let input = concat!(
+            "\\begin{yquant}\n",
+            "The wire is open. The next claim stays put.\n",
+            "\\end{yquant}\n",
+            "After the circuit. Next.\n",
+        );
+        let out = crate::format_text(input, &cfg).unwrap();
+        assert!(
+            out.contains("The wire is open. The next claim stays put.\n"),
+            "yquant body must stay one line, got:\n{out}"
+        );
+        assert!(
+            out.contains("After the circuit.\nNext."),
+            "prose after the circuit must still split, got:\n{out}"
+        );
+        assert_eq!(crate::format_text(&out, &cfg).unwrap(), out);
+    }
+
+    #[test]
+    fn quantikz_body_is_not_sentence_split() {
+        // quantikz is a circuit diagram, same class as tikzcd.
+        let cfg = crate::FormatConfig {
+            format: crate::format::Format::Latex,
+            max_width: 0,
+            ..Default::default()
+        }
+        .without_safety_backstops();
+        let input = concat!(
+            "\\begin{quantikz}\n",
+            "The wire is open. The next claim stays put.\n",
+            "\\end{quantikz}\n",
+            "After the circuit. Next.\n",
+        );
+        let out = crate::format_text(input, &cfg).unwrap();
+        assert!(
+            out.contains("The wire is open. The next claim stays put.\n"),
+            "quantikz body must stay one line, got:\n{out}"
+        );
+        assert!(
+            out.contains("After the circuit.\nNext."),
+            "prose after the circuit must still split, got:\n{out}"
+        );
+        assert_eq!(crate::format_text(&out, &cfg).unwrap(), out);
+    }
+
+    #[test]
+    fn numcases_body_is_not_sentence_split() {
+        // cases.sty numcases / subnumcases are numbered cases, same
+        // class as amsmath cases.
+        let cfg = crate::FormatConfig {
+            format: crate::format::Format::Latex,
+            max_width: 0,
+            ..Default::default()
+        }
+        .without_safety_backstops();
+        for name in ["numcases", "subnumcases"] {
+            let input = format!(
+                "\\begin{{{name}}}{{y =}}\nx & x > 0. Second sentence stays put.\n\\end{{{name}}}\nAfter the cases. Next.\n"
+            );
+            let out = crate::format_text(&input, &cfg).unwrap();
+            assert!(
+                out.contains("x & x > 0. Second sentence stays put.\n"),
+                "{name} body must stay one line, got:\n{out}"
+            );
+            assert!(
+                out.contains("After the cases.\nNext."),
+                "prose after {name} must still split, got:\n{out}"
+            );
+            assert_eq!(crate::format_text(&out, &cfg).unwrap(), out);
+        }
+    }
+
+    #[test]
+    fn empheq_body_is_not_sentence_split() {
+        // empheq wraps a display. A line that is not itself an inner
+        // non-prose environment still must not sentence-split.
+        let cfg = crate::FormatConfig {
+            format: crate::format::Format::Latex,
+            max_width: 0,
+            ..Default::default()
+        }
+        .without_safety_backstops();
+        let input = concat!(
+            "\\begin{empheq}{align}\n",
+            "The premise holds. The next claim stays put.\n",
+            "\\end{empheq}\n",
+            "After the display. Next.\n",
+        );
+        let out = crate::format_text(input, &cfg).unwrap();
+        assert!(
+            out.contains("The premise holds. The next claim stays put.\n"),
+            "empheq body must stay one line, got:\n{out}"
+        );
+        assert!(
+            out.contains("After the display.\nNext."),
+            "prose after the display must still split, got:\n{out}"
+        );
+        assert_eq!(crate::format_text(&out, &cfg).unwrap(), out);
+    }
+
+    #[test]
+    fn intertext_argument_is_prose() {
+        // amsmath \intertext / mathtools \shortintertext are paragraphs
+        // between alignment rows. The math rows stay structure.
+        let cfg = crate::FormatConfig {
+            format: crate::format::Format::Latex,
+            max_width: 0,
+            ..Default::default()
+        }
+        .without_safety_backstops();
+        for cmd in ["intertext", "shortintertext"] {
+            let input = format!(
+                "\\begin{{align}}\na &= b \\\\\n\\{cmd}{{The note holds. The next claim stays put.}}\nc &= d\n\\end{{align}}\nAfter the align. Next.\n"
+            );
+            let out = crate::format_text(&input, &cfg).unwrap();
+            assert!(
+                out.contains(&format!(
+                    "\\{cmd}{{The note holds.\nThe next claim stays put.}}"
+                )),
+                "{cmd} argument must split, got:\n{out}"
+            );
+            assert!(
+                out.contains("a &= b \\\\"),
+                "alignment row must stay intact, got:\n{out}"
+            );
+            assert!(
+                out.contains("After the align.\nNext."),
+                "prose after the align must still split, got:\n{out}"
+            );
+            assert_eq!(crate::format_text(&out, &cfg).unwrap(), out);
+        }
+    }
+
+    #[test]
+    fn prooftree_body_is_not_sentence_split() {
+        // bussproofs prooftree is a proof diagram, same class as CD.
+        let cfg = crate::FormatConfig {
+            format: crate::format::Format::Latex,
+            max_width: 0,
+            ..Default::default()
+        }
+        .without_safety_backstops();
+        let input = concat!(
+            "\\begin{prooftree}\n",
+            "The premise holds. The next claim stays put.\n",
+            "\\end{prooftree}\n",
+            "After the proof. Next.\n",
+        );
+        let out = crate::format_text(input, &cfg).unwrap();
+        assert!(
+            out.contains("The premise holds. The next claim stays put.\n"),
+            "prooftree body must stay one line, got:\n{out}"
+        );
+        assert!(
+            out.contains("After the proof.\nNext."),
+            "prose after the proof must still split, got:\n{out}"
+        );
+        assert_eq!(crate::format_text(&out, &cfg).unwrap(), out);
+    }
+
+    #[test]
+    fn cd_body_is_not_sentence_split() {
+        // amscd CD is a commutative diagram, same class as a math array.
+        let cfg = crate::FormatConfig {
+            format: crate::format::Format::Latex,
+            max_width: 0,
+            ..Default::default()
+        }
+        .without_safety_backstops();
+        let input = concat!(
+            "\\begin{CD}\n",
+            "Arrow to the target. Second sentence stays put.\n",
+            "\\end{CD}\n",
+            "After the diagram. Next.\n",
+        );
+        let out = crate::format_text(input, &cfg).unwrap();
+        assert!(
+            out.contains("Arrow to the target. Second sentence stays put.\n"),
+            "CD body must stay one line, got:\n{out}"
+        );
+        assert!(
+            out.contains("After the diagram.\nNext."),
+            "prose after the diagram must still split, got:\n{out}"
+        );
+        assert_eq!(crate::format_text(&out, &cfg).unwrap(), out);
+    }
+
+    #[test]
+    fn subarray_body_is_not_sentence_split() {
+        // amsmath subarray is a math stack, same class as array.
+        let cfg = crate::FormatConfig {
+            format: crate::format::Format::Latex,
+            max_width: 0,
+            ..Default::default()
+        }
+        .without_safety_backstops();
+        let input = concat!(
+            "\\begin{subarray}{c}\n",
+            "a. Second sentence stays put.\n",
+            "\\end{subarray}\n",
+            "After the stack. Next.\n",
+        );
+        let out = crate::format_text(input, &cfg).unwrap();
+        assert!(
+            out.contains("a. Second sentence stays put.\n"),
+            "subarray body must stay one line, got:\n{out}"
+        );
+        assert!(
+            out.contains("After the stack.\nNext."),
+            "prose after the stack must still split, got:\n{out}"
+        );
+        assert_eq!(crate::format_text(&out, &cfg).unwrap(), out);
+    }
+
+    #[test]
+    fn xalignat_body_is_not_sentence_split() {
+        // amsmath xalignat / xxalignat are alignment displays, same
+        // class as alignat.
+        let cfg = crate::FormatConfig {
+            format: crate::format::Format::Latex,
+            max_width: 0,
+            ..Default::default()
+        }
+        .without_safety_backstops();
+        for name in ["xalignat", "xxalignat"] {
+            let input = format!(
+                "\\begin{{{name}}}{{2}}\na &= b. Second sentence stays put.\n\\end{{{name}}}\nAfter the align. Next.\n"
+            );
+            let out = crate::format_text(&input, &cfg).unwrap();
+            assert!(
+                out.contains("a &= b. Second sentence stays put.\n"),
+                "{name} body must stay one line, got:\n{out}"
+            );
+            assert!(
+                out.contains("After the align.\nNext."),
+                "prose after {name} must still split, got:\n{out}"
+            );
+            assert_eq!(crate::format_text(&out, &cfg).unwrap(), out);
+        }
+    }
+
+    #[test]
+    fn smallmatrix_body_is_not_sentence_split() {
+        // amsmath smallmatrix is a math array, same class as matrix.
+        let input = concat!(
+            "\\begin{smallmatrix}\n",
+            "a & b. Another sentence stays put.\n",
+            "\\end{smallmatrix}\n",
+            "After the array. Second sentence.\n",
+        );
+        let cfg = crate::FormatConfig {
+            format: crate::format::Format::Latex,
+            max_width: 0,
+            ..Default::default()
+        }
+        .without_safety_backstops();
+        let out = crate::format_text(input, &cfg).unwrap();
+        assert!(
+            out.contains("a & b. Another sentence stays put.\n"),
+            "smallmatrix body must stay one line, got:\n{out}"
+        );
+        assert!(
+            out.contains("After the array.\nSecond sentence."),
+            "prose after the array must still split, got:\n{out}"
+        );
+        assert_eq!(crate::format_text(&out, &cfg).unwrap(), out);
+        for name in [
+            "psmallmatrix",
+            "bsmallmatrix",
+            "Bsmallmatrix",
+            "vsmallmatrix",
+            "Vsmallmatrix",
+        ] {
+            let env = format!(
+                "\\begin{{{name}}}\na & b. Another sentence stays put.\n\\end{{{name}}}\nAfter the array. Second sentence.\n"
+            );
+            let env_out = crate::format_text(&env, &cfg).unwrap();
+            assert!(
+                env_out.contains("a & b. Another sentence stays put.\n"),
+                "{name} body must stay one line, got:\n{env_out}"
+            );
+            assert!(
+                env_out.contains("After the array.\nSecond sentence."),
+                "prose after {name} must still split, got:\n{env_out}"
+            );
+        }
     }
 
     #[test]

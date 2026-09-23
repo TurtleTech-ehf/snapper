@@ -32,7 +32,12 @@ The classification depends on the format.
 - Comment lines (starting with =#= but not =#+= )
 - Column-0 diary-sexp lines (=%%(...)=; org-element-diary-sexp-parser)
 - Full headline lines (stars, optional TODO keyword, and title text)
-- List item markers (=-=, =+=, =1.=); continuation sentences hang at the marker width
+- List item markers (=-=, =+=, =1.=, including a tab after the bullet).
+  An ordered marker is one or more digits. A wrap cut that would park it at column 0 skip-cuts the token onto the previous line.
+  Continuation sentences hang at the marker width.
+  One blank line stays inside the item. Two blank lines end the plain list.
+  An item also ends at a line indented less than or equal to its bullet, so a two-space line stays in a column-0 item.
+  A line indented like a child bullet ends that child and stays in the parent
 - LaTeX environments (=\begin{equation}= ... =\end{equation}=, =\begin{align}=, etc.). An unmatched =\begin{env}= is a paragraph (org-element latex-environment-parser)
 - Display math (=\[= ... =\]=)
 - Line breaks (org-element-line-break-parser: =\\= plus optional spaces or tabs at end of line)
@@ -90,7 +95,8 @@ These tokens within prose are not split across lines:
 :CUSTOM_ID: latex-structure
 :END:
 - Preamble (everything before =\begin{document}=)
-- Non-prose environments: equation, align, tabular, tikzpicture, and their starred variants (plus other non-code envs)
+- Non-prose environments: equation, align, alignat, xalignat, xxalignat, empheq, cases, numcases, array, subarray, CD, prooftree, quantikz, yquant, matrix, smallmatrix, tabular, tikzpicture, and their starred variants (plus other non-code envs).
+  =\\intertext= and =\\shortintertext= arguments inside those displays stay prose
 - Float chrome (=\begin{figure}= / =\centering= / =\end{figure}=, and =table= / starred variants): Structure.
   The =\caption= long argument is Prose.
 - Extra names from =[latex].structure_envs= in =.snapperrc.toml= (for example =algorithm=)
@@ -98,7 +104,8 @@ These tokens within prose are not split across lines:
 - =\iffalse= through =\fi= (tree-sitter =block_comment=)
 - Comment lines (starting with =%=)
 - =\end{document}=
-- Full sectioning command lines (=\section{...}=, =\subsection{...}=, and friends, including title text)
+- Full sectioning command lines (=\section{...}=, =\subsection{...}=, KOMA =\addsec= / =\addchap= / =\addpart=, including an optional short title and the title text).
+  A wrap cut that would park one of those commands at column 0 skip-cuts the token onto the previous line
 
 *** Code regions (=minted=, =lstlisting=, =verbatim=, =comment=, =Piton=)
 :PROPERTIES:
@@ -136,7 +143,8 @@ These tokens within prose are not split across lines:
 - Extra names from =[latex].verbatim_envs= are code regions too
 - Body follows the same comment-reflow and optional =--format-code= rules as other formats when language is known (=minted= / =minted*= language arg, =lstlisting= / =lstlisting*= =language== option)
 - Inline leftover =\verb= / =\verb*= / leftover =\lstinline= / leftover =\spverb= / leftover =\mintinline= / leftover =\mint= / leftover fancyvrb =\Verb= / =\Verb*= / leftover =\SaveVerb= / leftover =\UseVerb= / leftover =\UseVerbatim= / leftover =\LUseVerbatim= / leftover =\BUseVerbatim= / leftover =\DefineShortVerb= / =\UndefineShortVerb= / leftover fvextra =\EscVerb= / leftover fvextra =\VerbatimInsertBuffer= / =\VerbatimClearBuffer= / =\InsertBuffer= / =\IterateBuffer= / =\VerbatimInput= / =\BVerbatimInput= / =\LVerbatimInput= / piton.sty leftover =\piton= / =\PitonInputFile= / =\PitonInputFileT= / =\PitonInputFileF= / =\PitonInputFileTF= / listings.sty =\lstinputlisting= / minted.sty =\inputminted= / tools/verbatim.sty =\verbatiminput= / tcolorbox =\tcbinputlisting= / pythontex.sty =\inputpy= / =\inputpycon= / leftover inline =\py= / =\pyc= / =\pys= / =\pyb= / =\pyv= / =\pycon= and twins / =\sympy= / =\pylab= and twins / leftover usefamily =\ruby= / =\rb= / =\julia= / =\jl= / =\matlab= / =\octave= / =\bash= / =\sage= / =\rust= / =\rs= / =\R= / =\perl= / =\pl= / =\perlsix= / =\psix= / =\javascript= / =\js= and twins / =\inputpygments= / =\pygment= / leftover =\pythontexcustomc= / pythonhighlight.sty =\inputpython= / =\inputpythonfile= / leftover =\pyth= / catchfilebetweentags.sty =\CatchFileBetweenTags= / =\CatchFileBetweenDelims= / =\ExecuteMetaData= / catchfile.sty leftover =\CatchFileDef= / =\CatchFileEdef= / moreverb =\listinginput= / leftover =\verbatimtabinput= / =\verbatimtabinput*= / leftover =\verbatimwrite= / =\verbatimwrite*= / leftover =\listingcont= / sagetex =\sageinput= / leftover inline =\sageplot= / =\sagestr= / scontents leftover =\Scontents= / =\Scontents*= / =\typestored= / =\getstored= / =\mergesc= / =\meaningsc= / =\foreachsc= (and extra =[latex].verbatim_commands=) stay atomic; inner =.!?%= do not split or comment.
-  leftover =\verb= / =\verb*= / =\lstinline= / =\spverb= take a delimiter or, for =\lstinline=, optional =[...]= then a delimiter or ={...}=; a flush following sentence stays on its own line
+  leftover =\verb= / =\verb*= / =\lstinline= / =\spverb= take a delimiter or, for =\lstinline=, optional =[...]= then a delimiter or ={...}=; a flush following sentence stays on its own line.
+  A width wrap keeps a space inside that delimiter on the same line
   leftover =\mintinline= / =\mint= take optional =[...]=, ={lang}=, then a delimiter or ={...}= body; a flush following sentence stays on its own line
   leftover =\SaveVerb= takes optional =[...]=, a ={name}=, then the same delimiter body as =\Verb=; a flush following sentence stays on its own line
   leftover =\UseVerb= / =\UseVerb*= take optional =[...]= then a ={name}=; leftover =\UseVerbatim= / =\LUseVerbatim= / =\BUseVerbatim= take optional =[...]= then a ={name}=; a flush following sentence stays on its own line
@@ -187,8 +195,11 @@ These tokens within prose are not split across lines:
 - Front matter (=---= or =+++=  delimited at file start)
 - Full ATX heading lines (=#= … =######= including title text)
 - Empty ATX headings (a mark line with no title text) stay Structure
-- Setext headings (title line plus ====== or ------ underline)
-- List item markers (=-=, =*=, =+=, =1.=); continuation sentences hang at the marker width
+- Setext headings (title line plus a line of one or more = or - characters).
+  A wrap cut that would park a short underline at column 0 escapes it
+- List item markers (=-=, =*=, =+=, =1.=); continuation sentences hang at the marker width.
+  A line indented four spaces past the marker stays in an open item paragraph. After a blank line it is indented code.
+  A fence, ATX heading, thematic break, HTML block, or GFM table in the marker remainder stays a block
 - Empty list markers (including quoted) stay Structure
 - Definition-list terms and =: = markers (pulldown =ENABLE_DEFINITION_LIST=); the body hangs at the marker width
 - Blockquote markers (=>= / nested => > =); continuation sentences repeat the quote prefix
@@ -198,15 +209,16 @@ These tokens within prose are not split across lines:
 - GFM footnote definitions (=[^label]:=); the marker is Structure and the body hangs
 - Hard line breaks (two trailing spaces, or a trailing backslash)
 - HTML comments (=<!-- ... -->=, including multiline); =<!-- snapper:off -->= / =<!-- snapper:on -->= remain pragmas
-- Closed type-6 and type-7 HTML blocks end at the matching close tag; following prose stays Prose
-- Void type-6 tags (=<hr>= / =<col>= / =<link>= / =<base>=) end on the tag line; they have no closer, so leftover following prose stays Prose even without a blank
+- Type-6 and type-7 HTML blocks run to the next blank line. A matching end tag does not end the block
+- Void type-6 tags (=<hr>= / =<col>= / =<link>= / =<base>= / =<param>= / =<track>=) end on the tag line; they have no closer, so leftover following prose stays Prose even without a blank
 - Pipe tables
 
 *** Code regions (fenced =```= / =~~~=)
 :PROPERTIES:
 :CUSTOM_ID: markdown-code
 :END:
-- Opening and closing fence lines are structure
+- Opening and closing fence lines are structure.
+  A closing fence may be followed only by spaces or tabs; any other tail stays inside the code block
 - Indented fence bodies preserve indentation on reflowed comment lines
 - Language from the fence info string selects =[code.<lang>]=; unknown or missing lang passes the body through unchanged (unless =--format-code= is not applicable without a formatter entry)
 
@@ -217,7 +229,8 @@ These tokens within prose are not split across lines:
 - Paragraph text
 - List item text (after the marker); continuation sentences hang at the marker width
 - Definition-list body (after the =: = marker); continuation sentences hang at the marker width
-- GFM footnote-definition body (after =[^label]:=); continuation sentences hang at the marker width
+- GFM footnote-definition body (after =[^label]:=); continuation sentences hang at the marker width.
+  An ATX heading in that continuation stays one structure line
 - Blockquote inner text (after the =>= marker); continuation sentences repeat the quote prefix
 
 *** Inline tokens (kept atomic)
@@ -243,9 +256,15 @@ These tokens within prose are not split across lines:
 - Container directive openers (=.. note::=, =.. warning::=, =.. figure::=, =.. topic::=, =.. sidebar::=, =.. container::=, leftover =.. parsed-literal::=, =.. epigraph::=, =.. highlights::=, =.. pull-quote::=, =.. compound::=, =.. header::=, =.. footer::=) and their =:option:= fields; the indented body is prose
 - Same-line body after =::= on those containers, leftover =.. parsed-literal::=, =.. header::=, =.. footer::=, =.. |name| replace::=, and =.. meta::= fields hangs and splits.
   Flush bibliographic fields close a meta leftover
-- Literal blocks (text after =::= with indented or line-prefix-quoted content)
+- Literal blocks (text after =::= with indented or line-prefix-quoted content).
+  A paragraph whose text is only =::= is that marker. A two-character title underlined with =::= stays a section
 - Section titles and underlines (=====, =-----=, etc.).
   A wrap cut that would park a solid Docutils =Body.line= adornment at column 0 skip-cuts the token onto the previous line (snapper-7xd3)
+  A wrap cut that would park a Docutils simple-table border at column 0 skip-cuts the token onto the previous line (snapper-2knx)
+  A wrap cut that would park a Docutils grid-table top (=+---+=) at column 0 skip-cuts the token onto the previous line
+  A wrap cut that would park a Jinja statement (=\{% ... %\}=) or a Docutils anonymous target (=__ uri=) at column 0 skip-cuts the token onto the previous line.
+  The indented link block under that target stays structure until a blank
+  A wrap cut that would park a leftover plus fragment (=+===+=, =+foo=) at column 0 skip-cuts the token onto the previous line
 - Field lists (=:Author:=, =:Date:=, etc.)
 - Empty list items, empty doctest openers, and empty field-list markers at EOL stay Structure
 - Comments (=..= without a directive)
