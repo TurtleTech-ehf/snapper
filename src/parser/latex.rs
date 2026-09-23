@@ -103,6 +103,7 @@ static NON_PROSE_ENVS: &[&str] = &[
     "array*",
     "subarray",
     "CD",
+    "prooftree",
     "matrix",
     "pmatrix",
     "bmatrix",
@@ -2891,6 +2892,33 @@ More text.
             .count();
         // Preamble line + begin{equation} + E=mc^2 + end{equation} + end{document}
         assert!(structure_count >= 4);
+    }
+
+    #[test]
+    fn prooftree_body_is_not_sentence_split() {
+        // bussproofs prooftree is a proof diagram, same class as CD.
+        let cfg = crate::FormatConfig {
+            format: crate::format::Format::Latex,
+            max_width: 0,
+            ..Default::default()
+        }
+        .without_safety_backstops();
+        let input = concat!(
+            "\\begin{prooftree}\n",
+            "The premise holds. The next claim stays put.\n",
+            "\\end{prooftree}\n",
+            "After the proof. Next.\n",
+        );
+        let out = crate::format_text(input, &cfg).unwrap();
+        assert!(
+            out.contains("The premise holds. The next claim stays put.\n"),
+            "prooftree body must stay one line, got:\n{out}"
+        );
+        assert!(
+            out.contains("After the proof.\nNext."),
+            "prose after the proof must still split, got:\n{out}"
+        );
+        assert_eq!(crate::format_text(&out, &cfg).unwrap(), out);
     }
 
     #[test]
