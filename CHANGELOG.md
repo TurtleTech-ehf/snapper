@@ -4,6 +4,7 @@ All notable changes to this project will be documented in this file. See [conven
 - - -
 ## Unreleased (main)
 #### Bug Fixes
+- leftover LaTeX intertext argument stays prose
 - leftover LaTeX empheq body stays non-prose
 - leftover LaTeX prooftree body stays non-prose
 - leftover LaTeX CD diagram body stays non-prose
