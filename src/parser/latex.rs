@@ -120,6 +120,8 @@ static NON_PROSE_ENVS: &[&str] = &[
     "Vsmallmatrix",
     "cases",
     "cases*",
+    "numcases",
+    "subnumcases",
     "dcases",
     "dcases*",
     "rcases",
@@ -2943,6 +2945,33 @@ More text.
             .count();
         // Preamble line + begin{equation} + E=mc^2 + end{equation} + end{document}
         assert!(structure_count >= 4);
+    }
+
+    #[test]
+    fn numcases_body_is_not_sentence_split() {
+        // cases.sty numcases / subnumcases are numbered cases, same
+        // class as amsmath cases.
+        let cfg = crate::FormatConfig {
+            format: crate::format::Format::Latex,
+            max_width: 0,
+            ..Default::default()
+        }
+        .without_safety_backstops();
+        for name in ["numcases", "subnumcases"] {
+            let input = format!(
+                "\\begin{{{name}}}{{y =}}\nx & x > 0. Second sentence stays put.\n\\end{{{name}}}\nAfter the cases. Next.\n"
+            );
+            let out = crate::format_text(&input, &cfg).unwrap();
+            assert!(
+                out.contains("x & x > 0. Second sentence stays put.\n"),
+                "{name} body must stay one line, got:\n{out}"
+            );
+            assert!(
+                out.contains("After the cases.\nNext."),
+                "prose after {name} must still split, got:\n{out}"
+            );
+            assert_eq!(crate::format_text(&out, &cfg).unwrap(), out);
+        }
     }
 
     #[test]

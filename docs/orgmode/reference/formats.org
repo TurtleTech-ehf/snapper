@@ -95,7 +95,7 @@ These tokens within prose are not split across lines:
 :CUSTOM_ID: latex-structure
 :END:
 - Preamble (everything before =\begin{document}=)
-- Non-prose environments: equation, align, alignat, xalignat, xxalignat, empheq, array, subarray, CD, prooftree, matrix, smallmatrix, tabular, tikzpicture, and their starred variants (plus other non-code envs).
+- Non-prose environments: equation, align, alignat, xalignat, xxalignat, empheq, cases, numcases, array, subarray, CD, prooftree, matrix, smallmatrix, tabular, tikzpicture, and their starred variants (plus other non-code envs).
   =\\intertext= and =\\shortintertext= arguments inside those displays stay prose
 - Float chrome (=\begin{figure}= / =\centering= / =\end{figure}=, and =table= / starred variants): Structure.
   The =\caption= long argument is Prose.
