@@ -3146,11 +3146,17 @@ impl FormatParser for MarkdownParser {
             }
             last_was_def_term = false;
 
-            // hang+4 indented code inside a list item, with or without a
-            // blank. CM 5.2: indent ≥ hang+4 is code, not lazy paragraph.
+            // hang+4 indented code inside a list item only after the
+            // paragraph has closed. CommonMark 4.4: indented code cannot
+            // interrupt an open paragraph, so a hang+4 line with no blank
+            // stays in the item. A blank flushes prose; the next hang+4
+            // line is code.
             if in_list_item {
                 if let Some(hang) = list_hang {
-                    if is_indented_code_line(line_text) && line_indent(line_text) >= hang + 4 {
+                    if current_prose.is_empty()
+                        && is_indented_code_line(line_text)
+                        && line_indent(line_text) >= hang + 4
+                    {
                         flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
                         if let Some(span) = list_term.take() {
                             if !span.is_empty() {
@@ -4291,6 +4297,41 @@ mod tests {
             !regions.iter().any(|r| matches!(r, Region::Code { .. })),
             "indent 4 with hang 3 must not be Code, got {regions:?}"
         );
+    }
+
+    #[test]
+    fn hang_plus_four_without_blank_joins_the_paragraph() {
+        // CommonMark 4.4: indented code cannot interrupt a paragraph.
+        // hang+4 with no blank stays in the open item and splits.
+        let input = "- foo bar sentence.\n      continues the item. Second sentence.\n";
+        let regions = MarkdownParser.parse(input);
+        assert!(
+            !regions.iter().any(|r| matches!(r, Region::Code { .. })),
+            "open paragraph must not become indented code, got {regions:?}"
+        );
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(p) if p.contains("foo bar sentence.") && p.contains("continues the item.")
+            )),
+            "hang+4 line joins the item paragraph, got {regions:?}"
+        );
+        let cfg = crate::FormatConfig {
+            format: crate::format::Format::Markdown,
+            max_width: 0,
+            ..Default::default()
+        }
+        .without_safety_backstops();
+        let out = crate::format_text(input, &cfg).unwrap();
+        assert!(
+            out.contains("continues the item.\n"),
+            "joined paragraph must sentence-split, got:\n{out}"
+        );
+        assert!(
+            !out.contains("      continues"),
+            "the line must not stay a six-space code line, got:\n{out}"
+        );
+        assert_eq!(crate::format_text(&out, &cfg).unwrap(), out);
     }
 
     #[test]

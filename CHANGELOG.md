@@ -4,6 +4,7 @@ All notable changes to this project will be documented in this file. See [conven
 - - -
 ## Unreleased (main)
 #### Bug Fixes
+- leftover markdown hang-plus-four line stays in an open list paragraph
 - leftover org nested item returns to the parent list
 - leftover org item ends at the bullet column
 - leftover LaTeX verb with an internal space stays one wrap token
