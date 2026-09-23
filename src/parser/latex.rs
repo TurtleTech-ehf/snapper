@@ -30,6 +30,10 @@ static NON_PROSE_ENVS: &[&str] = &[
     "align*",
     "alignat",
     "alignat*",
+    "xalignat",
+    "xalignat*",
+    "xxalignat",
+    "xxalignat*",
     "aligned",
     "aligned*",
     "alignedat",
@@ -2885,6 +2889,33 @@ More text.
             .count();
         // Preamble line + begin{equation} + E=mc^2 + end{equation} + end{document}
         assert!(structure_count >= 4);
+    }
+
+    #[test]
+    fn xalignat_body_is_not_sentence_split() {
+        // amsmath xalignat / xxalignat are alignment displays, same
+        // class as alignat.
+        let cfg = crate::FormatConfig {
+            format: crate::format::Format::Latex,
+            max_width: 0,
+            ..Default::default()
+        }
+        .without_safety_backstops();
+        for name in ["xalignat", "xxalignat"] {
+            let input = format!(
+                "\\begin{{{name}}}{{2}}\na &= b. Second sentence stays put.\n\\end{{{name}}}\nAfter the align. Next.\n"
+            );
+            let out = crate::format_text(&input, &cfg).unwrap();
+            assert!(
+                out.contains("a &= b. Second sentence stays put.\n"),
+                "{name} body must stay one line, got:\n{out}"
+            );
+            assert!(
+                out.contains("After the align.\nNext."),
+                "prose after {name} must still split, got:\n{out}"
+            );
+            assert_eq!(crate::format_text(&out, &cfg).unwrap(), out);
+        }
     }
 
     #[test]
