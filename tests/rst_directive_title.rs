@@ -66,32 +66,21 @@ fn title_argument_stays_on_directive_line_body_reflows() {
 }
 
 #[test]
-fn continued_title_argument_stays_structure_body_reflows() {
+fn indented_line_after_same_line_title_still_splits() {
     let input =
-        ".. admonition:: First title.\n   Second title. Third title.\n\n   Body one. Body two.\n";
-    let regions = RstParser.parse(input);
-    assert!(
-        regions.iter().any(|r| matches!(
-            r,
-            Region::Structure(s) if s.contains("Second title. Third title.")
-        )),
-        "continued title must stay Structure, got {regions:?}"
-    );
-    assert!(
-        !regions.iter().any(|r| matches!(
-            r,
-            Region::Prose(p) if p.contains("Second title.")
-        )),
-        "continued title must not be Prose, got {regions:?}"
-    );
+        ".. admonition:: Title\n   Body here. Second body.\nAfter markup. Next sentence.\n";
     let out = format_text(input, &rst_cfg()).unwrap();
     assert!(
-        out.contains("Second title. Third title."),
-        "continued title must not split, got:\n{out}"
+        out.contains(".. admonition:: Title\n"),
+        "same-line title stays on the directive line, got:\n{out}"
     );
     assert!(
-        out.contains("Body one.\n   Body two."),
-        "body must still reflow, got:\n{out}"
+        out.contains("   Body here.\n   Second body.\n"),
+        "indented body must hang and split, got:\n{out}"
+    );
+    assert!(
+        out.contains("After markup.\nNext sentence.\n"),
+        "flush prose after the directive must split, got:\n{out}"
     );
     assert_eq!(format_text(&out, &rst_cfg()).unwrap(), out);
 }
