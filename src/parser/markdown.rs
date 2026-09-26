@@ -1858,6 +1858,28 @@ fn display_math_open(line: &str) -> Option<DisplayMathKind> {
     }
 }
 
+/// Byte offset of an unescaped `\[`. An even run of backslashes escapes it.
+fn display_bracket_open_at(line: &str) -> Option<usize> {
+    let bytes = line.as_bytes();
+    let mut i = 0;
+    while i + 1 < bytes.len() {
+        if bytes[i] == b'\\' && bytes[i + 1] == b'[' {
+            let mut j = i;
+            while j > 0 && bytes[j - 1] == b'\\' {
+                j -= 1;
+            }
+            let slashes = i - j + 1;
+            if slashes % 2 == 1 {
+                return Some(i);
+            }
+            i += 2;
+            continue;
+        }
+        i += 1;
+    }
+    None
+}
+
 /// Byte offset just past an unescaped `\]`, if one is present.
 fn display_bracket_close_end(line: &str) -> Option<usize> {
     let bytes = line.as_bytes();
@@ -1981,6 +2003,111 @@ fn emit_bracket_tail(
     ));
     current_prose.push_str(trimmed.trim_end());
     *prose_span = Some(ByteSpan::new(line.start + struct_end, line.end));
+    true
+}
+
+/// Mid-line `\[ ... \]` is Structure. Line-start `\[` stays on
+/// `display_math_open`. An unclosed `\[` stays prose. A sentence that
+/// ends before the opener keeps its break; other glue space stays on
+/// the math island.
+fn emit_midline_bracket(
+    input: &str,
+    lines: &[Line<'_>],
+    i: usize,
+    current_prose: &mut String,
+    prose_span: &mut Option<ByteSpan>,
+    regions: &mut Vec<SpannedRegion>,
+    in_display_math: &mut Option<DisplayMathKind>,
+) -> bool {
+    let line = &lines[i];
+    let text = line.text;
+    if display_bracket_open_at(text).is_none() {
+        return false;
+    }
+    let mut cursor = 0usize;
+    let mut any = false;
+    while cursor < text.len() {
+        let Some(rel) = display_bracket_open_at(&text[cursor..]) else {
+            break;
+        };
+        let open = cursor + rel;
+        let prefix = &text[cursor..open];
+        if cursor == 0 && prefix.trim().is_empty() {
+            return false;
+        }
+        let close_end = display_bracket_close_end(&text[open..]).map(|end| open + end);
+        if close_end.is_none() && !bracket_closer_ahead(&lines[i + 1..]) {
+            break;
+        }
+        let sentence_before = super::span::ends_sentence_punct(prefix.trim());
+        let struct_rel = if prefix.trim().is_empty() {
+            cursor
+        } else if sentence_before {
+            open
+        } else {
+            let glue = prefix.len() - prefix.trim_end_matches([' ', '\t']).len();
+            open - glue
+        };
+        if struct_rel > cursor {
+            let piece = &text[cursor..struct_rel];
+            let trimmed = piece.trim();
+            if !trimmed.is_empty() {
+                if !current_prose.is_empty() {
+                    join_prose_gap(current_prose);
+                }
+                current_prose.push_str(trimmed);
+                let lead = piece.len() - piece.trim_start().len();
+                let start = line.start + cursor + lead;
+                let content_end = start + trimmed.len();
+                let end = if sentence_before {
+                    line.start + struct_rel
+                } else {
+                    content_end
+                };
+                match prose_span {
+                    None => *prose_span = Some(ByteSpan::new(start, end)),
+                    Some(s) => s.end = end,
+                }
+            }
+        }
+        flush_prose_spanned(current_prose, prose_span, regions);
+        any = true;
+        if let Some(close_end) = close_end {
+            let tail = &text[close_end..];
+            if tail.trim().is_empty() {
+                regions.push(SpannedRegion::structure(
+                    input,
+                    ByteSpan::new(line.start + struct_rel, line.end),
+                ));
+                return true;
+            }
+            let lead = tail.len() - tail.trim_start().len();
+            let struct_end = close_end + lead;
+            regions.push(SpannedRegion::structure(
+                input,
+                ByteSpan::new(line.start + struct_rel, line.start + struct_end),
+            ));
+            cursor = struct_end;
+            continue;
+        }
+        *in_display_math = Some(DisplayMathKind::Bracket);
+        regions.push(SpannedRegion::structure(
+            input,
+            ByteSpan::new(line.start + struct_rel, line.end),
+        ));
+        return true;
+    }
+    if !any {
+        return false;
+    }
+    let tail = &text[cursor..];
+    let trimmed = tail.trim_start();
+    let body = trimmed.trim_end();
+    if !body.is_empty() {
+        let lead = tail.len() - trimmed.len();
+        current_prose.push_str(body);
+        *prose_span = Some(ByteSpan::new(line.start + cursor + lead, line.end));
+    }
     true
 }
 
@@ -3640,6 +3767,17 @@ impl FormatParser for MarkdownParser {
                     input,
                     &mut regions,
                 );
+            } else if emit_midline_bracket(
+                input,
+                &lines,
+                i,
+                &mut current_prose,
+                &mut prose_span,
+                &mut regions,
+                &mut in_display_math,
+            ) {
+                i += 1;
+                continue;
             } else {
                 append_piece(
                     &mut ProseAcc {
@@ -6899,6 +7037,46 @@ mod tests {
         assert!(
             !out.contains("\\[ x = 1.\n"),
             "must not split inside same-line \\[, got:\n{out}"
+        );
+        assert_eq!(format_text(&out, &md_cfg()).unwrap(), out);
+    }
+
+    #[test]
+    fn midline_bracket_sentence_splits_math_interior_does_not() {
+        use crate::format_text;
+
+        let input = "A sentence before. \\[ a. b. \\] after. Next.\n";
+        let regions = MarkdownParser.parse(input);
+        assert!(
+            regions
+                .iter()
+                .any(|r| matches!(r, Region::Prose(p) if p.contains("A sentence before"))),
+            "sentence before mid-line \\[ must stay Prose, got: {regions:?}"
+        );
+        assert!(
+            regions
+                .iter()
+                .any(|r| matches!(r, Region::Structure(s) if s.contains("a. b."))),
+            "mid-line \\[ a. b. \\] must be Structure, got: {regions:?}"
+        );
+        assert!(
+            !regions
+                .iter()
+                .any(|r| matches!(r, Region::Prose(p) if p.contains("a. b."))),
+            "math interior must not be Prose, got: {regions:?}"
+        );
+        let out = format_text(input, &md_cfg()).unwrap();
+        assert!(
+            out.contains("A sentence before.\n\\[ a. b. \\]"),
+            "sentence before mid-line \\[ must split, got:\n{out}"
+        );
+        assert!(
+            !out.contains("a.\nb.") && !out.contains("\\[ a.\n"),
+            "math interior must not split, got:\n{out}"
+        );
+        assert!(
+            out.contains("after.\nNext."),
+            "prose after \\] must still split, got:\n{out}"
         );
         assert_eq!(format_text(&out, &md_cfg()).unwrap(), out);
     }
