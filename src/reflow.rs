@@ -1219,6 +1219,11 @@ fn hanging_indent_width(s: &str) -> usize {
     if crate::parser::org::org_caption_marker_len(s) == Some(s.len()) {
         return s.chars().count();
     }
+    // Org item tag (`- tag :: `): hang at the tag so the description
+    // stays on the item and a period in the tag does not split it.
+    if let Some(width) = crate::parser::org::org_item_tag_hang_width(s) {
+        return width;
+    }
     // Markdown definition marker (`: ` / `  : `): hang at marker width
     // so the body stays inside the definition (GitHub #210).
     if crate::parser::markdown::md_definition_list_marker_len(s) == Some(s.len()) {
