@@ -2,8 +2,8 @@ use regex::Regex;
 use std::sync::LazyLock;
 
 use crate::parser::{
-    ByteSpan, FormatParser, Line, SpannedRegion, flush_prose_spanned, iter_lines, join_prose_gap,
-    push_prose_line,
+    flush_prose_spanned, iter_lines, join_prose_gap, push_prose_line, ByteSpan, FormatParser, Line,
+    SpannedRegion,
 };
 
 /// CommonMark 0.31.2 §4.2 ATX heading: 0–3 spaces, then 1–6 `#`, then
@@ -1894,6 +1894,45 @@ fn is_display_math_close(line: &str, kind: DisplayMathKind) -> bool {
     }
 }
 
+/// Open LaTeX environment whose body the LaTeX parser keeps whole.
+struct LatexEnvOpen {
+    name: String,
+    depth: usize,
+    raw: bool,
+}
+
+fn first_kept_begin(line: &str) -> Option<crate::parser::latex::EnvAt> {
+    let mut from = 0;
+    while let Some(hit) = crate::parser::latex::next_env_at(line, from, false) {
+        if hit.is_begin && crate::parser::latex::env_body_kept_whole(&hit.name) {
+            return Some(hit);
+        }
+        from = hit.end;
+    }
+    None
+}
+
+fn push_trimmed_prose(
+    current_prose: &mut String,
+    prose_span: &mut Option<ByteSpan>,
+    text: &str,
+    abs_start: usize,
+    abs_end: usize,
+) {
+    let trimmed = text.trim();
+    if trimmed.is_empty() {
+        return;
+    }
+    if !current_prose.is_empty() {
+        join_prose_gap(current_prose);
+    }
+    current_prose.push_str(trimmed);
+    match prose_span {
+        None => *prose_span = Some(ByteSpan::new(abs_start, abs_end)),
+        Some(span) => span.end = abs_end,
+    }
+}
+
 /// When `\]` has trailing prose, the math prefix is Structure and the
 /// tail is Prose (its span runs through the line terminator).
 fn emit_bracket_tail(
@@ -2015,6 +2054,7 @@ impl FormatParser for MarkdownParser {
         let mut in_definition_list = false;
         let mut in_quoted_footnote = false;
         let mut in_display_math: Option<DisplayMathKind> = None;
+        let mut latex_env: Option<LatexEnvOpen> = None;
         let mut pragma_off = false;
 
         let lines = iter_lines(input);
@@ -2142,6 +2182,67 @@ impl FormatParser for MarkdownParser {
                     }
                 }
                 regions.push(SpannedRegion::structure(input, line.span()));
+                i += 1;
+                continue;
+            }
+
+            // LaTeX non-prose / code environment. Body stays whole until the
+            // matching `\end`. Trailing prose on the closer line stays Prose.
+            if latex_env.is_some() {
+                close_list_item(
+                    &mut in_list_item,
+                    &mut list_hang,
+                    &mut current_prose,
+                    &mut prose_span,
+                    &mut list_term,
+                    &mut in_definition_list,
+                    input,
+                    &mut regions,
+                );
+                flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
+                let mut open = latex_env.take().expect("latex env");
+                let mut rel = 0;
+                let mut close_at = None;
+                while let Some(hit) = crate::parser::latex::next_env_at(line_text, rel, open.raw) {
+                    if hit.name != open.name {
+                        rel = hit.end;
+                        continue;
+                    }
+                    if hit.is_begin {
+                        open.depth += 1;
+                        rel = hit.end;
+                    } else {
+                        open.depth -= 1;
+                        if open.depth == 0 {
+                            close_at = Some(hit.end);
+                            break;
+                        }
+                        rel = hit.end;
+                    }
+                }
+                if let Some(end_at) = close_at {
+                    let tail = line_text.get(end_at..).unwrap_or("");
+                    if tail.trim().is_empty() {
+                        regions.push(SpannedRegion::structure(input, line.span()));
+                    } else {
+                        let lead = tail.len() - tail.trim_start().len();
+                        let struct_end = end_at + lead;
+                        regions.push(SpannedRegion::structure(
+                            input,
+                            ByteSpan::new(line.start, line.start + struct_end),
+                        ));
+                        push_trimmed_prose(
+                            &mut current_prose,
+                            &mut prose_span,
+                            tail,
+                            line.start + struct_end,
+                            line.end,
+                        );
+                    }
+                } else {
+                    regions.push(SpannedRegion::structure(input, line.span()));
+                    latex_env = Some(open);
+                }
                 i += 1;
                 continue;
             }
@@ -3371,6 +3472,72 @@ impl FormatParser for MarkdownParser {
                 }
             }
 
+            // `\begin{name}` for a LaTeX non-prose or code environment. `$$`
+            // and `\[` already returned above. Prose outside the body splits.
+            if !in_list_item {
+                if let Some(hit) = first_kept_begin(line_text) {
+                    let raw = crate::parser::latex::is_builtin_code_env(&hit.name);
+                    let prefix = line_text.get(..hit.start).unwrap_or("");
+                    if !prefix.trim().is_empty() {
+                        push_trimmed_prose(
+                            &mut current_prose,
+                            &mut prose_span,
+                            prefix,
+                            line.start,
+                            line.start + hit.start,
+                        );
+                    }
+                    close_list_item(
+                        &mut in_list_item,
+                        &mut list_hang,
+                        &mut current_prose,
+                        &mut prose_span,
+                        &mut list_term,
+                        &mut in_definition_list,
+                        input,
+                        &mut regions,
+                    );
+                    flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
+                    if let Some(end_at) = crate::parser::latex::matching_env_end(
+                        line_text, hit.end, &hit.name, 1, raw,
+                    ) {
+                        let tail = line_text.get(end_at..).unwrap_or("");
+                        if tail.trim().is_empty() {
+                            regions.push(SpannedRegion::structure(
+                                input,
+                                ByteSpan::new(line.start + hit.start, line.end),
+                            ));
+                        } else {
+                            let lead = tail.len() - tail.trim_start().len();
+                            let struct_end = end_at + lead;
+                            regions.push(SpannedRegion::structure(
+                                input,
+                                ByteSpan::new(line.start + hit.start, line.start + struct_end),
+                            ));
+                            push_trimmed_prose(
+                                &mut current_prose,
+                                &mut prose_span,
+                                tail,
+                                line.start + struct_end,
+                                line.end,
+                            );
+                        }
+                    } else {
+                        regions.push(SpannedRegion::structure(
+                            input,
+                            ByteSpan::new(line.start + hit.start, line.end),
+                        ));
+                        latex_env = Some(LatexEnvOpen {
+                            name: hit.name,
+                            depth: 1,
+                            raw,
+                        });
+                    }
+                    i += 1;
+                    continue;
+                }
+            }
+
             // Regular prose (also serves as list-item continuation when in_list_item)
             // Empty item: an unindented line is a new paragraph, not lazy
             // continuation (CM 5.2: only an open paragraph is lazy).
@@ -3560,7 +3727,7 @@ mod tests {
     #[test]
     fn reporter_nested_indented_fence_is_identity_under_format() {
         use crate::format::Format;
-        use crate::{FormatConfig, format_text};
+        use crate::{format_text, FormatConfig};
 
         let input = concat!(
             "```{code-block} markdown\n",
@@ -3787,7 +3954,7 @@ mod tests {
     #[test]
     fn closing_fence_tail_is_identity_under_format() {
         use crate::format::Format;
-        use crate::{FormatConfig, format_text};
+        use crate::{format_text, FormatConfig};
 
         let input = concat!(
             "```\n",
@@ -4041,7 +4208,7 @@ mod tests {
     #[test]
     fn gfm_table_without_flanking_pipes_is_identity_under_format() {
         use crate::format::Format;
-        use crate::{FormatConfig, format_text};
+        use crate::{format_text, FormatConfig};
 
         let input = ticket_gfm_table_fixture();
         let cfg = FormatConfig {
@@ -4255,7 +4422,7 @@ mod tests {
     #[test]
     fn list_blank_indent_continuation_is_identity_under_format() {
         use crate::format::Format;
-        use crate::{FormatConfig, format_text};
+        use crate::{format_text, FormatConfig};
 
         let input = "- Item one.\n\n  Still the same item.\n";
         let cfg = FormatConfig {
@@ -4344,7 +4511,7 @@ mod tests {
     fn list_container_fixture_keeps_hang_and_code_under_format() {
         use crate::format::Format;
         use crate::oracle;
-        use crate::{FormatConfig, format_text};
+        use crate::{format_text, FormatConfig};
 
         let input = ticket_list_container_fixture();
         let cfg = FormatConfig {
@@ -4521,7 +4688,7 @@ mod tests {
     #[test]
     fn wide_numbered_marker_blank_indent_is_identity_under_format() {
         use crate::format::Format;
-        use crate::{FormatConfig, format_text};
+        use crate::{format_text, FormatConfig};
 
         let input = "10. Item one.\n\n    Still the same item.\n";
         let cfg = FormatConfig {
@@ -4794,7 +4961,7 @@ mod tests {
     #[test]
     fn multi_sentence_setext_title_stays_one_line() {
         use crate::format::Format;
-        use crate::{FormatConfig, format_text};
+        use crate::{format_text, FormatConfig};
 
         let input = "Setext Title With Period. Still Title\n=====================================\n\nBody after setext. Second body.\n";
         let cfg = FormatConfig {
@@ -4828,11 +4995,9 @@ mod tests {
             })
             .collect();
         assert!(prose.iter().any(|p| p.contains("Body sentence one")));
-        assert!(
-            regions
-                .iter()
-                .any(|r| matches!(r, Region::Structure(s) if s == "Heading Here\n"))
-        );
+        assert!(regions
+            .iter()
+            .any(|r| matches!(r, Region::Structure(s) if s == "Heading Here\n")));
     }
 
     /// GitHub #208 / snapper-4wxk: CommonMark 4.3 ex. 50–51. The whole
@@ -4886,7 +5051,7 @@ mod tests {
     #[test]
     fn multiline_setext_body_still_splits() {
         use crate::format::Format;
-        use crate::{FormatConfig, format_text};
+        use crate::{format_text, FormatConfig};
 
         let input = multiline_setext_fixture();
         let cfg = FormatConfig {
@@ -5215,7 +5380,7 @@ mod tests {
     #[test]
     fn list_and_quote_multi_sentence_hangs() {
         use crate::format::Format;
-        use crate::{FormatConfig, format_text};
+        use crate::{format_text, FormatConfig};
 
         let cfg = FormatConfig {
             format: Format::Markdown,
@@ -5237,7 +5402,7 @@ mod tests {
     #[test]
     fn blockquote_keeps_marker_on_each_content_line() {
         use crate::format::Format;
-        use crate::{FormatConfig, format_text};
+        use crate::{format_text, FormatConfig};
 
         let cfg = FormatConfig {
             format: Format::Markdown,
@@ -5270,7 +5435,7 @@ mod tests {
     #[test]
     fn nested_blockquote_reflow_repeats_prefix() {
         use crate::format::Format;
-        use crate::{FormatConfig, format_text};
+        use crate::{format_text, FormatConfig};
 
         let input = "> Quoted one. Quoted two.\n> > Nested one. Nested two.\n";
         let cfg = FormatConfig {
@@ -5288,7 +5453,7 @@ mod tests {
     #[test]
     fn nested_list_stays_two_items_after_reflow() {
         use crate::format::Format;
-        use crate::{FormatConfig, format_text};
+        use crate::{format_text, FormatConfig};
 
         let input = "1. Parent one. Parent two.\n   - Child one. Child two.\n";
         let cfg = FormatConfig {
@@ -5320,7 +5485,7 @@ mod tests {
     #[test]
     fn hard_break_two_spaces_not_joined_with_space() {
         use crate::format::Format;
-        use crate::{FormatConfig, format_text};
+        use crate::{format_text, FormatConfig};
 
         let input = "line  \ncontinued. Next sentence.\n";
         let regions = MarkdownParser.parse(input);
@@ -5363,7 +5528,7 @@ mod tests {
     #[test]
     fn hard_break_backslash_not_joined_with_space() {
         use crate::format::Format;
-        use crate::{FormatConfig, format_text};
+        use crate::{format_text, FormatConfig};
 
         let input = "line\\\ncontinued. Next sentence.\n";
         let cfg = FormatConfig {
@@ -5407,7 +5572,7 @@ mod tests {
     #[test]
     fn html_comment_multiline_passes_through_format() {
         use crate::format::Format;
-        use crate::{FormatConfig, format_text};
+        use crate::{format_text, FormatConfig};
 
         let input = "Before sentence. After.\n<!--\nHidden. With a period.\nStill comment.\n-->\nMore. Text.\n";
         let cfg = FormatConfig {
@@ -5427,7 +5592,7 @@ mod tests {
     #[test]
     fn html_comment_pragma_still_disables_reflow() {
         use crate::format::Format;
-        use crate::{FormatConfig, format_text};
+        use crate::{format_text, FormatConfig};
 
         let input = "Hello world. Goodbye world.\n<!-- snapper:off -->\nKeep this. Exactly here.\n<!-- snapper:on -->\nFinal thing. Last sentence.\n";
         let cfg = FormatConfig {
@@ -5448,7 +5613,7 @@ mod tests {
     #[test]
     fn quote_hard_break_then_nonquote_has_no_stray_marker() {
         use crate::format::Format;
-        use crate::{FormatConfig, format_text};
+        use crate::{format_text, FormatConfig};
 
         let input = "> line  \nNext sentence.\n";
         let regions = MarkdownParser.parse(input);
@@ -5494,7 +5659,7 @@ mod tests {
     #[test]
     fn quote_wrap_repeats_prefix_under_max_width() {
         use crate::format::Format;
-        use crate::{FormatConfig, format_text};
+        use crate::{format_text, FormatConfig};
 
         let input = "> One two three four five six seven eight.\n";
         let cfg = FormatConfig {
@@ -5529,7 +5694,7 @@ mod tests {
     #[test]
     fn quoted_fenced_code_is_not_sentence_split() {
         use crate::format::Format;
-        use crate::{FormatConfig, format_text};
+        use crate::{format_text, FormatConfig};
 
         let input = concat!(
             "> ```\n",
@@ -5585,7 +5750,7 @@ mod tests {
     #[test]
     fn quoted_tilde_fence_without_space_is_code() {
         use crate::format::Format;
-        use crate::{FormatConfig, format_text};
+        use crate::{format_text, FormatConfig};
 
         let input = concat!(">~~~\n", "> print(1. 2)\n", "> still code. yes\n", ">~~~\n",);
         let regions = MarkdownParser.parse(input);
@@ -5679,7 +5844,7 @@ mod tests {
     fn indented_code_fixture_is_identity_under_format() {
         use crate::format::Format;
         use crate::oracle;
-        use crate::{FormatConfig, format_text};
+        use crate::{format_text, FormatConfig};
 
         let input = concat!(
             "After a blank, this is code.\n",
@@ -5893,7 +6058,7 @@ mod tests {
 
     #[test]
     fn leftover_html_type6_void_hr_following_prose_still_splits() {
-        use crate::{FormatConfig, format_text};
+        use crate::{format_text, FormatConfig};
         let cfg = FormatConfig {
             format: crate::format::Format::Markdown,
             ..Default::default()
@@ -5946,7 +6111,7 @@ mod tests {
 
     #[test]
     fn leftover_html_type6_void_param_following_prose_still_splits() {
-        use crate::{FormatConfig, format_text};
+        use crate::{format_text, FormatConfig};
         let cfg = FormatConfig {
             format: crate::format::Format::Markdown,
             ..Default::default()
@@ -6149,7 +6314,7 @@ mod tests {
     #[test]
     fn html_type7_closed_span_following_prose_still_splits() {
         use crate::format::Format;
-        use crate::{FormatConfig, format_text};
+        use crate::{format_text, FormatConfig};
 
         let input = ticket_html_type7_close_fixture();
         let cfg = FormatConfig {
@@ -6195,7 +6360,7 @@ mod tests {
     #[test]
     fn html_blocks_ticket_fixture_does_not_reflow() {
         use crate::format::Format;
-        use crate::{FormatConfig, format_text};
+        use crate::{format_text, FormatConfig};
 
         let input = ticket_html_blocks_fixture();
         let cfg = FormatConfig {
@@ -6237,7 +6402,7 @@ mod tests {
     #[test]
     fn html_type6_closed_div_following_prose_still_splits() {
         use crate::format::Format;
-        use crate::{FormatConfig, format_text};
+        use crate::{format_text, FormatConfig};
 
         let input = ticket_html_type6_close_fixture();
         let cfg = FormatConfig {
@@ -6325,7 +6490,7 @@ mod tests {
     #[test]
     fn quoted_html_div_following_prose_still_splits() {
         use crate::format::Format;
-        use crate::{FormatConfig, format_text};
+        use crate::{format_text, FormatConfig};
 
         let input = ticket_quoted_html_fixture("<div>");
         let cfg = FormatConfig {
@@ -6356,7 +6521,7 @@ mod tests {
     #[test]
     fn quoted_html_pre_comment_span_following_prose_unquoted() {
         use crate::format::Format;
-        use crate::{FormatConfig, format_text};
+        use crate::{format_text, FormatConfig};
 
         let cfg = FormatConfig {
             format: Format::Markdown,
@@ -6400,7 +6565,7 @@ mod tests {
     #[test]
     fn quoted_html_both_quoted_does_not_glue() {
         use crate::format::Format;
-        use crate::{FormatConfig, format_text};
+        use crate::{format_text, FormatConfig};
 
         let input = "> <div>\n> After tag. Next sentence.\n";
         let cfg = FormatConfig {
@@ -6427,7 +6592,7 @@ mod tests {
     #[test]
     fn top_level_html_types_still_interrupt() {
         use crate::format::Format;
-        use crate::{FormatConfig, format_text};
+        use crate::{format_text, FormatConfig};
 
         let cfg = FormatConfig {
             format: Format::Markdown,
@@ -6491,7 +6656,7 @@ mod tests {
     #[test]
     fn dollar_dollar_display_math_does_not_reflow_as_prose() {
         use crate::format::Format;
-        use crate::{FormatConfig, format_text};
+        use crate::{format_text, FormatConfig};
 
         let input = "$$\nThis is a long sentence that must stay inside display math and must not reflow as prose.\n$$\n";
         let cfg = FormatConfig {
@@ -6760,6 +6925,79 @@ mod tests {
         assert!(
             !out.contains("After that line. More text."),
             "middle paragraph must not stay one line, got:\n{out}"
+        );
+        assert_eq!(format_text(&out, &md_cfg()).unwrap(), out);
+    }
+
+    /// LaTeX non-prose and code environments stay whole. Outside prose splits.
+    #[test]
+    fn latex_kept_env_body_is_not_sentence_split() {
+        use crate::format_text;
+
+        for name in [
+            "subequations",
+            "dmath",
+            "multlined",
+            "loglogaxis",
+            "tikzpicture*",
+            "matrix*",
+            "equation",
+            "verbatim",
+        ] {
+            let input = format!(
+                "Before the env. More before.\n\
+                 \\begin{{{name}}}\n\
+                 First sentence. Second sentence.\n\
+                 \\end{{{name}}}\n\
+                 After the env. More after.\n"
+            );
+            let regions = MarkdownParser.parse(&input);
+            assert!(
+                regions.iter().any(|r| matches!(
+                    r,
+                    Region::Structure(s) if s.contains("First sentence. Second sentence.")
+                )),
+                "{name} body must be Structure, got: {regions:?}"
+            );
+            assert!(
+                !regions.iter().any(|r| matches!(
+                    r,
+                    Region::Prose(p) if p.contains("First sentence")
+                )),
+                "{name} body must not be Prose, got: {regions:?}"
+            );
+            let out = format_text(&input, &md_cfg()).unwrap();
+            assert!(
+                out.contains(&format!(
+                    "\\begin{{{name}}}\nFirst sentence. Second sentence.\n\\end{{{name}}}"
+                )),
+                "{name} body must stay one block, got:\n{out}"
+            );
+            assert!(
+                !out.contains("First sentence.\nSecond sentence."),
+                "{name} body must not split, got:\n{out}"
+            );
+            assert!(
+                out.contains("Before the env.\nMore before."),
+                "prose before {name} must still split, got:\n{out}"
+            );
+            assert!(
+                out.contains("After the env.\nMore after."),
+                "prose after {name} must still split, got:\n{out}"
+            );
+            assert_eq!(format_text(&out, &md_cfg()).unwrap(), out);
+        }
+    }
+
+    #[test]
+    fn prose_latex_env_still_splits() {
+        use crate::format_text;
+
+        let input = "\\begin{quote}\nFirst sentence. Second sentence.\n\\end{quote}\n";
+        let out = format_text(input, &md_cfg()).unwrap();
+        assert!(
+            out.contains("First sentence.\nSecond sentence."),
+            "quote body is prose and must split, got:\n{out}"
         );
         assert_eq!(format_text(&out, &md_cfg()).unwrap(), out);
     }
@@ -7583,7 +7821,7 @@ mod tests {
     #[test]
     fn ticket_fixture_link_ref_and_footnote_do_not_reflow() {
         use crate::format::Format;
-        use crate::{FormatConfig, format_text};
+        use crate::{format_text, FormatConfig};
 
         let input = ticket_link_ref_footnote_fixture();
         let regions = MarkdownParser.parse(input);
@@ -7662,7 +7900,7 @@ mod tests {
     #[test]
     fn ticket_footnote_body_splits_after_period() {
         use crate::format::Format;
-        use crate::{FormatConfig, format_text};
+        use crate::{format_text, FormatConfig};
 
         let input = ticket_footnote_body_fixture();
         let out = format_text(input, &md_cfg()).unwrap();
@@ -7749,7 +7987,7 @@ mod tests {
     #[test]
     fn definition_list_body_hangs_and_splits() {
         use crate::format::Format;
-        use crate::{FormatConfig, format_text};
+        use crate::{format_text, FormatConfig};
 
         let input = ticket_definition_list_fixture();
         let out = format_text(input, &md_cfg()).unwrap();
