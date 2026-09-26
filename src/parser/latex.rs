@@ -2,7 +2,7 @@ use regex::Regex;
 use std::sync::LazyLock;
 
 use crate::parser::{
-    flush_prose_spanned, iter_lines, join_prose_gap, ByteSpan, FormatParser, Line, SpannedRegion,
+    ByteSpan, FormatParser, Line, SpannedRegion, flush_prose_spanned, iter_lines, join_prose_gap,
 };
 use crate::sentence::unicode::{
     catchfile_leftover_cs_name, fancyvrb_leftover_cs_name, fancyvrb_shortverb_leftover_cs_name,
@@ -19,9 +19,11 @@ use crate::sentence::unicode::{
 // `IEEEeqnarray*` / `subeqnarray` / `subeqnarray*` / `xltabular` /
 // `math*`. `tikzcd` / pgfplots `axis` / `pgfpicture` are the same
 // class (and starred variants). Not every pgfplots name.
-// amsmath `subequations`, mathtools `multlined`, breqn `dmath`,
-// pgfplots `loglogaxis`, and starred `tikzpicture*` / `matrix*`
-// are the same class.
+// amsmath `subequations`, mathtools `multlined` / `lgathered` /
+// `rgathered`, breqn `dmath` / `dmath*`, pgfplots `loglogaxis`, and
+// starred `tikzpicture*` / `matrix*` are the same class.
+// There is no `multlined*` / `lgathered*` / `rgathered*`. breqn
+// `dseries` / `dsuspend` are text and stay out.
 //
 // `figure` / `table` (and stars) are not here: Overleaf FigureEnvironment
 // is Content<Text>, tree-sitter caption curly_group is text. Float chrome
@@ -48,6 +50,8 @@ static NON_PROSE_ENVS: &[&str] = &[
     "gather*",
     "gathered",
     "gathered*",
+    "lgathered",
+    "rgathered",
     "multline",
     "multline*",
     "multlined",
@@ -118,16 +122,27 @@ static NON_PROSE_ENVS: &[&str] = &[
     "matrix",
     "matrix*",
     "pmatrix",
+    "pmatrix*",
     "bmatrix",
+    "bmatrix*",
     "Bmatrix",
+    "Bmatrix*",
     "vmatrix",
+    "vmatrix*",
     "Vmatrix",
+    "Vmatrix*",
     "smallmatrix",
+    "smallmatrix*",
     "psmallmatrix",
+    "psmallmatrix*",
     "bsmallmatrix",
+    "bsmallmatrix*",
     "Bsmallmatrix",
+    "Bsmallmatrix*",
     "vsmallmatrix",
+    "vsmallmatrix*",
     "Vsmallmatrix",
+    "Vsmallmatrix*",
     "cases",
     "cases*",
     "numcases",
@@ -139,6 +154,7 @@ static NON_PROSE_ENVS: &[&str] = &[
     "drcases",
     "drcases*",
     "dmath",
+    "dmath*",
 ];
 
 /// Float environments: chrome is Structure; `\caption` long arg is Prose.
@@ -166,7 +182,10 @@ static LSTLISTING_LANG_RE: LazyLock<Regex> = LazyLock::new(|| {
 /// `filecontents`; GitHub #294) plus leftover siblings `filecontentsgdef` /
 /// `filecontentsdefmacro` / `filecontentsgdefmacro` / `filecontentshere` and
 /// starred twins `filecontentsdef*` / `filecontentsgdef*` /
-/// `filecontentshere*` (same raw grab; GitHub #299), scontents.sty
+/// `filecontentshere*` (same raw grab; GitHub #299) and the v1.5
+/// aliases `filecontentsdefstarred` / `filecontentsgdefstarred` /
+/// `filecontentsherestarred` (same raw grab; `filecontentsdefmacro`
+/// and `filecontentsgdefmacro` have no such alias), scontents.sty
 /// `scontents` (verbatim store into a sequence) / `verbatimsc` (package
 /// verbatim display env; GitHub #304), and tree-sitter-latex
 /// raw trivia envs
@@ -334,12 +353,15 @@ pub(crate) fn is_builtin_code_env(name: &str) -> bool {
             | "filecontents*"
             | "filecontentsdef"
             | "filecontentsdef*"
+            | "filecontentsdefstarred"
             | "filecontentsgdef"
             | "filecontentsgdef*"
+            | "filecontentsgdefstarred"
             | "filecontentsdefmacro"
             | "filecontentsgdefmacro"
             | "filecontentshere"
             | "filecontentshere*"
+            | "filecontentsherestarred"
             | "scontents"
             | "verbatimsc"
             | "asy"
@@ -2778,7 +2800,7 @@ mod tests {
     #[test]
     fn multi_sentence_section_title_stays_one_line() {
         use crate::format::Format;
-        use crate::{format_text, FormatConfig};
+        use crate::{FormatConfig, format_text};
 
         let input = "\\begin{document}\n\\section{A long title. With two sentences.}\nBody text here. More body.\n\\end{document}\n";
         let cfg = FormatConfig {
@@ -2835,7 +2857,7 @@ mod tests {
     fn section_optional_short_title_stays_one_line() {
         use crate::format::Format;
         use crate::oracle;
-        use crate::{format_text, FormatConfig};
+        use crate::{FormatConfig, format_text};
 
         let input =
             "\\section[Short. Title.]{A long title. With two sentences.}\nBody. More body.\n";
@@ -2867,7 +2889,7 @@ mod tests {
     #[test]
     fn koma_addsec_addchap_addpart_optional_short_title_is_structure() {
         use crate::format::Format;
-        use crate::{format_text, FormatConfig};
+        use crate::{FormatConfig, format_text};
 
         let cfg = FormatConfig {
             format: Format::Latex,
@@ -2911,7 +2933,7 @@ mod tests {
     #[test]
     fn fragment_without_begin_document_is_prose() {
         use crate::format::Format;
-        use crate::{format_text, FormatConfig};
+        use crate::{FormatConfig, format_text};
 
         let input = "This sentence is a test. This sentence is also a test.\n";
         let cfg = FormatConfig {
@@ -2929,7 +2951,7 @@ mod tests {
     #[test]
     fn no_preamble_pragma_formats_body() {
         use crate::format::Format;
-        use crate::{format_text, FormatConfig};
+        use crate::{FormatConfig, format_text};
 
         let input =
             "% snapper:no-preamble\nThis sentence is a test. This sentence is also a test.\n";
@@ -2952,7 +2974,7 @@ mod tests {
     #[test]
     fn documentclass_without_begin_stays_preamble() {
         use crate::format::Format;
-        use crate::{format_text, FormatConfig};
+        use crate::{FormatConfig, format_text};
 
         let input =
             "\\documentclass{article}\nThis sentence is a test. This sentence is also a test.\n";
@@ -3298,6 +3320,124 @@ More text.
     }
 
     #[test]
+    fn multlined_body_is_not_sentence_split() {
+        // mathtools multlined is an inner multline, same class as multline.
+        let cfg = crate::FormatConfig {
+            format: crate::format::Format::Latex,
+            max_width: 0,
+            ..Default::default()
+        }
+        .without_safety_backstops();
+        let input = concat!(
+            "\\begin{multlined}\n",
+            "a = b. Second sentence stays put.\n",
+            "\\end{multlined}\n",
+            "After the display. Next.\n",
+        );
+        let out = crate::format_text(input, &cfg).unwrap();
+        assert!(
+            out.contains("a = b. Second sentence stays put.\n"),
+            "multlined body must stay one line, got:\n{out}"
+        );
+        assert!(
+            out.contains("After the display.\nNext."),
+            "prose after multlined must still split, got:\n{out}"
+        );
+        assert_eq!(crate::format_text(&out, &cfg).unwrap(), out);
+    }
+
+    #[test]
+    fn lgathered_body_is_not_sentence_split() {
+        // mathtools lgathered / rgathered are gathered displays.
+        let cfg = crate::FormatConfig {
+            format: crate::format::Format::Latex,
+            max_width: 0,
+            ..Default::default()
+        }
+        .without_safety_backstops();
+        for name in ["lgathered", "rgathered"] {
+            let input = format!(
+                "\\begin{{{name}}}\na = b. Second sentence stays put.\n\\end{{{name}}}\nAfter the display. Next.\n"
+            );
+            let out = crate::format_text(&input, &cfg).unwrap();
+            assert!(
+                out.contains("a = b. Second sentence stays put.\n"),
+                "{name} body must stay one line, got:\n{out}"
+            );
+            assert!(
+                out.contains("After the display.\nNext."),
+                "prose after {name} must still split, got:\n{out}"
+            );
+            assert_eq!(crate::format_text(&out, &cfg).unwrap(), out);
+        }
+    }
+
+    #[test]
+    fn matrix_star_body_is_not_sentence_split() {
+        // mathtools starred matrices are column-aligned math arrays.
+        let cfg = crate::FormatConfig {
+            format: crate::format::Format::Latex,
+            max_width: 0,
+            ..Default::default()
+        }
+        .without_safety_backstops();
+        for name in [
+            "matrix*",
+            "pmatrix*",
+            "bmatrix*",
+            "Bmatrix*",
+            "vmatrix*",
+            "Vmatrix*",
+            "smallmatrix*",
+            "psmallmatrix*",
+            "bsmallmatrix*",
+            "Bsmallmatrix*",
+            "vsmallmatrix*",
+            "Vsmallmatrix*",
+        ] {
+            let input = format!(
+                "\\begin{{{name}}}\na & b. Second sentence stays put.\n\\end{{{name}}}\nAfter the matrix. Next.\n"
+            );
+            let out = crate::format_text(&input, &cfg).unwrap();
+            assert!(
+                out.contains("a & b. Second sentence stays put.\n"),
+                "{name} body must stay one line, got:\n{out}"
+            );
+            assert!(
+                out.contains("After the matrix.\nNext."),
+                "prose after {name} must still split, got:\n{out}"
+            );
+            assert_eq!(crate::format_text(&out, &cfg).unwrap(), out);
+        }
+    }
+
+    #[test]
+    fn dmath_body_is_not_sentence_split() {
+        // breqn dmath / dmath* are display math, same class as equation.
+        let cfg = crate::FormatConfig {
+            format: crate::format::Format::Latex,
+            max_width: 0,
+            ..Default::default()
+        }
+        .without_safety_backstops();
+        for name in ["dmath", "dmath*"] {
+            let input = format!(
+                "\\begin{{{name}}}\na = b. Second sentence stays put.\n\\end{{{name}}}\nAfter the display. Next.\n"
+            );
+            let out = crate::format_text(&input, &cfg).unwrap();
+            assert!(
+                out.contains("a = b. Second sentence stays put.\n"),
+                "{name} body must stay one line, got:\n{out}"
+            );
+            assert!(
+                out.contains("After the display.\nNext."),
+                "prose after {name} must still split, got:\n{out}"
+            );
+            assert_eq!(crate::format_text(&out, &cfg).unwrap(), out);
+        }
+    }
+
+    #[test]
     fn comments_preserved() {
         let input = r"\begin{document}
 % This is a comment
@@ -3317,7 +3457,7 @@ Some text.
     #[test]
     fn trailing_percent_is_nospace_join() {
         use crate::format::Format;
-        use crate::{format_text, FormatConfig};
+        use crate::{FormatConfig, format_text};
 
         let input = "\\begin{document}\nfoo%\nbar. Next sentence.\n\\end{document}\n";
         let cfg = FormatConfig {
@@ -3341,7 +3481,7 @@ Some text.
     #[test]
     fn escaped_percent_is_not_a_comment() {
         use crate::format::Format;
-        use crate::{format_text, FormatConfig};
+        use crate::{FormatConfig, format_text};
 
         let input = "\\begin{document}\n50\\% of cases. More text.\n\\end{document}\n";
         let cfg = FormatConfig {
@@ -3360,7 +3500,7 @@ Some text.
     #[test]
     fn mid_line_percent_comment_is_structure() {
         use crate::format::Format;
-        use crate::{format_text, FormatConfig};
+        use crate::{FormatConfig, format_text};
 
         let input = "\\begin{document}\nSee Fig. 1. % TODO cite\nNext sentence.\n\\end{document}\n";
         let cfg = FormatConfig {
@@ -4028,7 +4168,7 @@ Some text.
     /// form as Delim.
     #[test]
     fn pythontexcustomc_does_not_join_following_prose() {
-        use crate::{format_text, FormatConfig};
+        use crate::{FormatConfig, format_text};
 
         let cmd = r"\pythontexcustomc{python}{import numpy}";
         let input = format!("Before. Next.\n{cmd}\nAfter. Next.\n");
@@ -4161,7 +4301,7 @@ Some text.
     /// no-brace form as Delim.
     #[test]
     fn pyth_does_not_join_following_prose() {
-        use crate::{format_text, FormatConfig};
+        use crate::{FormatConfig, format_text};
 
         let cmd = r"\pyth{print(1)}";
         let input = format!("Before. Next.\n{cmd}\nAfter. Next.\n");
@@ -4303,7 +4443,7 @@ Some text.
     /// configured extra does not re-tokenize the no-brace form as Delim.
     #[test]
     fn scontents_leftover_cmds_do_not_join_following_prose() {
-        use crate::{format_text, FormatConfig};
+        use crate::{FormatConfig, format_text};
 
         for cmd in [
             r"\Scontents*{foo bar}",
@@ -4456,7 +4596,7 @@ Some text.
     /// re-tokenize the no-brace mintinline form as Delim.
     #[test]
     fn verb_span_leftover_cmds_do_not_join_following_prose() {
-        use crate::{format_text, FormatConfig};
+        use crate::{FormatConfig, format_text};
 
         for cmd in [
             r"\lstinline|print(1)|",
@@ -4611,7 +4751,7 @@ Some text.
     /// no-brace form as Delim.
     #[test]
     fn fancyvrb_leftover_cmds_do_not_join_following_prose() {
-        use crate::{format_text, FormatConfig};
+        use crate::{FormatConfig, format_text};
 
         for cmd in [
             r"\UseVerb{foo}",
@@ -4927,7 +5067,7 @@ Some text.
     /// the no-brace form as Delim.
     #[test]
     fn catchfile_leftover_cmds_do_not_join_following_prose() {
-        use crate::{format_text, FormatConfig};
+        use crate::{FormatConfig, format_text};
 
         for cmd in [
             r"\CatchFileDef{\foo}{foo.py}{}",
@@ -5036,7 +5176,7 @@ Some text.
     /// a configured extra does not re-tokenize the no-brace form as Delim.
     #[test]
     fn inputpython_does_not_join_following_prose() {
-        use crate::{format_text, FormatConfig};
+        use crate::{FormatConfig, format_text};
 
         let input = concat!(
             "Before. Next.\n",
@@ -5160,7 +5300,7 @@ Some text.
     /// not re-tokenize the no-brace form as Delim.
     #[test]
     fn sagetex_inline_cmds_do_not_join_following_prose() {
-        use crate::{format_text, FormatConfig};
+        use crate::{FormatConfig, format_text};
 
         for (cmd, name) in [
             (r"\sageplot{plot(sin(x))}", "sageplot"),
@@ -5309,7 +5449,7 @@ Some text.
     /// `\inputpygments` / `\pygment` unchanged.
     #[test]
     fn pytx_inline_cmds_do_not_join_following_prose() {
-        use crate::{format_text, FormatConfig};
+        use crate::{FormatConfig, format_text};
 
         for name in [
             "py", "pyc", "pys", "pyb", "pyv", "pycon", "pyconc", "pycons", "pyconv", "sympy",
@@ -5442,7 +5582,7 @@ Some text.
     /// mint envs, not these inlines.
     #[test]
     fn pytx_usefamily_inline_cmds_do_not_join_following_prose() {
-        use crate::{format_text, FormatConfig};
+        use crate::{FormatConfig, format_text};
 
         const FAMILIES: &[&str] = &[
             "ruby",
@@ -9104,7 +9244,7 @@ Some text.
     fn enumerate_item_hangs_next_sentence() {
         use crate::format::Format;
         use crate::oracle;
-        use crate::{format_text, FormatConfig};
+        use crate::{FormatConfig, format_text};
 
         let cfg = FormatConfig {
             format: Format::Latex,
@@ -9593,6 +9733,74 @@ Some text.
             "prose after landed filecontentsdef must still split, got:\n{landed_out}"
         );
         assert_eq!(format_text(&landed_out, &latex_cfg()).unwrap(), landed_out);
+    }
+
+    /// filecontentsdef.dtx v1.5 aliases of the starred envs. Same raw
+    /// grab as `filecontentsdef*` / `filecontentsgdef*` /
+    /// `filecontentshere*`. Body stays Code; following prose still splits.
+    #[test]
+    fn filecontents_starred_name_aliases_are_code_not_prose() {
+        use crate::format_text;
+
+        for name in [
+            "filecontentsdefstarred",
+            "filecontentsgdefstarred",
+            "filecontentsherestarred",
+        ] {
+            let begin = format!(r"\begin{{{name}}}{{\body}}");
+            let input = format!(
+                "{begin}\nFirst line. Second line.\n\\end{{{name}}}\nAfter the block. Next.\n"
+            );
+            let regions = LatexParser::default().parse(&input);
+            let code = regions.iter().find_map(|r| match r {
+                Region::Code {
+                    header,
+                    body,
+                    footer,
+                    ..
+                } => Some((header.as_str(), body.as_str(), footer.as_str())),
+                _ => None,
+            });
+            let Some((header, body, footer)) = code else {
+                panic!("{name} must be Code, got: {regions:?}");
+            };
+            assert!(
+                header.contains(&begin),
+                "{name} required arg must stay on the begin header, got header={header:?}"
+            );
+            assert!(
+                body.contains("First line. Second line."),
+                "{name} body must keep both sentences, got body={body:?}"
+            );
+            assert!(
+                footer.contains(&format!("\\end{{{name}}}")),
+                "{name} footer must stay, got footer={footer:?}"
+            );
+            assert!(
+                !regions
+                    .iter()
+                    .any(|r| matches!(r, Region::Prose(p) if p.contains("First line"))),
+                "{name} body must not leak into Prose, got: {regions:?}"
+            );
+            let out = format_text(&input, &latex_cfg()).unwrap();
+            assert!(
+                out.contains(&begin) && out.contains(&format!("\\end{{{name}}}")),
+                "{name} begin/end must stay, got:\n{out}"
+            );
+            assert!(
+                out.contains("First line. Second line."),
+                "{name} body must stay one source line, got:\n{out}"
+            );
+            assert!(
+                !out.contains("First line.\nSecond line."),
+                "{name} must not reflow as prose, got:\n{out}"
+            );
+            assert!(
+                out.contains("After the block.\nNext."),
+                "prose after {name} must still split, got:\n{out}"
+            );
+            assert_eq!(format_text(&out, &latex_cfg()).unwrap(), out);
+        }
     }
 
     /// Ticket fixture (GitHub #304): scontents.sty `scontents` stores
@@ -11262,7 +11470,7 @@ Some text.
     /// does not re-tokenize the no-brace form as Delim.
     #[test]
     fn verbatimtabinput_does_not_join_following_prose() {
-        use crate::{format_text, FormatConfig};
+        use crate::{FormatConfig, format_text};
 
         for cmd in [
             r"\verbatimtabinput{foo.py}",
@@ -11379,7 +11587,7 @@ Some text.
     /// configured extra does not re-tokenize the no-brace form as Delim.
     #[test]
     fn verbatimwrite_does_not_join_following_prose() {
-        use crate::{format_text, FormatConfig};
+        use crate::{FormatConfig, format_text};
 
         for cmd in [r"\verbatimwrite{foo.py}", r"\verbatimwrite*{foo.py}"] {
             let input = format!("Before. Next.\n{cmd}\nAfter. Next.\n");
@@ -11489,7 +11697,7 @@ Some text.
     /// no-brace form as Delim.
     #[test]
     fn listingcont_does_not_join_following_prose() {
-        use crate::{format_text, FormatConfig};
+        use crate::{FormatConfig, format_text};
 
         let cmd = r"\listingcont";
         let input = format!("Before. Next.\n{cmd}\nAfter. Next.\n");
@@ -11581,7 +11789,7 @@ Some text.
     /// form as Delim.
     #[test]
     fn defineshortverb_does_not_join_following_prose() {
-        use crate::{format_text, FormatConfig};
+        use crate::{FormatConfig, format_text};
 
         for cmd in [r"\DefineShortVerb{\|}", r"\UndefineShortVerb{\|}"] {
             let input = format!("Before. Next.\n{cmd}\nAfter. Next.\n");
@@ -11687,7 +11895,7 @@ Some text.
     /// form as Delim.
     #[test]
     fn fvextra_buffer_leftover_cmds_do_not_join_following_prose() {
-        use crate::{format_text, FormatConfig};
+        use crate::{FormatConfig, format_text};
 
         for cmd in [
             r"\VerbatimInsertBuffer[foo]",

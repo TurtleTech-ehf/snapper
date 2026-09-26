@@ -992,6 +992,71 @@ fn filecontentsdef_sibling_envs_are_code_and_do_not_reflow() {
     assert_eq!(format_text(&landed_out, &latex_cfg()).unwrap(), landed_out);
 }
 
+/// filecontentsdef.dtx v1.5 aliases of the starred envs. Same raw grab
+/// as `filecontentsdef*` / `filecontentsgdef*` / `filecontentshere*`.
+/// Body stays Code; following prose still splits.
+#[test]
+fn filecontents_starred_name_aliases_are_code_and_do_not_reflow() {
+    for name in [
+        "filecontentsdefstarred",
+        "filecontentsgdefstarred",
+        "filecontentsherestarred",
+    ] {
+        let begin = format!(r"\begin{{{name}}}{{\body}}");
+        let input =
+            format!("{begin}\nFirst line. Second line.\n\\end{{{name}}}\nAfter the block. Next.\n");
+        let regions = LatexParser::default().parse(&input);
+        let code = regions.iter().find_map(|r| match r {
+            Region::Code {
+                header,
+                body,
+                footer,
+                ..
+            } => Some((header.as_str(), body.as_str(), footer.as_str())),
+            _ => None,
+        });
+        let Some((header, body, footer)) = code else {
+            panic!("{name} must be Code, got: {regions:?}");
+        };
+        assert!(
+            header.contains(&begin),
+            "{name} required arg must stay on the begin header, got header={header:?}"
+        );
+        assert!(
+            body.contains("First line. Second line."),
+            "{name} body must be Code, got body={body:?}"
+        );
+        assert!(
+            footer.contains(&format!("\\end{{{name}}}")),
+            "{name} footer must stay, got footer={footer:?}"
+        );
+        assert!(
+            !regions
+                .iter()
+                .any(|r| matches!(r, Region::Prose(p) if p.contains("First line"))),
+            "{name} body must not be Prose, got: {regions:?}"
+        );
+        let out = format_text(&input, &latex_cfg()).unwrap();
+        assert!(
+            out.contains(&begin) && out.contains(&format!("\\end{{{name}}}")),
+            "{name} begin/end must stay, got:\n{out}"
+        );
+        assert!(
+            out.contains("First line. Second line."),
+            "{name} body must stay one source line, got:\n{out}"
+        );
+        assert!(
+            !out.contains("First line.\nSecond line."),
+            "{name} must not reflow as prose, got:\n{out}"
+        );
+        assert!(
+            out.contains("After the block.\nNext."),
+            "prose after {name} must still split, got:\n{out}"
+        );
+        assert_eq!(format_text(&out, &latex_cfg()).unwrap(), out);
+    }
+}
+
 /// Ticket fixture (GitHub #298): sagetex.sty `sageverbatim` /
 /// `sageexample` / `sagecommandline` bodies stay Code; following
 /// prose still splits. Landed `sagesilent` / `sageblock` stay Code.
