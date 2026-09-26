@@ -137,7 +137,9 @@ criterion = { version = "0.5", features = ["html_reports"] }
 proptest = "1"
 
 [profile.release]
-lto = true
+# Thin LTO. Fat LTO with one codegen unit per crate exhausts RAM when
+# the job server matches a large core count, including `cargo test --release`.
+lto = "thin"
 codegen-units = 1
 strip = true
 
