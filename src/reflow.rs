@@ -1219,6 +1219,11 @@ fn hanging_indent_width(s: &str) -> usize {
     if crate::parser::org::org_caption_marker_len(s) == Some(s.len()) {
         return s.chars().count();
     }
+    // Org item tag (`- tag :: `): hang at the tag so the description
+    // stays on the item and a period in the tag does not split it.
+    if let Some(width) = crate::parser::org::org_item_tag_hang_width(s) {
+        return width;
+    }
     // Markdown definition marker (`: ` / `  : `): hang at marker width
     // so the body stays inside the definition (GitHub #210).
     if crate::parser::markdown::md_definition_list_marker_len(s) == Some(s.len()) {
@@ -1235,8 +1240,16 @@ fn hanging_indent_width(s: &str) -> usize {
     let is_ordered = (core.ends_with('.') || core.ends_with(')'))
         && core.len() > 1
         && core[..core.len() - 1].bytes().all(|b| b.is_ascii_digit());
+    // Pandoc example list (`(@) `, `(@good) `). Not an ordered marker:
+    // the body after `@` is a label, not digits.
+    let is_example = core.starts_with("(@")
+        && core.ends_with(')')
+        && core.len() >= 3
+        && core[2..core.len() - 1]
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric());
     // LaTeX `\item` / `\item[label]` (not `\itemize`).
-    if is_bullet || is_ordered || is_rst_autoenum || is_latex_item_core(core) {
+    if is_bullet || is_ordered || is_example || is_rst_autoenum || is_latex_item_core(core) {
         s.chars().count()
     } else {
         0
@@ -1977,6 +1990,16 @@ They are endowed with reason and conscience and should act towards one another i
             Region::Structure("\n".to_string()),
         ]);
         assert_eq!(result, "- One.\n  Two.\n");
+    }
+
+    #[test]
+    fn pandoc_example_list_hangs_second_sentence() {
+        let result = reflow_regions(vec![
+            Region::Structure("(@) ".to_string()),
+            Region::Prose("Example one. Second sentence.".to_string()),
+            Region::Structure("\n".to_string()),
+        ]);
+        assert_eq!(result, "(@) Example one.\n    Second sentence.\n");
     }
 
     #[test]

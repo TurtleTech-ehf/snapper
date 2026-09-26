@@ -20,28 +20,32 @@ static FENCED_LANG_RE: LazyLock<Regex> =
 
 /// CommonMark list marker: 0–3 spaces, then `-`/`*`/`+` or 1–9 digits plus
 /// `.`/`)`, then a space, a tab, or the empty rest of the line (spec 0.31.2
-/// sec 5.2). Ten or more digits is prose. Four or more spaces is indented
+/// sec 5.2). Pandoc example lists use `(@)` / `(@label)` the same way.
+/// Ten or more digits is prose. Four or more spaces is indented
 /// code, not a list (spec 0.31.2 ex. 289). Empty markers do not interrupt
 /// a paragraph (`-` after prose is setext; GitHub #326). Tab-padded (`-\t`)
 /// and two-space-padded (`-  `) empty markers are list items so the next
 /// unindented line is not lazy-joined (GitHub #337). One-space and
 /// three-or-more spaces stay as in #329.
-static LIST_ITEM_RE: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"^( {0,3}(?:[-*+]|\d{1,9}[.)])(?:[ \t]|$))(.*)$").unwrap());
+static LIST_ITEM_RE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"^( {0,3}(?:[-*+]|\d{1,9}[.)]|\(@[A-Za-z0-9]*\))(?:[ \t]|$))(.*)$").unwrap()
+});
 
 /// List-looking line at any indent (including 4+ spaces). LIST_ITEM_RE is
 /// 0–3 only; a 4-space dash is indented code, but after a blank we still
 /// need the shape so hang-relative close can hand it to snapper-tupp.
 /// Digit cap matches LIST_ITEM_RE (CommonMark 1–9). Empty rest of line,
 /// including a tab after the marker, is still list-looking (sec 5.2 / #337).
-static LIST_LOOKING_RE: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"^[\t ]*(?:[-*+]|\d{1,9}[.)])(?:[ \t]|$)").unwrap());
+static LIST_LOOKING_RE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"^[\t ]*(?:[-*+]|\d{1,9}[.)]|\(@[A-Za-z0-9]*\))(?:[ \t]|$)").unwrap()
+});
 
 /// List item at any indent. LIST_ITEM_RE is 0–3 only so a 4-space dash is
 /// document-level indented code. Inside a parent item, hang ≤ indent < hang+4
 /// is a nested list (pulldown / CM 5.2), not code.
-static LIST_ITEM_ANY_INDENT_RE: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"^([\t ]*(?:[-*+]|\d{1,9}[.)])(?:[ \t]|$))(.*)$").unwrap());
+static LIST_ITEM_ANY_INDENT_RE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"^([\t ]*(?:[-*+]|\d{1,9}[.)]|\(@[A-Za-z0-9]*\))(?:[ \t]|$))(.*)$").unwrap()
+});
 
 /// Match a markdown table row: line whose trimmed form starts and ends with `|`.
 /// Also matches separator rows like `|---|---|`.
@@ -1365,6 +1369,11 @@ fn list_opener_hang(line: &str) -> Option<usize> {
         return None;
     }
     let token = marker.trim();
+    // Pandoc `(@)` / `(@label)` interrupts like a bullet. It is not an
+    // ordered marker, so the start-at-1 rule does not apply.
+    if token.starts_with("(@") && token.ends_with(')') {
+        return Some(list_marker_hang(marker));
+    }
     if !token.starts_with(['-', '*', '+']) {
         let digits = token.trim_end_matches(['.', ')']);
         if digits.parse::<u32>().ok()? != 1 {
@@ -1732,6 +1741,20 @@ fn is_gfm_table_row(line: &str) -> bool {
     gfm_table_cells(line).is_some()
 }
 
+/// Pandoc line block: a line that starts with `|` and a space, and does
+/// not end with a pipe. A flanking-pipe row is a table ([`TABLE_ROW_RE`]),
+/// not a line block. `|cell` (no space) is prose.
+fn is_pandoc_line_block(line: &str) -> bool {
+    if line_indent(line) > 3 {
+        return false;
+    }
+    if TABLE_ROW_RE.is_match(line) {
+        return false;
+    }
+    let rest = line.trim_start();
+    rest.starts_with("| ") || rest == "|"
+}
+
 /// Last line of a GFM table starting at `start` (header), if the next line
 /// is a delimiter with a matching cell count. Data rows may omit flanking
 /// pipes (GFM 4.10 / pulldown `ENABLE_TABLES`, ex. 199).
@@ -1762,7 +1785,7 @@ fn is_setext_title_line(line: &str) -> bool {
     if HEADING_RE.is_match(line) {
         return false;
     }
-    if TABLE_ROW_RE.is_match(line) {
+    if TABLE_ROW_RE.is_match(line) || is_pandoc_line_block(line) {
         return false;
     }
     if list_interrupts_paragraph(line) || quote_marker_depth(line) > 0 {
@@ -2892,6 +2915,27 @@ impl FormatParser for MarkdownParser {
 
             // Table row (pipe-delimited, flanking pipes required)
             if TABLE_ROW_RE.is_match(line_text) {
+                close_list_item(
+                    &mut in_list_item,
+                    &mut list_hang,
+                    &mut current_prose,
+                    &mut prose_span,
+                    &mut list_term,
+                    &mut in_definition_list,
+                    input,
+                    &mut regions,
+                );
+                flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
+                regions.push(SpannedRegion::structure(input, line.span()));
+                i += 1;
+                continue;
+            }
+
+            // Pandoc line block. No closing pipe, so TABLE_ROW_RE misses it
+            // and the line would otherwise be prose. The whole line stays
+            // Structure: an interior period must not sentence-split it or
+            // join the next `|` line. A later prose paragraph still splits.
+            if is_pandoc_line_block(line_text) {
                 close_list_item(
                     &mut in_list_item,
                     &mut list_hang,
