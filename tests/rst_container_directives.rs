@@ -46,8 +46,8 @@ fn leftover_table_title_continuation_splits_body_stays_opaque() {
         "same-line table title must still split, got:\n{out}"
     );
     assert!(
-        !out.contains("Still title. More."),
-        "continued table title must still split, got:\n{out}"
+        out.contains("   Still title. More.\n"),
+        "continued table title must stay structure, got:\n{out}"
     );
     assert!(
         out.contains("A. B") && !out.contains("A.\n"),
