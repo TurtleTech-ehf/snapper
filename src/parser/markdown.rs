@@ -1773,7 +1773,10 @@ fn is_setext_title_line(line: &str) -> bool {
         return false;
     }
     // Pandoc / academic MD display math is not a setext title.
-    if line.trim().starts_with("$$") {
+    if line.trim().starts_with("$$") || line.trim().starts_with("\\[") {
+        return false;
+    }
+    if is_pandoc_div_fence(line) {
         return false;
     }
     // HTML comments and types 1/3–6 are leaf blocks (CM 4.6), not title
@@ -1807,19 +1810,114 @@ fn setext_heading_start(lines: &[Line<'_>], last: usize, prose_span: Option<Byte
         .unwrap_or(last)
 }
 
-/// Pandoc / academic Markdown display math: a line that starts with `$$`.
-fn display_math_open(line: &str) -> bool {
-    line.trim().starts_with("$$")
+/// Pandoc / academic Markdown display math: `$$` or `\[` / `\]`.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum DisplayMathKind {
+    Dollars,
+    Bracket,
+}
+
+/// A line that opens display math. `$$` keeps its existing rule.
+/// `\[` is the bracket opener; a line that does not start with it is not.
+fn display_math_open(line: &str) -> Option<DisplayMathKind> {
+    let t = line.trim();
+    if t.starts_with("$$") {
+        Some(DisplayMathKind::Dollars)
+    } else if t.starts_with("\\[") {
+        Some(DisplayMathKind::Bracket)
+    } else {
+        None
+    }
+}
+
+/// Byte offset just past an unescaped `\]`, if one is present.
+fn display_bracket_close_end(line: &str) -> Option<usize> {
+    let bytes = line.as_bytes();
+    let mut i = 0;
+    while i + 1 < bytes.len() {
+        if bytes[i] == b'\\' && bytes[i + 1] == b']' {
+            let mut j = i;
+            while j > 0 && bytes[j - 1] == b'\\' {
+                j -= 1;
+            }
+            let slashes = i - j + 1;
+            if slashes % 2 == 1 {
+                return Some(i + 2);
+            }
+            i += 2;
+            continue;
+        }
+        i += 1;
+    }
+    None
+}
+
+fn bracket_closer_ahead(lines: &[Line<'_>]) -> bool {
+    lines
+        .iter()
+        .any(|line| display_bracket_close_end(line.text).is_some())
 }
 
 /// A line that is only `$$` is an opener, not a one-line `$$...$$` block.
-fn display_math_is_single_line(line: &str) -> bool {
+/// `\[ ... \]` on one line is a single-line bracket block.
+fn display_math_is_single_line(line: &str, kind: DisplayMathKind) -> bool {
     let t = line.trim();
-    t != "$$" && t.ends_with("$$")
+    match kind {
+        DisplayMathKind::Dollars => t != "$$" && t.ends_with("$$"),
+        DisplayMathKind::Bracket => {
+            let Some(end) = display_bracket_close_end(line) else {
+                return false;
+            };
+            let lead = line.len() - line.trim_start().len();
+            end > lead + 2
+        }
+    }
 }
 
-fn is_display_math_close(line: &str) -> bool {
-    line.trim_end().ends_with("$$")
+fn is_display_math_close(line: &str, kind: DisplayMathKind) -> bool {
+    match kind {
+        DisplayMathKind::Dollars => line.trim_end().ends_with("$$"),
+        DisplayMathKind::Bracket => display_bracket_close_end(line).is_some(),
+    }
+}
+
+/// When `\]` has trailing prose, the math prefix is Structure and the
+/// tail is Prose (its span runs through the line terminator).
+fn emit_bracket_tail(
+    input: &str,
+    line: &Line<'_>,
+    current_prose: &mut String,
+    prose_span: &mut Option<ByteSpan>,
+    regions: &mut Vec<SpannedRegion>,
+) -> bool {
+    let Some(end) = display_bracket_close_end(line.text) else {
+        return false;
+    };
+    let tail = line.text.get(end..).unwrap_or("");
+    if tail.trim().is_empty() {
+        return false;
+    }
+    let trimmed = tail.trim_start();
+    let lead = tail.len() - trimmed.len();
+    let struct_end = end + lead;
+    regions.push(SpannedRegion::structure(
+        input,
+        ByteSpan::new(line.start, line.start + struct_end),
+    ));
+    current_prose.push_str(trimmed.trim_end());
+    *prose_span = Some(ByteSpan::new(line.start + struct_end, line.end));
+    true
+}
+
+/// Pandoc fenced div: a line of three or more colons, optional `{...}`.
+fn is_pandoc_div_fence(line: &str) -> bool {
+    let t = line.trim();
+    let colons = t.bytes().take_while(|b| *b == b':').count();
+    if colons < 3 {
+        return false;
+    }
+    let rest = t[colons..].trim();
+    rest.is_empty() || (rest.starts_with('{') && rest.ends_with('}') && rest.len() >= 2)
 }
 
 /// Exactly three `ch` then only spaces (pulldown `scan_closing_metadata_block`).
@@ -1903,7 +2001,7 @@ impl FormatParser for MarkdownParser {
         let mut last_was_def_term = false;
         let mut in_definition_list = false;
         let mut in_quoted_footnote = false;
-        let mut in_display_math = false;
+        let mut in_display_math: Option<DisplayMathKind> = None;
         let mut pragma_off = false;
 
         let lines = iter_lines(input);
@@ -2001,8 +2099,9 @@ impl FormatParser for MarkdownParser {
                 continue;
             }
 
-            // Inside display math $$...$$ -- everything is structure
-            if in_display_math {
+            // Inside display math (`$$` or `\[`) -- everything is structure
+            // until the closer. Trailing prose after `\]` stays Prose.
+            if let Some(kind) = in_display_math {
                 close_list_item(
                     &mut in_list_item,
                     &mut list_hang,
@@ -2014,8 +2113,20 @@ impl FormatParser for MarkdownParser {
                     &mut regions,
                 );
                 flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
-                if is_display_math_close(line_text) {
-                    in_display_math = false;
+                if is_display_math_close(line_text, kind) {
+                    in_display_math = None;
+                    if kind == DisplayMathKind::Bracket
+                        && emit_bracket_tail(
+                            input,
+                            line,
+                            &mut current_prose,
+                            &mut prose_span,
+                            &mut regions,
+                        )
+                    {
+                        i += 1;
+                        continue;
+                    }
                 }
                 regions.push(SpannedRegion::structure(input, line.span()));
                 i += 1;
@@ -2135,8 +2246,51 @@ impl FormatParser for MarkdownParser {
                 continue;
             }
 
-            // Display math open (`$$` or one-line `$$...$$`).
-            if display_math_open(line_text) {
+            // Display math open (`$$`, one-line `$$...$$`, or `\[` / `\]`).
+            // An unclosed `\[` stays prose. `$$` still opens without a closer.
+            if let Some(kind) = display_math_open(line_text) {
+                let single = display_math_is_single_line(line_text, kind);
+                let opened = match kind {
+                    DisplayMathKind::Dollars => true,
+                    DisplayMathKind::Bracket => single || bracket_closer_ahead(&lines[i + 1..]),
+                };
+                if opened {
+                    close_list_item(
+                        &mut in_list_item,
+                        &mut list_hang,
+                        &mut current_prose,
+                        &mut prose_span,
+                        &mut list_term,
+                        &mut in_definition_list,
+                        input,
+                        &mut regions,
+                    );
+                    flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
+                    if !single {
+                        in_display_math = Some(kind);
+                    }
+                    if kind == DisplayMathKind::Bracket
+                        && single
+                        && emit_bracket_tail(
+                            input,
+                            line,
+                            &mut current_prose,
+                            &mut prose_span,
+                            &mut regions,
+                        )
+                    {
+                        i += 1;
+                        continue;
+                    }
+                    regions.push(SpannedRegion::structure(input, line.span()));
+                    i += 1;
+                    continue;
+                }
+            }
+
+            // Pandoc fenced div. The fence line (with attributes) is
+            // Structure. Lines inside stay on the normal prose path.
+            if is_pandoc_div_fence(line_text) {
                 close_list_item(
                     &mut in_list_item,
                     &mut list_hang,
@@ -2148,9 +2302,6 @@ impl FormatParser for MarkdownParser {
                     &mut regions,
                 );
                 flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
-                if !display_math_is_single_line(line_text) {
-                    in_display_math = true;
-                }
                 regions.push(SpannedRegion::structure(input, line.span()));
                 i += 1;
                 continue;
@@ -6426,6 +6577,198 @@ mod tests {
         assert!(
             out.contains("See $x = 1$ here.\nNext sentence."),
             "inline $...$ must not open display math, got:\n{out}"
+        );
+        assert_eq!(format_text(&out, &md_cfg()).unwrap(), out);
+    }
+
+    /// Bracket display math is Structure, same as `$$`. Outside prose still splits.
+    #[test]
+    fn bracket_display_math_is_structure_not_prose() {
+        let input = "\\[\nE = mc^2. Stay inside.\n\\]\n";
+        let regions = MarkdownParser.parse(input);
+        assert!(
+            regions.iter().any(|r| matches!(
+                r,
+                Region::Structure(s) if s.contains("E = mc^2. Stay inside.")
+            )),
+            "\\[ body must be Structure, got: {regions:?}"
+        );
+        assert!(
+            !regions.iter().any(|r| matches!(
+                r,
+                Region::Prose(p) if p.contains("Stay inside")
+            )),
+            "\\[ body must not be Prose, got: {regions:?}"
+        );
+        assert!(
+            regions
+                .iter()
+                .any(|r| matches!(r, Region::Structure(s) if s.trim() == "\\[")),
+            "\\[ opener must be Structure, got: {regions:?}"
+        );
+        assert!(
+            regions
+                .iter()
+                .any(|r| matches!(r, Region::Structure(s) if s.trim() == "\\]")),
+            "\\] closer must be Structure, got: {regions:?}"
+        );
+    }
+
+    #[test]
+    fn bracket_display_math_does_not_split_and_outside_prose_does() {
+        use crate::format_text;
+
+        let input = concat!(
+            "Before the math. More before.\n",
+            "\\[\n",
+            "E = mc^2. Stay inside.\n",
+            "\\]\n",
+            "After the math. More after.\n",
+        );
+        let out = format_text(input, &md_cfg()).unwrap();
+        assert!(
+            out.contains("\\[\nE = mc^2. Stay inside.\n\\]"),
+            "\\[ display math must stay a structure block, got:\n{out}"
+        );
+        assert!(
+            !out.contains("E = mc^2.\nStay inside."),
+            "\\[ body must not split at sentence end, got:\n{out}"
+        );
+        assert!(
+            out.contains("Before the math.\nMore before."),
+            "prose before \\[ must still reflow, got:\n{out}"
+        );
+        assert!(
+            out.contains("After the math.\nMore after."),
+            "prose after \\] must still reflow, got:\n{out}"
+        );
+        assert!(
+            !out.contains("\\[ E = mc^2."),
+            "must not join \\[ into surrounding prose, got:\n{out}"
+        );
+        assert_eq!(format_text(&out, &md_cfg()).unwrap(), out);
+    }
+
+    #[test]
+    fn bracket_single_line_display_keeps_outside_prose() {
+        use crate::format_text;
+
+        let input = "\\[ x = 1. \\] today. Next.\n";
+        let regions = MarkdownParser.parse(input);
+        assert!(
+            regions
+                .iter()
+                .any(|r| matches!(r, Region::Structure(s) if s.contains("\\[ x = 1. \\]"))),
+            "same-line \\[ \\] must be Structure, got: {regions:?}"
+        );
+        assert!(
+            !regions
+                .iter()
+                .any(|r| matches!(r, Region::Prose(p) if p.contains("x = 1."))),
+            "same-line \\[ body must not be Prose, got: {regions:?}"
+        );
+        let out = format_text(input, &md_cfg()).unwrap();
+        assert!(
+            out.contains("\\[ x = 1. \\] today.\nNext."),
+            "period inside \\[ must not split; trailing prose reflows, got:\n{out}"
+        );
+        assert!(
+            !out.contains("\\[ x = 1.\n"),
+            "must not split inside same-line \\[, got:\n{out}"
+        );
+        assert_eq!(format_text(&out, &md_cfg()).unwrap(), out);
+    }
+
+    #[test]
+    fn unclosed_bracket_stays_prose() {
+        use crate::format_text;
+
+        let input = "\\[ not closed. Next sentence.\n";
+        let regions = MarkdownParser.parse(input);
+        assert!(
+            regions
+                .iter()
+                .any(|r| matches!(r, Region::Prose(p) if p.contains("not closed"))),
+            "unclosed \\[ must stay Prose, got: {regions:?}"
+        );
+        let out = format_text(input, &md_cfg()).unwrap();
+        assert!(
+            out.contains("\\[ not closed.\nNext sentence."),
+            "unclosed \\[ must still sentence-split, got:\n{out}"
+        );
+        assert_eq!(format_text(&out, &md_cfg()).unwrap(), out);
+    }
+
+    /// Pandoc `:::` fence is Structure. Prose inside still reflows.
+    #[test]
+    fn pandoc_fenced_div_fence_is_structure_body_reflows() {
+        use crate::format_text;
+
+        let input = "::: {.note}\nOne. Two.\n:::\n";
+        let regions = MarkdownParser.parse(input);
+        assert!(
+            regions
+                .iter()
+                .any(|r| matches!(r, Region::Structure(s) if s.contains("::: {.note}"))),
+            "div opener must be Structure, got: {regions:?}"
+        );
+        assert!(
+            regions
+                .iter()
+                .any(|r| matches!(r, Region::Structure(s) if s.trim() == ":::")),
+            "div closer must be Structure, got: {regions:?}"
+        );
+        assert!(
+            regions
+                .iter()
+                .any(|r| matches!(r, Region::Prose(p) if p.contains("One. Two."))),
+            "div body must stay Prose, got: {regions:?}"
+        );
+        assert!(
+            !regions
+                .iter()
+                .any(|r| matches!(r, Region::Prose(p) if p.contains(":::"))),
+            "div fence must not be Prose, got: {regions:?}"
+        );
+        let out = format_text(input, &md_cfg()).unwrap();
+        assert_eq!(
+            out, "::: {.note}\nOne.\nTwo.\n:::\n",
+            "div body must reflow between fences, got:\n{out}"
+        );
+        assert_eq!(format_text(&out, &md_cfg()).unwrap(), out);
+    }
+
+    #[test]
+    fn sentence_does_not_cross_div_fence() {
+        use crate::format_text;
+
+        let input = concat!(
+            "Before the note. Still before.\n",
+            "::: {.note}\n",
+            "One. Two.\n",
+            ":::\n",
+            "After the note. Still after.\n",
+        );
+        let out = format_text(input, &md_cfg()).unwrap();
+        assert!(
+            out.contains("Before the note.\nStill before.\n"),
+            "prose before the div must still reflow, got:\n{out}"
+        );
+        assert!(
+            out.contains("::: {.note}\nOne.\nTwo.\n:::\n"),
+            "div fence stays put and the body reflows, got:\n{out}"
+        );
+        assert!(
+            out.contains("After the note.\nStill after.\n"),
+            "prose after the div must still reflow, got:\n{out}"
+        );
+        assert!(
+            !out.contains("::: {.note} One") && !out.contains("Two.\n::: After"),
+            "a sentence must not cross the div fence, got:\n{out}"
+        );
+        assert!(
+            !out.contains("Still before. :::"),
+            "opener must not glue onto the previous sentence, got:\n{out}"
         );
         assert_eq!(format_text(&out, &md_cfg()).unwrap(), out);
     }
