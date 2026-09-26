@@ -6683,7 +6683,7 @@ mod tests {
     fn unclosed_bracket_stays_prose() {
         use crate::format_text;
 
-        let input = "\\[ not closed. Next sentence.\n";
+        let input = "\\[ not closed. Next sentence.\nAfter that line. More text.\n";
         let regions = MarkdownParser.parse(input);
         assert!(
             regions
@@ -6691,10 +6691,17 @@ mod tests {
                 .any(|r| matches!(r, Region::Prose(p) if p.contains("not closed"))),
             "unclosed \\[ must stay Prose, got: {regions:?}"
         );
+        assert!(
+            !regions.iter().any(|r| matches!(
+                r,
+                Region::Structure(s) if s.contains("After that line")
+            )),
+            "unclosed \\[ must not swallow the next line, got: {regions:?}"
+        );
         let out = format_text(input, &md_cfg()).unwrap();
         assert!(
-            out.contains("\\[ not closed.\nNext sentence."),
-            "unclosed \\[ must still sentence-split, got:\n{out}"
+            out.contains("After that line.\nMore text."),
+            "prose after an unclosed \\[ must still reflow, got:\n{out}"
         );
         assert_eq!(format_text(&out, &md_cfg()).unwrap(), out);
     }
