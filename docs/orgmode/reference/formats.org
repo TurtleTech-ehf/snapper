@@ -95,7 +95,7 @@ These tokens within prose are not split across lines:
 :CUSTOM_ID: latex-structure
 :END:
 - Preamble (everything before =\begin{document}=)
-- Non-prose environments: equation, align, alignat, xalignat, xxalignat, empheq, cases, numcases, array, subarray, CD, prooftree, quantikz, yquant, matrix, smallmatrix, tabular, tikzpicture, and their starred variants (plus other non-code envs).
+- Non-prose environments: equation, align, alignat, xalignat, xxalignat, empheq, cases, numcases, array, subarray, CD, prooftree, quantikz, yquant, matrix, smallmatrix, multlined, lgathered, rgathered, dmath, tabular, tikzpicture, and their starred variants (plus other non-code envs).
   =\\intertext= and =\\shortintertext= arguments inside those displays stay prose
 - Float chrome (=\begin{figure}= / =\centering= / =\end{figure}=, and =table= / starred variants): Structure.
   The =\caption= long argument is Prose.
@@ -134,7 +134,7 @@ These tokens within prose are not split across lines:
 - tcolorbox leftover write/listing envs =tcboutputlisting= / =tcbexternal= / =dispExample= / =dispExample*= / =dispListing= / =dispListing*= are the same raw grab (tcblistingscore / tcbexternal / tcbdocumentation)
 - latexindent =filecontents= / =filecontents*= write the env body raw to a file
 - filecontentsdef.sty =filecontentsdef= writes the env body verbatim into a macro (same raw grab as =filecontents=)
-- filecontentsdef.sty leftover siblings =filecontentsgdef= / =filecontentsdefmacro= / =filecontentsgdefmacro= / =filecontentshere= and starred twins =filecontentsdef*= / =filecontentsgdef*= / =filecontentshere*= are the same raw grab
+- filecontentsdef.sty leftover siblings =filecontentsgdef= / =filecontentsdefmacro= / =filecontentsgdefmacro= / =filecontentshere= and starred twins =filecontentsdef*= / =filecontentsgdef*= / =filecontentshere*= plus aliases =filecontentsdefstarred= / =filecontentsgdefstarred= / =filecontentsherestarred= are the same raw grab
 - scontents.sty =scontents= stores the env body verbatim into a sequence; =verbatimsc= is the package verbatim display env
 - spverbatim.sty =spverbatim= is a built-in code region (raw line breaks)
 - pythontex.sty =pyblock= / =pyverbatim= / =pyconsole= / =pycode*= / =pyblock*= / =pyverbatim*= / =pyconsole*= / =pygments= / =sympycode= / =sympyblock= / =sympyverbatim= / =sympyconsole= / =pylabcode= / =pylabblock= / =pylabverbatim= / =pylabconsole= and starred twins, plus leftover default-family =pyconcode= / =pyconverbatim= / =pysub= / =pyconsub= / =sympyconcode= / =sympyconverbatim= / =sympysub= / =sympyconsub= / =pylabconcode= / =pylabconverbatim= / =pylabsub= / =pylabconsub= / =pythontexcustomcode=, plus option-family =usefamily= leftovers (=rubycode= representative; ruby / rb / julia / juliacon / jl / matlab / octave / bash / sage / rust / rs / R / Rcon / perl / pl / perlsix / psix / javascript / js), are the same =VerbatimEnvironment= class as =pycode=
