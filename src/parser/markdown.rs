@@ -1857,10 +1857,18 @@ fn display_bracket_close_end(line: &str) -> Option<usize> {
     None
 }
 
+/// A later `\]` closes the opener only when no blank line comes first.
+/// A blank line ends the search, so the opener stays prose.
 fn bracket_closer_ahead(lines: &[Line<'_>]) -> bool {
-    lines
-        .iter()
-        .any(|line| display_bracket_close_end(line.text).is_some())
+    for line in lines {
+        if line.text.trim().is_empty() {
+            return false;
+        }
+        if display_bracket_close_end(line.text).is_some() {
+            return true;
+        }
+    }
+    false
 }
 
 /// A line that is only `$$` is an opener, not a one-line `$$...$$` block.
@@ -6713,6 +6721,45 @@ mod tests {
         assert!(
             out.contains("After that line.\nMore text."),
             "prose after an unclosed \\[ must still reflow, got:\n{out}"
+        );
+        assert_eq!(format_text(&out, &md_cfg()).unwrap(), out);
+    }
+
+    /// A blank line ends the `\]` search. The middle paragraph stays prose.
+    #[test]
+    fn blank_line_ends_bracket_closer_search() {
+        use crate::format_text;
+
+        let input = "\\[ not closed. Next sentence.\n\nAfter that line. More text.\n\n\\]\n";
+        let regions = MarkdownParser.parse(input);
+        assert!(
+            regions
+                .iter()
+                .any(|r| matches!(r, Region::Prose(p) if p.contains("After that line"))),
+            "paragraph after a blank must stay Prose, got: {regions:?}"
+        );
+        assert!(
+            regions
+                .iter()
+                .any(|r| matches!(r, Region::Prose(p) if p.contains("not closed"))),
+            "unclosed \\[ before a blank must stay Prose, got: {regions:?}"
+        );
+        assert!(
+            !regions.iter().any(|r| matches!(
+                r,
+                Region::Structure(s)
+                    if s.contains("After that line") || s.contains("not closed")
+            )),
+            "a blank line must not join \\[ through \\] as Structure, got: {regions:?}"
+        );
+        let out = format_text(input, &md_cfg()).unwrap();
+        assert!(
+            out.contains("After that line.\nMore text."),
+            "middle paragraph must split, got:\n{out}"
+        );
+        assert!(
+            !out.contains("After that line. More text."),
+            "middle paragraph must not stay one line, got:\n{out}"
         );
         assert_eq!(format_text(&out, &md_cfg()).unwrap(), out);
     }
