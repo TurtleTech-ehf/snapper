@@ -50,6 +50,7 @@ static NON_PROSE_ENVS: &[&str] = &[
     "eqnarray*",
     "IEEEeqnarray",
     "IEEEeqnarray*",
+    "IEEEeqnarraybox",
     "subeqnarray",
     "subeqnarray*",
     "split",
@@ -93,6 +94,7 @@ static NON_PROSE_ENVS: &[&str] = &[
     "verbatim",
     "minted",
     "tikzpicture",
+    "tikzpicture*",
     "tikzcd",
     "tikzcd*",
     "quantikz",
@@ -101,6 +103,9 @@ static NON_PROSE_ENVS: &[&str] = &[
     "pgfpicture*",
     "axis",
     "axis*",
+    "loglogaxis",
+    "semilogxaxis",
+    "semilogyaxis",
     "array",
     "array*",
     "subarray",
@@ -296,6 +301,12 @@ fn is_builtin_code_env(name: &str) -> bool {
             | "VerbEnv"
             | "alltt"
             | "boxedverbatim"
+            | "semiverbatim"
+            | "verbbox"
+            | "myverbbox"
+            | "verbnobox"
+            | "markdown"
+            | "markdown*"
             | "verbatimtab"
             | "verbatimwrite"
             | "verbwrite"
