@@ -824,6 +824,11 @@ fn md_leaf_rest(line: &str) -> Option<&str> {
 /// Five or more spaces after `:` keep only one (same padding rule as
 /// list markers). Hang width is the whole marker, including the colon.
 pub(crate) fn md_definition_list_marker_len(line: &str) -> Option<usize> {
+    // `:::` is a pandoc div fence. One colon plus zero spaces would
+    // otherwise mark it, and the line above would become a title.
+    if is_pandoc_div_fence(line) {
+        return None;
+    }
     let rest = md_leaf_rest(line)?;
     let indent = line.len() - rest.len();
     // pulldown `:` plus compact leftover `~` (Pandoc / extra DL marker).
