@@ -19,6 +19,10 @@ use crate::sentence::unicode::{
 // `IEEEeqnarray*` / `subeqnarray` / `subeqnarray*` / `xltabular` /
 // `math*`. `tikzcd` / pgfplots `axis` / `pgfpicture` are the same
 // class (and starred variants). Not every pgfplots name.
+// mathtools `multlined` / `lgathered` / `rgathered` and the starred
+// matrix family, plus breqn `dmath` / `dmath*`, are the same class.
+// There is no `multlined*` / `lgathered*` / `rgathered*`. breqn
+// `dseries` / `dsuspend` are text and stay out.
 //
 // `figure` / `table` (and stars) are not here: Overleaf FigureEnvironment
 // is Content<Text>, tree-sitter caption curly_group is text. Float chrome
@@ -44,8 +48,11 @@ static NON_PROSE_ENVS: &[&str] = &[
     "gather*",
     "gathered",
     "gathered*",
+    "lgathered",
+    "rgathered",
     "multline",
     "multline*",
+    "multlined",
     "eqnarray",
     "eqnarray*",
     "IEEEeqnarray",
@@ -109,17 +116,29 @@ static NON_PROSE_ENVS: &[&str] = &[
     "empheq",
     "empheq*",
     "matrix",
+    "matrix*",
     "pmatrix",
+    "pmatrix*",
     "bmatrix",
+    "bmatrix*",
     "Bmatrix",
+    "Bmatrix*",
     "vmatrix",
+    "vmatrix*",
     "Vmatrix",
+    "Vmatrix*",
     "smallmatrix",
+    "smallmatrix*",
     "psmallmatrix",
+    "psmallmatrix*",
     "bsmallmatrix",
+    "bsmallmatrix*",
     "Bsmallmatrix",
+    "Bsmallmatrix*",
     "vsmallmatrix",
+    "vsmallmatrix*",
     "Vsmallmatrix",
+    "Vsmallmatrix*",
     "cases",
     "cases*",
     "numcases",
@@ -130,6 +149,8 @@ static NON_PROSE_ENVS: &[&str] = &[
     "rcases*",
     "drcases",
     "drcases*",
+    "dmath",
+    "dmath*",
 ];
 
 /// Float environments: chrome is Structure; `\caption` long arg is Prose.
@@ -157,7 +178,10 @@ static LSTLISTING_LANG_RE: LazyLock<Regex> = LazyLock::new(|| {
 /// `filecontents`; GitHub #294) plus leftover siblings `filecontentsgdef` /
 /// `filecontentsdefmacro` / `filecontentsgdefmacro` / `filecontentshere` and
 /// starred twins `filecontentsdef*` / `filecontentsgdef*` /
-/// `filecontentshere*` (same raw grab; GitHub #299), scontents.sty
+/// `filecontentshere*` (same raw grab; GitHub #299) and the v1.5
+/// aliases `filecontentsdefstarred` / `filecontentsgdefstarred` /
+/// `filecontentsherestarred` (same raw grab; `filecontentsdefmacro`
+/// and `filecontentsgdefmacro` have no such alias), scontents.sty
 /// `scontents` (verbatim store into a sequence) / `verbatimsc` (package
 /// verbatim display env; GitHub #304), and tree-sitter-latex
 /// raw trivia envs
@@ -325,12 +349,15 @@ fn is_builtin_code_env(name: &str) -> bool {
             | "filecontents*"
             | "filecontentsdef"
             | "filecontentsdef*"
+            | "filecontentsdefstarred"
             | "filecontentsgdef"
             | "filecontentsgdef*"
+            | "filecontentsgdefstarred"
             | "filecontentsdefmacro"
             | "filecontentsgdefmacro"
             | "filecontentshere"
             | "filecontentshere*"
+            | "filecontentsherestarred"
             | "scontents"
             | "verbatimsc"
             | "asy"
@@ -3243,6 +3270,124 @@ More text.
                 env_out.contains("After the array.\nSecond sentence."),
                 "prose after {name} must still split, got:\n{env_out}"
             );
+        }
+    }
+
+    #[test]
+    fn multlined_body_is_not_sentence_split() {
+        // mathtools multlined is an inner multline, same class as multline.
+        let cfg = crate::FormatConfig {
+            format: crate::format::Format::Latex,
+            max_width: 0,
+            ..Default::default()
+        }
+        .without_safety_backstops();
+        let input = concat!(
+            "\\begin{multlined}\n",
+            "a = b. Second sentence stays put.\n",
+            "\\end{multlined}\n",
+            "After the display. Next.\n",
+        );
+        let out = crate::format_text(input, &cfg).unwrap();
+        assert!(
+            out.contains("a = b. Second sentence stays put.\n"),
+            "multlined body must stay one line, got:\n{out}"
+        );
+        assert!(
+            out.contains("After the display.\nNext."),
+            "prose after multlined must still split, got:\n{out}"
+        );
+        assert_eq!(crate::format_text(&out, &cfg).unwrap(), out);
+    }
+
+    #[test]
+    fn lgathered_body_is_not_sentence_split() {
+        // mathtools lgathered / rgathered are gathered displays.
+        let cfg = crate::FormatConfig {
+            format: crate::format::Format::Latex,
+            max_width: 0,
+            ..Default::default()
+        }
+        .without_safety_backstops();
+        for name in ["lgathered", "rgathered"] {
+            let input = format!(
+                "\\begin{{{name}}}\na = b. Second sentence stays put.\n\\end{{{name}}}\nAfter the display. Next.\n"
+            );
+            let out = crate::format_text(&input, &cfg).unwrap();
+            assert!(
+                out.contains("a = b. Second sentence stays put.\n"),
+                "{name} body must stay one line, got:\n{out}"
+            );
+            assert!(
+                out.contains("After the display.\nNext."),
+                "prose after {name} must still split, got:\n{out}"
+            );
+            assert_eq!(crate::format_text(&out, &cfg).unwrap(), out);
+        }
+    }
+
+    #[test]
+    fn matrix_star_body_is_not_sentence_split() {
+        // mathtools starred matrices are column-aligned math arrays.
+        let cfg = crate::FormatConfig {
+            format: crate::format::Format::Latex,
+            max_width: 0,
+            ..Default::default()
+        }
+        .without_safety_backstops();
+        for name in [
+            "matrix*",
+            "pmatrix*",
+            "bmatrix*",
+            "Bmatrix*",
+            "vmatrix*",
+            "Vmatrix*",
+            "smallmatrix*",
+            "psmallmatrix*",
+            "bsmallmatrix*",
+            "Bsmallmatrix*",
+            "vsmallmatrix*",
+            "Vsmallmatrix*",
+        ] {
+            let input = format!(
+                "\\begin{{{name}}}\na & b. Second sentence stays put.\n\\end{{{name}}}\nAfter the matrix. Next.\n"
+            );
+            let out = crate::format_text(&input, &cfg).unwrap();
+            assert!(
+                out.contains("a & b. Second sentence stays put.\n"),
+                "{name} body must stay one line, got:\n{out}"
+            );
+            assert!(
+                out.contains("After the matrix.\nNext."),
+                "prose after {name} must still split, got:\n{out}"
+            );
+            assert_eq!(crate::format_text(&out, &cfg).unwrap(), out);
+        }
+    }
+
+    #[test]
+    fn dmath_body_is_not_sentence_split() {
+        // breqn dmath / dmath* are display math, same class as equation.
+        let cfg = crate::FormatConfig {
+            format: crate::format::Format::Latex,
+            max_width: 0,
+            ..Default::default()
+        }
+        .without_safety_backstops();
+        for name in ["dmath", "dmath*"] {
+            let input = format!(
+                "\\begin{{{name}}}\na = b. Second sentence stays put.\n\\end{{{name}}}\nAfter the display. Next.\n"
+            );
+            let out = crate::format_text(&input, &cfg).unwrap();
+            assert!(
+                out.contains("a = b. Second sentence stays put.\n"),
+                "{name} body must stay one line, got:\n{out}"
+            );
+            assert!(
+                out.contains("After the display.\nNext."),
+                "prose after {name} must still split, got:\n{out}"
+            );
+            assert_eq!(crate::format_text(&out, &cfg).unwrap(), out);
         }
     }
 
@@ -9542,6 +9687,74 @@ Some text.
             "prose after landed filecontentsdef must still split, got:\n{landed_out}"
         );
         assert_eq!(format_text(&landed_out, &latex_cfg()).unwrap(), landed_out);
+    }
+
+    /// filecontentsdef.dtx v1.5 aliases of the starred envs. Same raw
+    /// grab as `filecontentsdef*` / `filecontentsgdef*` /
+    /// `filecontentshere*`. Body stays Code; following prose still splits.
+    #[test]
+    fn filecontents_starred_name_aliases_are_code_not_prose() {
+        use crate::format_text;
+
+        for name in [
+            "filecontentsdefstarred",
+            "filecontentsgdefstarred",
+            "filecontentsherestarred",
+        ] {
+            let begin = format!(r"\begin{{{name}}}{{\body}}");
+            let input = format!(
+                "{begin}\nFirst line. Second line.\n\\end{{{name}}}\nAfter the block. Next.\n"
+            );
+            let regions = LatexParser::default().parse(&input);
+            let code = regions.iter().find_map(|r| match r {
+                Region::Code {
+                    header,
+                    body,
+                    footer,
+                    ..
+                } => Some((header.as_str(), body.as_str(), footer.as_str())),
+                _ => None,
+            });
+            let Some((header, body, footer)) = code else {
+                panic!("{name} must be Code, got: {regions:?}");
+            };
+            assert!(
+                header.contains(&begin),
+                "{name} required arg must stay on the begin header, got header={header:?}"
+            );
+            assert!(
+                body.contains("First line. Second line."),
+                "{name} body must keep both sentences, got body={body:?}"
+            );
+            assert!(
+                footer.contains(&format!("\\end{{{name}}}")),
+                "{name} footer must stay, got footer={footer:?}"
+            );
+            assert!(
+                !regions
+                    .iter()
+                    .any(|r| matches!(r, Region::Prose(p) if p.contains("First line"))),
+                "{name} body must not leak into Prose, got: {regions:?}"
+            );
+            let out = format_text(&input, &latex_cfg()).unwrap();
+            assert!(
+                out.contains(&begin) && out.contains(&format!("\\end{{{name}}}")),
+                "{name} begin/end must stay, got:\n{out}"
+            );
+            assert!(
+                out.contains("First line. Second line."),
+                "{name} body must stay one source line, got:\n{out}"
+            );
+            assert!(
+                !out.contains("First line.\nSecond line."),
+                "{name} must not reflow as prose, got:\n{out}"
+            );
+            assert!(
+                out.contains("After the block.\nNext."),
+                "prose after {name} must still split, got:\n{out}"
+            );
+            assert_eq!(format_text(&out, &latex_cfg()).unwrap(), out);
+        }
     }
 
     /// Ticket fixture (GitHub #304): scontents.sty `scontents` stores

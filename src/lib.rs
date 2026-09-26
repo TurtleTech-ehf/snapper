@@ -118,7 +118,8 @@ pub struct FormatConfig {
     /// filecontents/filecontents*/filecontentsdef plus leftover
     /// filecontentsgdef/filecontentsdefmacro/filecontentsgdefmacro/
     /// filecontentshere and starred twins filecontentsdef*/
-    /// filecontentsgdef*/filecontentshere*, scontents.sty
+    /// filecontentsgdef*/filecontentshere* plus aliases
+    /// filecontentsdefstarred/filecontentsgdefstarred/filecontentsherestarred, scontents.sty
     /// scontents/verbatimsc, tree-sitter
     /// trivia, Overleaf Verbatim/boxedverbatim/tcblisting/tcblisting*/codeexample/
     /// tcbverbatimwrite/tcbwritetemp/tcboutputlisting/tcbexternal/
