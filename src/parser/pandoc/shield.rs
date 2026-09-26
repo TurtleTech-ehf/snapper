@@ -325,7 +325,8 @@ mod tests {
     #[test]
     fn pragma_inside_starred_verbatim_is_ignored() {
         for env in ["verbatim*", "lstlisting*", "minted*"] {
-            let input = format!("\\begin{{{env}}}\nsnapper:off\nSee Dr. Smith. He left.\n\\end{{{env}}}\n");
+            let input =
+                format!("\\begin{{{env}}}\nsnapper:off\nSee Dr. Smith. He left.\n\\end{{{env}}}\n");
             assert!(
                 pragma_spans(&input).is_empty(),
                 "{env} must hide an interior pragma, got spans in {input:?}"
