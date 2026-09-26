@@ -163,8 +163,8 @@ fn leftover_list_table_title_hangs_cells_still_split() {
     );
     let out = format_text(input, &rst_cfg()).unwrap();
     assert!(
-        !out.contains(".. list-table:: fig. 1 is here. After."),
-        "list-table title must still split, got:\n{out}"
+        out.contains(".. list-table:: fig. 1 is here. After."),
+        "list-table title stays on the directive line, got:\n{out}"
     );
     assert!(
         out.contains("After.\nNext."),
@@ -178,8 +178,8 @@ fn leftover_contents_same_line_title_hangs_and_splits() {
     let input = concat!(".. contents:: fig. 1 is here. After.\n", "After. Next.\n",);
     let out = format_text(input, &rst_cfg()).unwrap();
     assert!(
-        !out.contains(".. contents:: fig. 1 is here. After."),
-        "contents title must still split, got:\n{out}"
+        out.contains(".. contents:: fig. 1 is here. After."),
+        "contents title stays on the directive line, got:\n{out}"
     );
     assert!(
         out.contains("After.\nNext."),
@@ -235,14 +235,14 @@ fn leftover_topic_same_line_title_hangs_and_splits() {
     assert!(
         regions.iter().any(|r| matches!(
             r,
-            Region::Prose(p) if p.contains("fig. 1 is here.") && p.contains("After.")
+            Region::Structure(s) if s.contains(".. topic:: fig. 1 is here. After.")
         )),
-        "topic title leftover must be Prose, got {regions:?}"
+        "topic title stays Structure on the directive line, got {regions:?}"
     );
     let out = format_text(input, &rst_cfg()).unwrap();
     assert!(
-        !out.contains(".. topic:: fig. 1 is here. After."),
-        "topic title must still split, got:\n{out}"
+        out.contains(".. topic:: fig. 1 is here. After."),
+        "topic title stays on the directive line, got:\n{out}"
     );
     assert!(
         out.contains("After.\nNext."),
@@ -264,14 +264,14 @@ fn leftover_rubric_same_line_hangs_and_splits() {
     assert!(
         regions.iter().any(|r| matches!(
             r,
-            Region::Prose(p) if p.contains("fig. 1 is here.") && p.contains("After.")
+            Region::Structure(s) if s.contains(".. rubric:: fig. 1 is here. After.")
         )),
-        "rubric argument must be leftover Prose, got {regions:?}"
+        "rubric title stays Structure on the directive line, got {regions:?}"
     );
     let out = format_text(input, &rst_cfg()).unwrap();
     assert!(
-        !out.contains(".. rubric:: fig. 1 is here. After."),
-        "rubric argument must still split, got:\n{out}"
+        out.contains(".. rubric:: fig. 1 is here. After."),
+        "rubric title stays on the directive line, got:\n{out}"
     );
     assert!(
         out.contains("After.\nNext."),
