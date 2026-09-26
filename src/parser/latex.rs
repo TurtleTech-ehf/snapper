@@ -19,8 +19,9 @@ use crate::sentence::unicode::{
 // `IEEEeqnarray*` / `subeqnarray` / `subeqnarray*` / `xltabular` /
 // `math*`. `tikzcd` / pgfplots `axis` / `pgfpicture` are the same
 // class (and starred variants). Not every pgfplots name.
-// mathtools `multlined` / `lgathered` / `rgathered` and the starred
-// matrix family, plus breqn `dmath` / `dmath*`, are the same class.
+// amsmath `subequations`, mathtools `multlined` / `lgathered` /
+// `rgathered`, breqn `dmath` / `dmath*`, pgfplots `loglogaxis`, and
+// starred `tikzpicture*` / `matrix*` are the same class.
 // There is no `multlined*` / `lgathered*` / `rgathered*`. breqn
 // `dseries` / `dsuspend` are text and stay out.
 //
@@ -30,6 +31,7 @@ use crate::sentence::unicode::{
 static NON_PROSE_ENVS: &[&str] = &[
     "equation",
     "equation*",
+    "subequations",
     "align",
     "align*",
     "alignat",
@@ -100,6 +102,7 @@ static NON_PROSE_ENVS: &[&str] = &[
     "verbatim",
     "minted",
     "tikzpicture",
+    "tikzpicture*",
     "tikzcd",
     "tikzcd*",
     "quantikz",
@@ -108,6 +111,7 @@ static NON_PROSE_ENVS: &[&str] = &[
     "pgfpicture*",
     "axis",
     "axis*",
+    "loglogaxis",
     "array",
     "array*",
     "subarray",
@@ -288,7 +292,7 @@ static LSTLISTING_LANG_RE: LazyLock<Regex> = LazyLock::new(|| {
 /// body; GitHub #308). texments.sty / pygmentex.sty `pygmented` is
 /// `VerbatimEnvironment` plus `VerbatimOut` (raw listing body;
 /// GitHub #342).
-fn is_builtin_code_env(name: &str) -> bool {
+pub(crate) fn is_builtin_code_env(name: &str) -> bool {
     matches!(
         name,
         "minted"
@@ -588,6 +592,48 @@ impl LatexParser {
         NON_PROSE_ENVS.contains(&name)
             || self.extra_structure_envs.iter().any(|e| e == name)
             || self.is_code_env(name)
+    }
+}
+
+/// Built-in non-prose name, including code environments. No `[latex]` extras.
+pub(crate) fn env_body_kept_whole(name: &str) -> bool {
+    NON_PROSE_ENVS.contains(&name) || is_builtin_code_env(name)
+}
+
+/// `\begin` / `\end` hit. `raw` does not treat `%` or `\verb` as TeX syntax.
+#[derive(Debug, Clone)]
+pub(crate) struct EnvAt {
+    pub start: usize,
+    pub end: usize,
+    pub is_begin: bool,
+    pub name: String,
+}
+
+pub(crate) fn next_env_at(line: &str, from: usize, raw: bool) -> Option<EnvAt> {
+    let hit = if raw {
+        find_raw_env_at(line, from)
+    } else {
+        find_env_at(line, from, &[])
+    }?;
+    Some(EnvAt {
+        start: hit.start,
+        end: hit.end,
+        is_begin: hit.is_begin,
+        name: hit.name,
+    })
+}
+
+pub(crate) fn matching_env_end(
+    line: &str,
+    from: usize,
+    name: &str,
+    depth: usize,
+    raw: bool,
+) -> Option<usize> {
+    if raw {
+        find_matching_raw_end(line, from, name, depth)
+    } else {
+        find_matching_end(line, from, name, depth, &[])
     }
 }
 
