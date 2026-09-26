@@ -3553,6 +3553,65 @@ Some text.
     }
 
     #[test]
+    fn verb_letter_delimiter_round_trips() {
+        use crate::format_text;
+
+        for cmd in [r"\verb", r"\verb*", r"\Verb", r"\spverb"] {
+            let input = format!(
+                "\\begin{{document}}\nSee {cmd} zCode. Next. Morez here. Done.\n\\end{{document}}\n"
+            );
+            let out = format_text(&input, &latex_cfg()).unwrap();
+            let span = format!("{cmd} zCode. Next. Morez");
+            assert!(
+                out.contains(&span),
+                "{cmd} letter body must stay intact, got:\n{out}"
+            );
+            assert!(
+                !out.contains("Next.\nMore"),
+                "{cmd} must not split after Next., got:\n{out}"
+            );
+            assert!(
+                out.contains(&format!("See {span} here.\nDone.")),
+                "prose after {cmd} must still split, got:\n{out}"
+            );
+            assert_eq!(format_text(&out, &latex_cfg()).unwrap(), out);
+        }
+    }
+
+    #[test]
+    fn url_char_delimiter_round_trips() {
+        use crate::format_text;
+
+        for (cmd, body) in [
+            (r"\url", r"http://example.com/A. B"),
+            (r"\path", r"Foo. Bar"),
+            (r"\nolinkurl", r"http://example.com/A. B"),
+        ] {
+            let span = format!("{cmd}|{body}|");
+            let input = format!("\\begin{{document}}\nSee {span} here. Done.\n\\end{{document}}\n");
+            let out = format_text(&input, &latex_cfg()).unwrap();
+            assert!(
+                out.contains(&span),
+                "{cmd} character body must stay intact, got:\n{out}"
+            );
+            assert!(
+                out.contains(&format!("See {span} here.\nDone.")),
+                "prose after {cmd} must still split, got:\n{out}"
+            );
+            let braced = format!(r"{cmd}{{{body}}}");
+            let braced_in =
+                format!("\\begin{{document}}\nSee {braced} here. Done.\n\\end{{document}}\n");
+            let braced_out = format_text(&braced_in, &latex_cfg()).unwrap();
+            assert!(
+                braced_out.contains(&format!("See {braced} here.\nDone.")),
+                "braced {cmd} must stay one span and the next sentence must split, got:\n{braced_out}"
+            );
+            assert_eq!(format_text(&out, &latex_cfg()).unwrap(), out);
+            assert_eq!(format_text(&braced_out, &latex_cfg()).unwrap(), braced_out);
+        }
+    }
+
+    #[test]
     fn fancyvrb_verb_with_inner_punct_round_trips() {
         use crate::format_text;
 
