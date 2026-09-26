@@ -80,6 +80,11 @@ fn more_math_envs_stay_structure() {
     structure_env_does_not_reflow("loglogaxis", "");
     structure_env_does_not_reflow("semilogxaxis", "");
     structure_env_does_not_reflow("semilogyaxis", "");
+    structure_env_does_not_reflow("groupplot", "");
+    structure_env_does_not_reflow("smithchart", "");
+    structure_env_does_not_reflow("smithchartaxis", "");
+    structure_env_does_not_reflow("polaraxis", "");
+    structure_env_does_not_reflow("ternaryaxis", "");
     structure_env_does_not_reflow("dgroup", "");
     structure_env_does_not_reflow("dgroup*", "");
     structure_env_does_not_reflow("darray", "");
