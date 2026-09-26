@@ -54,6 +54,32 @@ fn item_tag_stays_on_the_item_line_description_reflows() {
 }
 
 #[test]
+fn item_tag_uses_the_last_separator() {
+    let input = "- Alpha :: Beta. Gamma :: One. Two.\n";
+    let regions = OrgParser.parse(input);
+    assert!(
+        regions.iter().any(|r| matches!(
+            r,
+            Region::Structure(s) if s == "- Alpha :: Beta. Gamma :: "
+        )),
+        "the tag runs through the last separator, got {regions:?}"
+    );
+    assert!(
+        regions
+            .iter()
+            .any(|r| matches!(r, Region::Prose(p) if p == "One. Two.")),
+        "only the text after the last separator is Prose, got {regions:?}"
+    );
+    let out = format_text(input, &org_cfg()).unwrap();
+    assert!(
+        out.starts_with("- Alpha :: Beta. Gamma :: One.\n"),
+        "a sentence inside the tag stays on the item line, got:\n{out}"
+    );
+    assert!(out.contains("Two.\n"), "description still splits, got:\n{out}");
+    assert!(!out.contains("- Alpha.\n"), "tag must not split, got:\n{out}");
+}
+
+#[test]
 fn tagged_item_description_on_the_next_line_is_kept() {
     let input = "- Alpha. Beta ::\n  One. Two.\n";
     let regions = OrgParser.parse(input);
