@@ -4,6 +4,11 @@ All notable changes to this project will be documented in this file. See [conven
 - - -
 ## v0.11.7 - 2026-09-23
 #### Bug Fixes
+- leftover LaTeX filecontentsdefstarred body stays verbatim
+- leftover LaTeX dmath body stays non-prose
+- leftover LaTeX matrix star body stays non-prose
+- leftover LaTeX lgathered body stays non-prose
+- leftover LaTeX multlined body stays non-prose
 - generated pre-commit hook runs under bash so the format loop runs on Ubuntu
 - leftover LaTeX yquant body stays non-prose
 - leftover LaTeX quantikz body stays non-prose
