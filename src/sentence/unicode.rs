@@ -56,8 +56,9 @@ static INLINE_TOKEN_RE: LazyLock<Regex> = LazyLock::new(|| {
             // Org `[cite:…]` is already a token above.
             r"\[(?:[^\[\]\n]*[;\s])?-?@[A-Za-z][^\[\]\n]*\]",
             // Shortcut reference whose label holds a sentence boundary.
-            // `[fn:` / `[cite` stay out (org footnote ref / citation).
-            r"\[(?!fn:|cite)[^\[\]\n]*[.!?][^\[\]\n]*\]",
+            // No look-around: the regex crate rejects it. `[fn:1]` has no
+            // `.` `!` or `?`, and `[cite:…]` / `[fn::…]` match earlier.
+            r"\[[^\[\]\n]*[.!?][^\[\]\n]*\]",
             r"\$\$[^$\n]+\$\$", // Display math: $$...$$
             // org-element-latex-fragment-parser: after `$` the next char
             // is not space/tab/newline/`,`/`.`/`;`; the char before the
