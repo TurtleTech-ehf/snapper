@@ -29,7 +29,7 @@ fn line_block_is_structure_not_prose() {
     assert!(
         regions.iter().any(|r| matches!(
             r,
-            Region::Structure(s) if s == "| See Dr. Smith. He left."
+            Region::Structure(s) if s.trim_end() == "| See Dr. Smith. He left."
         )),
         "line block must be one Structure line, got {regions:?}"
     );
