@@ -18,7 +18,9 @@ use crate::sentence::unicode::{
 // Overleaf leftover names (tokens.mjs) are `IEEEeqnarray` /
 // `IEEEeqnarray*` / `subeqnarray` / `subeqnarray*` / `xltabular` /
 // `math*`. `tikzcd` / pgfplots `axis` / `pgfpicture` are the same
-// class (and starred variants). Not every pgfplots name.
+// class (and starred variants). `groupplot`, `smithchart`
+// (alias of `smithchartaxis`), `polaraxis`, and `ternaryaxis`
+// are that class too. Not every pgfplots name.
 //
 // `figure` / `table` (and stars) are not here: Overleaf FigureEnvironment
 // is Content<Text>, tree-sitter caption curly_group is text. Float chrome
@@ -106,6 +108,11 @@ static NON_PROSE_ENVS: &[&str] = &[
     "loglogaxis",
     "semilogxaxis",
     "semilogyaxis",
+    "groupplot",
+    "smithchart",
+    "smithchartaxis",
+    "polaraxis",
+    "ternaryaxis",
     "array",
     "array*",
     "subarray",
