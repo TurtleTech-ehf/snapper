@@ -69,9 +69,13 @@ fn parse_line_based(input: &str) -> Vec<SpannedRegion> {
     let mut in_literal_block = false;
     let mut literal_indent: usize = 0;
     let mut in_directive = false;
-    // Empty `.. table::` / `.. csv-table::`: first indented paragraph
-    // is leftover title Prose; the table body then stays opaque.
+    // `.. table::` / `.. csv-table::`: an indented title continuation
+    // stays Structure until a blank or a table border. The body then
+    // stays opaque. Same-line title text is still leftover Prose.
     let mut in_table_title = false;
+    // A blank before any title text ends the argument block. The next
+    // indented paragraph is leftover title Prose, not a continuation.
+    let mut table_title_broke = false;
     let mut directive_indent: usize = 0;
     let mut in_definition = false;
     let mut definition_indent: usize = 0;
@@ -184,16 +188,19 @@ fn parse_line_based(input: &str) -> Vec<SpannedRegion> {
             in_literal_block = false;
         }
 
-        // Empty table opener: leftover title until a blank or a table
-        // border, then the body stays opaque `in_directive`.
+        // Table title continuation stays Structure until a blank or a
+        // table border, then the body stays opaque `in_directive`.
         if in_table_title {
             let leading = line_text.len() - line_text.trim_start().len();
             if line_text.trim().is_empty() {
                 flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
                 if list_hang.is_some() {
                     in_table_title = false;
+                    table_title_broke = false;
                     in_directive = true;
                     list_hang = None;
+                } else {
+                    table_title_broke = true;
                 }
                 regions.push(SpannedRegion::structure(input, line.span()));
                 i += 1;
@@ -203,6 +210,7 @@ fn parse_line_based(input: &str) -> Vec<SpannedRegion> {
                 if GRID_TABLE_TOP_RE.is_match(line_text) || is_simple_table_border(line_text) {
                     flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
                     in_table_title = false;
+                    table_title_broke = false;
                     in_directive = true;
                     list_hang = None;
                     regions.push(SpannedRegion::structure(input, line.span()));
@@ -211,19 +219,24 @@ fn parse_line_based(input: &str) -> Vec<SpannedRegion> {
                 }
                 flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
                 list_hang = Some(leading);
-                regions.push(SpannedRegion::structure(
-                    input,
-                    ByteSpan::new(line.start, line.start + leading),
-                ));
-                if line_text.len() > leading {
-                    current_prose.push_str(line_text[leading..].trim());
-                    prose_span = Some(ByteSpan::new(line.start + leading, line.end));
+                if table_title_broke {
+                    regions.push(SpannedRegion::structure(
+                        input,
+                        ByteSpan::new(line.start, line.start + leading),
+                    ));
+                    if line_text.len() > leading {
+                        current_prose.push_str(line_text[leading..].trim());
+                        prose_span = Some(ByteSpan::new(line.start + leading, line.end));
+                    }
+                } else {
+                    regions.push(SpannedRegion::structure(input, line.span()));
                 }
                 i += 1;
                 continue;
             }
             flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
             in_table_title = false;
+            table_title_broke = false;
             list_hang = None;
         }
 
@@ -365,8 +378,8 @@ fn parse_line_based(input: &str) -> Vec<SpannedRegion> {
                         let leading = line_text.len() - trimmed.len();
                         directive_indent = leading + 2;
                         // Docutils arg_block continues until a blank or
-                        // option field. Stay in title hang so the next
-                        // indented line is leftover Prose, not opaque.
+                        // a table border. The indented continuation
+                        // stays Structure, not a body paragraph.
                         in_table_title = true;
                         list_hang = Some(marker_len);
                     } else if rst_include_marker_len(line_text).is_some() {
@@ -1006,7 +1019,8 @@ fn is_rst_meta_directive(name: &str) -> bool {
 /// is not included, so `Some(s.len())` is the Structure prefix used
 /// for hang (GitHub #349).
 /// Docutils `table` / `csv-table` title leftover: `.. table::` plus
-/// pad. Same-line title is hung Prose; the table body stays opaque.
+/// pad. Same-line title is hung Prose. An indented continuation stays
+/// Structure until a blank or a table border; the body stays opaque.
 fn rst_table_marker_len(line: &str) -> Option<usize> {
     let indent = line.len() - line.trim_start().len();
     let trimmed = &line[indent..];
