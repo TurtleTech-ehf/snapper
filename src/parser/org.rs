@@ -1483,9 +1483,11 @@ impl FormatParser for OrgParser {
                     if is_term {
                         // A tag-only item has Structure then a newline and
                         // no Prose. The next indented line is the description.
-                        let prev_is_prose = regions.iter().rev().nth(1).is_some_and(|r| {
-                            matches!(r.region, Region::Prose(_))
-                        });
+                        let prev_is_prose = regions
+                            .iter()
+                            .rev()
+                            .nth(1)
+                            .is_some_and(|r| matches!(r.region, Region::Prose(_)));
                         if !prev_is_prose {
                             if leading > 0 {
                                 regions.push(SpannedRegion::structure(

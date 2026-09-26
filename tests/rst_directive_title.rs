@@ -67,7 +67,8 @@ fn title_argument_stays_on_directive_line_body_reflows() {
 
 #[test]
 fn continued_title_argument_stays_structure_body_reflows() {
-    let input = ".. admonition:: First title.\n   Second title. Third title.\n\n   Body one. Body two.\n";
+    let input =
+        ".. admonition:: First title.\n   Second title. Third title.\n\n   Body one. Body two.\n";
     let regions = RstParser.parse(input);
     assert!(
         regions.iter().any(|r| matches!(
