@@ -18,7 +18,9 @@ use crate::sentence::unicode::{
 // Overleaf leftover names (tokens.mjs) are `IEEEeqnarray` /
 // `IEEEeqnarray*` / `subeqnarray` / `subeqnarray*` / `xltabular` /
 // `math*`. `tikzcd` / pgfplots `axis` / `pgfpicture` are the same
-// class (and starred variants). Not every pgfplots name.
+// class (and starred variants). `groupplot`, `smithchart`
+// (alias of `smithchartaxis`), `polaraxis`, and `ternaryaxis`
+// are that class too. Not every pgfplots name.
 // amsmath `subequations`, mathtools `multlined` / `lgathered` /
 // `rgathered`, breqn `dmath` / `dmath*`, pgfplots `loglogaxis`, and
 // starred `tikzpicture*` / `matrix*` are the same class.
@@ -59,6 +61,7 @@ static NON_PROSE_ENVS: &[&str] = &[
     "eqnarray*",
     "IEEEeqnarray",
     "IEEEeqnarray*",
+    "IEEEeqnarraybox",
     "subeqnarray",
     "subeqnarray*",
     "split",
@@ -112,6 +115,13 @@ static NON_PROSE_ENVS: &[&str] = &[
     "axis",
     "axis*",
     "loglogaxis",
+    "semilogxaxis",
+    "semilogyaxis",
+    "groupplot",
+    "smithchart",
+    "smithchartaxis",
+    "polaraxis",
+    "ternaryaxis",
     "array",
     "array*",
     "subarray",
@@ -119,6 +129,10 @@ static NON_PROSE_ENVS: &[&str] = &[
     "prooftree",
     "empheq",
     "empheq*",
+    "dgroup",
+    "dgroup*",
+    "darray",
+    "darray*",
     "matrix",
     "matrix*",
     "pmatrix",
@@ -324,6 +338,12 @@ pub(crate) fn is_builtin_code_env(name: &str) -> bool {
             | "VerbEnv"
             | "alltt"
             | "boxedverbatim"
+            | "semiverbatim"
+            | "verbbox"
+            | "myverbbox"
+            | "verbnobox"
+            | "markdown"
+            | "markdown*"
             | "verbatimtab"
             | "verbatimwrite"
             | "verbwrite"
