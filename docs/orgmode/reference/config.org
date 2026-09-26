@@ -1,0 +1,293 @@
+#+title: Configuration
+#+options: num:nil toc:nil
+
+* Project config file
+:PROPERTIES:
+:CUSTOM_ID: project-config-file
+:END:
+
+Snapper looks for =.snapperrc.toml= starting from the current directory and walking up to the filesystem root.
+Override the search with =--config path/to/config.toml=.
+
+Or generate one with =snapper init=.
+
+* Config format
+:PROPERTIES:
+:CUSTOM_ID: config-format
+:END:
+
+#+begin_src toml
+# Language for abbreviation sets (en, de, fr, is, pl)
+lang = "en"
+
+# Extra abbreviations (merged with built-in list for the selected language)
+extra_abbreviations = ["GROMACS", "LAMMPS", "DFT"]
+
+# File patterns to ignore (glob syntax)
+ignore = ["*.bib", "*.cls", "*.sty"]
+
+# Default format (overridden by --format flag)
+format = "org"
+
+# Maximum line width (0 = unlimited, overridden by --max-width flag)
+max_width = 0
+
+# Prefer breaks after independent-clause punctuation (, ; : em dash).
+# With max_width = 0 this still inserts a newline after each such mark
+# that is already followed by whitespace.
+# clause_breaks = false
+
+# Per-format overrides
+[org]
+extra_abbreviations = ["PROPERTIES", "DEADLINE"]
+
+[latex]
+extra_abbreviations = ["Thm", "Lem"]
+max_width = 100
+# Extra names are added to the built-in lists. Missing keys keep those lists.
+# No regex `other:` matching.
+verbatim_envs = ["Verbatim"]
+structure_envs = ["algorithm", "comment"]
+verbatim_commands = ["Verb"]
+
+# Per-language code-block comment reflow and optional formatters.
+# Used when the parser emits a Region::Code with a matching language.
+# --format-code runs `formatter` on the block body after comment reflow.
+[code.rust]
+line_comment = "//"
+block_comment = ["/*", "*/"]
+formatter = ["rustfmt", "--edition", "2024"]
+
+[code.python]
+line_comment = "#"
+block_comment = ["\"\"\"", "\"\"\""]
+formatter = ["ruff", "format", "-"]
+#+end_src
+
+* Fields
+:PROPERTIES:
+:CUSTOM_ID: fields
+:END:
+
+** lang
+:PROPERTIES:
+:CUSTOM_ID: field-lang
+:END:
+
+String.
+Language code for the built-in abbreviation set used by the rule-based splitter.
+One of: =en= (default), =de=, =fr=, =is=, =pl=.
+Also selectable via =--lang= CLI flag.
+
+** extra_abbreviations
+:PROPERTIES:
+:CUSTOM_ID: field-extra-abbreviations
+:END:
+
+String array.
+Each entry names an abbreviation that should not trigger a sentence break when followed by a period.
+Merged with the built-in list for the selected language.
+Useful for domain-specific terms your papers use frequently.
+
+** ignore
+:PROPERTIES:
+:CUSTOM_ID: field-ignore
+:END:
+
+String array of glob patterns.
+Files matching these patterns get skipped during =--in-place= and =--check= operations.
+Does not affect stdin/stdout mode.
+
+** format
+:PROPERTIES:
+:CUSTOM_ID: field-format
+:END:
+
+String.
+Default format when auto-detection from file extension does not apply.
+One of: =org=, =latex=, =markdown=, =rst=, =plaintext=.
+
+** max_width
+:PROPERTIES:
+:CUSTOM_ID: field-max-width
+:END:
+
+Integer.
+Sentences exceeding this width get wrapped at word boundaries.
+Set to =0= for unlimited (the default).
+Also respects =max_line_length= from =.editorconfig= if present.
+
+** clause_breaks
+:PROPERTIES:
+:CUSTOM_ID: field-clause-breaks
+:END:
+
+Boolean.
+Default: =false=.
+Also selectable via =--clause-breaks=.
+
+When true, snapper inserts a soft break after independent-clause punctuation (comma, semicolon, colon, em dash, or ASCII =--=) that is already followed by whitespace.
+
+- =max_width = 0= (the default): every such mark starts a new line.
+  A sentence that is already one independent clause stays one line.
+- =max_width > 0=: overflowing sentences prefer those marks; a sentence that already fits stays on one line.
+
+Tokens such as =1,000=, =10:30=, URLs, =--flags=, and unspaced dashes never split.
+=--check= uses the same mode when this flag or config is on.
+
+** long_threshold
+:PROPERTIES:
+:CUSTOM_ID: field-long-threshold
+:END:
+
+Integer.
+Character threshold for advisory =long= diagnostics when =max_width= is unset.
+Default: 120.
+A =long= finding is never the sole cause of =--check= exit 1 unless =--strict-long= is set.
+
+* Per-format sections
+:PROPERTIES:
+:CUSTOM_ID: per-format-sections
+:END:
+
+Add =[org]=, =[latex]=, =[markdown]=, =[rst]=, or =[plaintext]= sections to override settings for specific formats.
+
+Per-format =extra_abbreviations= merge with the top-level list.
+Per-format =max_width= overrides the top-level value.
+
+The following keys are meaningful under =[latex]= only.
+Missing keys (or empty arrays) keep the built-in lists; present entries are added to those lists.
+There is no regex =other:= key (latexindent's pattern-based extra matching is not supported).
+
+** verbatim_envs (latex)
+:PROPERTIES:
+:CUSTOM_ID: field-verbatim-envs
+:END:
+
+String array of environment names treated like =minted= / =lstlisting= / =verbatim= / =comment= (=Region::Code=, no reflow).
+Built-in: =minted=, =lstlisting=, =verbatim=, =comment=.
+Adding =Verbatim= (fancyvrb) stops reflow of that environment.
+
+** structure_envs (latex)
+:PROPERTIES:
+:CUSTOM_ID: field-structure-envs
+:END:
+
+String array of environment names treated like =equation= (=Region::Structure=, no reflow).
+Built-in: the =NON_PROSE_ENVS= list (equation, align, tabular, tikzpicture, and starred variants, plus the built-in code envs). Figure/table chrome stays Structure; the =\caption= long argument is Prose.
+Adding =algorithm= stops reflow of that environment.
+
+** verbatim_commands (latex)
+:PROPERTIES:
+:CUSTOM_ID: field-verbatim-commands
+:END:
+
+String array of extra command names tokenized like the built-in verb command before sentence split.
+The next character after the name is the delimiter.
+Built-in names are =verb= and =lstinline=; =lstinline= still accepts optional =[...]= and ={...}=.
+Adding =Verb= (fancyvrb) keeps that command's delimited body atomic and treats an inner =%= as content, not a comment.
+
+* Code-block sections (=[code.<lang>]=)
+:PROPERTIES:
+:CUSTOM_ID: code-block-sections
+:END:
+
+Each =[code.<lang>]= table configures how fenced or delimited source blocks for that language are handled.
+=snapper init= writes seed entries for common languages (=rust=, =python=, =toml=, =lua=, =lisp=, =html=, =javascript=).
+
+** line_comment
+:PROPERTIES:
+:CUSTOM_ID: field-line-comment
+:END:
+
+String.
+Marker for single-line comments (for example ="//"= or ="#"=).
+Comment text after the marker is reflowed with the sentence splitter; the marker and indentation are preserved.
+
+A marker that repeats or decorates this one keeps its written form, so =///= and =//!= survive a split instead of collapsing to =//=.
+A =#!= shebang is left alone.
+
+Where a grammar backs the language (see [[#grammar-backed-languages]]), the reflow also reaches a comment that follows code on the same line, aligning continuation sentences under the comment:
+
+#+begin_src rust
+let n = 1; // First sentence.
+           // Second sentence.
+#+end_src
+
+Without a grammar the marker must open the line.
+That rule keeps the =//= inside ="// not a comment."= out of the reflow.
+
+** block_comment
+:PROPERTIES:
+:CUSTOM_ID: field-block-comment
+:END:
+
+String array of length two: open and close markers (for example =["/*", "*/"]=).
+One-line and multi-line block comments are reflowed as prose between the markers.
+
+** string_delims
+:PROPERTIES:
+:CUSTOM_ID: field-string-delims
+:END:
+
+String array of quote characters.
+Defaults to =["\"", "'"]=.
+
+Without a grammar, quoting is the only thing separating a comment marker from the same characters inside a literal: a marker that trails code reflows, while the same marker inside a quoted string does not.
+The tracking stays conservative: an unbalanced quote, such as a Rust lifetime or an apostrophe in a shell word, makes the rest of the line read as quoted, so a marker after it goes unreflowed rather than mangled.
+
+Grammar-backed languages ignore this field; the parse already knows which bytes belong to a string.
+
+** escape
+:PROPERTIES:
+:CUSTOM_ID: field-escape
+:END:
+
+String holding one character that escapes the next inside a string literal.
+Defaults to a backslash.
+
+** formatter
+:PROPERTIES:
+:CUSTOM_ID: field-formatter
+:END:
+
+String array treated as argv for =std::process::Command=.
+Only runs when the CLI flag =--format-code= is set.
+Missing binaries, non-zero exits, and a ~30s watchdog timeout each leave the reflowed body in place (non-fatal).
+
+If a language has no =[code.<lang>]= entry (or the fence has no language), the block body passes through unchanged aside from normal trailing-newline preservation.
+
+** Grammar-backed languages
+:PROPERTIES:
+:CUSTOM_ID: grammar-backed-languages
+:END:
+
+The =treesitter= feature, on by default, parses code blocks in =rust=, =python=, =javascript=, =c=, =cpp=, =go=, =bash= and =html= to tell a comment from a string.
+Fence aliases resolve as well: =rs=, =py=, =js=, =sh=.
+
+A build feature governs this, not a config field, and a =[code.<lang>]= entry remains required.
+The grammar decides which bytes form a comment; the entry supplies the markers used to re-emit it.
+
+Two builds carry no grammars and fall back to the scanner for every language:
+
+- =wasm32-unknown-unknown=, the target behind the Obsidian and Word integrations, where the C runtime and its grammars would need a =wasm= libc.
+- Any build configured with =--no-default-features= that does not opt back in.
+
+The VS Code extension runs the CLI rather than the wasm build, so it has grammars.
+
+The scanner reads [[#field-string-delims][string_delims]] to find trailing comments on its own, so both engines agree on ordinary code.
+A grammar still wins on raw strings, heredocs, triple-quoted strings and nested comments, where quote counting alone gives the wrong answer.
+
+Block comments stay on the scanner.
+A close marker inside a string does not end the comment, so =let s = "*/";= in a =/* ... */= block stays in the comment.
+When the closer is itself a quote sequence (="""=, ='''=), the first match is the closer, which is how Python docstrings reflow.
+
+* Precedence
+:PROPERTIES:
+:CUSTOM_ID: precedence
+:END:
+
+CLI flags override config file values.
+Per-format sections override top-level config values.
+Config file values override =.editorconfig= values.
+=.editorconfig= overrides built-in defaults.

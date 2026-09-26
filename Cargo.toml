@@ -1,0 +1,160 @@
+[package]
+name = "snapper-fmt"
+version = "0.11.1"
+edition = "2024"
+rust-version = "1.85"
+description = "Semantic line break formatter for Org, LaTeX, Markdown, RST, and plaintext"
+repository = "https://github.com/TurtleTech-ehf/snapper"
+license = "MIT"
+keywords = ["sembr", "formatter", "markdown", "latex", "orgmode"]
+categories = ["command-line-utilities", "text-processing"]
+readme = "README.md"
+homepage = "https://snapper.turtletech.us"
+# Ship what builds and tests the crate. The docs site, editor integrations,
+# branding and the packaging trees live in the repository and are reachable
+# from `repository`, so carrying them in every download buys nothing. Three
+# entries here are load-bearing rather than obvious: `tests` because
+# `src/parser/pandoc/ast.rs` pulls fixtures in with `include_str!`, `benches`
+# because `[[bench]]` names a target that has to resolve, and `native`
+# because the colink test reads the archive build scripts.
+include = [
+    "/src",
+    "/tests",
+    "/benches",
+    "/examples",
+    "/native",
+    "/build.rs",
+    "/Cargo.toml",
+    "/Cargo.lock",
+    "/README.md",
+    "/CHANGELOG.md",
+    "/LICENSE",
+]
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[[bin]]
+name = "snapper"
+path = "src/main.rs"
+required-features = ["cli"]
+
+# Alias for hosts that already ship openSUSE's Btrfs tool as `snapper`
+# (https://github.com/openSUSE/snapper). Same binary, different argv0.
+[[bin]]
+name = "snapper-fmt"
+path = "src/main.rs"
+required-features = ["cli"]
+
+[[bin]]
+name = "snapper-gen-docs"
+path = "src/gen_docs.rs"
+required-features = ["cli"]
+
+[features]
+default = ["cli", "neural", "lsp", "watch", "pandoc", "treesitter", "mcp"]
+cli = ["dep:clap", "dep:clap-markdown", "dep:rayon", "dep:ec4rs", "dep:glob"]
+neural = ["dep:nnsplit"]
+lsp = ["dep:tower-lsp", "dep:tokio"]
+watch = ["dep:notify"]
+pandoc = ["dep:pandoc_ast", "dep:libloading", "dep:sha2"]
+# Alias for docs/CI that want to stress the in-process path name; same as `pandoc`.
+pandoc-ffi = ["pandoc"]
+# Absorb libsnapper_pandoc.a (ghc -staticlib build product) into one binary.
+# Requires native/snapper-pandoc/build-static.sh output — not shared+rpath.
+pandoc-colink = ["pandoc"]
+wasm = ["dep:wasm-bindgen", "dep:serde-wasm-bindgen", "dep:js-sys"]
+mcp = ["dep:rmcp", "dep:schemars"]
+# Grammar-backed comment discovery inside code blocks. The runtime and the
+# grammars are C, so this is off for wasm32-unknown-unknown, which has no
+# libc for them; that target keeps the line-start scanner.
+treesitter = [
+    "dep:tree-sitter",
+    "dep:tree-sitter-rust",
+    "dep:tree-sitter-python",
+    "dep:tree-sitter-javascript",
+    "dep:tree-sitter-c",
+    "dep:tree-sitter-cpp",
+    "dep:tree-sitter-go",
+    "dep:tree-sitter-bash",
+    "dep:tree-sitter-html",
+]
+
+[dependencies]
+# Always-on (WASM-safe)
+unicode-segmentation = "1"
+regex = "1"
+textwrap = "0.16"
+thiserror = "2"
+anyhow = "1"
+pulldown-cmark = { version = "0.13", default-features = false, features = ["html"] }
+imara-diff = "0.2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+toml = "0.8"
+
+# CLI-only
+clap = { version = "4", features = ["derive", "string"], optional = true }
+clap-markdown = { version = "0.1", optional = true }
+rayon = { version = "1", optional = true }
+ec4rs = { version = "1", optional = true }
+glob = { version = "0.3", optional = true }
+
+# Feature-gated
+nnsplit = { version = "0.5", features = ["tract-backend", "model-loader"], optional = true }
+tower-lsp = { version = "0.20", optional = true }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "io-std"], optional = true }
+notify = { version = "7", optional = true }
+pandoc_ast = { version = "0.8", optional = true }
+libloading = { version = "0.8", optional = true }
+sha2 = { version = "0.10", optional = true }
+tempfile = "3"
+
+# WASM-only
+wasm-bindgen = { version = "0.2", optional = true }
+serde-wasm-bindgen = { version = "0.6", optional = true }
+js-sys = { version = "0.3", optional = true }
+
+# MCP server
+rmcp = { version = "1.2", features = ["server", "transport-io", "macros"], optional = true }
+schemars = { version = "1.0", features = ["derive"], optional = true }
+
+# Grammars for code-block comment discovery
+tree-sitter = { version = "0.26", optional = true }
+tree-sitter-rust = { version = "0.24", optional = true }
+tree-sitter-python = { version = "0.25", optional = true }
+tree-sitter-javascript = { version = "0.25", optional = true }
+tree-sitter-c = { version = "0.24", optional = true }
+tree-sitter-cpp = { version = "0.23", optional = true }
+tree-sitter-go = { version = "0.25", optional = true }
+tree-sitter-bash = { version = "0.25", optional = true }
+tree-sitter-html = { version = "0.23", optional = true }
+
+[dev-dependencies]
+tempfile = "3"
+pretty_assertions = "1"
+criterion = { version = "0.5", features = ["html_reports"] }
+proptest = "1"
+
+[profile.release]
+lto = true
+codegen-units = 1
+strip = true
+
+# The profile that 'dist' will build with
+[profile.dist]
+inherits = "release"
+lto = "thin"
+
+[package.metadata.wasm-pack.profile.release]
+wasm-opt = false
+
+[package.metadata.binstall]
+pkg-url = "{ repo }/releases/download/v{ version }/snapper-fmt-{ target }.tar.xz"
+bin-dir = "snapper-fmt-{ target }/{ bin }{ binary-ext }"
+pkg-fmt = "txz"
+
+
+[[bench]]
+name = "reflow_bench"
+harness = false

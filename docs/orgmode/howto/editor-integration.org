@@ -1,0 +1,253 @@
+#+title: Editor Integration
+#+options: num:nil toc:nil
+
+* Emacs (Apheleia)
+:PROPERTIES:
+:CUSTOM_ID: emacs-apheleia
+:END:
+
+[[https://github.com/radian-software/apheleia][Apheleia]] runs external formatters on buffer save, preserving cursor position.
+
+#+begin_src elisp
+(with-eval-after-load 'apheleia
+  (push '(snapper . ("snapper" "--native" "--format" "org")) apheleia-formatters)
+  (push '(org-mode . snapper) apheleia-mode-alist)
+  ;; Add for other formats:
+  (push '(latex-mode . snapper) apheleia-mode-alist)
+  (push '(markdown-mode . snapper) apheleia-mode-alist))
+#+end_src
+
+The =--format= flag auto-detects from the file extension, so you can omit it if your files have standard extensions.
+
+* Vim / Neovim
+:PROPERTIES:
+:CUSTOM_ID: vim-neovim
+:END:
+
+Use =formatprg= to pipe through snapper:
+
+#+begin_src vim
+autocmd FileType org setlocal formatprg=snapper\ --native\ --format\ org
+autocmd FileType tex setlocal formatprg=snapper\ --native\ --format\ latex
+autocmd FileType markdown setlocal formatprg=snapper\ --native\ --format\ markdown
+#+end_src
+
+Then =gq= to reformat selected text, or =gggqG= to reformat the entire buffer.
+
+For Neovim with =conform.nvim=:
+
+#+begin_src lua
+require("conform").setup({
+  formatters = {
+    snapper = {
+      command = "snapper",
+      args = { "--native", "--format", "$FILETYPE" },
+      stdin = true,
+    },
+  },
+  formatters_by_ft = {
+    org = { "snapper" },
+    tex = { "snapper" },
+    markdown = { "snapper" },
+  },
+})
+#+end_src
+
+* VS Code extension (recommended)
+:PROPERTIES:
+:CUSTOM_ID: vscode
+:END:
+
+Install [[https://marketplace.visualstudio.com/items?itemName=TurtleTech.snapper][TurtleTech.snapper]] from the VS Code Marketplace.
+
+The extension provides:
+- Format-on-save via the built-in LSP server
+- Range formatting (format just the selected text)
+- Diagnostics (flags lines with multiple sentences)
+- Code actions (quick fixes to split multi-sentence lines)
+- Status bar indicator showing LSP connection state
+- Project configuration via =.snapperrc.toml=
+
+To format on save, add to your =settings.json=:
+
+#+begin_src json
+{
+  "editor.formatOnSave": true,
+  "[markdown]": { "editor.defaultFormatter": "TurtleTech.snapper" },
+  "[latex]": { "editor.defaultFormatter": "TurtleTech.snapper" },
+  "[org]": { "editor.defaultFormatter": "TurtleTech.snapper" }
+}
+#+end_src
+
+To use a custom binary path:
+
+#+begin_src json
+{
+  "snapper.path": "/path/to/snapper"
+}
+#+end_src
+
+The extension also works with VSCodium and code-oss (Arch Linux).
+Download the =.vsix= from [[https://github.com/TurtleTech-ehf/snapper/releases][GitHub Releases]] and install manually if the Marketplace is unavailable.
+
+** Manual VS Code setup (without extension)
+:PROPERTIES:
+:CUSTOM_ID: vscode-manual
+:END:
+
+Use the "Run on Save" extension with a custom command:
+
+#+begin_src json
+{
+  "emeraldwalk.runonsave": {
+    "commands": [
+      {
+        "match": "\\.(org|tex|md|rst)$",
+        "cmd": "snapper --native --in-place ${file}"
+      }
+    ]
+  }
+}
+#+end_src
+
+* LSP (any editor with LSP support)
+:PROPERTIES:
+:CUSTOM_ID: lsp
+:END:
+
+Snapper ships a Language Server Protocol implementation.
+Start it with:
+
+#+begin_src bash
+snapper lsp
+#+end_src
+
+This provides document formatting, range formatting, and diagnostics (flags lines with multiple sentences) over the standard LSP protocol on stdin/stdout.
+
+** Neovim (snapper.nvim plugin)
+:PROPERTIES:
+:CUSTOM_ID: lsp-neovim
+:END:
+
+The =snapper.nvim= plugin (in =editors/nvim/=) handles LSP lifecycle, format-on-save, keymaps, and conform.nvim integration.
+See the [[https://github.com/TurtleTech-ehf/snapper/tree/main/editors/nvim][plugin README]] for installation and configuration.
+
+For manual LSP setup without the plugin:
+
+#+begin_src lua
+vim.api.nvim_create_autocmd("FileType", {
+  pattern = { "org", "tex", "markdown" },
+  callback = function()
+    vim.lsp.start({
+      name = "snapper",
+      cmd = { "snapper", "lsp" },
+    })
+  end,
+})
+#+end_src
+
+** Emacs (eglot)
+:PROPERTIES:
+:CUSTOM_ID: lsp-eglot
+:END:
+
+#+begin_src elisp
+(add-to-list 'eglot-server-programs
+             '((org-mode latex-mode markdown-mode) "snapper" "lsp"))
+#+end_src
+
+** VS Code
+:PROPERTIES:
+:CUSTOM_ID: lsp-vscode
+:END:
+
+Add to =settings.json= (requires a generic LSP client extension):
+
+#+begin_src json
+{
+  "lsp.servers": {
+    "snapper": {
+      "command": "snapper",
+      "args": ["lsp"],
+      "filetypes": ["org", "tex", "markdown"]
+    }
+  }
+}
+#+end_src
+
+** Helix
+:PROPERTIES:
+:CUSTOM_ID: lsp-helix
+:END:
+
+Add to =~/.config/helix/languages.toml=:
+
+#+begin_src toml
+[[language]]
+name = "org"
+language-servers = ["snapper"]
+
+[language-server.snapper]
+command = "snapper"
+args = ["lsp"]
+#+end_src
+
+* Obsidian
+:PROPERTIES:
+:CUSTOM_ID: obsidian
+:END:
+
+Development preview; not listed in Community Plugins.
+
+The plugin uses a WebAssembly build of snapper -- no binary installation needed.
+
+Commands:
+- "Format entire note" -- formats the active note
+- "Format selection" -- formats the selected text
+
+Settings: format-on-save, max line width, language, extra abbreviations.
+Format auto-detects from the note's file extension.
+
+The repository does not publish an installable Obsidian artifact.
+Development builds use the source in =editors/obsidian= and the build sequence in =.github/workflows/wasm.yml=.
+
+* Microsoft Word
+:PROPERTIES:
+:CUSTOM_ID: word
+:END:
+
+The snapper Word add-in provides a task pane for formatting documents with semantic line breaks.
+It uses a WebAssembly build -- no binary installation needed.
+
+** Availability
+:PROPERTIES:
+:CUSTOM_ID: word-appsource
+:END:
+
+Development preview; not published in AppSource.
+
+** Sideloading (development)
+:PROPERTIES:
+:CUSTOM_ID: word-sideload
+:END:
+
+Build the WASM wrapper and Word add-in using the source under =packages/snapper-wasm= and =editors/word=.
+The =.github/workflows/wasm.yml= build sequence is the executable reference.
+Sideload =editors/word/manifest.xml= after starting the local development server described in =editors/word/README.md=.
+
+The task pane provides:
+- "Format Document" -- formats all paragraphs
+- "Format Selection" -- formats the selected text
+- Settings for max width, language, and extra abbreviations
+
+* Generic (any editor)
+:PROPERTIES:
+:CUSTOM_ID: generic
+:END:
+
+Snapper reads stdin and writes stdout by default.
+Any editor that supports piping through an external program works:
+
+#+begin_src bash
+cat paper.org | snapper --native --format org
+#+end_src

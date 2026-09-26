@@ -1,0 +1,405 @@
+//! Format-local render oracle used as a fail-closed backstop.
+//!
+//! After a fixpoint, `format_text` compares input and output under a
+//! format-specific check. A mismatch returns the original document.
+//! Tests disable the backstop and assert the oracle themselves.
+//!
+//! The oracle is a native region-kind + slice tree for every format:
+//! Structure/Blank must be byte-identical, Code headers/footers must be
+//! identical, Code bodies may change only in comment lines, and Prose may
+//! only move inter-word whitespace. Markdown also compares pulldown-cmark
+//! HTML (including `<pre>` contents unless the only delta is a comment
+//! reflow already allowed by the code-byte check).
+
+use crate::format::Format;
+use crate::parser::{Region, parser_for_format, parser_for_format_config};
+
+/// True when `output` is a render-safe reflow of `original`.
+pub fn matches(format: Format, original: &str, output: &str) -> bool {
+    matches_ex(format, original, output, false, None)
+}
+
+/// `allow_code_body_rewrite` is set when an opt-in external formatter may
+/// replace a code body. Comment-only reflow does not need it.
+///
+/// `config` supplies `[latex]` extras so the oracle parses with the same
+/// region kinds as `format_once`. `None` keeps the built-in lists.
+pub fn matches_ex(
+    format: Format,
+    original: &str,
+    output: &str,
+    allow_code_body_rewrite: bool,
+    config: Option<&crate::FormatConfig>,
+) -> bool {
+    if original == output {
+        return true;
+    }
+    if !structure_tree_ok(format, original, output, allow_code_body_rewrite, config) {
+        return false;
+    }
+    if format == Format::Markdown {
+        return md_html_ok(original, output);
+    }
+    true
+}
+
+fn structure_tree_ok(
+    format: Format,
+    original: &str,
+    output: &str,
+    allow_code_body_rewrite: bool,
+    config: Option<&crate::FormatConfig>,
+) -> bool {
+    // Hang list/quote continuations (`> One.` / `> Two.`) reparse as more
+    // regions than the source. Coalesce adjacent same-marker items so the
+    // tree compares as one item with the same prose words.
+    let a = coalesce_hang_items(&parser_for_format_config(format, config).parse(original));
+    let b = coalesce_hang_items(&parser_for_format_config(format, config).parse(output));
+    if a.len() != b.len() {
+        return false;
+    }
+    for (ra, rb) in a.iter().zip(&b) {
+        match (ra, rb) {
+            (Region::Prose(x), Region::Prose(y)) => {
+                if prose_tokens(format, x) != prose_tokens(format, y) {
+                    return false;
+                }
+            }
+            (Region::Structure(x), Region::Structure(y))
+            | (Region::BlankLines(x), Region::BlankLines(y)) => {
+                if x != y {
+                    return false;
+                }
+            }
+            (
+                Region::Code {
+                    lang: la,
+                    header: ha,
+                    body: ba,
+                    footer: fa,
+                },
+                Region::Code {
+                    lang: lb,
+                    header: hb,
+                    body: bb,
+                    footer: fb,
+                },
+            ) => {
+                if la != lb || ha != hb || fa != fb {
+                    return false;
+                }
+                if !allow_code_body_rewrite && !code_body_ok(ba, bb) {
+                    return false;
+                }
+            }
+            _ => return false,
+        }
+    }
+    true
+}
+
+fn prose_tokens(format: Format, s: &str) -> Vec<String> {
+    s.split_whitespace()
+        .map(|w| {
+            if format == Format::Markdown {
+                md_unescape_ascii_punct(w)
+            } else {
+                w.to_string()
+            }
+        })
+        .collect()
+}
+
+/// CommonMark: a backslash before ASCII punctuation is an escape.
+/// Wrap-created `\-` / `1\.` must compare equal to the source `-` / `1.`.
+fn md_unescape_ascii_punct(word: &str) -> String {
+    let mut out = String::with_capacity(word.len());
+    let bytes = word.as_bytes();
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'\\' && i + 1 < bytes.len() && bytes[i + 1].is_ascii_punctuation() {
+            out.push(bytes[i + 1] as char);
+            i += 2;
+        } else {
+            let ch = word[i..].chars().next().expect("i is in range");
+            out.push(ch);
+            i += ch.len_utf8();
+        }
+    }
+    out
+}
+
+/// Join adjacent list/quote items that share a marker.
+///
+/// `> One.\n> Two.` parses as two Structure+Prose pairs; hanging indent
+/// emitted that from one source item. Folding them keeps the oracle from
+/// vetoing a render-preserving hang.
+fn coalesce_hang_items(regions: &[Region]) -> Vec<Region> {
+    let mut out = Vec::new();
+    let mut i = 0;
+    while i < regions.len() {
+        let Region::Structure(marker) = &regions[i] else {
+            out.push(regions[i].clone());
+            i += 1;
+            continue;
+        };
+        if !crate::reflow::is_hanging_marker(marker) {
+            out.push(regions[i].clone());
+            i += 1;
+            continue;
+        }
+        let marker = marker.clone();
+        let mut prose = String::new();
+        i += 1;
+        loop {
+            match regions.get(i) {
+                Some(Region::Prose(p)) => {
+                    if !prose.is_empty() {
+                        prose.push(' ');
+                    }
+                    prose.push_str(p);
+                    i += 1;
+                }
+                Some(Region::Structure(nl)) if nl == "\n" => {
+                    let same_marker = matches!(
+                        regions.get(i + 1),
+                        Some(Region::Structure(m2)) if *m2 == marker
+                    );
+                    if same_marker {
+                        i += 2;
+                        continue;
+                    }
+                    out.push(Region::Structure(marker));
+                    if !prose.is_empty() {
+                        out.push(Region::Prose(prose));
+                    }
+                    out.push(Region::Structure(nl.clone()));
+                    i += 1;
+                    break;
+                }
+                _ => {
+                    out.push(Region::Structure(marker));
+                    if !prose.is_empty() {
+                        out.push(Region::Prose(prose));
+                    }
+                    break;
+                }
+            }
+        }
+    }
+    out
+}
+
+/// Code bodies stay slices except rewritten comment lines.
+fn code_body_ok(original: &str, output: &str) -> bool {
+    if original == output {
+        return true;
+    }
+    non_comment_lines(original) == non_comment_lines(output)
+}
+
+fn non_comment_lines(body: &str) -> Vec<&str> {
+    body.lines().filter(|l| !looks_like_comment(l)).collect()
+}
+
+fn looks_like_comment(line: &str) -> bool {
+    let t = line.trim_start();
+    t.starts_with("//")
+        || t.starts_with('#')
+        || t.starts_with("--")
+        || t.starts_with(';')
+        || t.starts_with("/*")
+        || t.starts_with('*')
+        || t.starts_with("*/")
+}
+
+fn md_html_ok(original: &str, output: &str) -> bool {
+    let ha = md_html(original);
+    let hb = md_html(output);
+    if normalize_ws(&ha) == normalize_ws(&hb) {
+        return true;
+    }
+    // Full HTML (including `<pre>`) differed. Allow only when the
+    // non-pre document matches and the code-byte check already passed
+    // via the structure tree.
+    normalize_ws(&html_without_pre_inner(&ha)) == normalize_ws(&html_without_pre_inner(&hb))
+}
+
+fn md_html(src: &str) -> String {
+    use pulldown_cmark::{Options, Parser, html};
+    let mut opts = Options::empty();
+    opts.insert(Options::ENABLE_TABLES);
+    opts.insert(Options::ENABLE_FOOTNOTES);
+    opts.insert(Options::ENABLE_STRIKETHROUGH);
+    opts.insert(Options::ENABLE_TASKLISTS);
+    let parser = Parser::new_ext(src, opts);
+    let mut html_output = String::new();
+    html::push_html(&mut html_output, parser);
+    html_output
+}
+
+/// Keep `<pre></pre>` tags so a missing/extra fence still fails, but drop
+/// inner text that the code-byte check already judged.
+fn html_without_pre_inner(html: &str) -> String {
+    let mut out = String::with_capacity(html.len());
+    let mut rest = html;
+    while let Some(start) = rest.find("<pre") {
+        out.push_str(&rest[..start]);
+        let after = &rest[start..];
+        if let Some(gt) = after.find('>') {
+            out.push_str(&after[..=gt]);
+            let inner = &after[gt + 1..];
+            if let Some(end) = inner.find("</pre>") {
+                out.push_str("</pre>");
+                rest = &inner[end + 6..];
+                continue;
+            }
+        }
+        out.push_str(after);
+        rest = "";
+        break;
+    }
+    out.push_str(rest);
+    out
+}
+
+fn normalize_ws(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    let mut prev_space = false;
+    for c in s.chars() {
+        if c.is_whitespace() {
+            if !prev_space {
+                out.push(' ');
+                prev_space = true;
+            }
+        } else {
+            out.push(c);
+            prev_space = false;
+        }
+    }
+    out.trim().to_string()
+}
+
+/// Word sequence of prose regions only.
+pub fn prose_words(format: Format, text: &str) -> Vec<String> {
+    let regions = parser_for_format(format).parse(text);
+    let mut words = Vec::new();
+    for r in regions {
+        if let Region::Prose(p) = r {
+            words.extend(p.split_whitespace().map(str::to_string));
+        }
+    }
+    words
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn md_html_ignores_soft_breaks() {
+        let a = "Hello world. Next sentence.";
+        let b = "Hello world.\nNext sentence.";
+        assert!(matches(Format::Markdown, a, b));
+    }
+
+    #[test]
+    fn prose_words_stable_across_reflow() {
+        let a = "Hello world. Next sentence.";
+        let b = "Hello world.\nNext sentence.\n";
+        assert_eq!(
+            prose_words(Format::Plaintext, a),
+            prose_words(Format::Plaintext, b)
+        );
+    }
+
+    #[test]
+    fn structure_tree_sees_invented_newline() {
+        assert!(!matches(Format::Markdown, "## Title", "## Title\n"));
+        assert!(!matches(Format::Org, "* TODO a", "* TODO a\n"));
+    }
+
+    #[test]
+    fn hung_quote_matches_source_item() {
+        assert!(matches(
+            Format::Markdown,
+            "> One. Two.\n",
+            "> One.\n> Two.\n"
+        ));
+        assert!(matches(Format::Markdown, ">One. Two.\n", ">One.\n>Two.\n"));
+        assert!(matches(
+            Format::Markdown,
+            "> Three. Four.\nfive. six\n",
+            "> Three.\n> Four.\n> five. six\n"
+        ));
+        assert!(matches(
+            Format::Markdown,
+            "> Quoted one. Quoted two.\n> > Nested one. Nested two.\n",
+            "> Quoted one.\n> Quoted two.\n> > Nested one.\n> > Nested two.\n"
+        ));
+    }
+
+    #[test]
+    fn hung_list_matches_source_item() {
+        assert!(matches(
+            Format::Markdown,
+            "- One. Two.\n",
+            "- One.\n  Two.\n"
+        ));
+        assert!(matches(Format::Org, "- One. Two.\n", "- One.\n  Two.\n"));
+        assert!(matches(Format::Rst, "- One. Two.\n", "- One.\n  Two.\n"));
+        assert!(matches(Format::Rst, "* One. Two.\n", "* One.\n  Two.\n"));
+        assert!(matches(Format::Rst, "* a*'*'. A.", "* a*'*'.\n  A."));
+        assert!(
+            !matches(Format::Rst, "* One. Two.\n", "* One.\n\n  Two.\n"),
+            "a blank is a new paragraph, not a hang"
+        );
+    }
+
+    #[test]
+    fn md_ol_opener_hang_is_oracle_veto() {
+        // pulldown: `* 0. A.` is a nested ordered list; `* 0.\n  A.` is
+        // a continuation paragraph. The hung form is not render-safe.
+        assert!(
+            !matches(Format::Markdown, "* 0. A.", "* 0.\n  A."),
+            "sembr hang after 0. must remain an oracle veto"
+        );
+        assert!(
+            !matches(Format::Markdown, "* 0. A.\n", "* 0.\n  A.\n"),
+            "sembr hang after 0. must remain an oracle veto"
+        );
+    }
+
+    #[test]
+    fn configured_verb_percent_tree_matches_across_split() {
+        let original = "\\begin{document}\nCode \\Verb!%! here. Next sentence.\n\\end{document}\n";
+        let output = "\\begin{document}\nCode \\Verb!%! here.\nNext sentence.\n\\end{document}\n";
+        let cfg = crate::FormatConfig {
+            format: Format::Latex,
+            latex_verbatim_commands: vec!["Verb".into()],
+            ..Default::default()
+        };
+        assert!(
+            !matches(Format::Latex, original, output),
+            "built-in lists treat inner % as a comment, so the trees diverge"
+        );
+        assert!(
+            matches_ex(Format::Latex, original, output, false, Some(&cfg)),
+            "extras must parse the same region tree as format_once"
+        );
+    }
+
+    #[test]
+    fn wrap_created_md_escape_matches_source_words() {
+        assert!(matches(
+            Format::Markdown,
+            "The options are apples - oranges extra.",
+            "The options are apples\n\\- oranges extra."
+        ));
+        assert!(matches(
+            Format::Markdown,
+            "The options are apples 1. oranges extra.",
+            "The options are apples\n1\\. oranges extra."
+        ));
+    }
+}

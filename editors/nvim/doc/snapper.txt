@@ -1,0 +1,164 @@
+*snapper.txt*         Plugin for semantic line break formatting
+
+SNAPPER.NVIM
+
+CONTENTS                                        *snapper-contents*
+
+Introduction                    |snapper-intro|
+Installation                    |snapper-install|
+Usage                         |snapper-usage|
+Configuration                   |snapper-config|
+Commands                      |snapper-commands|
+Keymaps                       |snapper-keymaps|
+Integration                   |snapper-integration|
+License                       |snapper-license|
+
+==============================================================================
+INTRODUCTION                                    *snapper-intro*
+
+snapper.nvim provides integration with snapper, a semantic line break formatter
+for prose documents. It supports Org mode, LaTeX, Markdown, reStructuredText,
+and plain text files.
+
+Features:
+- Full LSP integration for formatting, diagnostics, and code actions
+- Format-on-save support
+- Range formatting
+- conform.nvim integration
+- Vim compatibility via formatprg/formatexpr
+
+Requirements:
+- Neovim 0.10+
+- snapper binary installed
+
+==============================================================================
+INSTALLATION                                  *snapper-install*
+
+lazy.nvim:
+>
+  {
+    "TurtleTech-ehf/snapper",
+    dependencies = {
+      "stevearc/conform.nvim",  -- optional
+    },
+    ft = { "org", "tex", "markdown", "rst", "plaintex" },
+    config = function()
+      vim.opt.runtimepath:append(
+        vim.fn.stdpath("data") .. "/lazy/snapper/editors/nvim"
+      )
+      require("snapper").setup()
+    end,
+  }
+<
+
+rocks.nvim:
+>
+  :Rocks install snapper.nvim
+<
+
+vim-plug:
+>
+  Plug 'TurtleTech-ehf/snapper', { 'rtp': 'editors/nvim' }
+<
+
+==============================================================================
+USAGE                                         *snapper-usage*
+
+After installation and setup, snapper will automatically format supported
+filetypes when you open them. You can use the provided commands or keymaps
+to format manually.
+
+==============================================================================
+CONFIGURATION                                *snapper-config*
+
+To configure snapper, call the setup function with options:
+
+>
+  require("snapper").setup({
+    cmd = "snapper",  -- Path to binary
+    autostart = true,  -- Auto-start LSP on supported filetypes
+    format_on_save = false,  -- Enable format on save
+    format_on_save_opts = {
+      timeout_ms = 1000,
+      async = false,
+    },
+    filetypes = { "org", "tex", "markdown", "rst", "plaintext" },
+    keymaps = {
+      format = "<leader>sf",     -- Format buffer
+      format_range = "<leader>sF", -- Format selection
+      check = "<leader>sc",      -- Check formatting
+    },
+    conform_integration = true,  -- Auto-register with conform.nvim
+  })
+<
+
+==============================================================================
+COMMANDS                                      *snapper-commands*
+
+:SnapperFormat                                 *:SnapperFormat*
+    Format the current buffer using snapper.
+
+:SnapperFormatRange                           *:SnapperFormatRange*
+    Format the selected range (works in visual mode).
+
+:SnapperCheck                                  *:SnapperCheck*
+    Check if formatting is needed.
+
+:SnapperRestart                                *:SnapperRestart*
+    Restart the snapper LSP server.
+
+:SnapperInfo                                   *:SnapperInfo*
+    Show plugin status information.
+
+==============================================================================
+KEYMAPS                                       *snapper-keymaps*
+
+Default keymaps (can be customized in configuration):
+
+<Leader>sf    Format buffer
+<Leader>sF    Format range/selection
+<Leader>sc    Check formatting
+
+To disable keymaps, set `keymaps = nil` in your configuration.
+
+==============================================================================
+INTEGRATION                                  *snapper-integration*
+
+With conform.nvim:
+If you have conform.nvim installed and `conform_integration = true`, snapper
+will be automatically registered. Add it to your conform config:
+
+>
+  require("conform").setup({
+    formatters_by_ft = {
+      org = { "snapper" },
+      tex = { "snapper" },
+      markdown = { "snapper" },
+      rst = { "snapper" },
+    },
+  })
+<
+
+==============================================================================
+LICENSE                                       *snapper-license*
+
+MIT License
+
+Copyright (c) 2025 TurtleTech
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OF OR OTHER DEALINGS
+IN THE SOFTWARE.
+
+vim:tw=78:ts=8:ft=help:norl:

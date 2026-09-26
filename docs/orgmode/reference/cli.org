@@ -1,0 +1,299 @@
+#+OPTIONS: num:nil toc:nil
+
+* CLI Reference
+:PROPERTIES:
+:CUSTOM_ID: cli-reference
+:END:
+
+** Synopsis
+:PROPERTIES:
+:CUSTOM_ID: synopsis
+:END:
+
+#+begin_src text
+snapper [OPTIONS] [FILE...]
+snapper init [--dry-run]
+snapper sdiff [--no-color] [-f FORMAT] <OLD> <NEW>
+snapper git-diff [--no-color] [-f FORMAT] [REF] [FILE...]
+snapper watch [-f FORMAT] <PATTERNS...>
+snapper lsp
+snapper mcp
+#+end_src
+
+If no files are given, ~snapper~ reads from stdin and writes to stdout.
+
+** Options
+:PROPERTIES:
+:CUSTOM_ID: options
+:END:
+
+*** =-f=, =--format <FORMAT>=
+:PROPERTIES:
+:CUSTOM_ID: opt-format
+:END:
+
+Input format.
+One of: =org=, =latex=, =markdown=, =rst=, =plaintext=.
+
+Auto-detected from file extension when omitted.
+Defaults to =plaintext= for stdin.
+
+*** =--stdin-filepath <PATH>=
+:PROPERTIES:
+:CUSTOM_ID: opt-stdin-filepath
+:END:
+
+Assume this filename when reading stdin, for format auto-detection.
+Useful for editor integrations that pipe buffer contents.
+
+Example: =cat paper.org | snapper --stdin-filepath paper.org=
+
+*** =-o=, =--output <FILE>=
+:PROPERTIES:
+:CUSTOM_ID: opt-output
+:END:
+
+Write output to a file instead of stdout.
+
+*** =-i=, =--in-place=
+:PROPERTIES:
+:CUSTOM_ID: opt-in-place
+:END:
+
+Modify input files in place.
+Requires file arguments (not stdin).
+
+*** =-w=, =--max-width <N>=
+:PROPERTIES:
+:CUSTOM_ID: opt-max-width
+:END:
+
+Maximum line width.
+Sentences exceeding this width are wrapped at atomic word boundaries (links, inline code, math, and similar tokens stay on one line).
+Default: =0= (unlimited).
+Also respects =max_line_length= from =.editorconfig= if present.
+
+*** =--clause-breaks=
+:PROPERTIES:
+:CUSTOM_ID: opt-clause-breaks
+:END:
+
+Prefer soft breaks after independent-clause punctuation (comma, semicolon, colon, em dash, ASCII =--=).
+Off by default.
+
+With =--max-width 0= (the default), insert a newline after every such mark that is already followed by whitespace.
+A sentence that is already one independent clause stays one line.
+
+With =--max-width= set, overflowing sentences prefer those marks; a sentence that already fits stays on one line.
+
+Tokens such as =1,000=, =10:30=, URLs, =--flags=, and unspaced dashes never split.
+=--check= uses the same mode when the flag or =clause_breaks= config is on.
+
+*** =--format-code=
+:PROPERTIES:
+:CUSTOM_ID: opt-format-code
+:END:
+
+After in-block comment reflow, pipe each code-block body through the =formatter= argv from =[code.<lang>]= in =.snapperrc.toml= (if present).
+Default is off so subprocesses are never spawned unless requested.
+Missing binaries, non-zero exits, and a ~30s timeout are non-fatal; the reflowed body is kept and a diagnostic may be written to stderr.
+
+*** =--check=
+:PROPERTIES:
+:CUSTOM_ID: opt-check
+:END:
+
+Check mode for CI.
+Exits with code 1 if any file would change, without modifying anything.
+Prints the paths of files that would be reformatted to stderr.
+With no file arguments, checks stdin (JSON/SARIF on stdout, same exit codes).
+
+*** =--diff=
+:PROPERTIES:
+:CUSTOM_ID: opt-diff
+:END:
+
+Show a unified diff of what would change, without modifying anything.
+Useful for reviewing before committing.
+Exits with code 1 if any file would change.
+
+*** =--range <START:END>=
+:PROPERTIES:
+:CUSTOM_ID: opt-range
+:END:
+
+Only format lines in the given range (1-indexed, inclusive).
+Lines outside the range pass through unchanged.
+Useful for editor format-selection integrations.
+
+Example: =snapper --range 10:20 paper.org=
+
+*** =--output-format <text|json|sarif>=
+:PROPERTIES:
+:CUSTOM_ID: opt-output-format
+:END:
+
+Output format for =--check= mode.
+Default: =text= (prints filenames to stderr).
+
+- =json= : outputs a JSON array of files, each with =would_reformat= and a =diagnostics= array of 1-indexed =line= / =kind= (=fused= / =wrap= / =long=) / =excerpt=
+- =sarif= : outputs SARIF v2.1.0 for GitHub Code Scanning, with one result per diagnostic (=snapper/fused=, =snapper/wrap=, =snapper/long=) plus =snapper/needs-reformat= when the file would change
+
+*** =--strict-long=
+:PROPERTIES:
+:CUSTOM_ID: opt-strict-long
+:END:
+
+Treat advisory =long= diagnostics as =--check= failures.
+
+A =long= finding is never the sole cause of exit 1 unless this flag is set.
+The threshold is =--max-width= when that is non-zero, otherwise =long_threshold= from =.snapperrc.toml= (default 120).
+
+*** =--neural=
+:PROPERTIES:
+:CUSTOM_ID: opt-neural
+:END:
+
+Use neural sentence detection via nnsplit (byte-level LSTM, tract backend).
+Downloads and caches the model (~4MB) to =~/.cache/nnsplit/= on first use.
+Rule-based detection remains the default (faster, better abbreviation handling).
+Neural excels for non-English text.
+
+*** =--lang <CODE>=
+:PROPERTIES:
+:CUSTOM_ID: opt-lang
+:END:
+
+Language for neural sentence detection.
+Default: =en=.
+Available: =en=, =de=, =fr=, =no=, =sv=, =zh=, =tr=, =ru=, =uk=.
+
+*** =--model-path <PATH>=
+:PROPERTIES:
+:CUSTOM_ID: opt-model-path
+:END:
+
+Path to a custom ONNX model file for neural detection.
+Overrides =--lang=.
+
+*** =--use-pandoc=
+:PROPERTIES:
+:CUSTOM_ID: opt-use-pandoc
+:END:
+
+Require the pandoc path (auto FFI, then CLI).
+Parse may use in-process FFI when =libsnapper_pandoc= loads; the writer still needs =pandoc= on =PATH= (=libsnapper_pandoc= is reader-only) unless that library exports a writer.
+Without FFI, both parse and write use the =pandoc= CLI.
+A missing binary is an explicit error (never silent all-prose).
+Enables support for typst, asciidoc, docx, html, and all other pandoc-supported formats.
+The default (omit this flag) already uses pandoc when an FFI writer or =pandoc= on =PATH= is available.
+
+*** =--native=
+:PROPERTIES:
+:CUSTOM_ID: opt-native
+:END:
+
+Force today's native line parsers (markdown / org / rst / latex / plaintext).
+Conflicts with =--use-pandoc=.
+Use this when you want source-oriented splice instead of the pandoc writer.
+Editors, wasm, and LSP stay native even without this flag.
+
+*** =--pandoc-backend <auto|ffi|cli>=
+:PROPERTIES:
+:CUSTOM_ID: opt-pandoc-backend
+:END:
+
+How to obtain the pandoc AST when the pandoc path is used.
+=auto= (default) prefers in-process FFI, else CLI.
+=ffi= requires =libsnapper_pandoc= (explicit error if missing).
+=cli= uses a =pandoc= subprocess (explicit error if missing).
+The writer still needs =pandoc= on =PATH= when the FFI library has no writer.
+
+*** =--config <PATH>=
+:PROPERTIES:
+:CUSTOM_ID: opt-config
+:END:
+
+Path to a =.snapperrc.toml= config file.
+When omitted, ~snapper~ searches from the current directory upward.
+
+*** =-h=, =--help=
+:PROPERTIES:
+:CUSTOM_ID: opt-help
+:END:
+
+Print help message.
+
+*** =-V=, =--version=
+:PROPERTIES:
+:CUSTOM_ID: opt-version
+:END:
+
+Print version.
+
+** Subcommands
+:PROPERTIES:
+:CUSTOM_ID: subcommands
+:END:
+
+*** =snapper init=
+:PROPERTIES:
+:CUSTOM_ID: cmd-init
+:END:
+
+Initialize snapper for a project.
+Detects which prose formats exist in the directory tree and generates:
+
+- =.snapperrc.toml= with sensible defaults
+- =.gitattributes= entries for the git smudge/clean filter
+- pre-commit hook snippet
+- Apheleia (Emacs) configuration snippet
+
+Use =--dry-run= to preview without writing files.
+
+*** =snapper sdiff <OLD> <NEW>=
+:PROPERTIES:
+:CUSTOM_ID: cmd-sdiff
+:END:
+
+Sentence-level diff between two files.
+Parses both files, extracts sentences, diffs at sentence granularity.
+Whitespace reflow produces zero diff.
+Colored output by default; use =--no-color= to disable.
+Exits with code 1 if differences found.
+
+*** =snapper git-diff [REF] [FILE...]=
+:PROPERTIES:
+:CUSTOM_ID: cmd-git-diff
+:END:
+
+Sentence-level diff against a git ref.
+Default ref: =HEAD=.
+If no files specified, diffs all changed prose files (=.org=, =.tex=, =.md=).
+Uses =git show REF:path= to retrieve the old version.
+
+*** =snapper watch <PATTERNS...>=
+:PROPERTIES:
+:CUSTOM_ID: cmd-watch
+:END:
+
+Watch files and auto-reformat on save.
+Accepts file paths or glob patterns. 200ms debounce to avoid reformatting during rapid saves.
+Press Ctrl+C to stop.
+
+*** =snapper lsp=
+:PROPERTIES:
+:CUSTOM_ID: cmd-lsp
+:END:
+
+Start the Language Server Protocol server on stdin/stdout.
+Provides document formatting, range formatting, and diagnostics (flags lines with multiple sentences).
+Works with any LSP-compatible editor (Neovim, Emacs eglot, VS Code, Helix).
+
+** Exit codes
+:PROPERTIES:
+:CUSTOM_ID: exit-codes
+:END:
+
+- =0= : Success (or =--check= / =--diff= with no changes needed; advisory =long= diagnostics do not fail =--check= unless =--strict-long=)
+- =1= : =--check= or =--diff= found files that would change, =--strict-long= saw a =long= diagnostic, or any error

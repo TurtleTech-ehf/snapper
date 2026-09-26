@@ -1,0 +1,303 @@
+#+OPTIONS: num:nil toc:nil -:nil
+file:branding/logo/snapper_logo.png
+#+TOC: headlines 2
+* About
+:PROPERTIES:
+:CUSTOM_ID: about
+:END:
+A fast, format-aware semantic line break formatter.
+Reformats prose so each sentence occupies its own line, producing minimal and meaningful git diffs when collaborating on documents.
+** Why?
+:PROPERTIES:
+:CUSTOM_ID: why
+:END:
+When multiple authors collaborate on a paper using Git, traditional line wrapping at a fixed column width causes problems.
+A single word change can trigger a diff that spans an entire paragraph.
+By breaking at sentence boundaries instead, each edit affects only the sentence that changed.
+
+This convention, often called [[https://sembr.org/][semantic line breaks]], enjoys longstanding support from technical writers.
+~snapper~ is a deterministic formatter (UAX #29 plus abbreviation tables and optional nnsplit).
+It is not [[https://github.com/admk/sembr][admk/sembr]] (learned clause breaks) and not [[https://github.com/sembr/skills][sembr/skills]] (agent rewrite instructions).
+~latexindent.pl~ covers LaTeX only; snapper is a standalone Rust binary for Org-mode, LaTeX, Markdown, RST, and plaintext.
+** Design
+:PROPERTIES:
+:CUSTOM_ID: design
+:END:
+~snapper~ runs a three-stage pipeline:
+- Parse :: Classify input into prose regions and structure regions
+- Split :: Detect sentence boundaries in prose regions
+- Emit :: Output each sentence on its own line
+
+Math environments, tables, front matter, drawers, and non-source comments pass through unchanged.
+Fenced and delimited source blocks are =Region::Code=: fence/open/close lines stay structure, non-comment code stays verbatim, and comment lines reflow at sentence boundaries when the language has a =[code.<lang>]= entry in =.snapperrc.toml= (=snapper init= seeds common languages).
+Pass =--format-code= to also pipe each block body through an optional per-language =formatter= argv (missing binary, non-zero exit, and timeouts degrade to the reflowed body).
+Sentence detection relies on Unicode UAX #29 segmentation with abbreviation-aware post-processing that avoids false breaks at titles (Dr., Prof.), references (Fig., Eq.), and Latin terms (e.g., i.e., et al.).
+Org emphasis (=*bold*=, =/italic/=, =_underline_=, =+strike+=) is kept atomic so splits cannot open a pseudo-headline mid-span.
+Markdown =*em*= / =**strong**= (CommonMark flanking) and GFM =~~strike~~= are kept atomic the same way.
+* Installation
+:PROPERTIES:
+:CUSTOM_ID: installation
+:END:
+Pre-built binary (fastest):
+#+begin_src bash
+cargo binstall snapper-fmt
+#+end_src
+Shell one-liner (Linux/macOS):
+#+begin_src bash
+curl -LsSf https://github.com/TurtleTech-ehf/snapper/releases/latest/download/snapper-fmt-installer.sh | sh
+#+end_src
+Homebrew:
+#+begin_src bash
+brew install TurtleTech-ehf/tap/snapper-fmt
+#+end_src
+pip:
+#+begin_src bash
+pip install snapper-fmt
+#+end_src
+conda-forge:
+#+begin_src bash
+conda install -c conda-forge snapper-fmt
+#+end_src
+Compile from source:
+#+begin_src bash
+cargo install snapper-fmt
+#+end_src
+Nix:
+#+begin_src bash
+nix build github:TurtleTech-ehf/snapper
+#+end_src
+The crate is =snapper-fmt= on all registries.
+Each install ships two CLI names for the same program: =snapper= and =snapper-fmt=.
+
+*Name collision:* [[https://github.com/openSUSE/snapper][openSUSE snapper]] is a different project (Btrfs/LVM snapshots) that also installs a =snapper= binary.
+On systems where that tool already owns =/usr/bin/snapper=, call this formatter as =snapper-fmt=, or put the TurtleTech install path ahead of the system path.
+* Usage
+:PROPERTIES:
+:CUSTOM_ID: usage
+:END:
+Format a file (output to stdout):
+#+begin_src bash
+snapper paper.org
+#+end_src
+Format in place:
+#+begin_src bash
+snapper --in-place paper.org
+#+end_src
+Pipe through stdin (for editor integration):
+#+begin_src bash
+cat draft.org | snapper --format org
+#+end_src
+The CLI uses pandoc (auto FFI, then CLI) when an FFI writer or =pandoc= on =PATH= is available.
+Otherwise it keeps the native line parsers (no error).
+Pass =--native= to force today's parsers.
+Pass =--use-pandoc= to require pandoc (error if missing).
+Editors, wasm, and LSP stay native.
+Check formatting without modifying (for CI):
+#+begin_src bash
+snapper --check paper.org paper.tex notes.md
+#+end_src
+Limit line width (wrap long sentences at word boundaries):
+#+begin_src bash
+snapper --max-width 80 paper.org
+#+end_src
+Break after independent-clause punctuation (comma, semicolon, colon, em dash).
+With the default unlimited width this inserts a newline after every such mark that already has whitespace after it:
+#+begin_src bash
+snapper --clause-breaks paper.org
+#+end_src
+With =--max-width= set, overflowing sentences prefer those marks.
+A one-clause sentence stays one line.
+Preview changes as a unified diff before committing:
+#+begin_src bash
+snapper --diff paper.org
+#+end_src
+Compare two versions at the sentence level (whitespace reflow produces zero diff):
+#+begin_src bash
+snapper sdiff paper_v1.org paper_v2.org
+#+end_src
+Watch files and auto-reformat on save:
+#+begin_src bash
+snapper watch '*.org' 'sections/*.tex'
+#+end_src
+Initialize a project (generates config, pre-commit, gitattributes):
+#+begin_src bash
+snapper init
+#+end_src
+** MCP server (AI assistants)
+:PROPERTIES:
+:CUSTOM_ID: mcp
+:END:
+Published =snapper= / =snapper-fmt= binaries include the MCP server (=mcp= is a default Cargo feature).
+Start the stdio server:
+#+begin_src bash
+snapper mcp
+#+end_src
+Agents should call snapper MCP (=format_text=) or the =snapper= CLI instead of applying [[https://sembr.org/][sembr.org]] / [[https://github.com/sembr/skills][sembr/skills]] wrapping by hand.
+=format_text= accepts =clause_breaks=, =range= (=start= / =end=, 1-indexed inclusive), and =max_width= (default 0).
+From source with =--no-default-features=, rebuild with MCP:
+#+begin_src bash
+cargo install snapper-fmt --features mcp
+#+end_src
+Tools: =format_text=, =detect_format=, =check_formatting=, =split_sentences=.
+Configuration guide (org source in-tree): =docs/orgmode/howto/mcp-integration.org=; HTML docs: https://snapper.turtletech.us/docs/howto/mcp-integration/ .
+** Supported formats
+:PROPERTIES:
+:CUSTOM_ID: supported-formats
+:END:
+| Format    | Extensions             | Structure / code handling                                      |
+|-----------+------------------------+----------------------------------------------------------------|
+| Org-mode  | =.org=                 | Drawers, tables, keywords; =#+BEGIN_SRC= comment reflow        |
+| LaTeX     | =.tex=, =.latex=       | Preamble, math; minted and lstlisting comment reflow           |
+| Markdown  | =.md=, =.markdown=     | Front matter, HTML; fenced blocks comment reflow when configured |
+| RST       | =.rst=                 | Directives, literals; =.. code-block::= comment reflow         |
+| Plaintext | everything else        | (none; all text treated as prose)                              |
+** Pre-commit hook
+:PROPERTIES:
+:CUSTOM_ID: pre-commit-hook
+:END:
+#+begin_src yaml
+- repo: https://github.com/TurtleTech-ehf/snapper
+  rev: v0.11.1
+  hooks:
+    - id: snapper
+#+end_src
+
+** Emacs (Apheleia)
+:PROPERTIES:
+:CUSTOM_ID: emacs
+:END:
+#+begin_src elisp
+(with-eval-after-load 'apheleia
+  (push '(snapper . ("snapper" "--native" "--format" "org")) apheleia-formatters)
+  (push '(org-mode . snapper) apheleia-mode-alist))
+#+end_src
+** VS Code
+:PROPERTIES:
+:CUSTOM_ID: vscode
+:END:
+Install [[https://marketplace.visualstudio.com/items?itemName=TurtleTech.snapper][TurtleTech.snapper]] from the VS Code Marketplace.
+The extension uses the built-in LSP server for format-on-save, range formatting, diagnostics, and code actions.
+** Neovim
+:PROPERTIES:
+:CUSTOM_ID: neovim
+:END:
+With =lazy.nvim= (rocks support):
+#+begin_src lua
+{
+  "TurtleTech-ehf/snapper",
+  ft = { "org", "tex", "markdown", "rst" },
+  config = function()
+    vim.opt.runtimepath:append(
+      vim.fn.stdpath("data") .. "/lazy/snapper/editors/nvim"
+    )
+    require("snapper").setup()
+  end,
+}
+#+end_src
+Or with =rocks.nvim=:
+#+begin_src vim
+:Rocks install snapper.nvim
+#+end_src
+** Vim
+:PROPERTIES:
+:CUSTOM_ID: vim
+:END:
+#+begin_src vim
+Plug 'TurtleTech-ehf/snapper', { 'rtp': 'editors/vim' }
+#+end_src
+This provides =formatprg= support for automatic formatting with the =gq= operator.
+** Obsidian
+:PROPERTIES:
+:CUSTOM_ID: obsidian
+:END:
+Development preview; not listed in Community Plugins.
+The WebAssembly plugin source lives in =editors/obsidian= and is available for development builds only.
+** Microsoft Word
+:PROPERTIES:
+:CUSTOM_ID: word
+:END:
+Development preview; not published in AppSource.
+The WebAssembly add-in source and sideloading instructions live in =editors/word=.
+** Git smudge/clean filter
+:PROPERTIES:
+:CUSTOM_ID: git-filter
+:END:
+Auto-format on commit, transparent to collaborators:
+#+begin_src bash
+git config filter.snapper.clean "snapper --format org"
+git config filter.snapper.smudge cat
+#+end_src
+Then add to =.gitattributes=:
+#+begin_src text
+*.org filter=snapper
+#+end_src
+** Vale integration
+:PROPERTIES:
+:CUSTOM_ID: vale
+:END:
+~snapper~ ships a vale style package for editor hints.
+Add to your =.vale.ini=:
+#+begin_src ini
+StylesPath = /path/to/snapper/vale
+[*.org]
+BasedOnStyles = snapper
+#+end_src
+For precise CI checks, use ~snapper --check~ directly.
+** Project config
+:PROPERTIES:
+:CUSTOM_ID: project-config
+:END:
+Drop a =.snapperrc.toml= in your project root:
+#+begin_src toml
+extra_abbreviations = ["GROMACS", "LAMMPS", "DFT"]
+ignore = ["*.bib", "*.cls"]
+format = "org"
+max_width = 0
+clause_breaks = false
+
+[latex]
+verbatim_envs = ["Verbatim"]
+structure_envs = ["algorithm", "comment"]
+verbatim_commands = ["Verb"]
+#+end_src
+Missing =[latex]= keys keep the built-in minted/lstlisting/verbatim/comment, equation/figure, and verb/lstinline lists.
+~snapper~ walks up from the current directory to find it.
+* Documentation
+:PROPERTIES:
+:CUSTOM_ID: documentation
+:END:
+Build the docs site with:
+#+begin_src bash
+pixi run docbld
+#+end_src
+* Development
+:PROPERTIES:
+:CUSTOM_ID: development
+:END:
+** Key dependencies
+:PROPERTIES:
+:CUSTOM_ID: key-dependencies
+:END:
+- Clap 4 (derive) :: CLI argument parsing
+- unicode-segmentation :: UAX #29 sentence boundaries
+- regex :: Abbreviation and format pattern matching
+- textwrap :: Optional line width limiting
+- thiserror :: Typed error handling
+** Conventions
+:PROPERTIES:
+:CUSTOM_ID: conventions
+:END:
+We use ~cocogitto~ via ~cog~ to handle commit conventions.
+*** Readme
+:PROPERTIES:
+:CUSTOM_ID: readme
+:END:
+Construct the ~readme~ via:
+#+begin_src bash
+./scripts/org_to_md.sh readme_src.org README.md
+#+end_src
+* License
+:PROPERTIES:
+:CUSTOM_ID: license
+:END:
+MIT.

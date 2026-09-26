@@ -1,0 +1,41 @@
+[workspace]
+name = "snapper"
+version = "0.1.0"
+channels = ["conda-forge"]
+platforms = ["linux-64", "osx-64", "osx-arm64"]
+
+[dependencies]
+rust = ">=1.85"
+
+[feature.dev.tasks]
+check = { cmd = "cargo fmt --check && cargo clippy -- -D warnings && cargo test" }
+build = { cmd = "cargo build --release" }
+test = { cmd = "cargo test" }
+dogfood = { cmd = "cargo run --quiet -- --native --check --format org readme_src.org docs/orgmode/**/*.org examples/paper.org && cargo run --quiet -- --native --check --format plaintext examples/basic.txt && cargo run --quiet -- --native --check --format markdown examples/paper.md && cargo run --quiet -- --native --check --format latex examples/paper.tex", description = "Verify all docs pass snapper --check", depends-on = ["build"] }
+nvim-test = { cmd = "bash scripts/run_nvim_tests.sh", description = "Run Neovim plugin tests with plenary.nvim" }
+
+[feature.docs.dependencies]
+python = ">=3.11"
+pip = "*"
+emacs = "*"
+sphinx = ">=7"
+myst-parser = "*"
+sphinx-sitemap = "*"
+
+[feature.docs.pypi-dependencies]
+shibuya = "*"
+sphinx-intl = "*"
+
+[feature.docs.dependencies.nodejs]
+version = ">=20"
+
+[feature.docs.tasks]
+orgbld = { cmd = "emacs --batch -l docs/export.el", description = "Export orgmode to RST" }
+docbld = { cmd = "./scripts/build_i18n_docs.sh", description = "Build docs for all languages (en, is, pl)" }
+readme = { cmd = "./scripts/org_to_md.sh readme_src.org README.md", description = "Generate README.md from org source" }
+site-assemble = { cmd = "mkdir -p dist && cp -r site/* dist/ && cp -r docs/build dist/docs", depends-on = ["docbld"], description = "Assemble landing page + docs into dist/" }
+deploy = { cmd = "CLOUDFLARE_API_TOKEN=$(pass show turtletech/cloudflare/snapper-pages-token) CLOUDFLARE_ACCOUNT_ID=$(pass show turtletech/cloudflare/account-id) npx wrangler pages deploy dist/ --project-name=snapper --branch=main", depends-on = ["site-assemble"], description = "Build docs and deploy to Cloudflare Pages" }
+
+[environments]
+dev = { features = ["dev"], solve-group = "default" }
+docs = { features = ["docs"], solve-group = "default" }

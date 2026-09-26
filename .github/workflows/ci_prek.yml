@@ -1,0 +1,52 @@
+name: Pre-checks
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    - cron: "0 6 1 * *"
+
+concurrency:
+  group: prek-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions: read-all
+
+jobs:
+  public-contract:
+    name: Public availability contract
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: bash scripts/check_public_contract.sh
+
+  release-ready:
+    name: Release readiness gate
+    if: github.event_name == 'pull_request' && startsWith(github.head_ref, 'release/')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - run: bash scripts/check_release_ready.sh
+
+  lychee:
+    name: Link check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: lycheeverse/lychee-action@v2
+        with:
+          args: >-
+            --no-progress
+            --exclude-loopback
+            --exclude 'analytics.turtletech.us'
+            --exclude 'snapper-d8v.pages.dev'
+            '*.md'
+            '*.org'
+            'docs/orgmode/**/*.org'
+            'site/index.html'
+          fail: false

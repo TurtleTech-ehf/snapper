@@ -1,0 +1,21 @@
+[package]
+name = "snapper-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2024"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+snapper-fmt = { path = ".." }
+
+[workspace]
+
+[[bin]]
+name = "format_text"
+path = "fuzz_targets/format_text.rs"
+test = false
+doc = false
+bench = false

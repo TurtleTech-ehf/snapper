@@ -1,0 +1,291 @@
+#+OPTIONS: num:nil toc:nil
+
+* Quickstart
+:PROPERTIES:
+:CUSTOM_ID: quickstart
+:END:
+
+** Installation
+:PROPERTIES:
+:CUSTOM_ID: installation
+:END:
+
+Pre-built binary (fastest, no compilation):
+
+#+begin_src bash
+cargo binstall snapper-fmt
+#+end_src
+
+Or compile from source:
+
+#+begin_src bash
+cargo install snapper-fmt
+#+end_src
+
+Shell one-liner (Linux/macOS):
+
+#+begin_src bash
+curl -LsSf https://github.com/TurtleTech-ehf/snapper/releases/latest/download/snapper-fmt-installer.sh | sh
+#+end_src
+
+Homebrew (macOS/Linux):
+
+#+begin_src bash
+brew install TurtleTech-ehf/tap/snapper-fmt
+#+end_src
+
+pip:
+
+#+begin_src bash
+pip install snapper-fmt
+#+end_src
+
+conda-forge:
+
+#+begin_src bash
+conda install -c conda-forge snapper-fmt
+#+end_src
+
+Nix:
+
+#+begin_src bash
+nix build github:TurtleTech-ehf/snapper
+#+end_src
+
+The crate is =snapper-fmt= on all registries.
+Each install ships two CLI names for the same program: =snapper= and =snapper-fmt=.
+If [[https://github.com/openSUSE/snapper][openSUSE snapper]] (Btrfs/LVM snapshots) already owns =/usr/bin/snapper=, call this formatter as =snapper-fmt=.
+
+** Basic usage
+:PROPERTIES:
+:CUSTOM_ID: basic-usage
+:END:
+
+Format a file, printing to stdout:
+
+#+begin_src bash
+snapper paper.org
+#+end_src
+
+Format in place:
+
+#+begin_src bash
+snapper --in-place paper.org
+#+end_src
+
+Pipe through stdin (for editor integration):
+
+#+begin_src bash
+cat draft.org | snapper --format org
+#+end_src
+
+The CLI uses pandoc (auto FFI, then CLI) when an FFI writer or =pandoc= on =PATH= is available.
+Otherwise it keeps the native line parsers (no error).
+Pass =--native= to force today's parsers.
+Pass =--use-pandoc= to require pandoc (error if missing).
+Editors, wasm, and LSP stay native.
+
+** What it does
+:PROPERTIES:
+:CUSTOM_ID: what-it-does
+:END:
+
+Given a paragraph like this:
+
+#+begin_src text
+This is the first sentence. It continues with more details about the topic. See Fig. 3 for the results.
+#+end_src
+
+~snapper~ produces:
+
+#+begin_src text
+This is the first sentence.
+It continues with more details about the topic.
+See Fig. 3 for the results.
+#+end_src
+
+Each sentence occupies its own line.
+Tables, drawers, math environments, and front matter pass through unchanged.
+Source blocks are code regions: fences stay fixed and configured language comments reflow (see the formats and config references).
+
+** Format detection
+:PROPERTIES:
+:CUSTOM_ID: format-detection
+:END:
+
+~snapper~ auto-detects the format from the file extension:
+
+- =.org= -- Org-mode
+- =.tex=, =.latex= -- LaTeX
+- =.md=, =.markdown= -- Markdown
+- Everything else -- plaintext
+
+Override with =--format=:
+
+#+begin_src bash
+snapper --format latex draft.tex
+#+end_src
+
+** Sentence-level diff
+:PROPERTIES:
+:CUSTOM_ID: sentence-level-diff
+:END:
+
+Compare two versions of a file at the sentence level, ignoring whitespace reflow:
+
+#+begin_src bash
+snapper sdiff paper_v1.org paper_v2.org
+#+end_src
+
+Only actual content changes appear.
+Reformatting (rewrapping) the same text produces zero diff.
+Useful for reviewing collaborator edits on shared papers.
+
+** Watch mode
+:PROPERTIES:
+:CUSTOM_ID: watch-mode
+:END:
+
+Auto-reformat files on save:
+
+#+begin_src bash
+snapper watch '*.org' 'sections/*.tex'
+#+end_src
+
+Monitors files and runs =--in-place= on change (200ms debounce).
+Press Ctrl+C to stop.
+
+** Project setup
+:PROPERTIES:
+:CUSTOM_ID: project-setup
+:END:
+
+Initialize snapper for a new project:
+
+#+begin_src bash
+snapper init
+#+end_src
+
+Detects which formats exist and generates =.snapperrc.toml=, =.gitattributes=, pre-commit config, and Apheleia snippets.
+Use =--dry-run= to preview.
+
+** MCP server (AI assistants)
+:PROPERTIES:
+:CUSTOM_ID: mcp
+:END:
+
+Published =snapper= / =snapper-fmt= binaries include the MCP server.
+Configure an MCP client to run the stdio command:
+
+#+begin_src bash
+snapper mcp
+#+end_src
+
+Agents should call this server or the =snapper= CLI instead of applying [[https://sembr.org/][sembr.org]] / [[https://github.com/sembr/skills][sembr/skills]] wrapping by hand.
+
+From source with =--no-default-features=, rebuild with MCP:
+
+#+begin_src bash
+cargo install snapper-fmt --features mcp
+#+end_src
+
+#+begin_src json
+{
+  "mcpServers": {
+    "snapper": {
+      "command": "snapper",
+      "args": ["mcp"]
+    }
+  }
+}
+#+end_src
+
+See [[file:../howto/mcp-integration.org][MCP Integration]] for details.
+
+** CI integration
+:PROPERTIES:
+:CUSTOM_ID: ci-integration
+:END:
+
+Use =--check= mode to verify formatting without modifying files.
+Exits with code 1 if any file would change:
+
+#+begin_src bash
+snapper --check paper.org
+#+end_src
+
+For GitHub Code Scanning, use SARIF output:
+
+#+begin_src bash
+snapper --check --output-format sarif paper.org > snapper.sarif
+#+end_src
+
+** Pre-commit hook
+:PROPERTIES:
+:CUSTOM_ID: pre-commit-hook
+:END:
+
+Add to your =.pre-commit-config.yaml=:
+
+#+begin_src yaml
+- repo: https://github.com/TurtleTech-ehf/snapper
+  rev: v0.11.1
+  hooks:
+    - id: snapper
+#+end_src
+
+Runs =snapper --in-place= on =*.org=, =*.tex=/=*.latex=, =*.md=/=*.markdown=, =*.rst=, and =*.txt= (extension match; identify has no =org= type).
+Requires a Rust toolchain so pre-commit can build the hook from this repo.
+
+** Editor integration
+:PROPERTIES:
+:CUSTOM_ID: editor-integration
+:END:
+
+*** VS Code
+:PROPERTIES:
+:CUSTOM_ID: vscode
+:END:
+
+Install [[https://marketplace.visualstudio.com/items?itemName=TurtleTech.snapper][TurtleTech.snapper]] from the Marketplace.
+Provides format-on-save, range formatting, diagnostics, and code actions out of the box.
+
+*** Neovim
+:PROPERTIES:
+:CUSTOM_ID: neovim
+:END:
+
+See the [[https://github.com/TurtleTech-ehf/snapper/tree/main/editors/nvim][snapper.nvim plugin]] for full LSP integration, or use =formatprg=:
+
+#+begin_src vim
+autocmd FileType org setlocal formatprg=snapper\ --native\ --format\ org
+#+end_src
+
+*** Emacs (Apheleia)
+:PROPERTIES:
+:CUSTOM_ID: emacs
+:END:
+
+#+begin_src elisp
+(with-eval-after-load 'apheleia
+  (push '(snapper . ("snapper" "--native" "--format" "org")) apheleia-formatters)
+  (push '(org-mode . snapper) apheleia-mode-alist))
+#+end_src
+
+*** Obsidian
+:PROPERTIES:
+:CUSTOM_ID: obsidian
+:END:
+
+Development preview; not listed in Community Plugins.
+Use the source in =editors/obsidian= for development builds.
+
+*** Word
+:PROPERTIES:
+:CUSTOM_ID: word
+:END:
+
+Development preview; not published in AppSource.
+Use the source and sideloading instructions in =editors/word=.
+
+See [[file:../howto/editor-integration.org][Editor Integration]] for Vim, Helix, eglot, conform.nvim, and other setups.

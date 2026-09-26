@@ -1,0 +1,46 @@
+/target
+
+# Override global ignore for dotfiles we need tracked
+!.pre-commit-hooks.yaml
+!.github/
+!.lychee.toml
+!.typos.toml
+*.swp
+*.swo
+*~
+.direnv/
+result
+result-*
+docs/.ox-rst/
+docs/build/
+docs/source/*.rst
+docs/source/contributing/
+docs/source/faq/
+docs/source/howto/
+docs/source/reference/
+docs/source/tutorials/
+docs/locale/pot/
+docs/locale/**/*.mo
+dist/
+
+# SvelteKit build artifacts
+site-svelte/.svelte-kit/
+site-svelte/node_modules/
+site-svelte/build/
+editors/vscode/node_modules/
+editors/vscode/out/
+*.vsix
+packages/snapper-wasm/pkg/
+editors/word/dist/
+editors/word/node_modules/
+packages/snapper-wasm/node_modules/
+
+# cargo-fuzz
+fuzz/target/
+fuzz/artifacts/
+fuzz/coverage/
+
+# Haskell foreign-library build outputs
+native/snapper-pandoc/dist-newstyle/
+native/snapper-pandoc/lib/
+native/snapper-pandoc/dist/

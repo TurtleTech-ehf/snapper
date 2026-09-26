@@ -1,0 +1,160 @@
+#+title: FAQ
+#+options: num:nil toc:nil
+
+* Why not just wrap at 80 columns?
+:PROPERTIES:
+:CUSTOM_ID: why-not-80-columns
+:END:
+
+Column wrapping causes paragraph-wide reflows when you change a single word.
+Reviewers see the entire paragraph in the diff, obscuring the actual edit.
+Sentence-per-line formatting means a one-word change produces a one-line diff.
+
+* Does this affect how the document renders?
+:PROPERTIES:
+:CUSTOM_ID: rendering
+:END:
+
+No. LaTeX, Org-mode, Markdown, RST, and most prose formats treat single newlines as whitespace.
+Two consecutive newlines start a new paragraph.
+Snapper preserves paragraph breaks (blank lines) and only changes where single newlines occur within a paragraph.
+
+* My collaborators don't use snapper.
+Will this cause problems?
+:PROPERTIES:
+:CUSTOM_ID: collaborators
+:END:
+
+No. The formatting affects only whitespace within paragraphs.
+Collaborators can edit normally and their changes will merge cleanly.
+For fully transparent integration, use a git smudge/clean filter (see the how-to guide).
+
+* Why does snapper handle "Dr. Smith" correctly?
+:PROPERTIES:
+:CUSTOM_ID: abbreviations
+:END:
+
+Snapper maintains curated abbreviation lists for English (80+), German, French, Icelandic, and Polish.
+After Unicode sentence boundary detection, it merges any splits that occurred at known abbreviation periods.
+Select a language with =--lang de= (or set =lang = "de"= in =.snapperrc.toml=).
+You can also add project-specific abbreviations via =extra_abbreviations= in the config file.
+
+* What about non-English text?
+:PROPERTIES:
+:CUSTOM_ID: non-english
+:END:
+
+Snapper supports non-English text in two ways:
+
+1. *Rule-based abbreviation sets* for German (=de=), French (=fr=), Icelandic (=is=), and Polish (=pl=).
+Select with =--lang de=.
+The Unicode UAX #29 sentence boundary algorithm works across all languages.
+
+2. *Neural sentence detection* via nnsplit for 9 languages (en, de, fr, no, sv, zh, tr, ru, uk).
+Enable with =--neural --lang de=.
+Models download on first use (~4MB, cached).
+
+The rule-based approach handles most academic text well and runs 18x faster.
+Use neural for languages where abbreviation rules fall short (Chinese, Turkish, etc.).
+
+* Why does =snapper= conflict with openSUSE?
+:PROPERTIES:
+:CUSTOM_ID: name-collision
+:END:
+
+[[https://github.com/openSUSE/snapper][openSUSE snapper]] is a different project (Btrfs/LVM volume snapshots) that also installs a =snapper= binary.
+This formatter's crate name is =snapper-fmt=; installers ship both =snapper= and =snapper-fmt= as names for the same program.
+On systems where openSUSE already owns =/usr/bin/snapper=, invoke =snapper-fmt= (or put the TurtleTech install directory first on =PATH=).
+
+* Can I use snapper as a library?
+:PROPERTIES:
+:CUSTOM_ID: library
+:END:
+
+Yes.
+The crate (=snapper-fmt=) exposes =format_text()= and all internal modules:
+
+#+begin_src rust
+use snapper_fmt::{format_text, FormatConfig};
+use snapper_fmt::format::Format;
+
+let config = FormatConfig {
+    format: Format::Org,
+    max_width: 0,
+    use_neural: false,
+    neural_lang: "en".to_string(),
+    neural_model_path: None,
+    extra_abbreviations: vec![],
+};
+let output = format_text(input, &config).unwrap();
+#+end_src
+
+* How fast is it?
+:PROPERTIES:
+:CUSTOM_ID: performance
+:END:
+
+Snapper processes typical academic papers (10-50 pages) in under 10ms with the rule-based splitter.
+Neural mode adds ~200ms per file (model load + inference via tract, pure Rust ONNX).
+No external runtime dependencies.
+
+* What about CRLF line endings?
+:PROPERTIES:
+:CUSTOM_ID: crlf
+:END:
+
+Snapper detects the input's line ending convention (LF or CRLF) and preserves it in the output.
+Internally, processing normalizes to LF and converts back before writing.
+
+* Can I skip formatting for specific sections?
+:PROPERTIES:
+:CUSTOM_ID: skip-sections
+:END:
+
+Yes.
+Use =snapper:off= and =snapper:on= pragmas in comments:
+
+- Org: =# snapper:off= / =# snapper:on=
+- LaTeX: =% snapper:off= / =% snapper:on=; =% snapper:no-preamble= on =\input= chapters
+- Markdown: =<!-- snapper:off -->= / =<!-- snapper:on -->=
+- RST/Plaintext: =snapper:off= / =snapper:on= on their own line
+
+Text between these markers passes through unchanged.
+Useful for poetry, aligned text, or ASCII art.
+
+* What formats does snapper support?
+:PROPERTIES:
+:CUSTOM_ID: formats
+:END:
+
+Org-mode, LaTeX, Markdown, reStructuredText, and plaintext.
+Format auto-detects from the file extension (=.org=, =.tex=, =.md=, =.rst=, =.txt=).
+Unknown extensions (=.rs=, =.py=, no extension) are refused so source files are not treated as prose.
+Override with =--format rst= (or =org=, =latex=, =markdown=, =plaintext=).
+
+* How do I compare versions at the sentence level?
+:PROPERTIES:
+:CUSTOM_ID: sentence-diff
+:END:
+
+Use =snapper sdiff= to diff two files at sentence granularity:
+
+#+begin_src bash
+snapper sdiff paper_v1.org paper_v2.org
+#+end_src
+
+Or diff against a git ref:
+
+#+begin_src bash
+snapper git-diff HEAD~1 paper.org
+#+end_src
+
+Whitespace reflow produces zero diff.
+Only actual content changes appear.
+
+* How do I report a bug or request a feature?
+:PROPERTIES:
+:CUSTOM_ID: bugs
+:END:
+
+File an issue at [[https://github.com/TurtleTech-ehf/snapper/issues][github.com/TurtleTech-ehf/snapper/issues]].

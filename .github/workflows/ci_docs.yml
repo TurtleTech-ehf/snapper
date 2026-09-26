@@ -1,0 +1,62 @@
+name: Build and Deploy
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: "pages"
+  cancel-in-progress: false
+
+jobs:
+  build-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check public availability contract
+        run: bash scripts/check_public_contract.sh
+
+      - uses: actions/checkout@v4
+        with:
+          repository: TurtleTech-ehf/ttech-ui
+          token: ${{ secrets.TTECH_UI_TOKEN }}
+          path: ttech-ui
+
+      - uses: prefix-dev/setup-pixi@v0.9.4
+        with:
+          cache: true
+          environments: docs
+
+      - name: Install SvelteKit deps and link ttech-ui
+        run: |
+          cd site-svelte
+          pixi run -e docs npm install --legacy-peer-deps
+          mkdir -p node_modules/@turtletech
+          rm -rf node_modules/@turtletech/ui
+          ln -sf ${{ github.workspace }}/ttech-ui node_modules/@turtletech/ui
+
+      - name: Build ttech-ui svelte output
+        run: cd ${{ github.workspace }}/ttech-ui && npm run build:svelte
+
+      - name: Build SvelteKit landing page
+        run: cd site-svelte && pixi run -e docs npm run build
+
+      - name: Build docs and assemble site
+        run: |
+          pixi run -e docs orgbld
+          pixi run -e docs docbld
+          mkdir -p dist
+          cp -r site-svelte/build/* dist/
+          cp -r docs/build dist/docs
+
+      - name: Deploy to Cloudflare Pages
+        if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          command: pages deploy dist/ --project-name=snapper --branch=main

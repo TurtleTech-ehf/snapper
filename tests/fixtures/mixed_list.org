@@ -1,0 +1,11 @@
+* Mixed lists
+
+- One. Two.
+- Lone item.
+
+1. Numbered one. Numbered two.
+   - Nested dash. Nested second.
+2. After nested. Still after.
+
+- Parent again. More parent.
+  1. Nested numbered. Nested numbered two.

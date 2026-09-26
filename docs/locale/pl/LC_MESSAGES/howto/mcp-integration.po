@@ -1,0 +1,207 @@
+# SOME DESCRIPTIVE TITLE.
+# Copyright (C) 2026--present, <a href="https://rgoswami.me">Rohit
+# Goswami</a>
+# This file is distributed under the same license as the snapper package.
+# FIRST AUTHOR <EMAIL@ADDRESS>, 2026.
+#
+#, fuzzy
+msgid ""
+msgstr ""
+"Project-Id-Version: snapper \n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2026-09-09 10:12-0500\n"
+"PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
+"Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
+"Language-Team: pl <LL@li.org>\n"
+"Language: pl\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=3; plural=(n==1 ? 0 : n%10>=2 && n%10<=4 && (n%100<10 "
+"|| n%100>=20) ? 1 : 2);\n"
+"Generated-By: Babel 2.18.0\n"
+
+#: ../../source/howto/mcp-integration.rst:3
+msgid "MCP Server Integration"
+msgstr ""
+
+#: ../../source/howto/mcp-integration.rst:10
+msgid "Overview"
+msgstr ""
+
+#: ../../source/howto/mcp-integration.rst:12
+msgid ""
+"Published ``snapper`` / ``snapper-fmt`` binaries include an MCP (Model "
+"Context Protocol) server. The ``mcp`` Cargo feature is on by default."
+msgstr ""
+
+#: ../../source/howto/mcp-integration.rst:15
+msgid "Start it with:"
+msgstr ""
+
+#: ../../source/howto/mcp-integration.rst:21
+msgid "This launches the server on stdin/stdout using the MCP protocol."
+msgstr ""
+
+#: ../../source/howto/mcp-integration.rst:23
+msgid ""
+"Agents should call this server or the ``snapper`` CLI to apply semantic line "
+"breaks. Do not apply `sembr.org <https://sembr.org/>`_ or `sembr/skills "
+"<https://github.com/sembr/skills>`_ rewrites by hand."
+msgstr ""
+
+#: ../../source/howto/mcp-integration.rst:26
+msgid "From source with ``--no-default-features``, rebuild with MCP:"
+msgstr ""
+
+#: ../../source/howto/mcp-integration.rst:35
+msgid "Configuration"
+msgstr ""
+
+#: ../../source/howto/mcp-integration.rst:40
+msgid "MCP client configuration"
+msgstr ""
+
+#: ../../source/howto/mcp-integration.rst:42
+msgid "Add to your MCP configuration:"
+msgstr ""
+
+#: ../../source/howto/mcp-integration.rst:58
+msgid "Tools"
+msgstr ""
+
+#: ../../source/howto/mcp-integration.rst:63
+msgid "format\\ :sub:`text`"
+msgstr ""
+
+#: ../../source/howto/mcp-integration.rst:65
+msgid "Format text with semantic line breaks."
+msgstr ""
+
+#: ../../source/howto/mcp-integration.rst:67
+#: ../../source/howto/mcp-integration.rst:92
+#: ../../source/howto/mcp-integration.rst:105
+#: ../../source/howto/mcp-integration.rst:132
+msgid "Parameters:"
+msgstr ""
+
+#: ../../source/howto/mcp-integration.rst:69
+msgid "``text`` (string, required): Text to format"
+msgstr ""
+
+#: ../../source/howto/mcp-integration.rst:71
+msgid ""
+"``format`` (string): Document format (\"org\", \"latex\", \"markdown\", "
+"\"rst\", \"plaintext\"; default: \"plaintext\")"
+msgstr ""
+
+#: ../../source/howto/mcp-integration.rst:73
+msgid "``max_width`` (integer): Maximum line width (default: 0, unlimited)"
+msgstr ""
+
+#: ../../source/howto/mcp-integration.rst:75
+msgid ""
+"``clause_breaks`` (boolean): Prefer soft breaks after independent-clause "
+"punctuation (same as CLI ``--clause-breaks``; default: false). With "
+"``max_width`` 0, always break at whitespace after the punctuation. With "
+"``max_width`` greater than 0, overflowing sentences prefer those marks."
+msgstr ""
+
+#: ../../source/howto/mcp-integration.rst:79
+msgid ""
+"``range`` (object): Optional 1-indexed inclusive line range (``start`` / "
+"``end``; same meaning as CLI ``--range``)"
+msgstr ""
+
+#: ../../source/howto/mcp-integration.rst:81
+msgid "``extra_abbreviations`` (array of strings): Additional abbreviations"
+msgstr ""
+
+#: ../../source/howto/mcp-integration.rst:83
+msgid "Returns the formatted text."
+msgstr ""
+
+#: ../../source/howto/mcp-integration.rst:88
+msgid "detect\\ :sub:`format`"
+msgstr ""
+
+#: ../../source/howto/mcp-integration.rst:90
+msgid "Detect document format from text content using heuristics."
+msgstr ""
+
+#: ../../source/howto/mcp-integration.rst:94
+msgid "``text`` (string, required): Text to analyze"
+msgstr ""
+
+#: ../../source/howto/mcp-integration.rst:96
+msgid "Returns the detected format string."
+msgstr ""
+
+#: ../../source/howto/mcp-integration.rst:101
+msgid "check\\ :sub:`formatting`"
+msgstr ""
+
+#: ../../source/howto/mcp-integration.rst:103
+msgid "Check text for semantic line break violations."
+msgstr ""
+
+#: ../../source/howto/mcp-integration.rst:107
+msgid "``text`` (string, required): Text to check"
+msgstr ""
+
+#: ../../source/howto/mcp-integration.rst:109
+msgid "``format`` (string): Document format (default: \"plaintext\")"
+msgstr ""
+
+#: ../../source/howto/mcp-integration.rst:111
+msgid ""
+"``max_width`` (integer): Maximum line width; also the ``long`` threshold "
+"when set (default: 0)"
+msgstr ""
+
+#: ../../source/howto/mcp-integration.rst:113
+msgid ""
+"``clause_breaks`` (boolean): Same two-mode contract as ``format_text`` "
+"(default: false)"
+msgstr ""
+
+#: ../../source/howto/mcp-integration.rst:115
+msgid "Returns:"
+msgstr ""
+
+#: ../../source/howto/mcp-integration.rst:117
+msgid ""
+"``would_reformat`` (boolean): identical to CLI ``--check`` (formatted output "
+"differs from input)"
+msgstr ""
+
+#: ../../source/howto/mcp-integration.rst:119
+msgid "``passed`` (boolean): ``not would_reformat``"
+msgstr ""
+
+#: ../../source/howto/mcp-integration.rst:121
+msgid ""
+"``diagnostics`` (array): 1-indexed ``line`` / ``kind`` (``fused`` / "
+"``wrap`` / ``long``) / ``excerpt``"
+msgstr ""
+
+#: ../../source/howto/mcp-integration.rst:123
+msgid "``violations`` (array): 1-indexed fused line numbers (compat)"
+msgstr ""
+
+#: ../../source/howto/mcp-integration.rst:128
+msgid "split\\ :sub:`sentences`"
+msgstr ""
+
+#: ../../source/howto/mcp-integration.rst:130
+msgid ""
+"Split text into individual sentences using Unicode-aware boundary detection."
+msgstr ""
+
+#: ../../source/howto/mcp-integration.rst:134
+msgid "``text`` (string, required): Text to split"
+msgstr ""
+
+#: ../../source/howto/mcp-integration.rst:136
+msgid "Returns an array of sentence strings."
+msgstr ""

@@ -1,0 +1,82 @@
+#+TITLE: Edge Case Tests
+
+* Quoted and Parenthesized Punctuation
+
+He said "wow!" and then left.
+She agreed with him.
+
+The answer (really?) surprised everyone.
+They had not expected it.
+
+She asked "is it done?" before leaving.
+He nodded silently.
+
+The value (see Fig. 2!) is important.
+We discuss it below.
+
+* LaTeX Environments in Org
+
+The equation below shows the relationship.
+
+\begin{equation}
+E = mc^2
+\end{equation}
+
+This was proposed by Einstein.
+It changed physics forever.
+
+\begin{align}
+a &= b + c \\
+d &= e + f
+\end{align}
+
+The alignment above shows two equations.
+Both are important.
+
+* Display Math
+
+Consider the following expression.
+
+\[
+x = \frac{-b \pm \sqrt{b^2 - 4ac}}{2a}
+\]
+
+This is the quadratic formula.
+It solves second-degree polynomials.
+
+* Export Snippets
+
+Some text before the page break.
+
+@@latex:\newpage@@
+
+Text after the page break.
+It continues here.
+
+Inline snippet @@html:<br>@@ in prose.
+More text follows.
+
+* URLs with Trailing Punctuation
+
+Visit https://example.com/page for details.
+Then read the docs.
+
+The API is at https://api.example.com/v2/endpoint.
+It supports JSON.
+
+See https://example.com/path?q=search&lang=en.
+The results are paginated.
+
+* Mixed Edge Cases
+
+Dr. Smith said "excellent!" and published the paper.
+The results (as shown in Fig. 3) were significant.
+
+Use `std::io::Read` for input.
+Then call `process()` to handle it.
+
+The value $x = 3.14$ is approximate.
+We use it throughout.
+
+See [[https://example.com][the example site]] for more.
+It has documentation.

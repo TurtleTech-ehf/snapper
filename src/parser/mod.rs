@@ -1,0 +1,231 @@
+pub mod latex;
+pub mod markdown;
+pub mod org;
+#[cfg(feature = "pandoc")]
+pub mod pandoc;
+pub mod plaintext;
+pub mod rst;
+pub mod span;
+
+pub use span::{
+    ByteSpan, CodeSpans, Line, RegionOrigin, SpannedRegion, flush_prose_spanned, iter_lines,
+    join_prose_gap, push_prose_line,
+};
+
+/// A region of text classified by a format parser.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Region {
+    /// Prose text that should be reflowed with semantic line breaks.
+    Prose(String),
+    /// Structural content that must pass through unchanged.
+    Structure(String),
+    /// Blank line(s) preserved as paragraph separators.
+    BlankLines(String),
+    /// A fenced code block. `header` and `footer` carry the fence lines
+    /// (with their trailing newline) verbatim. `body` is the raw block
+    /// contents between the fences; the reflow stage may rewrite comments
+    /// inside `body` per the `[code]` configuration. `lang` is `None`
+    /// when the parser could not infer a language identifier.
+    Code {
+        lang: Option<String>,
+        header: String,
+        body: String,
+        footer: String,
+    },
+}
+
+/// Trait for format-specific parsers that classify text into regions.
+pub trait FormatParser {
+    /// Classify `input` and record source byte ranges where possible.
+    fn parse_full(&self, input: &str) -> Vec<SpannedRegion>;
+
+    /// Classify `input` into regions, dropping recorded spans.
+    fn parse(&self, input: &str) -> Vec<Region> {
+        self.parse_full(input)
+            .into_iter()
+            .map(|s| s.region)
+            .collect()
+    }
+}
+
+/// Per-source-line prose payload from the same `parse_full` walk format uses.
+///
+/// `None` means the line has no prose rewrite range (structure, code, blank,
+/// pragma-off). `Some` is the original-source slice the parser sent to the
+/// splitter for that line (list/quote body, mid-line comment prefix).
+/// `config` supplies `[latex]` extras; `None` keeps the built-in lists.
+pub fn source_line_payloads(
+    input: &str,
+    format: crate::format::Format,
+    config: Option<&crate::FormatConfig>,
+) -> Vec<Option<String>> {
+    let spanned = parser_for_format_config(format, config).parse_full(input);
+    iter_lines(input)
+        .into_iter()
+        .map(|line| line_prose_payload(input, line, &spanned))
+        .collect()
+}
+
+fn line_prose_payload(input: &str, line: Line<'_>, spanned: &[SpannedRegion]) -> Option<String> {
+    let lo = line.start;
+    let hi = line.start + line.text.len();
+    let mut out = String::new();
+    for sr in spanned {
+        if !matches!(sr.region, Region::Prose(_)) {
+            continue;
+        }
+        let Some(origin) = sr.origin else {
+            continue;
+        };
+        let span = origin.whole();
+        let start = span.start.max(lo);
+        let end = span.end.min(hi);
+        if start < end {
+            out.push_str(&input[start..end]);
+        }
+    }
+    if out.trim().is_empty() {
+        None
+    } else {
+        Some(out)
+    }
+}
+
+/// Create the appropriate parser for a given format (built-in lists only).
+pub fn parser_for_format(format: crate::format::Format) -> Box<dyn FormatParser> {
+    parser_for_format_config(format, None)
+}
+
+/// Create a parser, applying `[latex]` extras from `config` when present.
+pub fn parser_for_format_config(
+    format: crate::format::Format,
+    config: Option<&crate::FormatConfig>,
+) -> Box<dyn FormatParser> {
+    use crate::format::Format;
+    match format {
+        Format::Org => Box::new(org::OrgParser),
+        Format::Latex => Box::new(latex::LatexParser::from_config(config)),
+        Format::Markdown => Box::new(markdown::MarkdownParser),
+        Format::Rst => Box::new(rst::RstParser),
+        Format::Plaintext => Box::new(plaintext::PlaintextParser),
+    }
+}
+
+/// Flush accumulated prose into the region list, clearing the buffer.
+///
+/// Prefer [`flush_prose_spanned`] in native parsers so the rewrite range
+/// is recorded. This helper remains for tests and the pandoc AST path.
+pub fn flush_prose(prose: &mut String, regions: &mut Vec<Region>) {
+    if !prose.is_empty() {
+        regions.push(Region::Prose(prose.clone()));
+        prose.clear();
+    }
+}
+
+/// Comment payload after a format-specific marker (`# `, `% `, `<!-- -->`).
+fn pragma_payload(line: &str) -> &str {
+    let trimmed = line.trim();
+    trimmed
+        .strip_prefix("# ")
+        .or_else(|| trimmed.strip_prefix("% "))
+        .or_else(|| {
+            trimmed
+                .strip_prefix("<!-- ")
+                .and_then(|s| s.strip_suffix(" -->"))
+        })
+        .unwrap_or(trimmed)
+        .trim()
+}
+
+/// Check if a line contains a snapper pragma.
+/// Returns Some(false) for "snapper:off", Some(true) for "snapper:on", None otherwise.
+pub fn check_pragma(line: &str) -> Option<bool> {
+    match pragma_payload(line) {
+        "snapper:off" => Some(false),
+        "snapper:on" => Some(true),
+        _ => None,
+    }
+}
+
+/// `% snapper:no-preamble` (or the same payload after `# ` / `<!-- -->`).
+pub fn is_no_preamble_pragma(line: &str) -> bool {
+    pragma_payload(line) == "snapper:no-preamble"
+}
+
+/// LaTeX files stay in preamble mode until `\begin{document}` unless the
+/// file is a body fragment: an explicit `snapper:no-preamble` line, or no
+/// `\begin{document}` and no class/package header.
+pub fn latex_starts_in_preamble(input: &str) -> bool {
+    if input.lines().any(is_no_preamble_pragma) {
+        return false;
+    }
+    if input.contains(r"\begin{document}") {
+        return true;
+    }
+    input.contains(r"\documentclass")
+        || input.contains(r"\ProvidesPackage")
+        || input.contains(r"\ProvidesClass")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn pragma_org_comment() {
+        assert_eq!(check_pragma("# snapper:off"), Some(false));
+        assert_eq!(check_pragma("# snapper:on"), Some(true));
+    }
+
+    #[test]
+    fn pragma_latex_comment() {
+        assert_eq!(check_pragma("% snapper:off"), Some(false));
+        assert_eq!(check_pragma("% snapper:on"), Some(true));
+    }
+
+    #[test]
+    fn pragma_html_comment() {
+        assert_eq!(check_pragma("<!-- snapper:off -->"), Some(false));
+        assert_eq!(check_pragma("<!-- snapper:on -->"), Some(true));
+    }
+
+    #[test]
+    fn pragma_bare() {
+        assert_eq!(check_pragma("snapper:off"), Some(false));
+        assert_eq!(check_pragma("snapper:on"), Some(true));
+    }
+
+    #[test]
+    fn pragma_none() {
+        assert_eq!(check_pragma("regular text"), None);
+        assert_eq!(check_pragma("# a comment"), None);
+        assert_eq!(check_pragma(""), None);
+    }
+
+    #[test]
+    fn no_preamble_pragma_payload() {
+        assert!(is_no_preamble_pragma("% snapper:no-preamble"));
+        assert!(is_no_preamble_pragma("  % snapper:no-preamble  "));
+        assert!(!is_no_preamble_pragma("% snapper:off"));
+        assert!(!is_no_preamble_pragma("snapper:no-preamble extra"));
+    }
+
+    #[test]
+    fn latex_fragment_skips_preamble_mode() {
+        assert!(!latex_starts_in_preamble(
+            "This sentence is a test. This sentence is also a test.\n"
+        ));
+        assert!(!latex_starts_in_preamble(
+            "% snapper:no-preamble\n\\begin{document}\nBody.\n\\end{document}\n"
+        ));
+        assert!(latex_starts_in_preamble(
+            "\\begin{document}\nBody.\n\\end{document}\n"
+        ));
+        assert!(latex_starts_in_preamble(
+            "\\documentclass{article}\nThis sentence is a test. More.\n"
+        ));
+        assert!(latex_starts_in_preamble(
+            "\\ProvidesPackage{foo}\n% comments only\n"
+        ));
+    }
+}

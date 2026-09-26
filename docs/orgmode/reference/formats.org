@@ -1,0 +1,244 @@
+#+OPTIONS: num:nil toc:nil
+
+* Supported Formats
+:PROPERTIES:
+:CUSTOM_ID: supported-formats
+:END:
+
+~snapper~ classifies text into /prose regions/ (reflowed at sentence boundaries), /structure regions/ (passed through unchanged), and /code regions/ (fenced or delimited source blocks).
+Code regions keep fence/open/close lines as structure; the body reflows comment lines when =[code.<lang>]= is configured, and may run an external formatter when =--format-code= is set.
+The classification depends on the format.
+
+** Org-mode (=--format org=)
+:PROPERTIES:
+:CUSTOM_ID: org-mode
+:END:
+
+*** Structure regions (preserved)
+:PROPERTIES:
+:CUSTOM_ID: org-structure
+:END:
+- Non-source =#+BEGIN_*= ...
+=#+END_*= fences, and literal bodies (example, export, comment)
+- Dynamic blocks (=#+BEGIN: NAME= ... =#+END:=), including the generated body
+- =:PROPERTIES:= ...
+=:END:= drawers
+- =#+KEYWORD:= directives (TITLE, AUTHOR, DATE, OPTIONS, etc.)
+- Table rows (lines starting with =|=)
+- Comment lines (starting with =#= but not =#+= )
+- Full headline lines (stars, optional TODO keyword, and title text)
+- List item markers (=-=, =+=, =1.=); continuation sentences hang at the marker width
+- LaTeX environments (=\begin{equation}= ... =\end{equation}=, =\begin{align}=, etc.)
+- Display math (=\[= ... =\]=)
+- Inline export snippets (=@@latex:\newpage@@=, =@@html:<br>@@=)
+
+*** Code regions (=#+BEGIN_SRC= ... =#+END_SRC=)
+:PROPERTIES:
+:CUSTOM_ID: org-code
+:END:
+- Header and footer lines are structure
+- Body non-comment lines pass through verbatim
+- Body comment lines reflow at sentence boundaries when the language has =line_comment= and/or =block_comment= under =[code.<lang>]=
+- With =--format-code=, optional =formatter= argv runs on the body (graceful fallback on failure)
+
+*** Prose regions (reflowed)
+:PROPERTIES:
+:CUSTOM_ID: org-prose
+:END:
+- Paragraph text
+- Quote, verse, center, and special-block interiors (NOTE and other unknown names; open/close lines stay structure; verse keeps physical lines)
+- List item text (after the marker); continuation sentences hang at the marker width so Org rejoins the item
+
+*** Inline tokens (kept atomic)
+:PROPERTIES:
+:CUSTOM_ID: org-inline
+:END:
+These tokens within prose are not split across lines:
+- Links: =[[url][description]]=
+- Emphasis: =*bold*=, =/italic/=, =_underline_=, =+strike+=
+- Inline code: =~code~=, ===verbatim===
+- A =~code~= or ===verbatim=== span may contain the marker character; pairing matches pandoc's org reader, so =x = 1= stays one span
+- Markdown inline code: a run of =n= backticks closes on the next run of the same length (CommonMark / pandoc), so a double span can hold a single backtick
+- Inline export snippets: =@@backend:value@@=
+- URLs: =https://...= (trailing sentence punctuation not swallowed)
+
+** LaTeX (=--format latex=)
+:PROPERTIES:
+:CUSTOM_ID: latex
+:END:
+
+*** Structure regions (preserved)
+:PROPERTIES:
+:CUSTOM_ID: latex-structure
+:END:
+- Preamble (everything before =\begin{document}=)
+- Non-prose environments: equation, align, tabular, tikzpicture, and their starred variants (plus other non-code envs)
+- Float chrome (=\begin{figure}= / =\centering= / =\end{figure}=, and =table= / starred variants): Structure. The =\caption= long argument is Prose.
+- Extra names from =[latex].structure_envs= in =.snapperrc.toml= (for example =algorithm=)
+- Display math: =\[...\]=
+- =\iffalse= ... =\fi= (tree-sitter =block_comment=)
+- Comment lines (starting with =%=)
+- =\end{document}=
+- Full sectioning command lines (=\section{...}=, =\subsection{...}=, and friends, including title text)
+
+*** Code regions (=minted=, =lstlisting=, =verbatim=, =comment=)
+:PROPERTIES:
+:CUSTOM_ID: latex-code
+:END:
+- =\\begin{...}= / =\\end{...}= lines are structure
+- Extra names from =[latex].verbatim_envs= (for example fancyvrb =Verbatim=) are code regions too
+- Body follows the same comment-reflow and optional =--format-code= rules as other formats when language is known (=minted= language arg, =lstlisting= =language== option)
+- Inline =\verb= / =\lstinline= (and extra =[latex].verbatim_commands=, for example =\Verb=) stay atomic; inner =.!?%= do not split or comment
+
+*** Prose regions (reflowed)
+:PROPERTIES:
+:CUSTOM_ID: latex-prose
+:END:
+- Body text between structural elements
+- =\caption{...}= long argument inside figure/table (tree-sitter caption curly_group)
+
+** Markdown (=--format markdown=)
+:PROPERTIES:
+:CUSTOM_ID: markdown
+:END:
+
+*** Structure regions (preserved)
+:PROPERTIES:
+:CUSTOM_ID: markdown-structure
+:END:
+- Front matter (=---= or =+++=  delimited at file start)
+- Full ATX heading lines (=#= … =######= including title text)
+- Setext headings (title line plus ====== or ------ underline)
+- List item markers (=-=, =*=, =+=, =1.=); continuation sentences hang at the marker width
+- Blockquote markers (=>= / nested => > =); continuation sentences repeat the quote prefix
+- Hard line breaks (two trailing spaces, or a trailing backslash)
+- HTML comments (=<!-- ... -->=, including multiline); =<!-- snapper:off -->= / =<!-- snapper:on -->= remain pragmas
+- Pipe tables
+
+*** Code regions (fenced =```= / =~~~=)
+:PROPERTIES:
+:CUSTOM_ID: markdown-code
+:END:
+- Opening and closing fence lines are structure
+- Indented fence bodies preserve indentation on reflowed comment lines
+- Language from the fence info string selects =[code.<lang>]=; unknown or missing lang passes the body through unchanged (unless =--format-code= is not applicable without a formatter entry)
+
+*** Prose regions (reflowed)
+:PROPERTIES:
+:CUSTOM_ID: markdown-prose
+:END:
+- Paragraph text
+- List item text (after the marker); continuation sentences hang at the marker width
+- Blockquote inner text (after the =>= marker); continuation sentences repeat the quote prefix
+
+*** Inline tokens (kept atomic)
+:PROPERTIES:
+:CUSTOM_ID: markdown-inline
+:END:
+- Emphasis: =*em*=, =**strong**= (CommonMark flanking; a period inside the span does not split)
+- Strikethrough: =~~strike~~= (GFM)
+- Inline code: a run of =n= backticks closes on the next run of the same length
+- Links and images: =[text](url)=, =![alt](url)=
+- Inline math: =$...$= / =$$...$$=
+
+** reStructuredText (=--format rst=)
+:PROPERTIES:
+:CUSTOM_ID: rst
+:END:
+
+*** Structure regions (preserved)
+:PROPERTIES:
+:CUSTOM_ID: rst-structure
+:END:
+- Non-code directives (=.. math::=, =.. image::=, etc.) and their indented bodies
+- Literal blocks (text after =::= with indented or line-prefix-quoted content)
+- Section titles and underlines (=====, =-----=, etc.)
+- Field lists (=:Author:=, =:Date:=, etc.)
+- Comments (=..= without a directive)
+- Grid and simple tables (lines starting with =|= or =+=)
+
+*** Code regions (=.. code-block:: LANG=)
+:PROPERTIES:
+:CUSTOM_ID: rst-code
+:END:
+- Directive line and trailing blank handling stay structure
+- Indented body uses the language token for =[code.<lang>]= comment reflow and optional =--format-code=
+
+*** Prose regions (reflowed)
+:PROPERTIES:
+:CUSTOM_ID: rst-prose
+:END:
+- Paragraph text between structural elements
+
+*** Auto-detection
+:PROPERTIES:
+:CUSTOM_ID: rst-detection
+:END:
+Extensions: =.rst=, =.rest=
+
+** Plaintext (=--format plaintext=)
+:PROPERTIES:
+:CUSTOM_ID: plaintext
+:END:
+
+Everything is prose.
+Blank lines are preserved as paragraph separators.
+
+** Sentence Detection
+:PROPERTIES:
+:CUSTOM_ID: sentence-detection
+:END:
+
+~snapper~ uses Unicode UAX #29 sentence boundary detection as a baseline (or optional =--neural= / nnsplit), then applies the same post-pipeline: abbreviation merges, then delimiter-span rejoin so dialogue and balanced =()[]{}= spans are not fractured.
+
+*** Delimiter-span policy (residual cases)
+:PROPERTIES:
+:CUSTOM_ID: delimiter-span-policy
+:END:
+- Balanced ASCII/curly/guillemet quotes, LaTeX =``…''=, and =()[]{}= must not gain a semantic line break mid-span (see =tests/sentence_delim_props.rs=).
+- Unclosed ="= (or open =‘= without =’=) glues the rest of the paragraph; snapper does not invent closers.
+- Nested semantic ASCII quotes (=say "hi" now= with an inner pair) remain toggle-ambiguous; prefer typographic quotes or escapes in source.
+- Apostrophes in contractions (=don't=, =it's=) are not treated as dialogue openers.
+- Markdown fences (=```=) are not treated as LaTeX =``= openers.
+- =--neural= runs the same abbreviation + span post-pipeline after the model proposes cuts (English papers can still prefer the rules path for fully offline, deterministic CI).
+
+~snapper~ merges false splits caused by known abbreviations:
+
+*** Titles
+:PROPERTIES:
+:CUSTOM_ID: abbr-titles
+:END:
+Mr., Mrs., Ms., Dr., Prof., Sr., Jr., St., Rev., Gen., etc.
+
+*** Academic
+:PROPERTIES:
+:CUSTOM_ID: abbr-academic
+:END:
+Fig., Figs., Eq., Eqs., Ref., Refs., Tab., Sec., Ch., Vol., No., Thm., Lem., Prop., Def., Cor., Rem., Ex.
+
+*** Latin
+:PROPERTIES:
+:CUSTOM_ID: abbr-latin
+:END:
+e.g., i.e., et al., cf., etc., viz., ibid., ca., approx.
+
+*** Single initials
+:PROPERTIES:
+:CUSTOM_ID: abbr-initials
+:END:
+A., B., C., ...
+Z.
+
+*** Date and time
+:PROPERTIES:
+:CUSTOM_ID: abbr-datetime
+:END:
+Jan., Feb., ..., Dec., Mon., Tue., ..., Sun., a.m., p.m.
+
+*** Quoted and parenthesized punctuation
+:PROPERTIES:
+:CUSTOM_ID: quoted-punct
+:END:
+Sentence punctuation inside quotes or parentheses does not trigger a false split when the next word starts lowercase.
+For example, =He said "wow!" and left.= stays on one line because ="!"= followed by lowercase =and= signals a continuation, not a new sentence.
+Patterns handled: =!"=, =?"=, =."=, =!)=, =?)=, =.)=, and similar combinations with single quotes or brackets.

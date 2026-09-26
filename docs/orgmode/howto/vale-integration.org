@@ -1,0 +1,80 @@
+#+title: Vale Integration
+#+options: num:nil toc:nil
+
+* Overview
+:PROPERTIES:
+:CUSTOM_ID: overview
+:END:
+
+Snapper ships a vale style package with two rules that flag lines needing semantic line breaks.
+For precise enforcement, use =snapper --check= directly in CI.
+
+* Style package setup
+:PROPERTIES:
+:CUSTOM_ID: setup
+:END:
+
+Add the snapper vale style to your =.vale.ini=:
+
+#+begin_src ini
+StylesPath = /path/to/snapper/vale
+MinAlertLevel = suggestion
+
+[*.org]
+BasedOnStyles = snapper
+
+[*.tex]
+BasedOnStyles = snapper
+
+[*.md]
+BasedOnStyles = snapper
+#+end_src
+
+* Bundled rules
+:PROPERTIES:
+:CUSTOM_ID: rules
+:END:
+
+- =SemanticLineBreaks= :: Flags lines containing multiple sentences (a period followed by a space and a capital letter on the same line).
+Level: warning.
+- =LongProseLine= :: Flags prose lines exceeding 120 characters.
+Level: suggestion.
+- =SnapperCheck= :: External action.
+  Runs =snapper --check --output-format json= and reports =fused= / =wrap= on the matching lines when =snapper= is on =PATH=.
+  Advisory =long= stays on =LongProseLine=.
+
+* Precise CI enforcement
+:PROPERTIES:
+:CUSTOM_ID: ci-enforcement
+:END:
+
+The vale rules use regex heuristics.
+For accurate checking, use the formatter directly:
+
+#+begin_src bash
+snapper --check paper.org
+#+end_src
+
+This catches all cases the regex rules miss (abbreviations, inline tokens, etc.).
+
+* Combining vale and snapper
+:PROPERTIES:
+:CUSTOM_ID: combining
+:END:
+
+A typical workflow:
+
+1. vale catches style issues (AI tells, hedging, E-Prime) during editing
+2. snapper enforces line break formatting in CI via =--check=
+3. Pre-commit hook runs both:
+
+#+begin_src yaml
+- repo: https://github.com/TurtleTech-ehf/snapper
+  rev: v0.11.1
+  hooks:
+    - id: snapper
+- repo: https://github.com/errata-ai/vale
+  rev: v3.0.0
+  hooks:
+    - id: vale
+#+end_src

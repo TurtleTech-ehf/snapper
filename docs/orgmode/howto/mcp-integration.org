@@ -1,0 +1,117 @@
+#+title: MCP Server Integration
+#+options: num:nil toc:nil
+
+* Overview
+:PROPERTIES:
+:CUSTOM_ID: overview
+:END:
+
+Published =snapper= / =snapper-fmt= binaries include an MCP (Model Context Protocol) server.
+The =mcp= Cargo feature is on by default.
+
+Start it with:
+
+#+begin_src bash
+snapper mcp
+#+end_src
+
+This launches the server on stdin/stdout using the MCP protocol.
+
+Agents should call this server or the =snapper= CLI to apply semantic line breaks.
+Do not apply [[https://sembr.org/][sembr.org]] or [[https://github.com/sembr/skills][sembr/skills]] rewrites by hand.
+
+From source with =--no-default-features=, rebuild with MCP:
+
+#+begin_src bash
+cargo install snapper-fmt --features mcp
+#+end_src
+
+* Configuration
+:PROPERTIES:
+:CUSTOM_ID: configuration
+:END:
+
+** MCP client configuration
+:PROPERTIES:
+:CUSTOM_ID: mcp-client-config
+:END:
+
+Add to your MCP configuration:
+
+#+begin_src json
+{
+  "mcpServers": {
+    "snapper": {
+      "command": "snapper",
+      "args": ["mcp"]
+    }
+  }
+}
+#+end_src
+
+* Tools
+:PROPERTIES:
+:CUSTOM_ID: tools
+:END:
+
+** format_text
+:PROPERTIES:
+:CUSTOM_ID: tool-format-text
+:END:
+
+Format text with semantic line breaks.
+
+Parameters:
+- =text= (string, required): Text to format
+- =format= (string): Document format ("org", "latex", "markdown", "rst", "plaintext"; default: "plaintext")
+- =max_width= (integer): Maximum line width (default: 0, unlimited)
+- =clause_breaks= (boolean): Prefer soft breaks after independent-clause punctuation (same as CLI =--clause-breaks=; default: false).
+  With =max_width= 0, always break at whitespace after the punctuation.
+  With =max_width= greater than 0, overflowing sentences prefer those marks.
+- =range= (object): Optional 1-indexed inclusive line range (=start= / =end=; same meaning as CLI =--range=)
+- =extra_abbreviations= (array of strings): Additional abbreviations
+
+Returns the formatted text.
+
+** detect_format
+:PROPERTIES:
+:CUSTOM_ID: tool-detect-format
+:END:
+
+Detect document format from text content using heuristics.
+
+Parameters:
+- =text= (string, required): Text to analyze
+
+Returns the detected format string.
+
+** check_formatting
+:PROPERTIES:
+:CUSTOM_ID: tool-check-formatting
+:END:
+
+Check text for semantic line break violations.
+
+Parameters:
+- =text= (string, required): Text to check
+- =format= (string): Document format (default: "plaintext")
+- =max_width= (integer): Maximum line width; also the =long= threshold when set (default: 0)
+- =clause_breaks= (boolean): Same two-mode contract as =format_text= (default: false)
+
+Returns:
+- =would_reformat= (boolean): identical to CLI =--check= (formatted output differs from input)
+- =passed= (boolean): =not would_reformat=
+- =diagnostics= (array): 1-indexed =line= / =kind= (=fused= / =wrap= / =long=) / =excerpt=
+- =violations= (array): 1-indexed fused line numbers (compat)
+
+** split_sentences
+:PROPERTIES:
+:CUSTOM_ID: tool-split-sentences
+:END:
+
+Split text into individual sentences using Unicode-aware boundary detection.
+
+Parameters:
+- =text= (string, required): Text to split
+
+Returns an array of sentence strings.
