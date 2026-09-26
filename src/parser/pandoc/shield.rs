@@ -235,10 +235,14 @@ fn toggle_code(
             || lower.starts_with("#+begin_export")
             || lower.starts_with("\\begin{verbatim}")
             || lower.starts_with("\\begin{verbatim*}")
+            || lower.starts_with("\\begin{bverbatim}")
             || lower.starts_with("\\begin{lstlisting}")
             || lower.starts_with("\\begin{lstlisting*}")
             || lower.starts_with("\\begin{minted}")
             || lower.starts_with("\\begin{minted*}")
+            || lower.starts_with("\\begin{alltt}")
+            || lower.starts_with("\\begin{luacode}")
+            || lower.starts_with("\\begin{luacode*}")
         {
             *in_code = true;
             *fence_mark = Some(lower.chars().take(24).collect());
@@ -260,10 +264,14 @@ fn toggle_code(
         || lower.starts_with("#+end_export")
         || lower.starts_with("\\end{verbatim}")
         || lower.starts_with("\\end{verbatim*}")
+        || lower.starts_with("\\end{bverbatim}")
         || lower.starts_with("\\end{lstlisting}")
         || lower.starts_with("\\end{lstlisting*}")
         || lower.starts_with("\\end{minted}")
         || lower.starts_with("\\end{minted*}")
+        || lower.starts_with("\\end{alltt}")
+        || lower.starts_with("\\end{luacode}")
+        || lower.starts_with("\\end{luacode*}")
     {
         *in_code = false;
         *fence_mark = None;
@@ -325,6 +333,18 @@ mod tests {
     #[test]
     fn pragma_inside_starred_verbatim_is_ignored() {
         for env in ["verbatim*", "lstlisting*", "minted*"] {
+            let input =
+                format!("\\begin{{{env}}}\nsnapper:off\nSee Dr. Smith. He left.\n\\end{{{env}}}\n");
+            assert!(
+                pragma_spans(&input).is_empty(),
+                "{env} must hide an interior pragma, got spans in {input:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn pragma_inside_alltt_bverbatim_and_luacode_is_ignored() {
+        for env in ["alltt", "BVerbatim", "luacode", "luacode*"] {
             let input =
                 format!("\\begin{{{env}}}\nsnapper:off\nSee Dr. Smith. He left.\n\\end{{{env}}}\n");
             assert!(
