@@ -2,7 +2,7 @@ use regex::Regex;
 use std::sync::LazyLock;
 
 use crate::parser::{
-    ByteSpan, FormatParser, Line, SpannedRegion, flush_prose_spanned, iter_lines, join_prose_gap,
+    flush_prose_spanned, iter_lines, join_prose_gap, ByteSpan, FormatParser, Line, SpannedRegion,
 };
 use crate::sentence::unicode::{
     catchfile_leftover_cs_name, fancyvrb_leftover_cs_name, fancyvrb_shortverb_leftover_cs_name,
@@ -2754,7 +2754,7 @@ mod tests {
     #[test]
     fn multi_sentence_section_title_stays_one_line() {
         use crate::format::Format;
-        use crate::{FormatConfig, format_text};
+        use crate::{format_text, FormatConfig};
 
         let input = "\\begin{document}\n\\section{A long title. With two sentences.}\nBody text here. More body.\n\\end{document}\n";
         let cfg = FormatConfig {
@@ -2811,7 +2811,7 @@ mod tests {
     fn section_optional_short_title_stays_one_line() {
         use crate::format::Format;
         use crate::oracle;
-        use crate::{FormatConfig, format_text};
+        use crate::{format_text, FormatConfig};
 
         let input =
             "\\section[Short. Title.]{A long title. With two sentences.}\nBody. More body.\n";
@@ -2843,7 +2843,7 @@ mod tests {
     #[test]
     fn koma_addsec_addchap_addpart_optional_short_title_is_structure() {
         use crate::format::Format;
-        use crate::{FormatConfig, format_text};
+        use crate::{format_text, FormatConfig};
 
         let cfg = FormatConfig {
             format: Format::Latex,
@@ -2887,7 +2887,7 @@ mod tests {
     #[test]
     fn fragment_without_begin_document_is_prose() {
         use crate::format::Format;
-        use crate::{FormatConfig, format_text};
+        use crate::{format_text, FormatConfig};
 
         let input = "This sentence is a test. This sentence is also a test.\n";
         let cfg = FormatConfig {
@@ -2905,7 +2905,7 @@ mod tests {
     #[test]
     fn no_preamble_pragma_formats_body() {
         use crate::format::Format;
-        use crate::{FormatConfig, format_text};
+        use crate::{format_text, FormatConfig};
 
         let input =
             "% snapper:no-preamble\nThis sentence is a test. This sentence is also a test.\n";
@@ -2928,7 +2928,7 @@ mod tests {
     #[test]
     fn documentclass_without_begin_stays_preamble() {
         use crate::format::Format;
-        use crate::{FormatConfig, format_text};
+        use crate::{format_text, FormatConfig};
 
         let input =
             "\\documentclass{article}\nThis sentence is a test. This sentence is also a test.\n";
@@ -3411,7 +3411,7 @@ Some text.
     #[test]
     fn trailing_percent_is_nospace_join() {
         use crate::format::Format;
-        use crate::{FormatConfig, format_text};
+        use crate::{format_text, FormatConfig};
 
         let input = "\\begin{document}\nfoo%\nbar. Next sentence.\n\\end{document}\n";
         let cfg = FormatConfig {
@@ -3435,7 +3435,7 @@ Some text.
     #[test]
     fn escaped_percent_is_not_a_comment() {
         use crate::format::Format;
-        use crate::{FormatConfig, format_text};
+        use crate::{format_text, FormatConfig};
 
         let input = "\\begin{document}\n50\\% of cases. More text.\n\\end{document}\n";
         let cfg = FormatConfig {
@@ -3454,7 +3454,7 @@ Some text.
     #[test]
     fn mid_line_percent_comment_is_structure() {
         use crate::format::Format;
-        use crate::{FormatConfig, format_text};
+        use crate::{format_text, FormatConfig};
 
         let input = "\\begin{document}\nSee Fig. 1. % TODO cite\nNext sentence.\n\\end{document}\n";
         let cfg = FormatConfig {
@@ -3550,6 +3550,65 @@ Some text.
             "following sentence must remain, got:\n{out}"
         );
         assert_eq!(format_text(&out, &latex_cfg()).unwrap(), out);
+    }
+
+    #[test]
+    fn verb_letter_delimiter_round_trips() {
+        use crate::format_text;
+
+        for cmd in [r"\verb", r"\verb*", r"\Verb", r"\spverb"] {
+            let input = format!(
+                "\\begin{{document}}\nSee {cmd} zCode. Next. Morez here. Done.\n\\end{{document}}\n"
+            );
+            let out = format_text(&input, &latex_cfg()).unwrap();
+            let span = format!("{cmd} zCode. Next. Morez");
+            assert!(
+                out.contains(&span),
+                "{cmd} letter body must stay intact, got:\n{out}"
+            );
+            assert!(
+                !out.contains("Next.\nMore"),
+                "{cmd} must not split after Next., got:\n{out}"
+            );
+            assert!(
+                out.contains(&format!("See {span} here.\nDone.")),
+                "prose after {cmd} must still split, got:\n{out}"
+            );
+            assert_eq!(format_text(&out, &latex_cfg()).unwrap(), out);
+        }
+    }
+
+    #[test]
+    fn url_char_delimiter_round_trips() {
+        use crate::format_text;
+
+        for (cmd, body) in [
+            (r"\url", r"http://example.com/A. B"),
+            (r"\path", r"Foo. Bar"),
+            (r"\nolinkurl", r"http://example.com/A. B"),
+        ] {
+            let span = format!("{cmd}|{body}|");
+            let input = format!("\\begin{{document}}\nSee {span} here. Done.\n\\end{{document}}\n");
+            let out = format_text(&input, &latex_cfg()).unwrap();
+            assert!(
+                out.contains(&span),
+                "{cmd} character body must stay intact, got:\n{out}"
+            );
+            assert!(
+                out.contains(&format!("See {span} here.\nDone.")),
+                "prose after {cmd} must still split, got:\n{out}"
+            );
+            let braced = format!(r"{cmd}{{{body}}}");
+            let braced_in =
+                format!("\\begin{{document}}\nSee {braced} here. Done.\n\\end{{document}}\n");
+            let braced_out = format_text(&braced_in, &latex_cfg()).unwrap();
+            assert!(
+                braced_out.contains(&format!("See {braced} here.\nDone.")),
+                "braced {cmd} must stay one span and the next sentence must split, got:\n{braced_out}"
+            );
+            assert_eq!(format_text(&out, &latex_cfg()).unwrap(), out);
+            assert_eq!(format_text(&braced_out, &latex_cfg()).unwrap(), braced_out);
+        }
     }
 
     #[test]
@@ -4122,7 +4181,7 @@ Some text.
     /// form as Delim.
     #[test]
     fn pythontexcustomc_does_not_join_following_prose() {
-        use crate::{FormatConfig, format_text};
+        use crate::{format_text, FormatConfig};
 
         let cmd = r"\pythontexcustomc{python}{import numpy}";
         let input = format!("Before. Next.\n{cmd}\nAfter. Next.\n");
@@ -4255,7 +4314,7 @@ Some text.
     /// no-brace form as Delim.
     #[test]
     fn pyth_does_not_join_following_prose() {
-        use crate::{FormatConfig, format_text};
+        use crate::{format_text, FormatConfig};
 
         let cmd = r"\pyth{print(1)}";
         let input = format!("Before. Next.\n{cmd}\nAfter. Next.\n");
@@ -4397,7 +4456,7 @@ Some text.
     /// configured extra does not re-tokenize the no-brace form as Delim.
     #[test]
     fn scontents_leftover_cmds_do_not_join_following_prose() {
-        use crate::{FormatConfig, format_text};
+        use crate::{format_text, FormatConfig};
 
         for cmd in [
             r"\Scontents*{foo bar}",
@@ -4550,7 +4609,7 @@ Some text.
     /// re-tokenize the no-brace mintinline form as Delim.
     #[test]
     fn verb_span_leftover_cmds_do_not_join_following_prose() {
-        use crate::{FormatConfig, format_text};
+        use crate::{format_text, FormatConfig};
 
         for cmd in [
             r"\lstinline|print(1)|",
@@ -4705,7 +4764,7 @@ Some text.
     /// no-brace form as Delim.
     #[test]
     fn fancyvrb_leftover_cmds_do_not_join_following_prose() {
-        use crate::{FormatConfig, format_text};
+        use crate::{format_text, FormatConfig};
 
         for cmd in [
             r"\UseVerb{foo}",
@@ -5021,7 +5080,7 @@ Some text.
     /// the no-brace form as Delim.
     #[test]
     fn catchfile_leftover_cmds_do_not_join_following_prose() {
-        use crate::{FormatConfig, format_text};
+        use crate::{format_text, FormatConfig};
 
         for cmd in [
             r"\CatchFileDef{\foo}{foo.py}{}",
@@ -5130,7 +5189,7 @@ Some text.
     /// a configured extra does not re-tokenize the no-brace form as Delim.
     #[test]
     fn inputpython_does_not_join_following_prose() {
-        use crate::{FormatConfig, format_text};
+        use crate::{format_text, FormatConfig};
 
         let input = concat!(
             "Before. Next.\n",
@@ -5254,7 +5313,7 @@ Some text.
     /// not re-tokenize the no-brace form as Delim.
     #[test]
     fn sagetex_inline_cmds_do_not_join_following_prose() {
-        use crate::{FormatConfig, format_text};
+        use crate::{format_text, FormatConfig};
 
         for (cmd, name) in [
             (r"\sageplot{plot(sin(x))}", "sageplot"),
@@ -5403,7 +5462,7 @@ Some text.
     /// `\inputpygments` / `\pygment` unchanged.
     #[test]
     fn pytx_inline_cmds_do_not_join_following_prose() {
-        use crate::{FormatConfig, format_text};
+        use crate::{format_text, FormatConfig};
 
         for name in [
             "py", "pyc", "pys", "pyb", "pyv", "pycon", "pyconc", "pycons", "pyconv", "sympy",
@@ -5536,7 +5595,7 @@ Some text.
     /// mint envs, not these inlines.
     #[test]
     fn pytx_usefamily_inline_cmds_do_not_join_following_prose() {
-        use crate::{FormatConfig, format_text};
+        use crate::{format_text, FormatConfig};
 
         const FAMILIES: &[&str] = &[
             "ruby",
@@ -9198,7 +9257,7 @@ Some text.
     fn enumerate_item_hangs_next_sentence() {
         use crate::format::Format;
         use crate::oracle;
-        use crate::{FormatConfig, format_text};
+        use crate::{format_text, FormatConfig};
 
         let cfg = FormatConfig {
             format: Format::Latex,
@@ -11424,7 +11483,7 @@ Some text.
     /// does not re-tokenize the no-brace form as Delim.
     #[test]
     fn verbatimtabinput_does_not_join_following_prose() {
-        use crate::{FormatConfig, format_text};
+        use crate::{format_text, FormatConfig};
 
         for cmd in [
             r"\verbatimtabinput{foo.py}",
@@ -11541,7 +11600,7 @@ Some text.
     /// configured extra does not re-tokenize the no-brace form as Delim.
     #[test]
     fn verbatimwrite_does_not_join_following_prose() {
-        use crate::{FormatConfig, format_text};
+        use crate::{format_text, FormatConfig};
 
         for cmd in [r"\verbatimwrite{foo.py}", r"\verbatimwrite*{foo.py}"] {
             let input = format!("Before. Next.\n{cmd}\nAfter. Next.\n");
@@ -11651,7 +11710,7 @@ Some text.
     /// no-brace form as Delim.
     #[test]
     fn listingcont_does_not_join_following_prose() {
-        use crate::{FormatConfig, format_text};
+        use crate::{format_text, FormatConfig};
 
         let cmd = r"\listingcont";
         let input = format!("Before. Next.\n{cmd}\nAfter. Next.\n");
@@ -11743,7 +11802,7 @@ Some text.
     /// form as Delim.
     #[test]
     fn defineshortverb_does_not_join_following_prose() {
-        use crate::{FormatConfig, format_text};
+        use crate::{format_text, FormatConfig};
 
         for cmd in [r"\DefineShortVerb{\|}", r"\UndefineShortVerb{\|}"] {
             let input = format!("Before. Next.\n{cmd}\nAfter. Next.\n");
@@ -11849,7 +11908,7 @@ Some text.
     /// form as Delim.
     #[test]
     fn fvextra_buffer_leftover_cmds_do_not_join_following_prose() {
-        use crate::{FormatConfig, format_text};
+        use crate::{format_text, FormatConfig};
 
         for cmd in [
             r"\VerbatimInsertBuffer[foo]",
