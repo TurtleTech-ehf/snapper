@@ -45,16 +45,27 @@ static INLINE_TOKEN_RE: LazyLock<Regex> = LazyLock::new(|| {
             r"\[[^\]]+\]\([^)]+\)",  // Markdown links: [text](url)
             r"!\[[^\]]*\]\([^)]+\)", // Markdown images: ![alt](url)
             // CommonMark 0.31.2 §6.3 full / collapsed reference links.
-            // The label must follow the text immediately. Shortcut `[text]`
-            // is not matched: that would swallow every bracket group.
+            // The label must follow the text immediately. A bare `[text]`
+            // with no interior sentence punctuation is not a token: that
+            // would swallow `[fn:1]` and every other bracket group.
+            // A shortcut whose label contains `.` `!` or `?` is one span.
             r"!\[[^\]]*\]\[[^\]]*\]", // Markdown reference images: ![alt][ref]
             r"\[[^\]]+\]\[[^\]]*\]",  // Markdown reference links: [text][ref]
+            // Pandoc citation: `[@doe2020]` / `[see @doe2020, pp. 33]`.
+            // `@` is the key, not an email glued to the previous word.
+            // Org `[cite:…]` is already a token above.
+            r"\[(?:[^\[\]\n]*[;\s])?-?@[A-Za-z][^\[\]\n]*\]",
+            // Shortcut reference whose label holds a sentence boundary.
+            // `[fn:` / `[cite` stay out (org footnote ref / citation).
+            r"\[(?!fn:|cite)[^\[\]\n]*[.!?][^\[\]\n]*\]",
             r"\$\$[^$\n]+\$\$", // Display math: $$...$$
             // org-element-latex-fragment-parser: after `$` the next char
             // is not space/tab/newline/`,`/`.`/`;`; the char before the
-            // closer is not space/tab/newline/`,`/`.`. `$ x. Next $` is
-            // leftover prose. `$a. b$` stays a fragment.
-            r"\$[^\s,.;$\n](?:[^$\n]*[^\s,.$\n])?\$",
+            // closer is not space/tab/newline/`,`. A `.` may sit against
+            // the closer (`$See this. Then that.$`, pandoc tex_math_dollars).
+            // `$ x. Next $` is leftover prose. `$a. b$` and `$x = 3.14$`
+            // stay fragments.
+            r"\$[^\s,.;$\n](?:[^$\n]*[^\s,$\n])?\$",
             // org-element-latex-fragment-parser: \(...\) / \[...\] search
             // to the closer. `[^\\\n]` dropped interior `\alpha` / `\beta`.
             r"\\\([^\n]+?\\\)", // LaTeX inline math: \(...\)
@@ -7743,6 +7754,60 @@ mod tests {
         assert_eq!(
             split("The value $x = 3.14$ matters. Next sentence."),
             vec!["The value $x = 3.14$ matters.", "Next sentence."]
+        );
+    }
+
+    #[test]
+    fn dollar_math_closed_by_period_stays_one_span() {
+        let math = "$See this. Then that.$";
+        let text = "See $See this. Then that.$ today. Next sentence.";
+        let (_, placeholders) = protect_inline_tokens(text);
+        assert!(
+            placeholders.iter().any(|p| p == math),
+            "period-closed math must be one token, got {placeholders:?}"
+        );
+        assert_eq!(
+            split(text),
+            vec![
+                "See $See this. Then that.$ today.".to_string(),
+                "Next sentence.".to_string()
+            ]
+        );
+    }
+
+    #[test]
+    fn shortcut_reference_label_stays_one_span() {
+        let link = "[Theorem. Proof]";
+        let text = "See [Theorem. Proof] for details. Next sentence.";
+        let (_, placeholders) = protect_inline_tokens(text);
+        assert!(
+            placeholders.iter().any(|p| p == link),
+            "shortcut label must be one token, got {placeholders:?}"
+        );
+        assert_eq!(
+            split(text),
+            vec![
+                "See [Theorem. Proof] for details.".to_string(),
+                "Next sentence.".to_string()
+            ]
+        );
+    }
+
+    #[test]
+    fn pandoc_citation_stays_one_span() {
+        let cite = "[@doe2020, see this. Then that]";
+        let text = "See [@doe2020, see this. Then that] for details. Next sentence.";
+        let (_, placeholders) = protect_inline_tokens(text);
+        assert!(
+            placeholders.iter().any(|p| p == cite),
+            "pandoc citation must be one token, got {placeholders:?}"
+        );
+        assert_eq!(
+            split(text),
+            vec![
+                "See [@doe2020, see this. Then that] for details.".to_string(),
+                "Next sentence.".to_string()
+            ]
         );
     }
 
