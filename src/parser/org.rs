@@ -19,13 +19,15 @@ static LIST_ITEM_RE: LazyLock<Regex> = LazyLock::new(|| {
 
 /// org-syntax item: `tag :: description`.
 ///
-/// Bytes of `after_bullet` through `[ \t]+::` and the spaces that follow.
-/// The tag stays on the item line; the description hangs as prose.
+/// Bytes of `after_bullet` through the last `[ \t]+::` and the spaces
+/// that follow. The tag stays on the item line; the description hangs
+/// as prose.
 /// `None` when the item has no tag (`::` needs whitespace before it,
 /// and whitespace or end after it).
 pub(crate) fn org_item_tag_end(after_bullet: &str) -> Option<usize> {
     let bytes = after_bullet.as_bytes();
     let mut i = 0;
+    let mut found = None;
     while i < bytes.len() {
         if bytes[i] == b' ' || bytes[i] == b'\t' {
             let mut j = i;
@@ -38,7 +40,7 @@ pub(crate) fn org_item_tag_end(after_bullet: &str) -> Option<usize> {
                     while k < bytes.len() && (bytes[k] == b' ' || bytes[k] == b'\t') {
                         k += 1;
                     }
-                    return Some(k);
+                    found = Some(k);
                 }
             }
             i = j;
@@ -46,7 +48,7 @@ pub(crate) fn org_item_tag_end(after_bullet: &str) -> Option<usize> {
         }
         i += 1;
     }
-    None
+    found
 }
 
 /// Hang width when `s` is a list marker plus an item tag and nothing else.
