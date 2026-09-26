@@ -720,3 +720,18 @@ fn opaque_directives_stay_frozen() {
         );
     }
 }
+
+#[test]
+fn leftover_include_same_line_after_filename_hangs_and_splits() {
+    let input = concat!(".. include:: foo.rst leftover. Next.\n", "After. Next.\n",);
+    let out = format_text(input, &rst_cfg()).unwrap();
+    assert!(
+        !out.contains(".. include:: foo.rst leftover. Next."),
+        "leftover after include filename must still split, got:\n{out}"
+    );
+    assert!(
+        out.contains("After.\nNext."),
+        "following prose must still split, got:\n{out}"
+    );
+    assert_eq!(format_text(&out, &rst_cfg()).unwrap(), out);
+}

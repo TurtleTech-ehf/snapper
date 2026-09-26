@@ -1,2 +1,4 @@
 cc d79a9afaf43398f6b4d3999f8b46406a5d655287b7aa1337dc58197743c7c763
 cc 6bcc518ea20aa048d7430ed3a2ddd6a30badf460c982382ac7686f0aa817ae64
+cc f322aad94da4670a8af1f51e280782a835219993a8d3158d4f0722779220cadd # shrinks to prefix = "", interior = "!!A", suffix = "A", which = 1
+cc 935b70ec7159c79dc2454d1ac28fabffe451e98a58e2aba985c95f709076848b # shrinks to prefix = "", interior = "!!a", suffix = "", which = 5

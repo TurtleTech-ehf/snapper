@@ -166,15 +166,46 @@ struct OpenGreater {
 
 /// org-element-drawer-re NAME: `(any ?- ?_ word)` — hyphen, underscore,
 /// or Unicode word characters (letters and digits). `:END:` is the closer.
-/// org-element plain link at column 0: `file:` / `http://` / `https://`
-/// / `mailto:` / `news:` / `doi:` / `ftp://` / `attachment:` / `id:`
-/// plus the path.
-/// Leftover after the path is hung Prose.
+/// org-element plain link at column 0: `file+emacs:` / `file+sys:` /
+/// `file:` / `shell:` / `elisp:` / `help:` / `info:` / `http://` /
+/// `https://` / `eww:` / `irc:` / `bbdb:` / `gnus:` / `rmail:` /
+/// `mhe:` / `vm:` / `wl:` / `mailto:` /
+/// `news:` / `doi:` / `ftp://` / `attachment:` / `id:` plus the path.
+/// Leftover after the path is hung Prose. `file+emacs:` / `file+sys:`
+/// must be matched before `file:` or the `+…` is eaten as the path.
 pub(crate) fn org_plain_link_marker_len(line: &str) -> Option<usize> {
     let indent = line.len() - line.trim_start().len();
     let t = &line[indent..];
-    let prefix = if t.starts_with("file:") {
+    let prefix = if t.starts_with("file+emacs:") {
+        "file+emacs:"
+    } else if t.starts_with("file+sys:") {
+        "file+sys:"
+    } else if t.starts_with("file:") {
         "file:"
+    } else if t.starts_with("shell:") {
+        "shell:"
+    } else if t.starts_with("elisp:") {
+        "elisp:"
+    } else if t.starts_with("help:") {
+        "help:"
+    } else if t.starts_with("info:") {
+        "info:"
+    } else if t.starts_with("eww:") {
+        "eww:"
+    } else if t.starts_with("irc:") {
+        "irc:"
+    } else if t.starts_with("bbdb:") {
+        "bbdb:"
+    } else if t.starts_with("gnus:") {
+        "gnus:"
+    } else if t.starts_with("rmail:") {
+        "rmail:"
+    } else if t.starts_with("mhe:") {
+        "mhe:"
+    } else if t.starts_with("vm:") {
+        "vm:"
+    } else if t.starts_with("wl:") {
+        "wl:"
     } else if t.starts_with("https://") {
         "https://"
     } else if t.starts_with("http://") {

@@ -1548,6 +1548,7 @@ pub(crate) fn leftover_keyval_cs_name(tail: &str) -> Option<&'static str> {
         "stderrpythontex",
         "printpythontex",
         "usemintedstyle",
+        "OptionalLocalPitonStyle",
         "SetPitonStyle",
         "PitonStyle",
         "PitonOptions",
@@ -1568,6 +1569,12 @@ pub(crate) fn leftover_keyval_cs_name(tail: &str) -> Option<&'static str> {
         "tcbifoddpageoroneside",
         "tcbifoddpage",
         "tcbifexternal",
+        "tcbcontinuedraftmode",
+        "tcbinterruptdraftmode",
+        "tcbstartdraftmode",
+        "tcbstopdraftmode",
+        "tcbposterset",
+        "tcbfontsize",
         "tcbEXTERNALIZE",
         "tcbitem",
         "tcbheightfromgroup",
@@ -1578,6 +1585,8 @@ pub(crate) fn leftover_keyval_cs_name(tail: &str) -> Option<&'static str> {
         "tcbinputrecords",
         "tcbsidebyside",
         "tcbsubskin",
+        "tcbmakedocSubKeys",
+        "tcbmakedocSubKey",
         "tcbmakeprefixed",
         "tcbhyperref",
         "tcbhypernode",
@@ -1588,6 +1597,31 @@ pub(crate) fn leftover_keyval_cs_name(tail: &str) -> Option<&'static str> {
         "tcbwritetemp",
         "tcbrecord",
         "tcbbreak",
+        "refPathOperation",
+        "brackets",
+        "colFade",
+        "colDef",
+        "colOpt",
+        "pbarg",
+        "oarg",
+        "marg",
+        "meta",
+        "sarg",
+        "cs",
+        "docAuxEnvironment",
+        "docAuxCommand",
+        "docKeyChoices",
+        "docAuxKey",
+        "docCounter",
+        "docLength",
+        "docColor",
+        "docValue",
+        "refAuxcs",
+        "refCom",
+        "refEnv",
+        "refKey",
+        "refAux",
+        "refPkg",
         "tcbdocmarginnote",
         "tcbdocupdated",
         "tcbdocnote",
@@ -1652,7 +1686,22 @@ pub(crate) fn leftover_keyval_cs_name(tail: &str) -> Option<&'static str> {
         let Some(after) = tail.strip_prefix(name) else {
             continue;
         };
-        let reject_star = name != "tcbline";
+        let reject_star = !matches!(
+            name,
+            "tcbline"
+                | "refCom"
+                | "refEnv"
+                | "refKey"
+                | "refPathOperation"
+                | "docAuxCommand"
+                | "docAuxEnvironment"
+                | "docAuxKey"
+                | "docCounter"
+                | "docLength"
+                | "docColor"
+                | "docValue"
+                | "docKeyChoices"
+        );
         if after.starts_with(|c: char| c.is_ascii_alphabetic() || (reject_star && c == '*')) {
             return None;
         }
@@ -1717,6 +1766,11 @@ fn leftover_keyval_kind(name: &str) -> VerbKind {
         | "tcbEXTERNALIZE"
         | "tcbdocdescNoDefaultInit"
         | "tcbdocdescInitEmpty"
+        | "sarg"
+        | "tcbcontinuedraftmode"
+        | "tcbinterruptdraftmode"
+        | "tcbstartdraftmode"
+        | "tcbstopdraftmode"
         | "PyLTVerbatimEnv" => VerbKind::Listingcont,
         "setmintedinline"
         | "usemintedstyle"
@@ -1731,6 +1785,7 @@ fn leftover_keyval_kind(name: &str) -> VerbKind {
         | "tcboxfit"
         | "tcbox"
         | "tcbhyperref"
+        | "docAuxKey"
         | "tcbhypernode"
         | "tcbverbatimwrite"
         | "tcbrecord"
@@ -1791,7 +1846,9 @@ fn leftover_keyval_kind(name: &str) -> VerbKind {
         | "tcbsetmacrotowidthofnode"
         | "tcbsettoheightofnode"
         | "tcbsetmacrotoheightofnode"
-        | "tcbsetfromto" => VerbKind::Listinginput,
+        | "tcbsetfromto"
+        | "tcbmakedocSubKeys"
+        | "tcbmakedocSubKey" => VerbKind::Listinginput,
         "RecustomVerbatimEnvironment"
         | "CustomVerbatimEnvironment"
         | "DefineVerbatimEnvironment"
@@ -3173,11 +3230,23 @@ fn push_segment_preserving_space(dest: &mut String, piece: &str) {
         })
         // `!!a` is one UAX fragment; inventing `!! a` then splitting
         // `!! a` on the next pass is a wrap/SemBr cycle.
-        && !dest.ends_with("!!");
+        && !dest.ends_with("!!")
+        // After protect_inline_tokens, `.`` ` is `.` + leftover backtick
+        // (`dest="…."`, `piece="`\\0PHn\\0"`). Inventing `. `` ` then
+        // wrapping back is a SemBr cycle. Still invent a space when the
+        // leftover ticks start a capital (`=(a=.`Aa` vs `=(a=.\n`Aa`).
+        && !(dest.ends_with(['.', '!', '?'])
+            && piece.starts_with('`')
+            && !piece_starts_sentence_after_ticks(piece));
     if need_space {
         dest.push(' ');
     }
     dest.push_str(piece);
+}
+
+fn piece_starts_sentence_after_ticks(piece: &str) -> bool {
+    let rest = piece.trim_start_matches('`');
+    rest.len() < piece.len() && rest.starts_with(|c: char| c.is_uppercase())
 }
 
 /// Merge false splits caused by sentence punctuation inside quotes or parens.
@@ -3288,8 +3357,13 @@ fn merge_quoted_punct_splits(segments: Vec<String>) -> Vec<String> {
 /// UAX SB11 breaks after ATerm+Sp *before* a closer, so `(. aA. )A` is
 /// `(. aA. ` + `)A`. Glue only the closer; a following capital is a new
 /// sentence (GitHub #266). The tight form `(. aA.)A` already splits.
+///
 /// `!!a` is one UAX fragment. Split so first and second format_text
 /// passes agree (`!!` ends the sentence; the letter starts the next).
+/// Do not split when `!!` sits inside a wrapper this piece closes
+/// (`"!!a"`, `'!!A'A`). DelimState's apostrophe heuristic treats the
+/// closer in `'!!A'A` as `A'A`, so this walk toggles `'` without it.
+/// An unclosed opener (`[=!!a`) still splits.
 fn split_double_bang_then_letter(segments: Vec<String>) -> Vec<String> {
     let mut out = Vec::new();
     for seg in segments {
@@ -3300,10 +3374,17 @@ fn split_double_bang_then_letter(segments: Vec<String>) -> Vec<String> {
             if chars[idx].1 == '!' && chars[idx + 1].1 == '!' {
                 if let Some(&(off, ch)) = chars.get(idx + 2) {
                     if ch.is_alphabetic() {
-                        out.push(seg[start..off].to_string());
-                        start = off;
-                        idx += 2;
-                        continue;
+                        let prev = idx.checked_sub(1).map(|i| chars[i].1);
+                        let quote_before = matches!(
+                            prev,
+                            Some('"' | '\'' | '\u{201C}' | '\u{2018}' | '\u{00AB}')
+                        );
+                        if !quote_before && !wrap_closes_after_bang(&seg[start..], off - start) {
+                            out.push(seg[start..off].to_string());
+                            start = off;
+                            idx += 2;
+                            continue;
+                        }
                     }
                 }
             }
@@ -3314,6 +3395,51 @@ fn split_double_bang_then_letter(segments: Vec<String>) -> Vec<String> {
         }
     }
     out
+}
+
+/// True when `!!` at `bang_at` is inside `"…"` / `'…'` / ` ``…'' ` /
+/// `(…)` / `[…]` / `{…}` and that wrapper closes later in `piece`.
+fn wrap_closes_after_bang(piece: &str, bang_at: usize) -> bool {
+    let chars: Vec<(usize, char)> = piece.char_indices().collect();
+    let mut dq = false;
+    let mut sq = false;
+    let mut latex = 0i32;
+    let mut paren = 0i32;
+    let mut bracket = 0i32;
+    let mut brace = 0i32;
+    let mut i = 0;
+    while i < chars.len() {
+        let ch = chars[i].1;
+        let next = chars.get(i + 1).map(|c| c.1);
+        if ch == '`' && next == Some('`') {
+            latex += 1;
+            i += 2;
+        } else if ch == '\'' && next == Some('\'') {
+            latex = (latex - 1).max(0);
+            i += 2;
+        } else {
+            match ch {
+                '"' => dq = !dq,
+                '\'' => sq = !sq,
+                '(' => paren += 1,
+                ')' => paren -= 1,
+                '[' => bracket += 1,
+                ']' => bracket -= 1,
+                '{' => brace += 1,
+                '}' => brace -= 1,
+                _ => {}
+            }
+            i += 1;
+        }
+        let consumed_to = chars.get(i).map_or(piece.len(), |c| c.0);
+        if consumed_to == bang_at {
+            let inside = dq || sq || latex > 0 || paren > 0 || bracket > 0 || brace > 0;
+            if !inside {
+                return false;
+            }
+        }
+    }
+    !dq && !sq && latex <= 0 && paren <= 0 && bracket <= 0 && brace <= 0
 }
 
 fn merge_splits_inside_delimiters(segments: Vec<String>) -> Vec<String> {
@@ -3333,6 +3459,13 @@ fn merge_splits_inside_delimiters(segments: Vec<String>) -> Vec<String> {
                     result.push(rest.to_string());
                     state.feed(rest);
                 }
+                continue;
+            }
+            if result.last().is_some_and(|last| {
+                last.ends_with(['.', '!', '?']) && piece_starts_sentence_after_ticks(&segment)
+            }) {
+                result.push(segment.clone());
+                state.feed(&segment);
                 continue;
             }
             if let Some(last) = result.last_mut() {
@@ -3602,6 +3735,24 @@ mod tests {
 
     fn split(text: &str) -> Vec<String> {
         UnicodeSentenceSplitter::new().split(text)
+    }
+
+    #[test]
+    fn period_then_latex_quotes_does_not_invent_space() {
+        assert_eq!(
+            split("^{`}`.`` A0`"),
+            vec!["^{`}`.`` A0`".to_string()],
+            "must not invent space between . and ``"
+        );
+    }
+
+    #[test]
+    fn single_quote_bang_capital_stays_one_sentence() {
+        assert_eq!(
+            split("'!!A'A"),
+            vec!["'!!A'A".to_string()],
+            "UAX/refine must keep balanced '!!A' as one sentence"
+        );
     }
 
     #[test]

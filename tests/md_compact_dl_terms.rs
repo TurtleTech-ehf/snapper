@@ -232,3 +232,31 @@ fn leftover_list_item_second_compact_dl_term_after_definition() {
     );
     assert_eq!(format_text(&out, &md_cfg()).unwrap(), out);
 }
+
+#[test]
+fn leftover_extra_compact_dl_after_yaml_front_matter() {
+    let input = concat!(
+        "---\n",
+        "title: foo\n",
+        "---\n",
+        "\n",
+        "Alpha term. Still alpha.\n",
+        ": First definition sentence. Second sentence.\n",
+        "\n",
+        "After the list. Next.\n",
+    );
+    let regions = MarkdownParser.parse(input);
+    assert!(
+        regions.iter().any(|r| matches!(
+            r,
+            Region::Structure(s) if s.contains("Alpha term. Still alpha.")
+        )),
+        "compact term after YAML front matter must be Structure, got {regions:?}"
+    );
+    let out = format_text(input, &md_cfg()).unwrap();
+    assert!(
+        out.contains("After the list.\nNext."),
+        "following prose must still split, got:\n{out}"
+    );
+    assert_eq!(format_text(&out, &md_cfg()).unwrap(), out);
+}
