@@ -1917,6 +1917,45 @@ fn is_display_math_close(line: &str, kind: DisplayMathKind) -> bool {
     }
 }
 
+/// Open LaTeX environment whose body the LaTeX parser keeps whole.
+struct LatexEnvOpen {
+    name: String,
+    depth: usize,
+    raw: bool,
+}
+
+fn first_kept_begin(line: &str) -> Option<crate::parser::latex::EnvAt> {
+    let mut from = 0;
+    while let Some(hit) = crate::parser::latex::next_env_at(line, from, false) {
+        if hit.is_begin && crate::parser::latex::env_body_kept_whole(&hit.name) {
+            return Some(hit);
+        }
+        from = hit.end;
+    }
+    None
+}
+
+fn push_trimmed_prose(
+    current_prose: &mut String,
+    prose_span: &mut Option<ByteSpan>,
+    text: &str,
+    abs_start: usize,
+    abs_end: usize,
+) {
+    let trimmed = text.trim();
+    if trimmed.is_empty() {
+        return;
+    }
+    if !current_prose.is_empty() {
+        join_prose_gap(current_prose);
+    }
+    current_prose.push_str(trimmed);
+    match prose_span {
+        None => *prose_span = Some(ByteSpan::new(abs_start, abs_end)),
+        Some(span) => span.end = abs_end,
+    }
+}
+
 /// When `\]` has trailing prose, the math prefix is Structure and the
 /// tail is Prose (its span runs through the line terminator).
 fn emit_bracket_tail(
@@ -2038,6 +2077,7 @@ impl FormatParser for MarkdownParser {
         let mut in_definition_list = false;
         let mut in_quoted_footnote = false;
         let mut in_display_math: Option<DisplayMathKind> = None;
+        let mut latex_env: Option<LatexEnvOpen> = None;
         let mut pragma_off = false;
 
         let lines = iter_lines(input);
@@ -2165,6 +2205,67 @@ impl FormatParser for MarkdownParser {
                     }
                 }
                 regions.push(SpannedRegion::structure(input, line.span()));
+                i += 1;
+                continue;
+            }
+
+            // LaTeX non-prose / code environment. Body stays whole until the
+            // matching `\end`. Trailing prose on the closer line stays Prose.
+            if latex_env.is_some() {
+                close_list_item(
+                    &mut in_list_item,
+                    &mut list_hang,
+                    &mut current_prose,
+                    &mut prose_span,
+                    &mut list_term,
+                    &mut in_definition_list,
+                    input,
+                    &mut regions,
+                );
+                flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
+                let mut open = latex_env.take().expect("latex env");
+                let mut rel = 0;
+                let mut close_at = None;
+                while let Some(hit) = crate::parser::latex::next_env_at(line_text, rel, open.raw) {
+                    if hit.name != open.name {
+                        rel = hit.end;
+                        continue;
+                    }
+                    if hit.is_begin {
+                        open.depth += 1;
+                        rel = hit.end;
+                    } else {
+                        open.depth -= 1;
+                        if open.depth == 0 {
+                            close_at = Some(hit.end);
+                            break;
+                        }
+                        rel = hit.end;
+                    }
+                }
+                if let Some(end_at) = close_at {
+                    let tail = line_text.get(end_at..).unwrap_or("");
+                    if tail.trim().is_empty() {
+                        regions.push(SpannedRegion::structure(input, line.span()));
+                    } else {
+                        let lead = tail.len() - tail.trim_start().len();
+                        let struct_end = end_at + lead;
+                        regions.push(SpannedRegion::structure(
+                            input,
+                            ByteSpan::new(line.start, line.start + struct_end),
+                        ));
+                        push_trimmed_prose(
+                            &mut current_prose,
+                            &mut prose_span,
+                            tail,
+                            line.start + struct_end,
+                            line.end,
+                        );
+                    }
+                } else {
+                    regions.push(SpannedRegion::structure(input, line.span()));
+                    latex_env = Some(open);
+                }
                 i += 1;
                 continue;
             }
@@ -3412,6 +3513,72 @@ impl FormatParser for MarkdownParser {
                         ));
                         continue;
                     }
+                }
+            }
+
+            // `\begin{name}` for a LaTeX non-prose or code environment. `$$`
+            // and `\[` already returned above. Prose outside the body splits.
+            if !in_list_item {
+                if let Some(hit) = first_kept_begin(line_text) {
+                    let raw = crate::parser::latex::is_builtin_code_env(&hit.name);
+                    let prefix = line_text.get(..hit.start).unwrap_or("");
+                    if !prefix.trim().is_empty() {
+                        push_trimmed_prose(
+                            &mut current_prose,
+                            &mut prose_span,
+                            prefix,
+                            line.start,
+                            line.start + hit.start,
+                        );
+                    }
+                    close_list_item(
+                        &mut in_list_item,
+                        &mut list_hang,
+                        &mut current_prose,
+                        &mut prose_span,
+                        &mut list_term,
+                        &mut in_definition_list,
+                        input,
+                        &mut regions,
+                    );
+                    flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
+                    if let Some(end_at) = crate::parser::latex::matching_env_end(
+                        line_text, hit.end, &hit.name, 1, raw,
+                    ) {
+                        let tail = line_text.get(end_at..).unwrap_or("");
+                        if tail.trim().is_empty() {
+                            regions.push(SpannedRegion::structure(
+                                input,
+                                ByteSpan::new(line.start + hit.start, line.end),
+                            ));
+                        } else {
+                            let lead = tail.len() - tail.trim_start().len();
+                            let struct_end = end_at + lead;
+                            regions.push(SpannedRegion::structure(
+                                input,
+                                ByteSpan::new(line.start + hit.start, line.start + struct_end),
+                            ));
+                            push_trimmed_prose(
+                                &mut current_prose,
+                                &mut prose_span,
+                                tail,
+                                line.start + struct_end,
+                                line.end,
+                            );
+                        }
+                    } else {
+                        regions.push(SpannedRegion::structure(
+                            input,
+                            ByteSpan::new(line.start + hit.start, line.end),
+                        ));
+                        latex_env = Some(LatexEnvOpen {
+                            name: hit.name,
+                            depth: 1,
+                            raw,
+                        });
+                    }
+                    i += 1;
+                    continue;
                 }
             }
 
@@ -6804,6 +6971,79 @@ mod tests {
         assert!(
             !out.contains("After that line. More text."),
             "middle paragraph must not stay one line, got:\n{out}"
+        );
+        assert_eq!(format_text(&out, &md_cfg()).unwrap(), out);
+    }
+
+    /// LaTeX non-prose and code environments stay whole. Outside prose splits.
+    #[test]
+    fn latex_kept_env_body_is_not_sentence_split() {
+        use crate::format_text;
+
+        for name in [
+            "subequations",
+            "dmath",
+            "multlined",
+            "loglogaxis",
+            "tikzpicture*",
+            "matrix*",
+            "equation",
+            "verbatim",
+        ] {
+            let input = format!(
+                "Before the env. More before.\n\
+                 \\begin{{{name}}}\n\
+                 First sentence. Second sentence.\n\
+                 \\end{{{name}}}\n\
+                 After the env. More after.\n"
+            );
+            let regions = MarkdownParser.parse(&input);
+            assert!(
+                regions.iter().any(|r| matches!(
+                    r,
+                    Region::Structure(s) if s.contains("First sentence. Second sentence.")
+                )),
+                "{name} body must be Structure, got: {regions:?}"
+            );
+            assert!(
+                !regions.iter().any(|r| matches!(
+                    r,
+                    Region::Prose(p) if p.contains("First sentence")
+                )),
+                "{name} body must not be Prose, got: {regions:?}"
+            );
+            let out = format_text(&input, &md_cfg()).unwrap();
+            assert!(
+                out.contains(&format!(
+                    "\\begin{{{name}}}\nFirst sentence. Second sentence.\n\\end{{{name}}}"
+                )),
+                "{name} body must stay one block, got:\n{out}"
+            );
+            assert!(
+                !out.contains("First sentence.\nSecond sentence."),
+                "{name} body must not split, got:\n{out}"
+            );
+            assert!(
+                out.contains("Before the env.\nMore before."),
+                "prose before {name} must still split, got:\n{out}"
+            );
+            assert!(
+                out.contains("After the env.\nMore after."),
+                "prose after {name} must still split, got:\n{out}"
+            );
+            assert_eq!(format_text(&out, &md_cfg()).unwrap(), out);
+        }
+    }
+
+    #[test]
+    fn prose_latex_env_still_splits() {
+        use crate::format_text;
+
+        let input = "\\begin{quote}\nFirst sentence. Second sentence.\n\\end{quote}\n";
+        let out = format_text(input, &md_cfg()).unwrap();
+        assert!(
+            out.contains("First sentence.\nSecond sentence."),
+            "quote body is prose and must split, got:\n{out}"
         );
         assert_eq!(format_text(&out, &md_cfg()).unwrap(), out);
     }
