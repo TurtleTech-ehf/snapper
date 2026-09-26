@@ -75,8 +75,14 @@ fn item_tag_uses_the_last_separator() {
         out.starts_with("- Alpha :: Beta. Gamma :: One.\n"),
         "a sentence inside the tag stays on the item line, got:\n{out}"
     );
-    assert!(out.contains("Two.\n"), "description still splits, got:\n{out}");
-    assert!(!out.contains("- Alpha.\n"), "tag must not split, got:\n{out}");
+    assert!(
+        out.contains("Two.\n"),
+        "description still splits, got:\n{out}"
+    );
+    assert!(
+        !out.contains("- Alpha.\n"),
+        "tag must not split, got:\n{out}"
+    );
 }
 
 #[test]
