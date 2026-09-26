@@ -325,9 +325,13 @@ fn protect_latex_verbatim(
 /// `\InsertBuffer` / `\IterateBuffer` / extra-name span
 /// starting at `at`.
 ///
-/// `\verb` / `\verb*` / `\spverb` / `\spverb*` / `\Verb` / `\Verb*`: next
-/// character is the
-/// delimiter; content runs to the same character. Leftover walker
+/// `\verb` / `\verb*` / `\spverb` / `\spverb*` / `\Verb` / `\Verb*`: the
+/// delimiter is the next character after spaces TeX drops following the
+/// control word (and after `*` for the star form). A letter there is
+/// the delimiter (`\verb x...x`), not the space. Content runs to the
+/// same character. url.sty `\url` / `\path` and hyperref `\nolinkurl`
+/// use that non-brace delimiter; a `{` stays on the generic `\cmd{arg}`
+/// path. Leftover walker
 /// (GitHub #452) classifies `\verb` / `\verb*` / `\lstinline` /
 /// `\mintinline` / `\mint` / `\SaveVerb` / `\spverb` / `\piton` as
 /// Structure so following flush prose does not join. `\lstinline` /
@@ -777,6 +781,12 @@ pub(crate) fn latex_verb_span_end_with(
             return None;
         }
         (after_bs + "SaveVerb".len(), VerbKind::SaveVerb)
+    } else if let Some(name) = url_delim_cs_name(tail) {
+        // url.sty `\url` / `\path` and hyperref `\nolinkurl`. Longer
+        // name first is unnecessary (`url` is not a prefix of
+        // `nolinkurl`). Alphabetic leftover rejects a longer name.
+        // A `{` body stays on the generic `\cmd{arg}` path.
+        (after_bs + name.len(), VerbKind::UrlDelim)
     } else if let Some(stripped) = tail.strip_prefix("verb") {
         if stripped.starts_with(|c: char| c.is_ascii_alphabetic()) {
             return None;
@@ -787,7 +797,14 @@ pub(crate) fn latex_verb_span_end_with(
         (after_bs + name.len(), VerbKind::Delim)
     };
 
-    if text.get(i..)?.starts_with('*') {
+    // `\url` / `\path` / `\nolinkurl` have no star form. A following
+    // `*` is not this span, so the generic command path can still see
+    // `\url*{...}`.
+    if kind == VerbKind::UrlDelim {
+        if text.get(i..).is_some_and(|s| s.starts_with('*')) {
+            return None;
+        }
+    } else if text.get(i..)?.starts_with('*') {
         i += 1;
     }
 
@@ -1107,8 +1124,20 @@ pub(crate) fn latex_verb_span_end_with(
         }
     }
 
+    // TeX drops spaces after a control word, and the undelimited
+    // delimiter argument drops spaces too. The character after that
+    // space is the delimiter.
+    if matches!(kind, VerbKind::Delim | VerbKind::UrlDelim) {
+        i = skip_ascii_ws(text, i);
+    }
+
     let delim = text.get(i..).and_then(|s| s.chars().next())?;
     if delim == '\n' {
+        return None;
+    }
+    // Braced `\url{...}` / `\path{...}` / `\nolinkurl{...}` stay on the
+    // generic `\cmd{arg}` path. Do not retokenize them here.
+    if kind == VerbKind::UrlDelim && delim == '{' {
         return None;
     }
     // pythontex `\py After.` is leftover prose, not `A` as a delimiter.
@@ -1157,8 +1186,12 @@ pub(crate) fn latex_verb_span_end_with(
 /// Built-in verb-like command shape (GitHub #245 minted `{lang}` body).
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum VerbKind {
-    /// `\verb` / `\spverb` / extras: next character is the delimiter.
+    /// `\verb` / `\spverb` / `\Verb` / extras: next character after
+    /// dropped spaces is the delimiter.
     Delim,
+    /// url.sty `\url` / `\path` and hyperref `\nolinkurl`: non-brace
+    /// delimiter. `{` is not this span.
+    UrlDelim,
     /// `\lstinline`: optional `[...]` then delimiter or `{...}`.
     Lstinline,
     /// `\lstinputlisting` / fancyvrb `\VerbatimInput` family /
@@ -1363,6 +1396,22 @@ pub(crate) fn fancyvrb_shortverb_leftover_cs_name(tail: &str) -> Option<&'static
             continue;
         };
         if after.starts_with(|c: char| c.is_ascii_alphabetic() || c == '*') {
+            return None;
+        }
+        return Some(name);
+    }
+    None
+}
+
+/// url.sty `\url` / `\path` and hyperref `\nolinkurl`. Alphabetic
+/// leftover rejects a longer name (`\urlfoo`, `\pathological`). No
+/// `*` form. A `{` body is not this span.
+fn url_delim_cs_name(tail: &str) -> Option<&'static str> {
+    for name in ["nolinkurl", "path", "url"] {
+        let Some(after) = tail.strip_prefix(name) else {
+            continue;
+        };
+        if after.starts_with(|c: char| c.is_ascii_alphabetic()) {
             return None;
         }
         return Some(name);
@@ -3914,6 +3963,72 @@ mod tests {
         assert_eq!(
             split(text),
             vec![r"Use \verb|a.b! c| here.".to_string(), "Next.".to_string()]
+        );
+    }
+
+    #[test]
+    fn latex_verb_letter_delimiter_stays_atomic() {
+        for cmd in [r"\verb", r"\verb*", r"\Verb", r"\spverb"] {
+            // `z` is the delimiter. `Next` contains `x`, so an `x`
+            // delimiter closes inside that word.
+            let text = format!("See {cmd} zCode. Next. Morez here. Done.");
+            let span = format!("{cmd} zCode. Next. Morez");
+            assert_eq!(
+                latex_verb_span_end_with(&span, 0, &[]),
+                Some(span.len()),
+                "{cmd} letter delimiter must close on the letter"
+            );
+            assert_eq!(
+                split(&text),
+                vec![format!("See {span} here."), "Done.".to_string()],
+                "{cmd} letter body must stay one span and the next sentence must split"
+            );
+        }
+        let symbol = r"See \verb|Code. Next| here. Done.";
+        assert_eq!(
+            split(symbol),
+            vec![
+                r"See \verb|Code. Next| here.".to_string(),
+                "Done.".to_string()
+            ]
+        );
+    }
+
+    #[test]
+    fn latex_url_char_delimiter_stays_atomic() {
+        for (cmd, body) in [
+            (r"\url", r"http://example.com/A. B"),
+            (r"\path", r"Foo. Bar"),
+            (r"\nolinkurl", r"http://example.com/A. B"),
+        ] {
+            let span = format!("{cmd}|{body}|");
+            let text = format!("See {span} here. Done.");
+            assert_eq!(
+                latex_verb_span_end_with(&span, 0, &[]),
+                Some(span.len()),
+                "{cmd} character delimiter must close on the delimiter"
+            );
+            assert_eq!(
+                split(&text),
+                vec![format!("See {span} here."), "Done.".to_string()],
+                "{cmd} character body must stay one span and the next sentence must split"
+            );
+            let braced = format!(r"See {cmd}{{{body}}} here. Done.");
+            assert_eq!(
+                latex_verb_span_end_with(&format!(r"{cmd}{{{body}}}"), 0, &[]),
+                None,
+                "{cmd} braced form must stay off the delimiter scanner"
+            );
+            assert_eq!(
+                split(&braced),
+                vec![format!(r"See {cmd}{{{body}}} here."), "Done.".to_string(),],
+                "{cmd} braced form must stay one span and the next sentence must split"
+            );
+        }
+        assert_eq!(latex_verb_span_end_with(r"\urlfoo|a.b|", 0, &[]), None);
+        assert_eq!(
+            latex_verb_span_end_with(r"\pathological|a.b|", 0, &[]),
+            None
         );
     }
 
