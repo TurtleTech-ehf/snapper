@@ -17,6 +17,55 @@ static LIST_ITEM_RE: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"^(\s*(?:[-+]|\d+[.)])(?:[ \t]|$)|[ \t]+\*(?:[ \t]|$))(.*)$").unwrap()
 });
 
+/// org-syntax item: `tag :: description`.
+///
+/// Bytes of `after_bullet` through the last `[ \t]+::` and the spaces
+/// that follow. The tag stays on the item line; the description hangs
+/// as prose.
+/// `None` when the item has no tag (`::` needs whitespace before it,
+/// and whitespace or end after it).
+pub(crate) fn org_item_tag_end(after_bullet: &str) -> Option<usize> {
+    let bytes = after_bullet.as_bytes();
+    let mut i = 0;
+    let mut found = None;
+    while i < bytes.len() {
+        if bytes[i] == b' ' || bytes[i] == b'\t' {
+            let mut j = i;
+            while j < bytes.len() && (bytes[j] == b' ' || bytes[j] == b'\t') {
+                j += 1;
+            }
+            if j + 1 < bytes.len() && bytes[j] == b':' && bytes[j + 1] == b':' {
+                let mut k = j + 2;
+                if k == bytes.len() || bytes[k] == b' ' || bytes[k] == b'\t' {
+                    while k < bytes.len() && (bytes[k] == b' ' || bytes[k] == b'\t') {
+                        k += 1;
+                    }
+                    found = Some(k);
+                }
+            }
+            i = j;
+            continue;
+        }
+        i += 1;
+    }
+    found
+}
+
+/// Hang width when `s` is a list marker plus an item tag and nothing else.
+/// Description reflow stays under `tag ::`.
+pub(crate) fn org_item_tag_hang_width(s: &str) -> Option<usize> {
+    if !s.ends_with([' ', '\t']) {
+        return None;
+    }
+    let marker_len = LIST_ITEM_RE.captures(s)?.get(1)?.end();
+    let tag_end = org_item_tag_end(&s[marker_len..])?;
+    if marker_len + tag_end == s.len() {
+        Some(s.chars().count())
+    } else {
+        None
+    }
+}
+
 /// org-element-export-snippet-parser prefix: `@@BACKEND:VALUE@@`.
 /// Backend is `[-A-Za-z0-9]+`. Value runs to the next `@@` (may contain
 /// a single `@`; GitHub #354).
@@ -1354,7 +1403,8 @@ impl FormatParser for OrgParser {
                 footnote_saw_blank = false;
             }
 
-            // List item: marker is structure, rest is prose
+            // List item: bullet is structure. An item tag (`tag ::`)
+            // stays on that line; the description after ` :: ` hangs.
             if let Some(caps) = LIST_ITEM_RE.captures(line_text) {
                 flush_prose_spanned(&mut current_prose, &mut prose_span, &mut regions);
                 let marker = caps.get(1).unwrap().as_str();
@@ -1370,9 +1420,12 @@ impl FormatParser for OrgParser {
                 list_saw_blank = false;
                 in_footnote_def = false;
                 footnote_saw_blank = false;
-                let marker_span = ByteSpan::new(line.start, line.start + marker.len());
+                let struct_len = org_item_tag_end(&line_text[marker.len()..])
+                    .map(|n| marker.len() + n)
+                    .unwrap_or(marker.len());
+                let marker_span = ByteSpan::new(line.start, line.start + struct_len);
                 regions.push(SpannedRegion::structure(input, marker_span));
-                Self::emit_hung_text(input, &line, marker.len(), &mut regions);
+                Self::emit_hung_text(input, &line, struct_len, &mut regions);
                 continue;
             }
 
@@ -1428,6 +1481,24 @@ impl FormatParser for OrgParser {
                         continue;
                     }
                     if is_term {
+                        // A tag-only item has Structure then a newline and
+                        // no Prose. The next indented line is the description.
+                        let prev_is_prose = regions
+                            .iter()
+                            .rev()
+                            .nth(1)
+                            .is_some_and(|r| matches!(r.region, Region::Prose(_)));
+                        if !prev_is_prose {
+                            if leading > 0 {
+                                regions.push(SpannedRegion::structure(
+                                    input,
+                                    ByteSpan::new(line.start, line.start + leading),
+                                ));
+                            }
+                            Self::emit_hung_text(input, &line, leading, &mut regions);
+                            list_saw_blank = false;
+                            continue;
+                        }
                         regions.pop();
                         if let Some(break_at) = org_line_break_at(line_text) {
                             let content = line_text[..break_at].trim();
