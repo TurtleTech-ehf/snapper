@@ -67,8 +67,7 @@ fn title_argument_stays_on_directive_line_body_reflows() {
 
 #[test]
 fn indented_line_after_same_line_title_still_splits() {
-    let input =
-        ".. admonition:: Title\n   Body here. Second body.\nAfter markup. Next sentence.\n";
+    let input = ".. admonition:: Title\n   Body here. Second body.\nAfter markup. Next sentence.\n";
     let out = format_text(input, &rst_cfg()).unwrap();
     assert!(
         out.contains(".. admonition:: Title\n"),
