@@ -234,8 +234,11 @@ fn toggle_code(
             || lower.starts_with("#+begin_example")
             || lower.starts_with("#+begin_export")
             || lower.starts_with("\\begin{verbatim}")
+            || lower.starts_with("\\begin{verbatim*}")
             || lower.starts_with("\\begin{lstlisting}")
+            || lower.starts_with("\\begin{lstlisting*}")
             || lower.starts_with("\\begin{minted}")
+            || lower.starts_with("\\begin{minted*}")
         {
             *in_code = true;
             *fence_mark = Some(lower.chars().take(24).collect());
@@ -256,8 +259,11 @@ fn toggle_code(
         || lower.starts_with("#+end_example")
         || lower.starts_with("#+end_export")
         || lower.starts_with("\\end{verbatim}")
+        || lower.starts_with("\\end{verbatim*}")
         || lower.starts_with("\\end{lstlisting}")
+        || lower.starts_with("\\end{lstlisting*}")
         || lower.starts_with("\\end{minted}")
+        || lower.starts_with("\\end{minted*}")
     {
         *in_code = false;
         *fence_mark = None;
@@ -314,6 +320,17 @@ mod tests {
         assert!(chunk.contains("Keep this. Exactly here."));
         assert!(chunk.contains("<!-- snapper:on -->"));
         assert!(!chunk.contains("After."));
+    }
+
+    #[test]
+    fn pragma_inside_starred_verbatim_is_ignored() {
+        for env in ["verbatim*", "lstlisting*", "minted*"] {
+            let input = format!("\\begin{{{env}}}\nsnapper:off\nSee Dr. Smith. He left.\n\\end{{{env}}}\n");
+            assert!(
+                pragma_spans(&input).is_empty(),
+                "{env} must hide an interior pragma, got spans in {input:?}"
+            );
+        }
     }
 
     #[test]
