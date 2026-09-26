@@ -52,3 +52,40 @@ fn item_tag_stays_on_the_item_line_description_reflows() {
     );
     assert_eq!(format_text(&out, &org_cfg()).unwrap(), out);
 }
+
+#[test]
+fn tagged_item_description_on_the_next_line_is_kept() {
+    let input = "- Alpha. Beta ::\n  One. Two.\n";
+    let regions = OrgParser.parse(input);
+    assert!(
+        regions.iter().any(|r| matches!(
+            r,
+            Region::Structure(s) if s.contains("- Alpha. Beta ::")
+        )),
+        "tag stays Structure, got {regions:?}"
+    );
+    assert!(
+        regions
+            .iter()
+            .any(|r| matches!(r, Region::Prose(p) if p.contains("One. Two."))),
+        "next-line description must be Prose, got {regions:?}"
+    );
+    let out = format_text(input, &org_cfg()).unwrap();
+    assert!(
+        out.contains("- Alpha. Beta ::"),
+        "tag line stays, got:\n{out}"
+    );
+    assert!(
+        out.contains("One."),
+        "first description sentence stays, got:\n{out}"
+    );
+    assert!(
+        out.contains("Two."),
+        "second description sentence stays, got:\n{out}"
+    );
+    assert!(
+        !out.contains("One. Two."),
+        "description must still split, got:\n{out}"
+    );
+    assert_eq!(format_text(&out, &org_cfg()).unwrap(), out);
+}

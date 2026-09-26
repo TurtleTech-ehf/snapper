@@ -1479,6 +1479,22 @@ impl FormatParser for OrgParser {
                         continue;
                     }
                     if is_term {
+                        // A tag-only item has Structure then a newline and
+                        // no Prose. The next indented line is the description.
+                        let prev_is_prose = regions.iter().rev().nth(1).is_some_and(|r| {
+                            matches!(r.region, Region::Prose(_))
+                        });
+                        if !prev_is_prose {
+                            if leading > 0 {
+                                regions.push(SpannedRegion::structure(
+                                    input,
+                                    ByteSpan::new(line.start, line.start + leading),
+                                ));
+                            }
+                            Self::emit_hung_text(input, &line, leading, &mut regions);
+                            list_saw_blank = false;
+                            continue;
+                        }
                         regions.pop();
                         if let Some(break_at) = org_line_break_at(line_text) {
                             let content = line_text[..break_at].trim();
