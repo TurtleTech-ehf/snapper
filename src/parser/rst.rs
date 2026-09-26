@@ -935,7 +935,9 @@ fn rst_directive_name(trimmed: &str) -> Option<String> {
 /// arguments (epigraph / highlights / pull-quote / compound / header /
 /// footer / parsed-literal / line-block): same-line text after `::` is
 /// the first nested-parsed body paragraph (GitHub #349 / #351 / #422 /
-/// #426 / #430).
+/// #426 / #430). `title` is the same no-argument class here.
+/// `admonition` / `rubric` / `topic` / `sidebar` / `list-table` /
+/// `contents` take a title argument and are not in this set.
 fn is_rst_specific_admonition(name: &str) -> bool {
     matches!(
         name,
@@ -956,13 +958,16 @@ fn is_rst_specific_admonition(name: &str) -> bool {
             | "footer"
             | "parsed-literal"
             | "line-block"
-            | "rubric"
-            | "topic"
-            | "sidebar"
-            | "admonition"
-            | "list-table"
-            | "contents"
             | "title"
+    )
+}
+
+/// Directives whose same-line text is a title argument, not a body
+/// paragraph. The title stays on the directive line.
+fn is_rst_title_argument_directive(name: &str) -> bool {
+    matches!(
+        name,
+        "admonition" | "rubric" | "topic" | "sidebar" | "list-table" | "contents"
     )
 }
 
@@ -975,10 +980,8 @@ fn is_rst_specific_admonition(name: &str) -> bool {
 /// nested-parsed paragraph (GitHub #434).
 fn is_rst_container_directive(name: &str) -> bool {
     is_rst_specific_admonition(name)
-        || matches!(
-            name,
-            "admonition" | "figure" | "topic" | "sidebar" | "container" | "class" | "list-table"
-        )
+        || is_rst_title_argument_directive(name)
+        || matches!(name, "figure" | "container" | "class")
 }
 
 /// Docutils `meta` directive. Takes no argument; the body is a field
