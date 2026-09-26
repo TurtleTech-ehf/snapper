@@ -72,6 +72,9 @@ fn parse_line_based(input: &str) -> Vec<SpannedRegion> {
     // Empty `.. table::` / `.. csv-table::`: first indented paragraph
     // is leftover title Prose; the table body then stays opaque.
     let mut in_table_title = false;
+    // Indented lines after a title-argument directive stay Structure
+    // until a blank. The body after that blank still reflows.
+    let mut in_title_arg = false;
     let mut directive_indent: usize = 0;
     let mut in_definition = false;
     let mut definition_indent: usize = 0;
@@ -182,6 +185,20 @@ fn parse_line_based(input: &str) -> Vec<SpannedRegion> {
                 continue;
             }
             in_literal_block = false;
+        }
+
+        if in_title_arg {
+            if line_text.trim().is_empty() {
+                in_title_arg = false;
+            } else {
+                let leading = line_text.len() - line_text.trim_start().len();
+                if leading > 0 {
+                    regions.push(SpannedRegion::structure(input, line.span()));
+                    i += 1;
+                    continue;
+                }
+                in_title_arg = false;
+            }
         }
 
         // Empty table opener: leftover title until a blank or a table
@@ -403,6 +420,12 @@ fn parse_line_based(input: &str) -> Vec<SpannedRegion> {
                 || rst_substitution_replace_marker_len(line_text).is_some()
             {
                 in_meta = dir_name.as_deref().is_some_and(is_rst_meta_directive);
+                if dir_name
+                    .as_deref()
+                    .is_some_and(is_rst_title_argument_directive)
+                {
+                    in_title_arg = true;
+                }
                 i += 1;
                 continue;
             }
