@@ -150,6 +150,31 @@ fn plaintext_period_before_backticks_quote_is_span_safe() {
     );
 }
 
+/// macOS proptest seed. `""`A`"`a`.`A"` is delimiters_balanced.
+/// The period before `` `A" `` must not become a line break inside the quote.
+#[test]
+fn plaintext_balanced_quote_period_backtick_is_span_safe() {
+    let input = "\"\"`A`\"`a`.`A\"";
+    assert!(
+        delimiters_balanced(&input),
+        "seed must be balanced so the property would fire\n in={input:?}"
+    );
+    let out = format_plain(&input);
+    let again = format_plain(&out);
+    assert_eq!(
+        out, "\"\"`A`\"`a`.`A\"\n",
+        "must not split after the period\n in={input:?}\n out={out:?}"
+    );
+    assert_eq!(
+        again, out,
+        "idempotence\n in={input:?}\n out={out:?}\n again={again:?}"
+    );
+    assert!(
+        newlines_respect_delimiter_spans(&out),
+        "span newline\n in={input:?}\n out={out:?}"
+    );
+}
+
 /// GitHub #374. `".` A`'``aaa0`"0` is delimiters_balanced; format_text
 /// used to insert a newline after `.` so newlines_respect_delimiter_spans
 /// failed. Markup closer-split must not break the still-open quote.
