@@ -3513,6 +3513,22 @@ fn wrap_closes_after_bang(piece: &str, bang_at: usize) -> bool {
     !dq && !sq && latex <= 0 && paren <= 0 && bracket <= 0 && brace <= 0
 }
 
+/// Append `` `Capital `` onto a segment that already ends in `.!?`.
+/// No space: a space is a new UAX boundary.
+fn glue_tick_capital_after_punct(result: &mut Vec<String>, segment: &str) -> bool {
+    if !result.last().is_some_and(|last| {
+        last.ends_with(['.', '!', '?']) && piece_starts_sentence_after_ticks(segment)
+    }) {
+        return false;
+    }
+    if let Some(last) = result.last_mut() {
+        last.push_str(segment);
+    } else {
+        result.push(segment.to_string());
+    }
+    true
+}
+
 fn merge_splits_inside_delimiters(segments: Vec<String>) -> Vec<String> {
     let mut result: Vec<String> = Vec::with_capacity(segments.len());
     let mut state = DelimState::default();
@@ -3532,10 +3548,10 @@ fn merge_splits_inside_delimiters(segments: Vec<String>) -> Vec<String> {
                 }
                 continue;
             }
-            if result.last().is_some_and(|last| {
-                last.ends_with(['.', '!', '?']) && piece_starts_sentence_after_ticks(&segment)
-            }) {
-                result.push(segment.clone());
+            // `.` + leftover `` `Capital `` is a UAX break. A newline here
+            // sits inside the open span (`""`A`"`a`.`A"`). Glue with no
+            // invented space.
+            if glue_tick_capital_after_punct(&mut result, &segment) {
                 state.feed(&segment);
                 continue;
             }
@@ -3544,6 +3560,11 @@ fn merge_splits_inside_delimiters(segments: Vec<String>) -> Vec<String> {
             } else {
                 result.push(segment.clone());
             }
+        } else if glue_tick_capital_after_punct(&mut result, &segment) {
+            // `=(a=` is an org span once a newline precedes `=`, so the
+            // paren is hidden and this arm must glue the same ticks.
+            state.feed(&segment);
+            continue;
         } else {
             result.push(segment.clone());
         }
