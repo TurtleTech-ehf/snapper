@@ -250,6 +250,9 @@ pub fn format_via_pandoc(
     let json = json_with_backend(&shield.source, format, backend)?;
     let mut doc: pandoc_ast::Pandoc =
         serde_json::from_str(&json).map_err(|e| PandocError::Ast(e.to_string()))?;
+    if shield::is_org_pandoc_format(format) {
+        drop_generated_org_ids(&mut doc.blocks, &authored_org_ids(input));
+    }
     reflow_pandoc(&mut doc, splitter, reflow_config);
     let out_json =
         serde_json::to_string(&doc).map_err(|e| PandocError::Ast(format!("serialize AST: {e}")))?;
@@ -257,6 +260,44 @@ pub fn format_via_pandoc(
     let written = shield.restore(&written);
     refuse_if_comments_missing(input, format, &written)?;
     Ok(written)
+}
+
+/// `CUSTOM_ID` values the org source sets on its headings.
+fn authored_org_ids(input: &str) -> std::collections::HashSet<String> {
+    input
+        .lines()
+        .filter_map(|l| l.trim().strip_prefix(":CUSTOM_ID:"))
+        .map(|id| id.trim().to_string())
+        .filter(|id| !id.is_empty())
+        .collect()
+}
+
+/// The org reader gives every heading an identifier, and the org writer
+/// prints each one as a `:PROPERTIES:` drawer. Keep only the identifiers the
+/// source set itself, so a reflow never adds drawers the author did not write.
+fn drop_generated_org_ids(
+    blocks: &mut [pandoc_ast::Block],
+    authored: &std::collections::HashSet<String>,
+) {
+    use pandoc_ast::Block;
+    for block in blocks {
+        match block {
+            Block::Header(_, attr, _) => {
+                if !authored.contains(&attr.0) {
+                    attr.0.clear();
+                }
+            }
+            Block::BlockQuote(inner) | Block::Div(_, inner) | Block::Figure(_, _, inner) => {
+                drop_generated_org_ids(inner, authored);
+            }
+            Block::BulletList(items) | Block::OrderedList(_, items) => {
+                for item in items {
+                    drop_generated_org_ids(item, authored);
+                }
+            }
+            _ => {}
+        }
+    }
 }
 
 /// Parser that uses pandoc for universal format support.
@@ -578,6 +619,30 @@ mod tests {
             out.contains("Keep this. Exactly here."),
             "org off-region body must survive:\n{out}"
         );
+    }
+
+    #[test]
+    fn format_via_pandoc_org_keeps_keywords_and_adds_no_drawers() {
+        if !pandoc_default_available() {
+            return;
+        }
+        let src = "#+TITLE: t\n#+DATE: 2026\n#+DESCRIPTION: d\n#+FILETAGS: :x:\n\n* A\n:PROPERTIES:\n:CUSTOM_ID: keep-me\n:END:\n\nOne. Two.\n\n* B\n\nThree. Four.\n";
+        let splitter = crate::sentence::unicode::UnicodeSentenceSplitter::new();
+        let out = format_via_pandoc(
+            src,
+            "org",
+            PandocBackend::Auto,
+            &splitter,
+            &crate::reflow::ReflowConfig::default(),
+        )
+        .unwrap();
+        assert!(
+            out.starts_with("#+TITLE: t\n#+DATE: 2026\n#+DESCRIPTION: d\n#+FILETAGS: :x:\n"),
+            "{out}"
+        );
+        assert!(out.contains(":CUSTOM_ID: keep-me"), "{out}");
+        assert_eq!(out.matches(":CUSTOM_ID:").count(), 1, "{out}");
+        assert!(out.contains("Three.\nFour."), "{out}");
     }
 
     #[test]
