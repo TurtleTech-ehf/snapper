@@ -5,6 +5,12 @@
 //! Replace each span with a unique sentinel paragraph, write, then put
 //! the original text back. Off-region bodies travel inside the sentinel
 //! so they are not reflowed.
+//!
+//! Org file keywords (`#+TITLE:`, `#+DATE:`, `#+DESCRIPTION:`, ...) are
+//! read into document metadata, which a fragment writer never emits, so
+//! each contiguous run of them is shielded the same way. Affiliated
+//! keywords (`#+NAME:`, `#+CAPTION:`, `#+ATTR_...:`, `#+RESULTS:`,
+//! `#+TBLFM:`) stay in place because they bind to the next element.
 
 use std::ops::Range;
 
@@ -61,6 +67,62 @@ pub(crate) fn is_rst_pandoc_format(format: &str) -> bool {
     matches!(base, "rst" | "rest")
 }
 
+pub(crate) fn is_org_pandoc_format(format: &str) -> bool {
+    format.split(['+', '-']).next().unwrap_or(format) == "org"
+}
+
+/// An org file keyword line: `#+KEY:` or `#+KEY: value`, not a block
+/// delimiter and not an affiliated keyword that binds to the next element.
+fn is_org_file_keyword(text: &str) -> bool {
+    let Some(rest) = text.strip_prefix("#+") else {
+        return false;
+    };
+    let Some((key, _)) = rest.split_once(':') else {
+        return false;
+    };
+    if key.is_empty()
+        || !key
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
+    {
+        return false;
+    }
+    let key = key.to_ascii_lowercase();
+    !(key.starts_with("attr_")
+        || matches!(
+            key.as_str(),
+            "name" | "caption" | "results" | "tblfm" | "header" | "plot" | "label"
+        ))
+}
+
+/// Each contiguous run of org file keyword lines outside code blocks.
+fn org_keyword_spans(input: &str) -> Vec<Range<usize>> {
+    let lines = iter_lines(input);
+    let mut spans = Vec::new();
+    let mut run: Option<Range<usize>> = None;
+    let mut in_code = false;
+    let mut fence_mark: Option<String> = None;
+    let mut rst_code_indent: Option<usize> = None;
+    for line in &lines {
+        let opened_or_closed = toggle_code(
+            line.text,
+            &mut in_code,
+            &mut fence_mark,
+            &mut rst_code_indent,
+        );
+        if !opened_or_closed && !in_code && is_org_file_keyword(line.text) {
+            match &mut run {
+                Some(r) => r.end = line.end,
+                None => run = Some(line.start..line.end),
+            }
+        } else if let Some(r) = run.take() {
+            spans.push(r);
+        }
+    }
+    spans.extend(run);
+    spans
+}
+
 fn strip_one_trailing_newline(s: &str) -> (&str, bool) {
     if let Some(stripped) = s.strip_suffix("\r\n") {
         (stripped, true)
@@ -91,6 +153,13 @@ fn overlaps(a: &Range<usize>, b: &Range<usize>) -> bool {
 
 fn collect_spans(input: &str, format: &str) -> Vec<Range<usize>> {
     let mut spans = pragma_spans(input);
+    if is_org_pandoc_format(format) {
+        for span in org_keyword_spans(input) {
+            if !spans.iter().any(|p| overlaps(p, &span)) {
+                spans.push(span);
+            }
+        }
+    }
     if is_rst_pandoc_format(format) {
         for span in rst_comment_spans(input) {
             if !spans.iter().any(|p| overlaps(p, &span)) {
@@ -282,6 +351,14 @@ fn toggle_code(
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn org_file_keywords_are_one_span_per_run() {
+        let src = "#+TITLE: t\n#+DATE: d\n\n* A\n\n#+NAME: tbl\n| a |\n#+begin_src sh\n#+TITLE: in code\n#+end_src\n#+STATUS: s\n";
+        let spans = org_keyword_spans(src);
+        let texts: Vec<&str> = spans.iter().map(|r| &src[r.clone()]).collect();
+        assert_eq!(texts, vec!["#+TITLE: t\n#+DATE: d\n", "#+STATUS: s\n"]);
+    }
+
     use super::*;
 
     #[test]
