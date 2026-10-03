@@ -6,6 +6,8 @@
 
 #[path = "check_line_diagnostics.rs"]
 mod check_line_diagnostics;
+#[path = "cli_integration.rs"]
+mod cli_integration;
 #[path = "code_block_format.rs"]
 mod code_block_format;
 #[path = "code_block_reflow.rs"]

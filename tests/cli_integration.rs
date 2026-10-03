@@ -1,0 +1,622 @@
+use std::fs;
+use std::path::Path;
+use std::process::Command;
+
+fn snapper_binary() -> Command {
+    Command::new(env!("CARGO_BIN_EXE_snapper"))
+}
+
+fn run_format(format: &str, input_path: &str) -> String {
+    let output = snapper_binary()
+        .args(["--native", "--format", format, input_path])
+        .output()
+        .expect("failed to run snapper");
+    assert!(
+        output.status.success(),
+        "snapper failed: {:?}",
+        output.stderr
+    );
+    String::from_utf8(output.stdout).expect("invalid utf8")
+}
+
+fn pipe_stdin(input: &str, args: &[&str]) -> std::process::Output {
+    let mut cmd = snapper_binary();
+    cmd.arg("--native");
+    cmd.args(args)
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped());
+    let mut child = cmd.spawn().expect("failed to spawn snapper");
+    {
+        use std::io::Write;
+        child
+            .stdin
+            .take()
+            .unwrap()
+            .write_all(input.as_bytes())
+            .unwrap();
+    }
+    child.wait_with_output().expect("failed to wait")
+}
+
+fn pipe_stdin_in_dir(input: &str, args: &[&str], dir: &Path) -> std::process::Output {
+    let mut cmd = snapper_binary();
+    cmd.arg("--native");
+    cmd.args(args)
+        .current_dir(dir)
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped());
+    let mut child = cmd.spawn().expect("failed to spawn snapper");
+    {
+        use std::io::Write;
+        child
+            .stdin
+            .take()
+            .unwrap()
+            .write_all(input.as_bytes())
+            .unwrap();
+    }
+    child.wait_with_output().expect("failed to wait")
+}
+
+fn fixture_path(name: &str) -> String {
+    let base = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures");
+    base.join(name).to_string_lossy().to_string()
+}
+
+// ---- EXISTING TESTS ----
+
+#[test]
+fn org_format() {
+    let actual = run_format("org", &fixture_path("sample.org"));
+    let expected = fs::read_to_string(fixture_path("expected.org")).unwrap();
+    pretty_assertions::assert_eq!(actual, expected);
+}
+
+#[test]
+fn plaintext_format() {
+    let actual = run_format("plaintext", &fixture_path("sample.txt"));
+    let expected = fs::read_to_string(fixture_path("expected.txt")).unwrap();
+    pretty_assertions::assert_eq!(actual, expected);
+}
+
+#[test]
+fn latex_format() {
+    let actual = run_format("latex", &fixture_path("sample.tex"));
+    let expected = fs::read_to_string(fixture_path("expected.tex")).unwrap();
+    pretty_assertions::assert_eq!(actual, expected);
+}
+
+#[test]
+fn latex_filecontents_fixture_stays_verbatim() {
+    let actual = run_format("latex", &fixture_path("filecontents.tex"));
+    let expected = fs::read_to_string(fixture_path("filecontents.tex")).unwrap();
+    pretty_assertions::assert_eq!(actual, expected);
+}
+
+#[test]
+fn latex_pycode_fixture_stays_verbatim() {
+    let actual = run_format("latex", &fixture_path("pycode.tex"));
+    let expected = fs::read_to_string(fixture_path("pycode.tex")).unwrap();
+    pretty_assertions::assert_eq!(actual, expected);
+}
+
+#[test]
+fn latex_verbatim_fixture_stays_verbatim() {
+    let actual = run_format("latex", &fixture_path("verbatim.tex"));
+    let expected = fs::read_to_string(fixture_path("verbatim.tex")).unwrap();
+    pretty_assertions::assert_eq!(actual, expected);
+}
+
+#[test]
+fn latex_tikzcd_fixture_stays_structure() {
+    let actual = run_format("latex", &fixture_path("tikzcd.tex"));
+    let expected = fs::read_to_string(fixture_path("tikzcd.tex")).unwrap();
+    pretty_assertions::assert_eq!(actual, expected);
+}
+
+#[test]
+fn latex_comment_fixture_stays_verbatim() {
+    let actual = run_format("latex", &fixture_path("comment.tex"));
+    let expected = fs::read_to_string(fixture_path("comment.tex")).unwrap();
+    pretty_assertions::assert_eq!(actual, expected);
+}
+
+#[test]
+fn latex_iffalse_fixture_stays_verbatim() {
+    let actual = run_format("latex", &fixture_path("iffalse.tex"));
+    let expected = fs::read_to_string(fixture_path("iffalse.tex")).unwrap();
+    pretty_assertions::assert_eq!(actual, expected);
+}
+
+#[test]
+fn markdown_format() {
+    let actual = run_format("markdown", &fixture_path("sample.md"));
+    let expected = fs::read_to_string(fixture_path("expected.md")).unwrap();
+    pretty_assertions::assert_eq!(actual, expected);
+}
+
+#[test]
+fn idempotent_org() {
+    let first = run_format("org", &fixture_path("sample.org"));
+    let tmp = tempfile::NamedTempFile::new().unwrap();
+    fs::write(tmp.path(), &first).unwrap();
+    let second = run_format("org", &tmp.path().to_string_lossy());
+    pretty_assertions::assert_eq!(first, second, "org reflow must be idempotent");
+}
+
+#[test]
+fn mixed_list_org_hangs_and_is_idempotent() {
+    let first = run_format("org", &fixture_path("mixed_list.org"));
+    assert!(
+        first.contains("- One.\n  Two.\n"),
+        "org dash continuation must hang: {first}"
+    );
+    assert!(
+        first.contains(
+            "1. Numbered one.\n   Numbered two.\n   - Nested dash.\n     Nested second.\n"
+        ),
+        "org nested list must hang and stay two items: {first}"
+    );
+    assert!(
+        first.contains("  1. Nested numbered.\n     Nested numbered two.\n"),
+        "org nested ordered continuation must hang: {first}"
+    );
+    let tmp = tempfile::NamedTempFile::new().unwrap();
+    fs::write(tmp.path(), &first).unwrap();
+    let second = run_format("org", &tmp.path().to_string_lossy());
+    pretty_assertions::assert_eq!(first, second, "mixed_list.org must be idempotent");
+}
+
+#[test]
+fn mixed_list_markdown_hangs_and_is_idempotent() {
+    let first = run_format("markdown", &fixture_path("mixed_list.md"));
+    assert!(
+        first.contains("- One.\n  Two.\n"),
+        "markdown dash continuation must hang: {first}"
+    );
+    assert!(
+        first.contains(
+            "1. Numbered one.\n   Numbered two.\n   - Nested dash.\n     Nested second.\n"
+        ),
+        "markdown nested list must hang and stay two items: {first}"
+    );
+    assert!(
+        first.contains("> Quoted one.\n> Quoted two.\n"),
+        "markdown quote continuation must repeat the prefix: {first}"
+    );
+    assert!(
+        first.contains("> > Nested one.\n> > Nested two.\n"),
+        "nested markdown quote must keep the full prefix: {first}"
+    );
+    let tmp = tempfile::NamedTempFile::new().unwrap();
+    fs::write(tmp.path(), &first).unwrap();
+    let second = run_format("markdown", &tmp.path().to_string_lossy());
+    pretty_assertions::assert_eq!(first, second, "mixed_list.md must be idempotent");
+}
+
+#[test]
+fn idempotent_plaintext() {
+    let first = run_format("plaintext", &fixture_path("sample.txt"));
+    let tmp = tempfile::NamedTempFile::new().unwrap();
+    fs::write(tmp.path(), &first).unwrap();
+    let second = run_format("plaintext", &tmp.path().to_string_lossy());
+    pretty_assertions::assert_eq!(first, second, "plaintext reflow must be idempotent");
+}
+
+#[test]
+fn idempotent_latex() {
+    let first = run_format("latex", &fixture_path("sample.tex"));
+    let tmp = tempfile::NamedTempFile::new().unwrap();
+    fs::write(tmp.path(), &first).unwrap();
+    let second = run_format("latex", &tmp.path().to_string_lossy());
+    pretty_assertions::assert_eq!(first, second, "latex reflow must be idempotent");
+}
+
+#[test]
+fn idempotent_markdown() {
+    let first = run_format("markdown", &fixture_path("sample.md"));
+    let tmp = tempfile::NamedTempFile::new().unwrap();
+    fs::write(tmp.path(), &first).unwrap();
+    let second = run_format("markdown", &tmp.path().to_string_lossy());
+    pretty_assertions::assert_eq!(first, second, "markdown reflow must be idempotent");
+}
+
+#[test]
+fn check_mode_passes_on_formatted() {
+    let output = snapper_binary()
+        .args([
+            "--native",
+            "--check",
+            "--format",
+            "org",
+            &fixture_path("expected.org"),
+        ])
+        .output()
+        .expect("failed to run snapper");
+    assert!(
+        output.status.success(),
+        "--check should pass on already-formatted file"
+    );
+}
+
+#[test]
+fn check_mode_fails_on_unformatted() {
+    let output = snapper_binary()
+        .args([
+            "--native",
+            "--check",
+            "--format",
+            "org",
+            &fixture_path("sample.org"),
+        ])
+        .output()
+        .expect("failed to run snapper");
+    assert!(
+        !output.status.success(),
+        "--check should fail on unformatted file"
+    );
+}
+
+#[test]
+fn stdin_stdout() {
+    let input = "Hello world. This is a test. Another sentence.";
+    let out = pipe_stdin(input, &[]);
+    let result = String::from_utf8(out.stdout).unwrap();
+    assert_eq!(result, "Hello world.\nThis is a test.\nAnother sentence.");
+}
+
+// ---- FEATURE 1: --stdin-filepath ----
+
+#[test]
+fn stdin_filepath_auto_detects_org() {
+    let input = "#+TITLE: Test\n\nFirst sentence. Second sentence.\n";
+    let out = pipe_stdin(input, &["--stdin-filepath", "paper.org"]);
+    assert!(out.status.success());
+    let result = String::from_utf8(out.stdout).unwrap();
+    // Should detect org format and preserve #+TITLE as structure
+    assert!(result.starts_with("#+TITLE: Test\n"));
+    assert!(result.contains("First sentence.\n"));
+    assert!(result.contains("Second sentence.\n"));
+}
+
+#[test]
+fn stdin_filepath_detects_latex() {
+    // .tex extension should trigger LaTeX parser (preamble preserved)
+    let input =
+        "\\documentclass{article}\n\\begin{document}\nHello world. Second.\n\\end{document}\n";
+    let out = pipe_stdin(input, &["--stdin-filepath", "paper.tex"]);
+    assert!(out.status.success());
+    let result = String::from_utf8(out.stdout).unwrap();
+    assert!(result.contains("\\documentclass{article}"));
+    assert!(result.contains("Hello world.\n"));
+}
+
+#[test]
+fn format_flag_overrides_stdin_filepath() {
+    // --format should take priority over --stdin-filepath
+    let input = "Hello world. Second sentence.\n";
+    let out = pipe_stdin(
+        input,
+        &["--format", "plaintext", "--stdin-filepath", "paper.org"],
+    );
+    assert!(out.status.success());
+    let result = String::from_utf8(out.stdout).unwrap();
+    assert_eq!(result, "Hello world.\nSecond sentence.\n");
+}
+
+// ---- FEATURE 2: snapper:off / snapper:on pragmas ----
+
+#[test]
+fn pragma_off_on_org() {
+    let input =
+        "First. Second.\n# snapper:off\nDo not. Touch this.\n# snapper:on\nThird. Fourth.\n";
+    let out = pipe_stdin(input, &["--format", "org"]);
+    let result = String::from_utf8(out.stdout).unwrap();
+    assert!(result.contains("First.\nSecond.\n"));
+    assert!(result.contains("Do not. Touch this.\n")); // untouched
+    assert!(result.contains("Third.\nFourth.\n"));
+}
+
+#[test]
+fn pragma_off_on_latex() {
+    let input = "\\begin{document}\nHello world. Goodbye world.\n% snapper:off\nKeep this. Exactly here.\n% snapper:on\nFinal thing. Last sentence.\n\\end{document}\n";
+    let out = pipe_stdin(input, &["--format", "latex"]);
+    let result = String::from_utf8(out.stdout).unwrap();
+    assert!(result.contains("Hello world.\nGoodbye world.\n"));
+    assert!(result.contains("Keep this. Exactly here.\n")); // untouched
+    assert!(result.contains("Final thing.\nLast sentence.\n"));
+}
+
+#[test]
+fn pragma_off_on_markdown() {
+    let input = "Hello world. Goodbye world.\n<!-- snapper:off -->\nKeep this. Exactly here.\n<!-- snapper:on -->\nFinal thing. Last sentence.\n";
+    let out = pipe_stdin(input, &["--format", "markdown"]);
+    let result = String::from_utf8(out.stdout).unwrap();
+    assert!(result.contains("Hello world.\nGoodbye world.\n"));
+    assert!(result.contains("Keep this. Exactly here.\n"));
+    assert!(result.contains("Final thing.\nLast sentence."));
+}
+
+#[test]
+fn pragma_off_on_plaintext() {
+    let input = "Hello world. Goodbye world.\nsnapper:off\nKeep this. Exactly here.\nsnapper:on\nFinal thing. Last sentence.\n";
+    let out = pipe_stdin(input, &["--format", "plaintext"]);
+    let result = String::from_utf8(out.stdout).unwrap();
+    assert!(result.contains("Hello world.\nGoodbye world.\n"));
+    assert!(result.contains("Keep this. Exactly here.\n"));
+    assert!(result.contains("Final thing.\nLast sentence.\n"));
+}
+
+// ---- FEATURE 5: --range ----
+
+#[test]
+fn range_formats_only_specified_lines() {
+    let input = "Line one. Stay same.\nLine two. Should split. Into two.\nLine three. Stay same.\n";
+    let out = pipe_stdin(input, &["--range", "2:2"]);
+    let result = String::from_utf8(out.stdout).unwrap();
+    // Line 1 unchanged
+    assert!(result.starts_with("Line one. Stay same.\n"));
+    // Line 2 split
+    assert!(result.contains("Line two.\nShould split.\nInto two.\n"));
+    // Line 3 unchanged
+    assert!(result.ends_with("Line three. Stay same.\n"));
+}
+
+#[test]
+fn range_preserves_outside_lines_exactly() {
+    let tmp = tempfile::NamedTempFile::new().unwrap();
+    fs::write(
+        tmp.path(),
+        "Keep. This line.\nReformat. This line. Please.\nKeep. This too.\n",
+    )
+    .unwrap();
+    let output = snapper_binary()
+        .args([
+            "--native",
+            "--format",
+            "plaintext",
+            "--range",
+            "2:2",
+            &tmp.path().to_string_lossy(),
+        ])
+        .output()
+        .expect("failed to run");
+    let result = String::from_utf8(output.stdout).unwrap();
+    assert!(result.starts_with("Keep. This line.\n"));
+    assert!(result.contains("Reformat.\nThis line.\nPlease.\n"));
+    assert!(result.ends_with("Keep. This too.\n"));
+}
+
+// ---- FEATURE 6: --output-format json/sarif ----
+
+#[test]
+fn check_json_output() {
+    let output = snapper_binary()
+        .args([
+            "--native",
+            "--check",
+            "--output-format",
+            "json",
+            "--format",
+            "org",
+            &fixture_path("sample.org"),
+        ])
+        .output()
+        .expect("failed to run");
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    let parsed: serde_json::Value = serde_json::from_str(&stdout).expect("invalid JSON");
+    assert!(parsed.is_array());
+    let arr = parsed.as_array().unwrap();
+    assert_eq!(arr.len(), 1);
+    assert!(arr[0]["file"].as_str().unwrap().contains("sample.org"));
+}
+
+#[test]
+fn check_sarif_output() {
+    let output = snapper_binary()
+        .args([
+            "--native",
+            "--check",
+            "--output-format",
+            "sarif",
+            "--format",
+            "org",
+            &fixture_path("sample.org"),
+        ])
+        .output()
+        .expect("failed to run");
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    let parsed: serde_json::Value = serde_json::from_str(&stdout).expect("invalid SARIF");
+    assert_eq!(parsed["version"], "2.1.0");
+    let results = &parsed["runs"][0]["results"];
+    assert!(results.is_array());
+    assert!(!results.as_array().unwrap().is_empty());
+}
+
+// ---- Golden master: edge cases ----
+
+#[test]
+fn edge_cases_org() {
+    let actual = run_format("org", &fixture_path("edge_cases.org"));
+    let expected = fs::read_to_string(fixture_path("expected_edge_cases.org")).unwrap();
+    pretty_assertions::assert_eq!(actual, expected);
+}
+
+#[test]
+fn edge_cases_plaintext() {
+    let actual = run_format("plaintext", &fixture_path("edge_cases.txt"));
+    let expected = fs::read_to_string(fixture_path("expected_edge_cases.txt")).unwrap();
+    pretty_assertions::assert_eq!(actual, expected);
+}
+
+#[test]
+fn idempotent_edge_cases_org() {
+    let first = run_format("org", &fixture_path("edge_cases.org"));
+    let tmp = tempfile::NamedTempFile::new().unwrap();
+    fs::write(tmp.path(), &first).unwrap();
+    let second = run_format("org", &tmp.path().to_string_lossy());
+    pretty_assertions::assert_eq!(first, second, "edge cases org reflow must be idempotent");
+}
+
+#[test]
+fn idempotent_edge_cases_plaintext() {
+    let first = run_format("plaintext", &fixture_path("edge_cases.txt"));
+    let tmp = tempfile::NamedTempFile::new().unwrap();
+    fs::write(tmp.path(), &first).unwrap();
+    let second = run_format("plaintext", &tmp.path().to_string_lossy());
+    pretty_assertions::assert_eq!(
+        first,
+        second,
+        "edge cases plaintext reflow must be idempotent"
+    );
+}
+
+// ---- FEATURE 7: snapper init ----
+
+#[test]
+fn init_dry_run_shows_config() {
+    let output = snapper_binary()
+        .args(["init", "--dry-run"])
+        .output()
+        .expect("failed to run");
+    let stderr = String::from_utf8(output.stderr).unwrap();
+    assert!(stderr.contains(".snapperrc.toml"));
+    assert!(stderr.contains("format ="));
+    assert!(stderr.contains("pre-commit"));
+    assert!(stderr.contains("apheleia"));
+}
+
+#[test]
+fn config_lang_applies_to_stdin() {
+    let dir = tempfile::tempdir().unwrap();
+    fs::write(dir.path().join(".snapperrc.toml"), "lang = \"de\"\n").unwrap();
+    let out = pipe_stdin_in_dir("z.B. Das ist ein Satz. Noch einer.\n", &[], dir.path());
+    assert!(out.status.success());
+    let result = String::from_utf8(out.stdout).unwrap();
+    assert_eq!(result, "z.B. Das ist ein Satz.\nNoch einer.\n");
+}
+
+#[test]
+fn config_default_format_applies_to_stdin() {
+    let dir = tempfile::tempdir().unwrap();
+    fs::write(dir.path().join(".snapperrc.toml"), "format = \"org\"\n").unwrap();
+    let out = pipe_stdin_in_dir("* Heading\nSentence one. Sentence two.\n", &[], dir.path());
+    assert!(out.status.success());
+    let result = String::from_utf8(out.stdout).unwrap();
+    assert!(result.starts_with("* Heading\n"));
+    assert!(result.contains("Sentence one.\n"));
+    assert!(result.contains("Sentence two.\n"));
+}
+
+#[test]
+fn config_ignore_skips_check_mode() {
+    let dir = tempfile::tempdir().unwrap();
+    fs::write(dir.path().join(".snapperrc.toml"), "ignore = [\"*.md\"]\n").unwrap();
+    fs::write(dir.path().join("draft.md"), "Sentence one. Sentence two.\n").unwrap();
+    let output = snapper_binary()
+        .current_dir(dir.path())
+        .args(["--native", "--check", "draft.md"])
+        .output()
+        .expect("failed to run snapper");
+    assert!(output.status.success());
+    assert!(String::from_utf8(output.stderr).unwrap().is_empty());
+}
+
+#[test]
+fn config_per_format_width_applies() {
+    let dir = tempfile::tempdir().unwrap();
+    fs::write(
+        dir.path().join(".snapperrc.toml"),
+        "max_width = 80\n[plaintext]\nmax_width = 12\n",
+    )
+    .unwrap();
+    fs::write(
+        dir.path().join("draft.txt"),
+        "Alpha beta gamma delta epsilon zeta.\n",
+    )
+    .unwrap();
+    let output = snapper_binary()
+        .current_dir(dir.path())
+        .args(["--native", "draft.txt"])
+        .output()
+        .expect("failed to run snapper");
+    assert!(output.status.success());
+    let result = String::from_utf8(output.stdout).unwrap();
+    assert_eq!(result, "Alpha beta\ngamma delta\nepsilon\nzeta.\n");
+}
+
+#[test]
+fn config_latex_envs_and_commands_apply() {
+    let dir = tempfile::tempdir().unwrap();
+    fs::write(
+        dir.path().join(".snapperrc.toml"),
+        "[latex]\nverbatim_envs = [\"Verbatim\"]\nstructure_envs = [\"algorithm\", \"comment\"]\nverbatim_commands = [\"Verb\"]\n",
+    )
+    .unwrap();
+    let input = "\\begin{document}\n\\begin{algorithm}\nFirst step. Second step.\n\\end{algorithm}\nUse \\Verb|a.b! c| here. Next sentence.\n\\end{document}\n";
+    let out = pipe_stdin_in_dir(input, &["--format", "latex"], dir.path());
+    assert!(
+        out.status.success(),
+        "stderr={}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let result = String::from_utf8(out.stdout).unwrap();
+    assert!(
+        result.contains("First step. Second step."),
+        "algorithm body must not reflow, got:\n{result}"
+    );
+    assert!(
+        !result.contains("First step.\nSecond step."),
+        "algorithm must stay one source line, got:\n{result}"
+    );
+    assert!(
+        result.contains("Use \\Verb|a.b! c| here.\nNext sentence."),
+        "configured Verb must tokenize like verb, got:\n{result}"
+    );
+}
+
+#[test]
+fn markdown_numbered_atx_heading_not_split() {
+    // snapper-25kc / rtrash README regression
+    let input =
+        "### 1. `cargo binstall` (preferred binary install)\n\nBody one. Body two more words.\n";
+    let out = pipe_stdin(input, &["--format", "markdown"]);
+    assert!(
+        out.status.success(),
+        "stderr={}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let result = String::from_utf8(out.stdout).unwrap();
+    assert!(
+        result.starts_with("### 1. `cargo binstall` (preferred binary install)\n"),
+        "heading must stay one line, got:\n{result}"
+    );
+    assert!(
+        !result.contains("### 1.\n`"),
+        "must not orphan ### 1. before title:\n{result}"
+    );
+}
+
+#[test]
+fn markdown_setext_heading_not_collapsed() {
+    let input = "Setext Title With Period. Still Title\n=====================================\n\nBody after. Second body.\n";
+    let out = pipe_stdin(input, &["--format", "markdown"]);
+    assert!(
+        out.status.success(),
+        "stderr={}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let result = String::from_utf8(out.stdout).unwrap();
+    assert!(
+        result.starts_with(
+            "Setext Title With Period. Still Title\n=====================================\n"
+        ),
+        "setext title+underline must stay intact, got:\n{result}"
+    );
+    assert!(
+        !result.contains("Still Title ====="),
+        "must not glue underline onto title:\n{result}"
+    );
+}
