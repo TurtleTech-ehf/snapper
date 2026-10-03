@@ -3481,107 +3481,108 @@ fn piton_env_and_pipe_cmd_fixture_is_code_and_does_not_reflow() {
         verb_out.contains("Use \\verb|a.b! c| here.\nNext sentence."),
         "prose after \\verb must still split, got:\n{verb_out}"
     );
-    /// Ticket fixture (GitHub #398): tools/verbatim.sty `\verbatiminput{file}`
-    /// stays one atomic command. Following flush `After.` does not join
-    /// the command line. `After.` / `Next.` still split. lstinputlisting /
-    /// inputminted unchanged.
-    #[test]
-    fn verbatiminput_fixture_does_not_join_following_prose() {
-        let input = concat!(
-            "Before. Next.\n",
-            "\\verbatiminput{foo.py}\n",
-            "After. Next.\n",
-        );
-        let regions = LatexParser::default().parse(input);
-        assert!(
-            regions.iter().any(|r| matches!(
-                r,
-                Region::Structure(s) if s.contains(r"\verbatiminput{foo.py}")
-            )),
-            "verbatiminput must stay one Structure command, got: {regions:?}"
-        );
-        assert!(
-            !regions.iter().any(|r| matches!(
-                r,
-                Region::Prose(p) if p.contains(r"\verbatiminput{foo.py}")
-            )),
-            "verbatiminput must not leak into Prose, got: {regions:?}"
-        );
-        assert!(
-            regions.iter().any(|r| matches!(
-                r,
-                Region::Prose(p) if p.contains("After.") && p.contains("Next.")
-            )),
-            "After. / Next. must stay Prose, got: {regions:?}"
-        );
-        let out = format_text(input, &latex_cfg()).unwrap();
-        assert!(
-            out.contains("\\verbatiminput{foo.py}\n"),
-            "verbatiminput must stay one atomic command, got:\n{out}"
-        );
-        assert!(
-            !out.contains("\\verbatiminput{foo.py} After."),
-            "following flush prose must not join the command line, got:\n{out}"
-        );
-        assert!(
-            out.contains("Before.\nNext."),
-            "prose before verbatiminput must still split, got:\n{out}"
-        );
-        assert!(
-            out.contains("After.\nNext."),
-            "prose after verbatiminput must still split, got:\n{out}"
-        );
-        assert_eq!(format_text(&out, &latex_cfg()).unwrap(), out);
+}
 
-        let star = concat!(
-            "Before. Next.\n",
-            "\\verbatiminput*{foo.py}\n",
-            "After. Next.\n",
-        );
-        let star_out = format_text(star, &latex_cfg()).unwrap();
-        assert!(
-            star_out.contains("\\verbatiminput*{foo.py}\n"),
-            "verbatiminput* must stay one atomic command, got:\n{star_out}"
-        );
-        assert!(
-            !star_out.contains("\\verbatiminput*{foo.py} After."),
-            "starred verbatiminput must not join following prose, got:\n{star_out}"
-        );
-        assert!(
-            star_out.contains("After.\nNext."),
-            "prose after starred verbatiminput must still split, got:\n{star_out}"
-        );
+/// Ticket fixture (GitHub #398): tools/verbatim.sty `\verbatiminput{file}`
+/// stays one atomic command. Following flush `After.` does not join
+/// the command line. `After.` / `Next.` still split. lstinputlisting /
+/// inputminted unchanged.
+#[test]
+fn verbatiminput_fixture_does_not_join_following_prose() {
+    let input = concat!(
+        "Before. Next.\n",
+        "\\verbatiminput{foo.py}\n",
+        "After. Next.\n",
+    );
+    let regions = LatexParser::default().parse(input);
+    assert!(
+        regions.iter().any(|r| matches!(
+            r,
+            Region::Structure(s) if s.contains(r"\verbatiminput{foo.py}")
+        )),
+        "verbatiminput must stay one Structure command, got: {regions:?}"
+    );
+    assert!(
+        !regions.iter().any(|r| matches!(
+            r,
+            Region::Prose(p) if p.contains(r"\verbatiminput{foo.py}")
+        )),
+        "verbatiminput must not leak into Prose, got: {regions:?}"
+    );
+    assert!(
+        regions.iter().any(|r| matches!(
+            r,
+            Region::Prose(p) if p.contains("After.") && p.contains("Next.")
+        )),
+        "After. / Next. must stay Prose, got: {regions:?}"
+    );
+    let out = format_text(input, &latex_cfg()).unwrap();
+    assert!(
+        out.contains("\\verbatiminput{foo.py}\n"),
+        "verbatiminput must stay one atomic command, got:\n{out}"
+    );
+    assert!(
+        !out.contains("\\verbatiminput{foo.py} After."),
+        "following flush prose must not join the command line, got:\n{out}"
+    );
+    assert!(
+        out.contains("Before.\nNext."),
+        "prose before verbatiminput must still split, got:\n{out}"
+    );
+    assert!(
+        out.contains("After.\nNext."),
+        "prose after verbatiminput must still split, got:\n{out}"
+    );
+    assert_eq!(format_text(&out, &latex_cfg()).unwrap(), out);
 
-        let lst = concat!(
-            "Before. Next.\n",
-            "\\lstinputlisting{foo.py}\n",
-            "After. Next.\n",
-        );
-        let lst_out = format_text(lst, &latex_cfg()).unwrap();
-        assert!(
-            lst_out.contains("\\lstinputlisting{foo.py}\n"),
-            "lstinputlisting must stay unchanged, got:\n{lst_out}"
-        );
-        assert!(
-            !lst_out.contains("\\lstinputlisting{foo.py} After."),
-            "lstinputlisting must not join following prose, got:\n{lst_out}"
-        );
+    let star = concat!(
+        "Before. Next.\n",
+        "\\verbatiminput*{foo.py}\n",
+        "After. Next.\n",
+    );
+    let star_out = format_text(star, &latex_cfg()).unwrap();
+    assert!(
+        star_out.contains("\\verbatiminput*{foo.py}\n"),
+        "verbatiminput* must stay one atomic command, got:\n{star_out}"
+    );
+    assert!(
+        !star_out.contains("\\verbatiminput*{foo.py} After."),
+        "starred verbatiminput must not join following prose, got:\n{star_out}"
+    );
+    assert!(
+        star_out.contains("After.\nNext."),
+        "prose after starred verbatiminput must still split, got:\n{star_out}"
+    );
 
-        let minted = concat!(
-            "Before. Next.\n",
-            "\\inputminted{python}{foo.py}\n",
-            "After. Next.\n",
-        );
-        let minted_out = format_text(minted, &latex_cfg()).unwrap();
-        assert!(
-            minted_out.contains("\\inputminted{python}{foo.py}\n"),
-            "inputminted must stay unchanged, got:\n{minted_out}"
-        );
-        assert!(
-            !minted_out.contains("\\inputminted{python}{foo.py} After."),
-            "inputminted must not join following prose, got:\n{minted_out}"
-        );
-    }
+    let lst = concat!(
+        "Before. Next.\n",
+        "\\lstinputlisting{foo.py}\n",
+        "After. Next.\n",
+    );
+    let lst_out = format_text(lst, &latex_cfg()).unwrap();
+    assert!(
+        lst_out.contains("\\lstinputlisting{foo.py}\n"),
+        "lstinputlisting must stay unchanged, got:\n{lst_out}"
+    );
+    assert!(
+        !lst_out.contains("\\lstinputlisting{foo.py} After."),
+        "lstinputlisting must not join following prose, got:\n{lst_out}"
+    );
+
+    let minted = concat!(
+        "Before. Next.\n",
+        "\\inputminted{python}{foo.py}\n",
+        "After. Next.\n",
+    );
+    let minted_out = format_text(minted, &latex_cfg()).unwrap();
+    assert!(
+        minted_out.contains("\\inputminted{python}{foo.py}\n"),
+        "inputminted must stay unchanged, got:\n{minted_out}"
+    );
+    assert!(
+        !minted_out.contains("\\inputminted{python}{foo.py} After."),
+        "inputminted must not join following prose, got:\n{minted_out}"
+    );
 }
 
 /// Ticket fixture (GitHub #400): tcolorbox `\\tcbinputlisting`.
@@ -5276,7 +5277,7 @@ fn verb_span_leftover_cmds_fixture_does_not_join_following_prose() {
         "mid-sentence verb span must stay protected and still split, got:\n{mid_out}"
     );
 
-    let after_other = concat!("\\py{print(1)} \\lstinline|print(1)|\n",);
+    let after_other = "\\py{print(1)} \\lstinline|print(1)|\n";
     let after_other_regions = LatexParser::default().parse(after_other);
     assert!(
         after_other_regions.iter().any(|r| matches!(

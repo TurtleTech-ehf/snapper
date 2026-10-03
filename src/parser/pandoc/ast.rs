@@ -509,7 +509,7 @@ mod tests {
             .filter(|r| matches!(r, Region::Prose(_)))
             .collect();
         assert!(
-            prose.len() >= 1,
+            !prose.is_empty(),
             "expected ≥1 prose region from Para nodes, got {regions:?}"
         );
         assert!(

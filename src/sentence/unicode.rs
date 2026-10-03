@@ -8125,24 +8125,20 @@ mod tests {
         let spans = atomic_inline_spans(text);
         let tokens: Vec<&str> = spans.iter().map(|&(s, e)| &text[s..e]).collect();
         assert!(
-            tokens
-                .iter()
-                .any(|t| *t == "[the example site](https://ex.com)"),
+            tokens.contains(&"[the example site](https://ex.com)"),
             "markdown link: {tokens:?}"
         );
         assert!(
-            tokens.iter().any(|t| *t == "`some long code`"),
+            tokens.contains(&"`some long code`"),
             "inline code: {tokens:?}"
         );
-        assert!(tokens.iter().any(|t| *t == "$E = m$"), "math: {tokens:?}");
+        assert!(tokens.contains(&"$E = m$"), "math: {tokens:?}");
         assert!(
-            tokens
-                .iter()
-                .any(|t| *t == "[[https://example.com][the example site]]"),
+            tokens.contains(&"[[https://example.com][the example site]]"),
             "org link: {tokens:?}"
         );
         assert!(
-            tokens.iter().any(|t| *t == "<https://ex.com/a>"),
+            tokens.contains(&"<https://ex.com/a>"),
             "autolink: {tokens:?}"
         );
     }
