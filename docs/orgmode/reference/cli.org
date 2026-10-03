@@ -290,7 +290,8 @@ Uses =git show REF:path= to retrieve the old version.
 :END:
 
 Watch files and auto-reformat on save.
-Accepts file paths or glob patterns. 200ms debounce to avoid reformatting during rapid saves.
+Accepts file paths or glob patterns.
+200ms debounce to avoid reformatting during rapid saves.
 Press Ctrl+C to stop.
 
 *** =snapper lsp=
