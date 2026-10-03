@@ -120,6 +120,9 @@ pub struct UnicodeSentenceSplitter {
     lang_multi_pattern: Regex,
     /// Extra LaTeX command names tokenized like `\verb` before split.
     extra_verbatim_commands: Vec<String>,
+    /// Whether a lowercase word after a terminator and a space opens a
+    /// sentence. UAX #29 SB8 says no; a reader counting claims says yes.
+    lowercase_starts: bool,
 }
 
 impl UnicodeSentenceSplitter {
@@ -160,7 +163,17 @@ impl UnicodeSentenceSplitter {
             lang_abbrev_pattern,
             lang_multi_pattern,
             extra_verbatim_commands: Vec::new(),
+            lowercase_starts: false,
         }
+    }
+
+    /// Open a sentence at a lowercase word after a terminator and a space
+    /// (`It stopped. packsetd restarts.`), which UAX #29 SB8 keeps joined.
+    /// A known abbreviation before the terminator (`e.g. the`) still joins.
+    /// Off by default: a formatter reflowing prose keeps SB8.
+    pub fn with_lowercase_starts(mut self, on: bool) -> Self {
+        self.lowercase_starts = on;
+        self
     }
 
     /// Extra LaTeX command names tokenized like `\verb` before split.
@@ -3134,6 +3147,9 @@ impl SentenceSplitter for UnicodeSentenceSplitter {
         // lowercase. Split same-line `iCloud` starts before abbreviation
         // merge so `e.g. iCloud` can rejoin.
         let expanded = split_before_lowercase_proper_nouns(raw_segments.iter().copied());
+        // SB8 also keeps `stopped. 3 tests` joined; a number opens a
+        // sentence, and the abbreviation merge below rejoins `Fig. 3`.
+        let expanded = split_before_sentence_starts(&expanded, self.lowercase_starts);
         let refs: Vec<&str> = expanded.iter().map(String::as_str).collect();
         let merged = self.refine_segments_from_strs(&refs);
         let restored = restore_inline_tokens(merged, &placeholders);
@@ -3255,6 +3271,45 @@ fn take_lowercase_proper_noun_sentence(seg: &str) -> Option<(String, String)> {
         return None;
     }
     Some((head.to_string(), rest.to_string()))
+}
+
+/// Split each segment after a terminator and whitespace when the next word
+/// opens with a digit, or with a lowercase letter when `lowercase` is set.
+/// A head with no letter (`1.` opening a list item, `...`) is not a
+/// sentence, so the scan moves on to the next terminator.
+fn split_before_sentence_starts(segments: &[String], lowercase: bool) -> Vec<String> {
+    let mut out = Vec::with_capacity(segments.len());
+    for seg in segments {
+        let chars: Vec<(usize, char)> = seg.char_indices().collect();
+        let mut from = 0usize;
+        let mut i = 0usize;
+        while i < chars.len() {
+            let (_, c) = chars[i];
+            if !matches!(c, '.' | '!' | '?') {
+                i += 1;
+                continue;
+            }
+            let mut j = i;
+            while j < chars.len() && matches!(chars[j].1, '.' | '!' | '?') {
+                j += 1;
+            }
+            let mut k = j;
+            while k < chars.len() && chars[k].1.is_whitespace() {
+                k += 1;
+            }
+            let opens = chars
+                .get(k)
+                .is_some_and(|&(_, n)| n.is_ascii_digit() || (lowercase && n.is_lowercase()));
+            let end = chars.get(j).map_or(seg.len(), |&(at, _)| at);
+            if k > j && opens && seg[from..end].chars().any(char::is_alphabetic) {
+                out.push(seg[from..end].to_string());
+                from = chars[k].0;
+            }
+            i = j.max(i + 1);
+        }
+        out.push(seg[from..].to_string());
+    }
+    out.into_iter().filter(|s| !s.trim().is_empty()).collect()
 }
 
 fn merge_abbreviation_splits(
@@ -3844,6 +3899,41 @@ mod tests {
             split("'!!A'A"),
             vec!["'!!A'A".to_string()],
             "UAX/refine must keep balanced '!!A' as one sentence"
+        );
+    }
+
+    #[test]
+    fn a_number_opens_a_sentence() {
+        assert_eq!(
+            split("It stopped. 3 tests failed."),
+            vec!["It stopped.", "3 tests failed."]
+        );
+        assert_eq!(
+            split("See Fig. 3 and Eq. 2 for the rate. Done."),
+            vec!["See Fig. 3 and Eq. 2 for the rate.", "Done."]
+        );
+        assert_eq!(
+            split("The tracker has 0.9.3 now. It holds."),
+            vec!["The tracker has 0.9.3 now.", "It holds."]
+        );
+    }
+
+    #[test]
+    fn a_lowercase_start_opens_a_sentence_only_when_asked() {
+        let text = "Restart it. packsetd reloads the pack.";
+        assert_eq!(split(text), vec![text.to_string()], "SB8 by default");
+        let claims = UnicodeSentenceSplitter::new().with_lowercase_starts(true);
+        assert_eq!(
+            claims.split(text),
+            vec!["Restart it.", "packsetd reloads the pack."]
+        );
+        assert_eq!(
+            claims.split("Use a ring, e.g. the instanton. It converges."),
+            vec!["Use a ring, e.g. the instanton.", "It converges."]
+        );
+        assert_eq!(
+            claims.split("1. first item. 2. second item."),
+            vec!["1. first item.", "2. second item."]
         );
     }
 
