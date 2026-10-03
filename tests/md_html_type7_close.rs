@@ -44,7 +44,7 @@ fn closed_span_is_structure_through_close() {
         Region::Structure(s) if s.contains("<span") => Some(s.as_str()),
         _ => None,
     });
-    let span = span.expect(&format!("span block must be Structure, got {regions:?}"));
+    let span = span.unwrap_or_else(|| panic!("span block must be Structure, got {regions:?}"));
     assert!(span.contains("<span class=\"note\">"), "{span}");
     assert!(span.contains("First. Second."), "{span}");
     assert!(span.contains("</span>"), "{span}");
@@ -102,7 +102,7 @@ fn type6_closed_div_runs_to_a_blank_line() {
         Region::Structure(s) if s.contains("<div>") => Some(s.as_str()),
         _ => None,
     });
-    let div = div.expect(&format!("div block must be Structure, got {regions:?}"));
+    let div = div.unwrap_or_else(|| panic!("div block must be Structure, got {regions:?}"));
     assert!(div.contains("</div>"), "{div}");
     assert!(
         div.contains("After html. Next."),
