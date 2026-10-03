@@ -10,7 +10,7 @@ The easiest way to enforce semantic line breaks in CI.
 Add to your workflow:
 
 #+begin_src yaml
-- uses: TurtleTech-ehf/snapper@v0.11.7
+- uses: TurtleTech-ehf/snapper@v0.11.8
   with:
     files: '**/*.org **/*.tex **/*.md'
 #+end_src
@@ -20,7 +20,7 @@ This installs snapper and runs =--check= on the specified files.
 For GitHub Code Scanning integration (SARIF annotations on PRs):
 
 #+begin_src yaml
-- uses: TurtleTech-ehf/snapper@v0.11.7
+- uses: TurtleTech-ehf/snapper@v0.11.8
   with:
     files: '**/*.org **/*.tex **/*.md'
     sarif: 'true'
