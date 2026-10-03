@@ -2,6 +2,7 @@
 name = "snapper-fmt"
 version = "0.11.7"
 edition = "2024"
+autotests = false
 rust-version = "1.85"
 description = "Semantic line break formatter for Org, LaTeX, Markdown, RST, and plaintext"
 repository = "https://github.com/TurtleTech-ehf/snapper"
@@ -160,3 +161,11 @@ pkg-fmt = "txz"
 [[bench]]
 name = "reflow_bench"
 harness = false
+
+[[test]]
+name = "integration"
+path = "tests/integration.rs"
+
+[[test]]
+name = "pandoc_parity_speed"
+path = "tests/pandoc_parity_speed.rs"

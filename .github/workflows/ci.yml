@@ -54,7 +54,7 @@ jobs:
         run: cargo test
 
       - name: Pandoc AST fixtures (JSON on disk, no live pandoc)
-        run: cargo test --features "cli,pandoc" --test pandoc_ast_backend -- --nocapture
+        run: cargo test --features "cli,pandoc" --test integration pandoc_ast_backend -- --nocapture
 
       - name: Colink opt-in without archive fails closed
         run: |
