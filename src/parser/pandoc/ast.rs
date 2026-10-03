@@ -578,7 +578,7 @@ mod tests {
             Region::Structure(s) if s.contains('|') && s.contains("---") => Some(s.as_str()),
             _ => None,
         });
-        let table = table.expect(&format!("pipe table structure: {regions:?}"));
+        let table = table.unwrap_or_else(|| panic!("pipe table structure: {regions:?}"));
         assert!(table.contains('a') && table.contains('b') && table.contains('1'));
         assert!(
             !regions
@@ -627,9 +627,8 @@ mod tests {
             Region::Structure(s) if s.contains("cargo binstall") => Some(s.as_str()),
             _ => None,
         });
-        let heading = heading.expect(&format!(
-            "expected Structure from Header node, got {regions:?}"
-        ));
+        let heading = heading
+            .unwrap_or_else(|| panic!("expected Structure from Header node, got {regions:?}"));
         assert!(
             heading.contains("1.") && heading.contains("cargo binstall"),
             "Header title text preserved as structure payload: {heading:?}"
