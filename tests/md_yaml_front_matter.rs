@@ -3,9 +3,9 @@ use snapper_fmt::parser::markdown::MarkdownParser;
 use snapper_fmt::parser::{FormatParser, Region};
 use snapper_fmt::{FormatConfig, format_text};
 
-/// snapper-4why: pulldown `scan_metadata_block` / `scan_closing_metadata_block`.
-/// `---` opens only when the next line is neither blank nor the closer.
-/// YAML closer is `---` or `...`. Blank after `---` is a thematic break.
+// snapper-4why: pulldown `scan_metadata_block` / `scan_closing_metadata_block`.
+// `---` opens only when the next line is neither blank nor the closer.
+// YAML closer is `---` or `...`. Blank after `---` is a thematic break.
 
 fn md_cfg() -> FormatConfig {
     FormatConfig {

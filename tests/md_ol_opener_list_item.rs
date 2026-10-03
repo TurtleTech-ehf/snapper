@@ -3,10 +3,10 @@ use snapper_fmt::parser::markdown::MarkdownParser;
 use snapper_fmt::parser::{FormatParser, Region};
 use snapper_fmt::{FormatConfig, format_text};
 
-/// snapper-9dc1: Markdown `* 0. A.` is one list item. pulldown treats
-/// `0. A.` as a nested ordered list. A sembr hang after `0.` is a
-/// continuation paragraph, so the HTML oracle vetoes. Keep the opener
-/// with the next sentence; do not invent a nested `0. ` Structure.
+// snapper-9dc1: Markdown `* 0. A.` is one list item. pulldown treats
+// `0. A.` as a nested ordered list. A sembr hang after `0.` is a
+// continuation paragraph, so the HTML oracle vetoes. Keep the opener
+// with the next sentence; do not invent a nested `0. ` Structure.
 
 fn md_cfg() -> FormatConfig {
     FormatConfig {
