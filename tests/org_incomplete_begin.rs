@@ -68,7 +68,7 @@ fn assert_after_next_prose_and_split(input: &str, out: &str, regions: &[Region])
         !out.contains("After the env. Next."),
         "fused trailing prose must not survive, got:\n{out}"
     );
-    assert_eq!(format_text(&out, &org_cfg()).unwrap(), out);
+    assert_eq!(format_text(out, &org_cfg()).unwrap(), out);
 
     let guarded = FormatConfig {
         format: Format::Org,

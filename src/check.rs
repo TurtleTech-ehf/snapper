@@ -345,9 +345,8 @@ mod tests {
 
     #[test]
     fn long_advisory_needs_clause_boundary() {
-        let long_with_comma = format!(
-            "The quick brown fox jumps over the lazy dog, then continues running across a very long meadow without pausing for breath at all today.\n"
-        );
+        let long_with_comma =
+            "The quick brown fox jumps over the lazy dog, then continues running across a very long meadow without pausing for breath at all today.\n".to_string();
         assert!(
             long_with_comma.trim_end().chars().count() > DEFAULT_LONG_THRESHOLD,
             "fixture must exceed the default long threshold"
