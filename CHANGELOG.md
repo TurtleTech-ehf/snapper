@@ -2,6 +2,59 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 - - -
+## v0.11.8 - 2026-10-03
+#### Tests
+- (**markdown**) accept the line-block terminator on the structure span - (6f3cd8c) - *HaoZeke*
+- (**markdown**) keep the paragraph after an unclosed bracket - (037c3de) - *HaoZeke*
+- (**markdown**) unclosed bracket math must not swallow the next line - (9223256) - *HaoZeke*
+- restore the 42 CLI tests the consolidated binary overwrote - (df6b271) - *HaoZeke*
+- the fancyvrb VerbatimInput test is named for what it checks - (9d043bb) - *HaoZeke*
+- a nested test runs at the top level, and the clippy lints in the consolidated tests are cleared - (eeb13b4) - *HaoZeke*
+#### Buildsystem
+- (**release**) the bump moves every pre-commit rev pin, which now live under docs/orgmode - (ed8847a) - *HaoZeke*
+- (**release**) a bump moves only the workspace crates in the lockfile - (439519a) - *HaoZeke*
+- (**tests**) one integration test binary links the library once - (f0c1e75) - *HaoZeke*
+#### Documentation
+- (**org**) hang the vale item description under its tag - (9bda344) - *HaoZeke*
+- cli reference reflowed where a sentence opens with a number - (918162e) - *HaoZeke*
+- keep the 0.11.7 changelog on the released notes - (1029ef1) - *HaoZeke*
+#### Bug Fixes
+- (**build**) use thin LTO for the release profile - (bf92050) - *HaoZeke*
+- (**latex**) keep letter-delimited verb and url spans whole - (dee2151) - *HaoZeke*
+- (**latex**) keep pgfplots group and special axes whole - (c8fb922) - *HaoZeke*
+- (**latex**) keep breqn dgroup and darray whole - (4ca94ae) - *HaoZeke*
+- (**latex**) keep more math and verbatim environments whole - (1e41fb9) - *HaoZeke*
+- (**latex**) keep leftover math and filecontents bodies whole - (2af7677) - *HaoZeke*
+- (**markdown**) keep mid-line bracket display math whole - (3633660) - *HaoZeke*
+- (**markdown**) hang the second sentence of a pandoc example item - (d1a833f) - *HaoZeke*
+- (**markdown**) match shortcut labels without lookahead - (45405fd) - *HaoZeke*
+- (**markdown**) keep shortcut labels, citations, and dollar math whole - (25d078f) - *HaoZeke*
+- (**markdown**) keep pandoc line blocks and example lists whole - (37f3086) - *HaoZeke*
+- (**markdown**) keep LaTeX non-prose environments whole - (c22f021) - *HaoZeke*
+- (**markdown**) end a bracket math search at a blank line - (3b1e7bd) - *HaoZeke*
+- (**markdown**) do not treat a div fence as a definition marker - (c124ffa) - *HaoZeke*
+- (**markdown**) keep bracket math and div fences out of prose - (2a93456) - *HaoZeke*
+- (**org**) take the item tag through the last separator - (ad67258) - *HaoZeke*
+- (**org**) keep list item tags on the item line - (7a13061) - *HaoZeke*
+- (**org,rst**) keep continued tags and titles whole - (711f7a8) - *HaoZeke*
+- (**pandoc**) shield alltt, BVerbatim, and luacode - (3e207aa) - *HaoZeke*
+- (**pandoc**) shield starred verbatim, lstlisting, and minted - (ceb11e5) - *HaoZeke*
+- (**plaintext**) do not split a balanced quote on a period - (7a87430) - *HaoZeke*
+- (**rst**) hang the indented line after a same-line title - (66651ec) - *HaoZeke*
+- (**rst**) keep csv-table title continuations as structure - (2547a67) - *HaoZeke*
+- (**rst**) keep directive title arguments on the directive line - (389e864) - *HaoZeke*
+- (**sentence**) lowercase academic abbreviations rejoin a number after them - (67b0547) - *HaoZeke*
+- (**sentence**) a number opens a sentence, and a lowercase start can be asked for - (e0a7df2) - *HaoZeke*
+#### Style
+- (**latex**) sort imports with the edition 2024 formatter - (b5de4ca) - *HaoZeke*
+- (**org,rst**) wrap the lines rustfmt rejected - (3356281) - *HaoZeke*
+- (**pandoc**) wrap the starred-verbatim test input - (1aefe7d) - *HaoZeke*
+- (**rst**) keep the title-body fixture on one line - (c325926) - *HaoZeke*
+- unwrap_or_else with panic! over expect(&format!) in tests, and two needless borrows - (db7b015) - *HaoZeke*
+- clear the clippy lints Rust 1.98 raises in tests and the LaTeX parser - (ee1f49e) - *HaoZeke*
+
+- - -
+
 ## v0.11.7 - 2026-09-23
 #### Bug Fixes
 - generated pre-commit hook runs under bash so the format loop runs on Ubuntu
