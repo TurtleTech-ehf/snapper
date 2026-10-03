@@ -3095,7 +3095,7 @@ fn inputminted_fixture_does_not_join_following_prose() {
 /// optional `[...]` stay atomic. inputminted / lstinputlisting
 /// unchanged.
 #[test]
-fn verbatiminput_fixture_does_not_join_following_prose() {
+fn verbatim_input_fancyvrb_fixture_does_not_join_following_prose() {
     let input = concat!(
         "Before. Next.\n",
         "\\VerbatimInput{foo.py}\n",
