@@ -4740,7 +4740,7 @@ Some text.
         // Whole-line prefix: leftover scan `from` can sit after another
         // leftover on the same line. `\lstinline` must stay Prose so
         // `See \verb|x| here.` is not the only mid-line case.
-        let after_other = concat!("\\py{print(1)} \\lstinline|print(1)|\n",);
+        let after_other = "\\py{print(1)} \\lstinline|print(1)|\n";
         let after_other_regions = LatexParser::default().parse(after_other);
         assert!(
             after_other_regions.iter().any(|r| matches!(
