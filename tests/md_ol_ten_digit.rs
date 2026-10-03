@@ -3,9 +3,9 @@ use snapper_fmt::parser::markdown::MarkdownParser;
 use snapper_fmt::parser::{FormatParser, Region};
 use snapper_fmt::{FormatConfig, format_text};
 
-/// snapper-sp7k / GitHub #172: CommonMark 0.31.2 sec 5.2 and pulldown
-/// `scan_list_marker_with_indent` cap ordered markers at 9 digits.
-/// `1234567890.` is prose, not a list. Oracle stays one `<p>`.
+// snapper-sp7k / GitHub #172: CommonMark 0.31.2 sec 5.2 and pulldown
+// `scan_list_marker_with_indent` cap ordered markers at 9 digits.
+// `1234567890.` is prose, not a list. Oracle stays one `<p>`.
 
 fn md_cfg() -> FormatConfig {
     FormatConfig {

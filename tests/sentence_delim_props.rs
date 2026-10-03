@@ -156,10 +156,10 @@ fn plaintext_period_before_backticks_quote_is_span_safe() {
 fn plaintext_balanced_quote_period_backtick_is_span_safe() {
     let input = "\"\"`A`\"`a`.`A\"";
     assert!(
-        delimiters_balanced(&input),
+        delimiters_balanced(input),
         "seed must be balanced so the property would fire\n in={input:?}"
     );
-    let out = format_plain(&input);
+    let out = format_plain(input);
     let again = format_plain(&out);
     assert_eq!(
         out, "\"\"`A`\"`a`.`A\"\n",

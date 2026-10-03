@@ -7,7 +7,9 @@ tag_prefix = "v"
 # Bump version everywhere: Cargo.toml drives pyproject.toml via dynamic = ["version"]
 pre_bump_hooks = [
     "sed -i '0,/^version = /s/^version = \".*\"/version = \"{{version}}\"/' Cargo.toml",
-    "cargo generate-lockfile",
+    # Only the workspace crates move; generate-lockfile would re-resolve every
+    # dependency and ship upgrades no test ran against.
+    "cargo update --workspace",
     "sed -i 's/^release = \".*\"/release = \"{{version}}\"/' docs/source/conf.py",
     "sed -i 's/rev: v[0-9][0-9.\\-]*/rev: v{{version}}/' README.md docs/source/howto/vale-integration.rst",
     "sed -i 's/\"version\": \".*\"/\"version\": \"{{version}}\"/' editors/vscode/package.json editors/obsidian/package.json editors/obsidian/manifest.json editors/word/package.json packages/snapper-wasm/package.json npm/package.json",

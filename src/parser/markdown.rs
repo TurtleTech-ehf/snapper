@@ -5740,7 +5740,8 @@ mod tests {
             Region::Structure(s) if s.contains("<!--") => Some(s.as_str()),
             _ => None,
         });
-        let comment = comment.expect(&format!("comment must be Structure, got {regions:?}"));
+        let comment =
+            comment.unwrap_or_else(|| panic!("comment must be Structure, got {regions:?}"));
         assert!(comment.contains("<!--"), "{comment}");
         assert!(comment.contains("Hidden. With a period."), "{comment}");
         assert!(comment.contains("Still comment."), "{comment}");
@@ -6129,7 +6130,7 @@ mod tests {
             Region::Structure(s) if s.contains("<div") => Some(s.as_str()),
             _ => None,
         });
-        let div = div.expect(&format!("div block must be Structure, got {regions:?}"));
+        let div = div.unwrap_or_else(|| panic!("div block must be Structure, got {regions:?}"));
         assert!(div.contains("<div class=\"note\">"), "{div}");
         assert!(div.contains("<p>Hello. World.</p>"), "{div}");
         assert!(div.contains("</div>"), "{div}");
@@ -6161,7 +6162,7 @@ mod tests {
             Region::Structure(s) if s.contains("<div>") => Some(s.as_str()),
             _ => None,
         });
-        let div = div.expect(&format!("div block must be Structure, got {regions:?}"));
+        let div = div.unwrap_or_else(|| panic!("div block must be Structure, got {regions:?}"));
         assert!(div.contains("<div>"), "{div}");
         assert!(div.contains("First. Second."), "{div}");
         assert!(div.contains("</div>"), "{div}");
@@ -6196,7 +6197,7 @@ mod tests {
             Region::Structure(s) if s.contains("<hr>") => Some(s.as_str()),
             _ => None,
         });
-        let hr = hr.expect(&format!("hr block must be Structure, got {regions:?}"));
+        let hr = hr.unwrap_or_else(|| panic!("hr block must be Structure, got {regions:?}"));
         assert!(
             !hr.contains("After html"),
             "void type-6 must end on the hr line, got {hr}"
@@ -6478,7 +6479,7 @@ mod tests {
             Region::Structure(s) if s.contains("<span") => Some(s.as_str()),
             _ => None,
         });
-        let span = span.expect(&format!("span block must be Structure, got {regions:?}"));
+        let span = span.unwrap_or_else(|| panic!("span block must be Structure, got {regions:?}"));
         assert!(span.contains("<span class=\"note\">"), "{span}");
         assert!(span.contains("First. Second."), "{span}");
         assert!(span.contains("</span>"), "{span}");
