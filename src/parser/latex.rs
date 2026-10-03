@@ -6120,7 +6120,8 @@ Some text.
             Region::Code { body, footer, .. } => Some((body.as_str(), footer.as_str())),
             _ => None,
         });
-        let (body, footer) = code.expect(&format!("lstlisting must be Code, got: {regions:?}"));
+        let (body, footer) =
+            code.unwrap_or_else(|| panic!("lstlisting must be Code, got: {regions:?}"));
         assert!(
             body.contains("print(1)"),
             "listing body must keep source, got body={body:?} regions={regions:?}"
@@ -6159,7 +6160,8 @@ Some text.
             Region::Code { body, footer, .. } => Some((body.as_str(), footer.as_str())),
             _ => None,
         });
-        let (body, footer) = code.expect(&format!("verbatim must be Code, got: {regions:?}"));
+        let (body, footer) =
+            code.unwrap_or_else(|| panic!("verbatim must be Code, got: {regions:?}"));
         assert!(
             body.contains("still body"),
             "inner \\end must not close the outer verbatim; still body stays in the listing, got body={body:?} regions={regions:?}"
@@ -6196,7 +6198,8 @@ Some text.
             Region::Code { body, footer, .. } => Some((body.as_str(), footer.as_str())),
             _ => None,
         });
-        let (body, footer) = code.expect(&format!("lstlisting must be Code, got: {regions:?}"));
+        let (body, footer) =
+            code.unwrap_or_else(|| panic!("lstlisting must be Code, got: {regions:?}"));
         assert!(
             body.contains("print(1)"),
             "listing body must keep source before %, got body={body:?} regions={regions:?}"
@@ -7646,9 +7649,8 @@ Some text.
             Region::Code { body, footer, .. } => Some((body.as_str(), footer.as_str())),
             _ => None,
         });
-        let (raw_body, raw_footer) = raw_code.expect(&format!(
-            "lstlisting* must stay Code on %, got: {raw_regions:?}"
-        ));
+        let (raw_body, raw_footer) = raw_code
+            .unwrap_or_else(|| panic!("lstlisting* must stay Code on %, got: {raw_regions:?}"));
         assert!(
             raw_body.contains("print(1)"),
             "lstlisting* raw scan must keep source before %, got body={raw_body:?}"
