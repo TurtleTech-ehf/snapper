@@ -4,7 +4,9 @@ pub static EN_ABBREVIATIONS: &[&str] = &[
     "Mr", "Mrs", "Ms", "Dr", "Prof", "Sr", "Jr", "St", "Rev", "Gen", "Gov", "Sgt", "Cpl", "Pvt",
     "Capt", "Lt", "Col", "Maj", "Cmdr", "Adm", // Academic / scientific
     "Fig", "Figs", "Eq", "Eqs", "Ref", "Refs", "Tab", "Sec", "Ch", "Vol", "No", "Nos", "Ed", "Eds",
-    "Trans", "Dept", "Thm", "Lem", "Prop", "Def", "Cor", "Rem", "Ex",
+    "Trans", "Dept", "Thm", "Lem", "Prop", "Def", "Cor", "Rem",
+    "Ex", // The same, lowercase in running text
+    "fig", "figs", "eq", "eqs", "ref", "refs", "tab", "sec", "ch", "vol", "nos", "p",
     // Latin abbreviations
     "al", "approx", "ca", "cf", "etc", "et", "ibid", "viz", // Common
     "vs", "misc", "est", "govt", "dept", "univ", "inc", "Inc", "corp", "Corp", "ltd", "Ltd", "Ave",

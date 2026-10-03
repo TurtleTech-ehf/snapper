@@ -46,7 +46,7 @@ fn closed_div_is_structure_through_close() {
         Region::Structure(s) if s.contains("<div>") => Some(s.as_str()),
         _ => None,
     });
-    let div = div.expect(&format!("div block must be Structure, got {regions:?}"));
+    let div = div.unwrap_or_else(|| panic!("div block must be Structure, got {regions:?}"));
     assert!(div.contains("<div>"), "{div}");
     assert!(div.contains("First. Second."), "{div}");
     assert!(div.contains("</div>"), "{div}");
