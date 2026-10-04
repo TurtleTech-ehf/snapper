@@ -73,7 +73,7 @@
       lines: [
         { text: '# .pre-commit-config.yaml', type: 'comment' as const },
         { text: '- repo: https://github.com/TurtleTech-ehf/snapper', type: 'flag' as const },
-        { text: '  rev: v0.11.8', type: 'flag' as const },
+        { text: '  rev: v0.11.9', type: 'flag' as const },
         { text: '  hooks:', type: 'flag' as const },
         { text: '    - id: snapper', type: 'flag' as const },
       ],

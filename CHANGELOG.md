@@ -2,6 +2,11 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 - - -
+## v0.11.9 - 2026-10-04
+#### Bug Fixes
+- (**pandoc**) keep org file keywords and add no heading drawers - (18520c0) - *HaoZeke*
+- (**site**) pin the homepage to v0.11.8 - (783e674) - *HaoZeke*
+
 ## v0.11.8 - 2026-10-03
 #### Tests
 - (**markdown**) accept the line-block terminator on the structure span - (6f3cd8c) - *HaoZeke*
