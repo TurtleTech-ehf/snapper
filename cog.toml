@@ -12,7 +12,9 @@ pre_bump_hooks = [
     "cargo update --workspace",
     "sed -i 's/^release = \".*\"/release = \"{{version}}\"/' docs/source/conf.py",
     # Only the rev under snapper's own repo line; other hooks keep their pins.
-    "sed -i '/repo: https:\\/\\/github.com\\/TurtleTech-ehf\\/snapper/{n;s/rev: v[0-9][0-9.\\-]*/rev: v{{version}}/}' README.md readme_src.org docs/orgmode/tutorials/quickstart.org docs/orgmode/howto/vale-integration.org docs/orgmode/howto/ci-enforcement.org",
+    "sed -i '/repo: https:\\/\\/github.com\\/TurtleTech-ehf\\/snapper/{n;s/rev: v[0-9][0-9.\\-]*/rev: v{{version}}/}' README.md readme_src.org docs/orgmode/tutorials/quickstart.org docs/orgmode/howto/vale-integration.org docs/orgmode/howto/ci-enforcement.org site-svelte/src/routes/+page.svelte",
+    "sed -i '/github.com\\/TurtleTech-ehf\\/snapper/{n;s/: v[0-9][0-9.]*/: v{{version}}/}' site/index.html",
+    "sed -i 's/\"softwareVersion\": \".*\"/\"softwareVersion\": \"{{version}}\"/' site-svelte/src/app.html site/index.html",
     "sed -i 's/\"version\": \".*\"/\"version\": \"{{version}}\"/' editors/vscode/package.json editors/obsidian/package.json editors/obsidian/manifest.json editors/word/package.json packages/snapper-wasm/package.json npm/package.json",
 ]
 
