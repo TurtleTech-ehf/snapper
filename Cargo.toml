@@ -1,6 +1,6 @@
 [package]
 name = "snapper-fmt"
-version = "0.11.8"
+version = "0.11.9"
 edition = "2024"
 autotests = false
 rust-version = "1.85"
