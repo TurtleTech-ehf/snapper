@@ -28,7 +28,7 @@ web
 
 ## Brand Commitments
 
-The site sets `--teal: #004D40` and `--sans: 'Jost', system-ui, sans-serif` in `site/index.html`.
+The site sets `--teal: #004D40` and `--sans: 'Atkinson Hyperlegible Next', system-ui, sans-serif` in `site/index.html`.
 
 ## Evidence on Hand
 
@@ -37,5 +37,5 @@ The site sets `--teal: #004D40` and `--sans: 'Jost', system-ui, sans-serif` in `
 ## Product Principles
 
 - (Inferred) The page explains the formatter that this repository ships.
-- (Inferred) Keep the teal and Jost already in the site stylesheet.
+- (Inferred) Keep the teal and the shared Atkinson face in the site stylesheet.
 - (Inferred) Do not move this record into a different repository.
