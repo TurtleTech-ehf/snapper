@@ -16,9 +16,12 @@ typography:
     fontFamily: "JetBrains Mono, monospace"
     fontWeight: 400
 rounded:
-  none: "0px"
+  logo: "28px"
+  control: "8px"
+  panel: "12px"
 spacing:
-  section: "0px"
+  section-y: "6rem"
+  section-x: "0"
 components:
   button-primary:
     backgroundColor: "{colors.teal}"
@@ -67,11 +70,11 @@ components:
 
 ## Layout
 
-The values above are the custom properties in the page stylesheet. Section rhythm is in that same style block.
+`section` padding is `6rem 0` in `site/index.html`.
 
 ## Shapes
 
-The token block does not set a radius.
+The logo uses a 28px radius. Controls use 8px. Panels and the demo close at 12px.
 
 ## Components
 
