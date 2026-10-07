@@ -20,8 +20,7 @@ rounded:
   control: "8px"
   panel: "12px"
 spacing:
-  section-y: "6rem"
-  section-x: "0"
+  section: "6rem 0"
 components:
   button-primary:
     backgroundColor: "{colors.teal}"
@@ -70,7 +69,7 @@ components:
 
 ## Layout
 
-`section` padding is `6rem 0` in `site/index.html`.
+`section` padding is `6rem 0` in `site/index.html`. The recorded spacing value is that same `6rem 0`.
 
 ## Shapes
 
