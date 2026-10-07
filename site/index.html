@@ -326,6 +326,10 @@ body::before {
   50% { transform: translateX(-50%) translateY(8px); }
 }
 
+@media (prefers-reduced-motion: reduce) {
+  .scroll-hint { animation: none; }
+}
+
 /* ---- SECTION LAYOUT ---- */
 section {
   padding: 6rem 0;
