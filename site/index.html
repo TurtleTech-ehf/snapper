@@ -47,7 +47,7 @@
 </script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Jost:ital,wght@0,300;0,400;0,500;0,600;0,700;0,800;1,400&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible+Next:ital,wght@0,200..800;1,200..800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 <style>
 :root {
   --teal: #004D40;
@@ -68,7 +68,7 @@
   --diff-rm: #fdd;
   --diff-rm-strong: #f8b0b0;
   --mono: 'JetBrains Mono', monospace;
-  --sans: 'Jost', system-ui, sans-serif;
+  --sans: 'Atkinson Hyperlegible Next', system-ui, sans-serif;
 }
 
 [data-theme="dark"] {
@@ -118,6 +118,11 @@ body {
   background: var(--bg);
   line-height: 1.65;
   -webkit-font-smoothing: antialiased;
+}
+
+:focus-visible {
+  outline: 2px solid var(--teal);
+  outline-offset: 3px;
 }
 
 /* ---- NOISE TEXTURE OVERLAY ---- */

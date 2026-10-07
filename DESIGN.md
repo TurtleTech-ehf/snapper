@@ -10,7 +10,7 @@ colors:
   text: "#1a2e1f"
 typography:
   body:
-    fontFamily: "Jost, system-ui, sans-serif"
+    fontFamily: "Atkinson Hyperlegible Next, system-ui, sans-serif"
     fontWeight: 400
   mono:
     fontFamily: "JetBrains Mono, monospace"
@@ -33,13 +33,13 @@ components:
 
 **Creative North Star: "The forest page"**
 
-(Inferred from `site/index.html`.) The static page sets its own custom properties: deep teal, coral, cream, and forest greens, with Jost for text and JetBrains Mono for code.
+(Inferred from `site/index.html`.) The static page sets its own custom properties: deep teal, coral, cream, and forest greens, with Atkinson Hyperlegible Next for text and JetBrains Mono for code.
 
 **Key Characteristics:**
 
 - Teal `#004D40`.
 - Background `#FDFCF9`.
-- Jost and JetBrains Mono.
+- Atkinson Hyperlegible Next and JetBrains Mono.
 
 ## Colors
 
@@ -59,7 +59,7 @@ components:
 
 ## Typography
 
-**Body Font:** Jost
+**Body Font:** Atkinson Hyperlegible Next
 **Label/Mono Font:** JetBrains Mono
 
 ### Hierarchy
@@ -85,8 +85,8 @@ The logo uses a 28px radius. Controls use 8px. Panels and the demo close at 12px
 
 ### Do:
 
-- **Do** keep `#004D40` and Jost as written in `site/index.html`.
+- **Do** keep `#004D40` and Atkinson Hyperlegible Next as written in `site/index.html`.
 
 ### Don't:
 
-- **Don't** replace Jost with Atkinson Hyperlegible Next. This page does not load that face.
+- **Don't** load a second display face. This page uses Atkinson Hyperlegible Next for text and JetBrains Mono for code.
