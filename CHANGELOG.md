@@ -2,6 +2,24 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 - - -
+## v0.11.10 - 2026-10-11
+#### Bug Fixes
+- (**sentence**) keep journal title abbreviations inside the sentence - (4904216) - *HaoZeke*
+- default to native parsers, fix markdown sentence splits and binstall assets (#524) - (d57a91d) - *HaoZeke*
+- keep filled labels readable in dark themes - (b71af34) - *HaoZeke*
+- keep link hover off filled buttons - (15c336b) - *HaoZeke*
+#### Documentation
+- describe the release archives and journal title abbreviations - (12f8f41) - *HaoZeke*
+- record the section padding as 6rem 0 - (c5fd704) - *HaoZeke*
+- record the page radii and section padding - (bcc9722) - *HaoZeke*
+- record the product and the shipping design - (1bacd33) - *HaoZeke*
+#### Miscellaneous Chores
+- turn on the design detector hook - (202286b) - *HaoZeke*
+#### Style
+- keep the scroll hint still when motion is reduced - (c9b079c) - *HaoZeke*
+- lead the feature list with one proof - (872900e) - *HaoZeke*
+- share one face across the TurtleTech sites - (7e39642) - *HaoZeke*
+
 ## v0.11.9 - 2026-10-04
 #### Bug Fixes
 - (**pandoc**) keep org file keywords and add no heading drawers - (18520c0) - *HaoZeke*
