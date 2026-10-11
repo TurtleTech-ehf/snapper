@@ -12,6 +12,8 @@ mod cli_integration;
 mod code_block_format;
 #[path = "code_block_reflow.rs"]
 mod code_block_reflow;
+#[path = "code_span_nested_backticks.rs"]
+mod code_span_nested_backticks;
 #[path = "latex_enumerate_hang.rs"]
 mod latex_enumerate_hang;
 #[path = "latex_figure_table_captions.rs"]

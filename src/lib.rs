@@ -326,6 +326,13 @@ pub fn format_text_with_splitter(
         {
             eprintln!("snapper: pandoc markdown render check failed; left input unchanged");
             work_input.to_string()
+        } else if pandoc_writes_markdown(config)
+            && config.render_backstop
+            && written != work_input
+            && !oracle::inline_code_kept(work_input, &written)
+        {
+            eprintln!("snapper: pandoc changed an inline code span; left input unchanged");
+            work_input.to_string()
         } else {
             written
         }
@@ -464,6 +471,13 @@ fn pandoc_input_format(config: &FormatConfig) -> &str {
 /// True when a pandoc markdown write should be checked with the render oracle.
 fn pandoc_markdown_oracle(config: &FormatConfig) -> bool {
     config.format == Format::Markdown && pandoc_input_format(config) == "gfm"
+}
+
+/// True when the pandoc path writes markdown back, whatever the reader was.
+/// Pandoc's `markdown` reader trims the space before an inner backtick, so
+/// `` `a (b `c`)` `` comes back as `` `a (b`c`)` ``.
+fn pandoc_writes_markdown(config: &FormatConfig) -> bool {
+    matches!(config.format, Format::Markdown | Format::Plaintext)
 }
 
 /// One parse+reflow pass. Native parsers splice into original bytes;
