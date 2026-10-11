@@ -185,6 +185,18 @@ impl UnicodeSentenceSplitter {
     pub(crate) fn verbatim_commands(&self) -> &[String] {
         &self.extra_verbatim_commands
     }
+
+    /// Split after a markup closer when the next sentence is a capital, a
+    /// code span, or (when lowercase starts are on) a lowercase word.
+    pub(crate) fn split_markup_sentences(&self, segments: Vec<String>) -> Vec<String> {
+        split_after_markup_sentence_end(
+            segments,
+            self.lowercase_starts,
+            &self.lang_abbrev_pattern,
+            &self.lang_multi_pattern,
+            self.extra_pattern.as_ref(),
+        )
+    }
 }
 
 impl Default for UnicodeSentenceSplitter {
@@ -3153,7 +3165,7 @@ impl SentenceSplitter for UnicodeSentenceSplitter {
         let refs: Vec<&str> = expanded.iter().map(String::as_str).collect();
         let merged = self.refine_segments_from_strs(&refs);
         let restored = restore_inline_tokens(merged, &placeholders);
-        split_after_markup_sentence_end(restored)
+        self.split_markup_sentences(restored)
     }
 }
 
@@ -3388,44 +3400,77 @@ fn piece_starts_sentence_after_ticks(piece: &str) -> bool {
 /// sees one sentence. This post-pass runs after restore. Quotes are not
 /// paired spans, so they already split. Mid-span periods (`**the end. Still bold**`)
 /// have no closers after the period and stay one sentence.
-pub(crate) fn split_after_markup_sentence_end(segments: Vec<String>) -> Vec<String> {
+fn split_after_markup_sentence_end(
+    segments: Vec<String>,
+    lowercase: bool,
+    abbrev_re: &Regex,
+    multi_re: &Regex,
+    extra: Option<&Regex>,
+) -> Vec<String> {
     let mut out = Vec::new();
     for seg in segments {
-        push_markup_sentence_splits(&mut out, seg.trim());
+        push_markup_sentence_splits(&mut out, seg.trim(), lowercase, abbrev_re, multi_re, extra);
     }
     out.into_iter().filter(|s| !s.is_empty()).collect()
 }
 
-fn push_markup_sentence_splits(out: &mut Vec<String>, seg: &str) {
-    if let Some((head, rest)) = take_markup_terminal_sentence(seg) {
+fn push_markup_sentence_splits(
+    out: &mut Vec<String>,
+    seg: &str,
+    lowercase: bool,
+    abbrev_re: &Regex,
+    multi_re: &Regex,
+    extra: Option<&Regex>,
+) {
+    if let Some((head, rest)) =
+        take_markup_terminal_sentence(seg, lowercase, abbrev_re, multi_re, extra)
+    {
         out.push(head);
-        push_markup_sentence_splits(out, &rest);
+        push_markup_sentence_splits(out, &rest, lowercase, abbrev_re, multi_re, extra);
     } else if !seg.is_empty() {
         out.push(seg.to_string());
     }
 }
 
-fn take_markup_terminal_sentence(seg: &str) -> Option<(String, String)> {
+fn take_markup_terminal_sentence(
+    seg: &str,
+    lowercase: bool,
+    abbrev_re: &Regex,
+    multi_re: &Regex,
+    extra: Option<&Regex>,
+) -> Option<(String, String)> {
     // Terminal `.!?` immediately before `**` / `*` / `_` / backticks /
     // `~~` / Org `/` `=` `+` / `](url)`, or an RST interpreted-text
-    // closer then `.!?`, then whitespace, then a new sentence
-    // (uppercase or opening quote).
+    // closer then `.!?`, then whitespace, then a new sentence.
+    // A new sentence is an uppercase word, an opening quote plus an
+    // uppercase word, or an opening backtick (a code span).
+    // When lowercase starts are on, a lowercase word counts too.
     // Prefix closer is `:role:`text`. / `:domain:role:`text`. Suffix
     // closer is `text`:role:. / `text`:domain:role:. (the closer is
     // `:role:`, not the backtick). Opening ```` is not a closer. Role
     // charset has no `.` so `email:user.name:`host`. does not
-    // false-split. A lowercase continuation (`[Example Inc.](url) now.`)
-    // stays one sentence.
+    // false-split. An abbreviation before the closer
+    // (`**e.g.** foo`, `[Example Inc.](url) now`) stays one sentence.
     static CAP: LazyLock<Regex> = LazyLock::new(|| {
         Regex::new(
-            r#"(?s)^(.*?(?:[.!?](?:\*{1,3}|_{1,3}|`+|~{1,2}|[/=+]|\]\([^)]*\))+|:[A-Za-z][A-Za-z0-9_-]*(?::[A-Za-z][A-Za-z0-9_-]*)*:`[^`\n]+`[.!?]|`[^`\n]+`:[A-Za-z][A-Za-z0-9_-]*(?::[A-Za-z][A-Za-z0-9_-]*)*:[.!?]))\s+([A-Z][\s\S]*|["'][A-Z][\s\S]*)$"#,
+            r#"(?s)^(.*?(?:[.!?](?:\*{1,3}|_{1,3}|`+|~{1,2}|[/=+]|\]\([^)]*\))+|:[A-Za-z][A-Za-z0-9_-]*(?::[A-Za-z][A-Za-z0-9_-]*)*:`[^`\n]+`[.!?]|`[^`\n]+`:[A-Za-z][A-Za-z0-9_-]*(?::[A-Za-z][A-Za-z0-9_-]*)*:[.!?]))\s+([A-Z][\s\S]*|["'][A-Z][\s\S]*|`[\s\S]*)$"#,
         )
         .expect("valid markup-terminal sentence regex")
     });
-    let c = CAP.captures(seg)?;
+    static CAP_LOWER: LazyLock<Regex> = LazyLock::new(|| {
+        Regex::new(
+            r#"(?s)^(.*?(?:[.!?](?:\*{1,3}|_{1,3}|`+|~{1,2}|[/=+]|\]\([^)]*\))+|:[A-Za-z][A-Za-z0-9_-]*(?::[A-Za-z][A-Za-z0-9_-]*)*:`[^`\n]+`[.!?]|`[^`\n]+`:[A-Za-z][A-Za-z0-9_-]*(?::[A-Za-z][A-Za-z0-9_-]*)*:[.!?]))\s+([A-Za-z][\s\S]*|["'][A-Za-z][\s\S]*|`[\s\S]*)$"#,
+        )
+        .expect("valid markup-terminal lowercase sentence regex")
+    });
+    let re = if lowercase { &*CAP_LOWER } else { &*CAP };
+    let c = re.captures(seg)?;
     let head = c.get(1)?.as_str().trim();
     let rest = c.get(2)?.as_str().trim();
     if head.is_empty() || rest.is_empty() {
+        return None;
+    }
+    if markup_head_is_abbreviation(head, abbrev_re, multi_re, extra) {
         return None;
     }
     // GitHub #374: `.` plus a capital looks like a markup sentence end,
@@ -3435,6 +3480,47 @@ fn take_markup_terminal_sentence(seg: &str) -> Option<(String, String)> {
         return None;
     }
     Some((head.to_string(), rest.to_string()))
+}
+
+/// True when the word before the closer's period is an abbreviation
+/// (`**e.g.**`, `[Example Inc.](url)`).
+fn markup_head_is_abbreviation(
+    head: &str,
+    abbrev_re: &Regex,
+    multi_re: &Regex,
+    extra: Option<&Regex>,
+) -> bool {
+    let core = strip_trailing_markup_for_abbrev(head);
+    if !core.ends_with('.') {
+        return false;
+    }
+    let last = core.split_whitespace().last().unwrap_or(core);
+    let probe = last.trim_start_matches(['*', '_', '`', '~', '/', '=', '+', '[', '(']);
+    if probe.is_empty() {
+        return false;
+    }
+    is_abbreviation_ending(probe, abbrev_re, multi_re, extra)
+}
+
+fn strip_trailing_markup_for_abbrev(s: &str) -> &str {
+    let mut core = s.trim_end();
+    loop {
+        let next = strip_md_link_suffix(core)
+            .trim_end_matches(['*', '_', '`', '~', '/', '=', '+', ']', ')', '"', '\'']);
+        if next.len() == core.len() {
+            break;
+        }
+        core = next.trim_end();
+    }
+    core
+}
+
+fn strip_md_link_suffix(s: &str) -> &str {
+    let Some(open) = s.rfind("](") else {
+        return s;
+    };
+    let dest = &s[open + 2..];
+    if dest.ends_with(')') { &s[..open] } else { s }
 }
 
 /// True when `head` still has an open DelimState span after inline tokens
@@ -3916,6 +4002,39 @@ mod tests {
             split("The tracker has 0.9.3 now. It holds."),
             vec!["The tracker has 0.9.3 now.", "It holds."]
         );
+    }
+
+    #[test]
+    fn markup_closer_splits_before_code_span_and_lowercase() {
+        assert_eq!(
+            split("**Note.** `foo` runs now. Fine."),
+            vec!["**Note.**", "`foo` runs now.", "Fine."]
+        );
+        let collection = "**Collection error on 0004c3d (ubuntu and macos).** setup-python now installs PyPy 8.0.0. numpy 2.4.6 only ships pp73 wheels.";
+        assert_eq!(
+            split(collection),
+            vec![collection.to_string()],
+            "lowercase after a closer stays joined until asked"
+        );
+        let on = UnicodeSentenceSplitter::new().with_lowercase_starts(true);
+        assert_eq!(
+            on.split(collection),
+            vec![
+                "**Collection error on 0004c3d (ubuntu and macos).**",
+                "setup-python now installs PyPy 8.0.0.",
+                "numpy 2.4.6 only ships pp73 wheels.",
+            ]
+        );
+        assert_eq!(
+            split("[Example Inc.](url) now works."),
+            vec!["[Example Inc.](url) now works."]
+        );
+        assert_eq!(split("**e.g.** foo bar."), vec!["**e.g.** foo bar."]);
+        assert_eq!(
+            on.split("[Example Inc.](url) now works."),
+            vec!["[Example Inc.](url) now works."]
+        );
+        assert_eq!(on.split("**e.g.** foo bar."), vec!["**e.g.** foo bar."]);
     }
 
     #[test]
