@@ -91,6 +91,20 @@ fn splice(
     splitter: &dyn SentenceSplitter,
     config: &ReflowConfig,
 ) -> Result<String, SpliceError> {
+    let rewrites = region_rewrites(source, spanned, splitter, config)?;
+    apply_rewrites(source, &rewrites)
+}
+
+/// Prose and rewritten code-body replacements, in source order.
+///
+/// A span whose text did not change is omitted. Callers that salvage a
+/// rejected document try each entry on its own.
+pub(crate) fn region_rewrites(
+    source: &str,
+    spanned: &[SpannedRegion],
+    splitter: &dyn SentenceSplitter,
+    config: &ReflowConfig,
+) -> Result<Vec<(usize, usize, String)>, SpliceError> {
     let regions: Vec<Region> = spanned.iter().map(|s| s.region.clone()).collect();
     let mut rewrites: Vec<(usize, usize, String)> = Vec::new();
     for (idx, sr) in spanned.iter().enumerate() {
@@ -104,7 +118,9 @@ fn splice(
                     continue;
                 }
                 let replacement = reflow_prose(text, idx, &regions, splitter, config);
-                rewrites.push((span.start, span.end, replacement));
+                if source.get(span.start..span.end) != Some(replacement.as_str()) {
+                    rewrites.push((span.start, span.end, replacement));
+                }
             }
             (
                 Region::Code { lang, body, .. },
@@ -132,18 +148,29 @@ fn splice(
         }
     }
     rewrites.sort_by_key(|(start, _, _)| *start);
+    Ok(rewrites)
+}
+
+pub(crate) fn apply_rewrites(
+    source: &str,
+    rewrites: &[(usize, usize, String)],
+) -> Result<String, SpliceError> {
     let mut out = String::with_capacity(source.len());
     let mut cursor = 0usize;
     for (start, end, repl) in rewrites {
-        if start < cursor || end > source.len() || start > end || source.get(start..end).is_none() {
+        if *start < cursor
+            || *end > source.len()
+            || *start > *end
+            || source.get(*start..*end).is_none()
+        {
             return Err(SpliceError(format!(
                 "invalid splice span {start}..{end} (cursor={cursor}, len={})",
                 source.len()
             )));
         }
-        out.push_str(&source[cursor..start]);
-        out.push_str(&repl);
-        cursor = end;
+        out.push_str(&source[cursor..*start]);
+        out.push_str(repl);
+        cursor = *end;
     }
     out.push_str(&source[cursor..]);
     Ok(out)

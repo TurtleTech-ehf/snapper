@@ -352,7 +352,7 @@ pub fn format_text_with_splitter(
                 Some(config),
             )
         {
-            work_input.to_string()
+            salvage_regions(work_input, config, splitter)?
         } else {
             candidate
         }
@@ -375,6 +375,75 @@ pub fn format_text_with_splitter(
     }
 
     Ok(output)
+}
+
+/// When the whole-document render check fails, keep each region whose
+/// own rewrite still matches and leave the rest as original bytes.
+fn salvage_regions(
+    work_input: &str,
+    config: &FormatConfig,
+    splitter: &dyn SentenceSplitter,
+) -> Result<String> {
+    use crate::reflow::{ReflowConfig, apply_rewrites, region_rewrites};
+
+    let spanned =
+        parser::parser_for_format_config(config.format, Some(config)).parse_full(work_input);
+    let reflow_config = ReflowConfig {
+        max_width: config.max_width,
+        code: Some(&config.code),
+        format_code: config.format_code,
+        clause_breaks: config.clause_breaks,
+        format: config.format,
+    };
+    let rewrites = match region_rewrites(work_input, &spanned, splitter, &reflow_config) {
+        Ok(rewrites) => rewrites,
+        Err(_) => {
+            let (start, end) = byte_line_span(work_input, 0, work_input.len());
+            eprintln!("snapper: render check failed; left lines {start}-{end} unchanged");
+            return Ok(work_input.to_string());
+        }
+    };
+    let mut kept = Vec::new();
+    let mut rejected = Vec::new();
+    for (start, end, repl) in rewrites {
+        let mut candidate = String::with_capacity(work_input.len() - (end - start) + repl.len());
+        candidate.push_str(&work_input[..start]);
+        candidate.push_str(&repl);
+        candidate.push_str(&work_input[end..]);
+        if oracle::matches_ex(
+            config.format,
+            work_input,
+            &candidate,
+            config.format_code,
+            Some(config),
+        ) {
+            kept.push((start, end, repl));
+        } else {
+            rejected.push(byte_line_span(work_input, start, end));
+        }
+    }
+    if !rejected.is_empty() {
+        let ranges = rejected
+            .iter()
+            .map(|(start, end)| format!("{start}-{end}"))
+            .collect::<Vec<_>>()
+            .join(", ");
+        eprintln!("snapper: render check failed; left lines {ranges} unchanged");
+    }
+    apply_rewrites(work_input, &kept).map_err(|e| anyhow::anyhow!("{e}"))
+}
+
+/// 1-indexed inclusive line numbers covering `[start, end)`.
+fn byte_line_span(source: &str, start: usize, end: usize) -> (usize, usize) {
+    let start_line = byte_to_line(source, start);
+    let end_at = end.saturating_sub(1).max(start);
+    let end_line = byte_to_line(source, end_at);
+    (start_line, end_line.max(start_line))
+}
+
+fn byte_to_line(source: &str, byte: usize) -> usize {
+    let byte = byte.min(source.len());
+    source[..byte].bytes().filter(|&b| b == b'\n').count() + 1
 }
 
 /// Pandoc reader/writer name for this config.
@@ -504,6 +573,34 @@ pub fn format_range(
     }
 
     Ok(result)
+}
+
+#[cfg(test)]
+mod region_fallback_tests {
+    use super::*;
+    use crate::format::Format;
+
+    #[test]
+    fn rejected_paragraph_does_not_revert_the_file() {
+        let input =
+            "**Note.** Next sentence here. Third one.\n\nThis is done.** Next starts here.\n";
+        let out = format_text(
+            input,
+            &FormatConfig {
+                format: Format::Markdown,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        assert!(
+            out.starts_with("**Note.**\nNext sentence here.\nThird one.\n\n"),
+            "first paragraph must split, got:\n{out}"
+        );
+        assert!(
+            out.ends_with("This is done.** Next starts here.\n"),
+            "second paragraph must stay unchanged, got:\n{out}"
+        );
+    }
 }
 
 #[cfg(test)]

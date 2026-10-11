@@ -474,6 +474,27 @@ fn idempotent_edge_cases_plaintext() {
 }
 
 #[test]
+fn render_mismatch_warns_and_keeps_the_good_paragraph() {
+    let input = "**Note.** Next sentence here. Third one.\n\nThis is done.** Next starts here.\n";
+    let out = pipe_stdin(input, &["--format", "markdown"]);
+    assert!(out.status.success(), "{:?}", out.stderr);
+    let stdout = String::from_utf8(out.stdout).unwrap();
+    assert!(
+        stdout.starts_with("**Note.**\nNext sentence here.\nThird one.\n\n"),
+        "{stdout}"
+    );
+    assert!(
+        stdout.ends_with("This is done.** Next starts here.\n"),
+        "{stdout}"
+    );
+    let err = String::from_utf8(out.stderr).unwrap();
+    assert!(
+        err.contains("render check failed") && err.contains("left lines") && err.contains("3-3"),
+        "stderr must name the unchanged line range, got: {err}"
+    );
+}
+
+#[test]
 fn lowercase_starts_flag_and_config_split_tool_names() {
     let input = "There are two. setup-python moved to PyPy 8.0.0.\n";
     let off = pipe_stdin(input, &["--format", "markdown"]);
