@@ -20,6 +20,7 @@ on:
       - 'packages/snapper-wasm/**'
       - 'editors/obsidian/**'
       - 'editors/word/**'
+      - '.github/workflows/wasm.yml'
 
 jobs:
   test-features:
@@ -37,6 +38,12 @@ jobs:
 
       - name: Test with no default features (lib only)
         run: cargo test --no-default-features --lib
+
+      # The cli feature alone must build: lsp, watch and mcp stay optional.
+      - name: Check the CLI with no other features
+        run: cargo check --no-default-features --features cli --bins
+        env:
+          RUSTFLAGS: -D warnings
 
       - name: Check WASM target compiles
         run: cargo check --no-default-features --features wasm --target wasm32-unknown-unknown --lib

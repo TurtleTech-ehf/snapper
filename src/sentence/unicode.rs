@@ -187,6 +187,7 @@ impl UnicodeSentenceSplitter {
         self
     }
 
+    #[cfg_attr(not(feature = "neural"), allow(dead_code))]
     pub(crate) fn verbatim_commands(&self) -> &[String] {
         &self.extra_verbatim_commands
     }

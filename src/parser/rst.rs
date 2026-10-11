@@ -1171,6 +1171,7 @@ pub(crate) fn is_rst_comment_opener(trimmed: &str) -> bool {
 /// Comment openers pandoc's RST reader drops (zero blocks). Hyperlink
 /// targets (`.. _name:`) and footnotes (`.. [1]`) start with `..` but
 /// survive the reader, so they are not a drop.
+#[cfg_attr(not(feature = "pandoc"), allow(dead_code))]
 pub(crate) fn is_rst_dropped_comment_opener(trimmed: &str) -> bool {
     if !is_rst_comment_opener(trimmed) {
         return false;
@@ -1183,6 +1184,7 @@ pub(crate) fn is_rst_dropped_comment_opener(trimmed: &str) -> bool {
 }
 
 /// Source has an RST `..` comment that `pandoc -f rst` would delete.
+#[cfg_attr(not(feature = "pandoc"), allow(dead_code))]
 pub(crate) fn source_has_dropped_rst_comments(input: &str) -> bool {
     input
         .lines()

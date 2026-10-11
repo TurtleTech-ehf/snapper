@@ -83,9 +83,19 @@ fn run() -> Result<()> {
                 return Ok(());
             }
             Commands::Lsp => {
-                let rt = tokio::runtime::Runtime::new().expect("failed to create tokio runtime");
-                rt.block_on(snapper_fmt::lsp::run_lsp());
-                return Ok(());
+                #[cfg(feature = "lsp")]
+                {
+                    let rt =
+                        tokio::runtime::Runtime::new().expect("failed to create tokio runtime");
+                    rt.block_on(snapper_fmt::lsp::run_lsp());
+                    return Ok(());
+                }
+                #[cfg(not(feature = "lsp"))]
+                {
+                    eprintln!("error: snapper was built without the 'lsp' feature");
+                    eprintln!("rebuild with: cargo install snapper-fmt --features lsp");
+                    process::exit(1);
+                }
             }
             Commands::Mcp => {
                 #[cfg(feature = "mcp")]
@@ -103,14 +113,24 @@ fn run() -> Result<()> {
                 }
             }
             Commands::Watch { patterns, format } => {
-                let fmt = format.map(Format::from_arg);
-                return snapper_fmt::watch::run_watch(
-                    patterns,
-                    fmt,
-                    cli.config.as_deref(),
-                    cli.native,
-                    cli.use_pandoc,
-                );
+                #[cfg(feature = "watch")]
+                {
+                    let fmt = format.map(Format::from_arg);
+                    return snapper_fmt::watch::run_watch(
+                        patterns,
+                        fmt,
+                        cli.config.as_deref(),
+                        cli.native,
+                        cli.use_pandoc,
+                    );
+                }
+                #[cfg(not(feature = "watch"))]
+                {
+                    let _ = (patterns, format);
+                    eprintln!("error: snapper was built without the 'watch' feature");
+                    eprintln!("rebuild with: cargo install snapper-fmt --features watch");
+                    process::exit(1);
+                }
             }
         }
     }
