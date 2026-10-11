@@ -582,8 +582,7 @@ mod region_fallback_tests {
 
     #[test]
     fn rejected_paragraph_does_not_revert_the_file() {
-        let input =
-            "**Note.** Next sentence here. Third one.\n\nThis is done.** Next starts here.\n";
+        let input = "**Note.** Next sentence here. Third one.\n\nA. a0.A.\n";
         let out = format_text(
             input,
             &FormatConfig {
@@ -597,8 +596,26 @@ mod region_fallback_tests {
             "first paragraph must split, got:\n{out}"
         );
         assert!(
-            out.ends_with("This is done.** Next starts here.\n"),
-            "second paragraph must stay unchanged, got:\n{out}"
+            out.ends_with("A. a0.A.\n"),
+            "rejected paragraph must stay unchanged, got:\n{out}"
+        );
+    }
+
+    #[test]
+    fn emphasis_closer_paragraph_splits_without_reverting() {
+        let input =
+            "**Note.** Next sentence here. Third one.\n\nThis is done.** Next starts here.\n";
+        let out = format_text(
+            input,
+            &FormatConfig {
+                format: Format::Markdown,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        assert_eq!(
+            out,
+            "**Note.**\nNext sentence here.\nThird one.\n\nThis is done.**\nNext starts here.\n"
         );
     }
 }

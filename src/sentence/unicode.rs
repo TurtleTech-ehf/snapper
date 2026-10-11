@@ -3165,7 +3165,7 @@ impl SentenceSplitter for UnicodeSentenceSplitter {
         let refs: Vec<&str> = expanded.iter().map(String::as_str).collect();
         let merged = self.refine_segments_from_strs(&refs);
         let restored = restore_inline_tokens(merged, &placeholders);
-        self.split_markup_sentences(restored)
+        reattach_leading_closer_runs(self.split_markup_sentences(restored))
     }
 }
 
@@ -3385,6 +3385,45 @@ fn push_segment_preserving_space(dest: &mut String, piece: &str) {
 fn piece_starts_sentence_after_ticks(piece: &str) -> bool {
     let rest = piece.trim_start_matches('`');
     rest.len() < piece.len() && rest.starts_with(|c: char| c.is_uppercase())
+}
+
+/// A segment that begins with `*`, `_`, `~`, or backticks and then
+/// whitespace is a closer that belongs on the previous sentence.
+pub(crate) fn reattach_leading_closer_runs(segments: Vec<String>) -> Vec<String> {
+    let mut out: Vec<String> = Vec::with_capacity(segments.len());
+    for seg in segments {
+        let trimmed = seg.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        if let Some((run, rest)) = leading_closer_run(trimmed) {
+            if let Some(prev) = out.last_mut() {
+                prev.push_str(run);
+                if !rest.is_empty() {
+                    out.push(rest.to_string());
+                }
+                continue;
+            }
+        }
+        out.push(trimmed.to_string());
+    }
+    out
+}
+
+fn leading_closer_run(seg: &str) -> Option<(&str, &str)> {
+    let bytes = seg.as_bytes();
+    let mut i = 0;
+    while i < bytes.len() && matches!(bytes[i], b'*' | b'_' | b'~' | b'`') {
+        i += 1;
+    }
+    if i == 0 || i >= bytes.len() || !bytes[i].is_ascii_whitespace() {
+        return None;
+    }
+    let mut j = i;
+    while j < bytes.len() && bytes[j].is_ascii_whitespace() {
+        j += 1;
+    }
+    Some((&seg[..i], seg[j..].trim()))
 }
 
 /// Merge false splits caused by sentence punctuation inside quotes or parens.
@@ -4001,6 +4040,14 @@ mod tests {
         assert_eq!(
             split("The tracker has 0.9.3 now. It holds."),
             vec!["The tracker has 0.9.3 now.", "It holds."]
+        );
+    }
+
+    #[test]
+    fn closing_emphasis_stays_on_the_sentence_it_closes() {
+        assert_eq!(
+            split("It works.** Next one."),
+            vec!["It works.**", "Next one."]
         );
     }
 

@@ -101,8 +101,10 @@ impl SentenceSplitter for NeuralSentenceSplitter {
         };
 
         let restored = restore_inline_tokens(raw, &placeholders);
-        self.post
-            .split_markup_sentences(self.post.refine_segments(restored))
+        crate::sentence::unicode::reattach_leading_closer_runs(
+            self.post
+                .split_markup_sentences(self.post.refine_segments(restored)),
+        )
     }
 }
 

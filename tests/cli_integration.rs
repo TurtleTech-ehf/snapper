@@ -475,7 +475,7 @@ fn idempotent_edge_cases_plaintext() {
 
 #[test]
 fn render_mismatch_warns_and_keeps_the_good_paragraph() {
-    let input = "**Note.** Next sentence here. Third one.\n\nThis is done.** Next starts here.\n";
+    let input = "**Note.** Next sentence here. Third one.\n\nA. a0.A.\n";
     let out = pipe_stdin(input, &["--format", "markdown"]);
     assert!(out.status.success(), "{:?}", out.stderr);
     let stdout = String::from_utf8(out.stdout).unwrap();
@@ -483,10 +483,7 @@ fn render_mismatch_warns_and_keeps_the_good_paragraph() {
         stdout.starts_with("**Note.**\nNext sentence here.\nThird one.\n\n"),
         "{stdout}"
     );
-    assert!(
-        stdout.ends_with("This is done.** Next starts here.\n"),
-        "{stdout}"
-    );
+    assert!(stdout.ends_with("A. a0.A.\n"), "{stdout}");
     let err = String::from_utf8(out.stderr).unwrap();
     assert!(
         err.contains("render check failed") && err.contains("left lines") && err.contains("3-3"),
