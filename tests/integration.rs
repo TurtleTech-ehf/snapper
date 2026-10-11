@@ -54,6 +54,8 @@ mod md_example_list;
 mod md_four_space_nested_list;
 #[path = "md_gfm_alerts.rs"]
 mod md_gfm_alerts;
+#[path = "md_gfm_table_lazy_rows.rs"]
+mod md_gfm_table_lazy_rows;
 #[path = "md_html_comment_indent.rs"]
 mod md_html_comment_indent;
 #[path = "md_html_type6_close.rs"]

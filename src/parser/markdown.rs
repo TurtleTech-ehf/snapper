@@ -1342,9 +1342,10 @@ fn list_remainder_raw_end(lines: &[Line<'_>], start: usize, rest: &str) -> Optio
     if header.len() != dcells.len() || !dcells.iter().all(|c| is_gfm_delimiter_cell(c)) {
         return None;
     }
+    let header_indent = line_indent(delim.text);
     let mut end = start + 1;
     for (j, line) in lines.iter().enumerate().skip(start + 2) {
-        if !is_gfm_table_row(line.text) {
+        if !continues_gfm_table(line.text, header_indent) {
             break;
         }
         end = j;
@@ -1490,7 +1491,7 @@ fn quoted_gfm_table_end(lines: &[Line<'_>], start: usize, depth: usize) -> Optio
         let Some(inner) = strip_quote_markers(line.text, depth) else {
             break;
         };
-        if !is_gfm_table_row(inner) {
+        if !continues_gfm_table(inner, line_indent(header_inner)) {
             break;
         }
         end = j;
@@ -1741,6 +1742,32 @@ fn is_gfm_table_row(line: &str) -> bool {
     gfm_table_cells(line).is_some()
 }
 
+/// A line that continues a GFM table body although it has no pipe.
+/// The table runs to a blank line or a block that interrupts a paragraph
+/// (GFM ex. 202; pulldown `parse_table_row`), so `bar` under the last row
+/// is one more row, not prose.
+/// A line indented less than the header may belong to an outer container,
+/// so it ends the table here and stays prose.
+fn is_gfm_lazy_table_row(line: &str, min_indent: usize) -> bool {
+    let content = line.trim_start();
+    if content.is_empty() || line_indent(line) < min_indent {
+        return false;
+    }
+    !(is_thematic_break(content)
+        || HEADING_RE.is_match(content)
+        || FENCED_CODE_RE.is_match(content)
+        || content.starts_with('>')
+        || LIST_ITEM_RE.is_match(content)
+        || html_block_kind(content).is_some_and(HtmlBlock::can_interrupt)
+        || is_footnote_definition(content))
+}
+
+/// True when `line` is the next row of a GFM table whose header is indented
+/// by `header_indent`.
+fn continues_gfm_table(line: &str, header_indent: usize) -> bool {
+    is_gfm_table_row(line) || is_gfm_lazy_table_row(line, header_indent)
+}
+
 /// Pandoc line block: a line that starts with `|` and a space, and does
 /// not end with a pipe. A flanking-pipe row is a table ([`TABLE_ROW_RE`]),
 /// not a line block. `|cell` (no space) is prose.
@@ -1765,9 +1792,10 @@ fn gfm_table_end(lines: &[Line<'_>], start: usize) -> Option<usize> {
     if header.len() != dcells.len() || !dcells.iter().all(|c| is_gfm_delimiter_cell(c)) {
         return None;
     }
+    let header_indent = line_indent(lines[start].text);
     let mut end = start + 1;
     for (j, line) in lines.iter().enumerate().skip(start + 2) {
-        if !is_gfm_table_row(line.text) {
+        if !continues_gfm_table(line.text, header_indent) {
             break;
         }
         end = j;
