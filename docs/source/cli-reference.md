@@ -44,6 +44,7 @@ Semantic line break formatter
 
   Default value: `0`
 * `--clause-breaks` — Prefer soft breaks after independent-clause punctuation (comma, semicolon, colon, em dash). With `--max-width 0` (the default), insert a newline after every such mark that is already followed by whitespace. With `--max-width` set, prefer those marks when wrapping an overflowing sentence
+* `--lowercase-starts` — Open a sentence at a lowercase word after a terminator and a space. Abbreviations such as `e.g.` and `vs.` still join. Off by default (UAX #29 SB8). Also set with `lowercase_starts` in `.snapperrc.toml` (top level, or per format)
 
   Default value: `false`
 * `--neural` — Use neural sentence detection (nnsplit LSTM model)

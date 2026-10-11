@@ -108,6 +108,11 @@ snapper --clause-breaks paper.org
 #+end_src
 With =--max-width= set, overflowing sentences prefer those marks.
 A one-clause sentence stays one line.
+Split before a lowercase word after a terminator (=pass. pytest= becomes two lines).
+Abbreviations such as =e.g.= and =vs.= still join.
+#+begin_src bash
+snapper --lowercase-starts paper.md
+#+end_src
 Preview changes as a unified diff before committing:
 #+begin_src bash
 snapper --diff paper.org

@@ -550,7 +550,11 @@ fn snapper_cli_use_pandoc_exits_0() {
     }
     let bin = env!("CARGO_BIN_EXE_snapper");
     let dir = tempfile::tempdir().expect("tempdir");
-    std::fs::write(dir.path().join("prose.md"), "Hello world. Second sentence.\n").unwrap();
+    std::fs::write(
+        dir.path().join("prose.md"),
+        "Hello world. Second sentence.\n",
+    )
+    .unwrap();
     let prose = std::process::Command::new(bin)
         .args(["--use-pandoc", "--format", "markdown", "prose.md"])
         .current_dir(dir.path())

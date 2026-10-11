@@ -142,6 +142,7 @@ fn format_file_in_place(
         latex_structure_envs: project_config.latex_structure_envs(),
         latex_verbatim_commands: project_config.latex_verbatim_commands(),
         clause_breaks: project_config.clause_breaks.unwrap_or(false),
+        lowercase_starts: project_config.lowercase_starts_for_format(format_key),
         use_pandoc,
         ..Default::default()
     };

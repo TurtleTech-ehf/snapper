@@ -52,6 +52,12 @@ impl NeuralSentenceSplitter {
         self
     }
 
+    /// Open a sentence at a lowercase word after a terminator and a space.
+    pub fn with_lowercase_starts(mut self, on: bool) -> Self {
+        self.post = self.post.with_lowercase_starts(on);
+        self
+    }
+
     /// Load from a custom ONNX model file path.
     pub fn from_path(path: &std::path::Path) -> Result<Self, Box<dyn std::error::Error>> {
         Self::from_path_with_extras(path, "en", &[])

@@ -89,6 +89,16 @@ With =--max-width= set, overflowing sentences prefer those marks; a sentence tha
 Tokens such as =1,000=, =10:30=, URLs, =--flags=, and unspaced dashes never split.
 =--check= uses the same mode when the flag or =clause_breaks= config is on.
 
+*** =--lowercase-starts=
+:PROPERTIES:
+:CUSTOM_ID: opt-lowercase-starts
+:END:
+
+Open a sentence at a lowercase word after a terminator and a space.
+Abbreviations such as =e.g.= and =vs.= still join.
+Off by default (UAX #29 SB8).
+Also set with =lowercase_starts= in =.snapperrc.toml= (top level, or per format).
+
 *** =--format-code=
 :PROPERTIES:
 :CUSTOM_ID: opt-format-code

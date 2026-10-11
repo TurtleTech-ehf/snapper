@@ -106,6 +106,9 @@ pub struct FormatConfig {
     /// Default `false` keeps one sentence per line (greedy wrap only
     /// under `max_width`).
     pub clause_breaks: bool,
+    /// Open a sentence at a lowercase word after a terminator and a space.
+    /// Abbreviations such as `e.g.` still join. Default `false` keeps UAX #29 SB8.
+    pub lowercase_starts: bool,
     /// Run `format_text` to a byte fixpoint (cap 4). Production default
     /// `true`; tests set `false` so a planner that needs the backstop fails.
     pub fixpoint_backstop: bool,
@@ -169,6 +172,7 @@ impl Default for FormatConfig {
             code: HashMap::new(),
             format_code: false,
             clause_breaks: false,
+            lowercase_starts: false,
             fixpoint_backstop: true,
             render_backstop: true,
             latex_verbatim_envs: vec![],
@@ -253,7 +257,8 @@ pub fn build_splitter(config: &FormatConfig) -> Result<Box<dyn SentenceSplitter>
             Ok(Box::new(
                 neural
                     .map_err(|e| anyhow::anyhow!("{e}"))?
-                    .with_verbatim_commands(config.latex_verbatim_commands.clone()),
+                    .with_verbatim_commands(config.latex_verbatim_commands.clone())
+                    .with_lowercase_starts(config.lowercase_starts),
             ))
         }
         #[cfg(not(feature = "neural"))]
@@ -265,7 +270,8 @@ pub fn build_splitter(config: &FormatConfig) -> Result<Box<dyn SentenceSplitter>
     } else {
         Ok(Box::new(
             UnicodeSentenceSplitter::for_lang(&config.neural_lang, &config.extra_abbreviations)
-                .with_verbatim_commands(config.latex_verbatim_commands.clone()),
+                .with_verbatim_commands(config.latex_verbatim_commands.clone())
+                .with_lowercase_starts(config.lowercase_starts),
         ))
     }
 }
@@ -498,4 +504,56 @@ pub fn format_range(
     }
 
     Ok(result)
+}
+
+#[cfg(test)]
+mod lowercase_starts_tests {
+    use super::*;
+    use crate::format::Format;
+
+    fn cfg(on: bool) -> FormatConfig {
+        FormatConfig {
+            format: Format::Markdown,
+            lowercase_starts: on,
+            ..Default::default()
+        }
+    }
+
+    fn lines(on: bool, input: &str) -> Vec<String> {
+        format_text(input, &cfg(on))
+            .unwrap()
+            .lines()
+            .map(str::to_string)
+            .collect()
+    }
+
+    #[test]
+    fn lowercase_starts_split_the_documented_cases() {
+        let tool = "There are two. setup-python moved to PyPy 8.0.0.";
+        let meson = "`meson test`: 58 of 58 pass. pytest: 661 pass and 31 skip.";
+        let abbrev = "Use e.g. this, i.e. that, vs. the other, etc. and more. Dr. Smith agreed.";
+        assert_eq!(lines(false, tool), vec![tool]);
+        assert_eq!(lines(false, meson), vec![meson]);
+        assert_eq!(
+            lines(true, tool),
+            vec![
+                "There are two.".to_string(),
+                "setup-python moved to PyPy 8.0.0.".to_string()
+            ]
+        );
+        assert_eq!(
+            lines(true, meson),
+            vec![
+                "`meson test`: 58 of 58 pass.".to_string(),
+                "pytest: 661 pass and 31 skip.".to_string()
+            ]
+        );
+        assert_eq!(
+            lines(true, abbrev),
+            vec![
+                "Use e.g. this, i.e. that, vs. the other, etc. and more.".to_string(),
+                "Dr. Smith agreed.".to_string()
+            ]
+        );
+    }
 }

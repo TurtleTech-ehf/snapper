@@ -334,6 +334,7 @@ struct SplitterKey {
     neural_lang: String,
     neural_model: Option<std::path::PathBuf>,
     extras: Vec<String>,
+    lowercase_starts: bool,
 }
 
 impl SplitterKey {
@@ -344,6 +345,7 @@ impl SplitterKey {
             neural_lang: config.neural_lang.clone(),
             neural_model: config.neural_model_path.clone(),
             extras: config.extra_abbreviations.clone(),
+            lowercase_starts: config.lowercase_starts,
         }
     }
 }
@@ -399,6 +401,8 @@ fn build_format_config(
 
     // CLI --clause-breaks wins when set; otherwise project config (default false).
     let clause_breaks = cli.clause_breaks || project_config.clause_breaks.unwrap_or(false);
+    let lowercase_starts =
+        cli.lowercase_starts || project_config.lowercase_starts_for_format(format_key);
 
     FormatConfig {
         format,
@@ -419,6 +423,7 @@ fn build_format_config(
         code: project_config.code.clone(),
         format_code: cli.format_code,
         clause_breaks,
+        lowercase_starts,
         ..Default::default()
     }
 }

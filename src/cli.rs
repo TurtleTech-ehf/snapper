@@ -80,6 +80,14 @@ pub struct Cli {
     #[arg(long, default_value_t = false)]
     pub clause_breaks: bool,
 
+    /// Open a sentence at a lowercase word after a terminator and a space.
+    /// Abbreviations such as `e.g.` and `vs.` still join.
+    /// Off by default (UAX #29 SB8).
+    /// Also set with `lowercase_starts` in `.snapperrc.toml`
+    /// (top level, or per format).
+    #[arg(long, default_value_t = false)]
+    pub lowercase_starts: bool,
+
     /// Use neural sentence detection (nnsplit LSTM model).
     #[arg(long)]
     pub neural: bool,

@@ -143,6 +143,10 @@ With the default unlimited width this inserts a newline after every such mark th
 
 With `--max-width` set, overflowing sentences prefer those marks.
 A one-clause sentence stays one line.
+Split before a lowercase word after a terminator (`pass. pytest` becomes two lines).
+Abbreviations such as `e.g.` and `vs.` still join:
+
+    snapper --lowercase-starts paper.md
 Preview changes as a unified diff before committing:
 
     snapper --diff paper.org

@@ -474,6 +474,33 @@ fn idempotent_edge_cases_plaintext() {
 }
 
 #[test]
+fn lowercase_starts_flag_and_config_split_tool_names() {
+    let input = "There are two. setup-python moved to PyPy 8.0.0.\n";
+    let off = pipe_stdin(input, &["--format", "markdown"]);
+    assert!(off.status.success(), "{:?}", off.stderr);
+    assert_eq!(String::from_utf8(off.stdout).unwrap(), input);
+    let on = pipe_stdin(input, &["--format", "markdown", "--lowercase-starts"]);
+    assert!(on.status.success(), "{:?}", on.stderr);
+    assert_eq!(
+        String::from_utf8(on.stdout).unwrap(),
+        "There are two.\nsetup-python moved to PyPy 8.0.0.\n"
+    );
+
+    let dir = tempfile::tempdir().unwrap();
+    fs::write(
+        dir.path().join(".snapperrc.toml"),
+        "lowercase_starts = false\n[markdown]\nlowercase_starts = true\n",
+    )
+    .unwrap();
+    let configured = pipe_stdin_in_dir(input, &["--format", "markdown"], dir.path());
+    assert!(configured.status.success(), "{:?}", configured.stderr);
+    assert_eq!(
+        String::from_utf8(configured.stdout).unwrap(),
+        "There are two.\nsetup-python moved to PyPy 8.0.0.\n"
+    );
+}
+
+#[test]
 fn default_cli_keeps_gfm_table_list_and_splits_prose() {
     let dir = tempfile::tempdir().unwrap();
     let input = "Intro. Second sentence.\n\n| Col | Value |\n|---|---|\n| a | 1. Next |\n\n- item one\n- item two\n";
