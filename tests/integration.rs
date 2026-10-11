@@ -108,6 +108,8 @@ mod md_ref_link_interior_punct;
 mod md_shortcut_ref_label;
 #[path = "md_spanning_lrd_title.rs"]
 mod md_spanning_lrd_title;
+#[path = "md_unclosed_double_backtick.rs"]
+mod md_unclosed_double_backtick;
 #[path = "md_yaml_front_matter.rs"]
 mod md_yaml_front_matter;
 #[path = "org_angle_links.rs"]

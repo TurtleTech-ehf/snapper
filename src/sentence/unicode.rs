@@ -3873,7 +3873,7 @@ fn glue_tick_capital_after_punct(result: &mut Vec<String>, segment: &str) -> boo
 
 fn merge_splits_inside_delimiters(segments: Vec<String>) -> Vec<String> {
     let mut result: Vec<String> = Vec::with_capacity(segments.len());
-    let mut state = DelimState::default();
+    let mut state = DelimState::for_text(&segments.concat());
 
     for segment in segments {
         if state.is_inside() {
@@ -3979,9 +3979,28 @@ pub struct DelimState {
     last_char: Option<char>,
     /// When the previous chunk ended in `\`, the next `"` / `'` is escaped.
     pending_escape: bool,
+    /// LaTeX `''` closers still ahead in the text, when known.
+    /// A ```` with no `''` left to close it is literal, as an unmatched
+    /// backtick run is in CommonMark, so it opens no span.
+    latex_closers_ahead: Option<i32>,
 }
 
 impl DelimState {
+    /// A state that knows how many `''` closers `text` holds, so a
+    /// ```` with none left after it stays literal.
+    pub fn for_text(text: &str) -> Self {
+        let mut probe = DelimState {
+            latex_closers_ahead: Some(0),
+            ..DelimState::default()
+        };
+        probe.feed(text);
+        let closers = -probe.latex_closers_ahead.unwrap_or(0);
+        DelimState {
+            latex_closers_ahead: Some(closers),
+            ..DelimState::default()
+        }
+    }
+
     pub fn is_inside(&self) -> bool {
         self.ascii_double_open
             || self.ascii_single_open
@@ -4023,12 +4042,20 @@ impl DelimState {
                     self.last_char = Some('`');
                     continue;
                 }
-                self.latex_quote_depth += 1;
+                if self
+                    .latex_closers_ahead
+                    .is_none_or(|ahead| ahead > self.latex_quote_depth)
+                {
+                    self.latex_quote_depth += 1;
+                }
                 self.last_char = Some('`');
                 continue;
             }
             if ch == '\'' && next == Some('\'') {
                 let _ = iter.next();
+                if let Some(ahead) = self.latex_closers_ahead.as_mut() {
+                    *ahead -= 1;
+                }
                 self.latex_quote_depth = (self.latex_quote_depth - 1).max(0);
                 self.last_char = Some('\'');
                 continue;
@@ -4124,7 +4151,7 @@ pub fn newlines_respect_delimiter_spans(formatted: &str) -> bool {
         return true;
     }
     let (protected, _) = protect_inline_tokens(trimmed_end);
-    let mut state = DelimState::default();
+    let mut state = DelimState::for_text(&protected);
     for line in protected.split('\n') {
         if state.is_inside() {
             return false;
