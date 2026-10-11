@@ -3164,8 +3164,11 @@ impl SentenceSplitter for UnicodeSentenceSplitter {
         let expanded = split_before_sentence_starts(&expanded, self.lowercase_starts);
         let refs: Vec<&str> = expanded.iter().map(String::as_str).collect();
         let merged = self.refine_segments_from_strs(&refs);
+        // Reattach while trailing newlines are still on the segments.
+        // A `*` after a line break is a bullet, not a closer torn off `.`.
+        let merged = reattach_leading_closer_runs(merged);
         let restored = restore_inline_tokens(merged, &placeholders);
-        reattach_leading_closer_runs(self.split_markup_sentences(restored))
+        self.split_markup_sentences(restored)
     }
 }
 
@@ -3389,20 +3392,27 @@ fn piece_starts_sentence_after_ticks(piece: &str) -> bool {
 
 /// A segment that begins with `*`, `_`, `~`, or backticks and then
 /// whitespace is a closer that belongs on the previous sentence.
+/// A closer after a line break is a bullet (`* item`) and stays put.
 pub(crate) fn reattach_leading_closer_runs(segments: Vec<String>) -> Vec<String> {
     let mut out: Vec<String> = Vec::with_capacity(segments.len());
+    let mut prev_broke = false;
     for seg in segments {
+        let broke = seg.trim_end_matches([' ', '\t']).ends_with('\n');
+        let line_before = prev_broke || seg.trim_start_matches([' ', '\t']).starts_with('\n');
         let trimmed = seg.trim();
+        prev_broke = broke || (trimmed.is_empty() && seg.contains('\n'));
         if trimmed.is_empty() {
             continue;
         }
-        if let Some((run, rest)) = leading_closer_run(trimmed) {
-            if let Some(prev) = out.last_mut() {
-                prev.push_str(run);
-                if !rest.is_empty() {
-                    out.push(rest.to_string());
+        if !line_before {
+            if let Some((run, rest)) = leading_closer_run(trimmed) {
+                if let Some(prev) = out.last_mut() {
+                    prev.push_str(run);
+                    if !rest.is_empty() {
+                        out.push(rest.to_string());
+                    }
+                    continue;
                 }
-                continue;
             }
         }
         out.push(trimmed.to_string());
@@ -4048,6 +4058,19 @@ mod tests {
         assert_eq!(
             split("It works.** Next one."),
             vec!["It works.**", "Next one."]
+        );
+        assert_eq!(
+            split("It works.* Next one."),
+            vec!["It works.*", "Next one."]
+        );
+        let prose = "Topics include: * Product requirements - what pages exist? What functionality lives on them?\n* Technical requirements";
+        assert_eq!(
+            split(prose),
+            vec![
+                "Topics include: * Product requirements - what pages exist?",
+                "What functionality lives on them?",
+                "* Technical requirements",
+            ]
         );
     }
 

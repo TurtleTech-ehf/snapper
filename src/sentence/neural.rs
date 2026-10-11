@@ -95,16 +95,16 @@ impl SentenceSplitter for NeuralSentenceSplitter {
             splits[0]
                 .flatten(0)
                 .into_iter()
-                .map(|s| s.trim().to_string())
-                .filter(|s| !s.is_empty())
+                .map(|s| s.to_string())
+                .filter(|s| !s.trim().is_empty())
                 .collect()
         };
+        // Same newline rule as the Unicode path: a line-leading `*` is a bullet.
+        let raw = crate::sentence::unicode::reattach_leading_closer_runs(raw);
 
         let restored = restore_inline_tokens(raw, &placeholders);
-        crate::sentence::unicode::reattach_leading_closer_runs(
-            self.post
-                .split_markup_sentences(self.post.refine_segments(restored)),
-        )
+        self.post
+            .split_markup_sentences(self.post.refine_segments(restored))
     }
 }
 
