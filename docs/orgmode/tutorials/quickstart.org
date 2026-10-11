@@ -16,6 +16,10 @@ Pre-built binary (fastest, no compilation):
 cargo binstall snapper-fmt
 #+end_src
 
+=cargo binstall= fetches the archive for your platform from the [[https://github.com/TurtleTech-ehf/snapper/releases/latest][GitHub release]].
+Releases cover Linux on x86_64 and aarch64 (glibc and static musl), macOS on x86_64 and Apple silicon, and Windows on x86_64.
+Pick the musl archive for Alpine or a minimal container.
+
 Or compile from source:
 
 #+begin_src bash
