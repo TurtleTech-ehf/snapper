@@ -303,8 +303,26 @@ pub fn format_text_with_splitter(
     // The pandoc writer is not a native splice: it normalizes markup, so
     // the native region-tree oracle and byte fixpoint would veto a correct
     // write-through and return the original (no sentence breaks).
+    // Markdown opted in via `--use-pandoc` is the exception: it is read and
+    // written as gfm, and a render mismatch returns the input unchanged.
     let candidate = if config.use_pandoc {
-        format_once(work_input, config, splitter, config.format_code)?
+        let written = format_once(work_input, config, splitter, config.format_code)?;
+        if pandoc_markdown_oracle(config)
+            && config.render_backstop
+            && written != work_input
+            && !oracle::matches_ex(
+                config.format,
+                work_input,
+                &written,
+                config.format_code,
+                Some(config),
+            )
+        {
+            eprintln!("snapper: pandoc markdown render check failed; left input unchanged");
+            work_input.to_string()
+        } else {
+            written
+        }
     } else {
         let once = format_once(work_input, config, splitter, config.format_code)?;
         // Later passes prove prose stability. External code formatters
@@ -353,6 +371,26 @@ pub fn format_text_with_splitter(
     Ok(output)
 }
 
+/// Pandoc reader/writer name for this config.
+/// Markdown defaults to `gfm` so `--use-pandoc` does not emit pandoc tables.
+fn pandoc_input_format(config: &FormatConfig) -> &str {
+    if let Some(fmt) = config.pandoc_format.as_deref() {
+        return fmt;
+    }
+    match config.format {
+        Format::Org => "org",
+        Format::Latex => "latex",
+        Format::Markdown => "gfm",
+        Format::Rst => "rst",
+        Format::Plaintext => "markdown",
+    }
+}
+
+/// True when a pandoc markdown write should be checked with the render oracle.
+fn pandoc_markdown_oracle(config: &FormatConfig) -> bool {
+    config.format == Format::Markdown && pandoc_input_format(config) == "gfm"
+}
+
 /// One parse+reflow pass. Native parsers splice into original bytes;
 /// pandoc reflows the AST and writes through pandoc's writer.
 fn format_once(
@@ -378,16 +416,7 @@ fn format_once(
     if config.use_pandoc {
         #[cfg(feature = "pandoc")]
         {
-            let pandoc_fmt = config
-                .pandoc_format
-                .as_deref()
-                .unwrap_or(match config.format {
-                    Format::Org => "org",
-                    Format::Latex => "latex",
-                    Format::Markdown => "markdown",
-                    Format::Rst => "rst",
-                    Format::Plaintext => "markdown",
-                });
+            let pandoc_fmt = pandoc_input_format(config);
             return parser::pandoc::format_via_pandoc(
                 work_input,
                 pandoc_fmt,

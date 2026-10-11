@@ -68,6 +68,10 @@ max_width = 0
 # that is already followed by whitespace.
 # clause_breaks = false
 
+# Opt into the pandoc writer. The default is the native parsers.
+# Markdown on this path is read and written as gfm.
+# use_pandoc = false
+
 # Extra LaTeX environments / commands (added to the built-in lists).
 # [latex]
 # verbatim_envs = ["Verbatim"]

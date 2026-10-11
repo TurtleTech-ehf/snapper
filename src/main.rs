@@ -108,7 +108,8 @@ fn run() -> Result<()> {
                     patterns,
                     fmt,
                     cli.config.as_deref(),
-                    cli.resolve_use_pandoc(),
+                    cli.native,
+                    cli.use_pandoc,
                 );
             }
         }
@@ -409,7 +410,7 @@ fn build_format_config(
         latex_verbatim_envs: project_config.latex_verbatim_envs(),
         latex_structure_envs: project_config.latex_structure_envs(),
         latex_verbatim_commands: project_config.latex_verbatim_commands(),
-        use_pandoc: cli.resolve_use_pandoc(),
+        use_pandoc: cli.resolve_use_pandoc_config(project_config.use_pandoc),
         #[cfg(feature = "pandoc")]
         pandoc_backend: cli
             .pandoc_backend

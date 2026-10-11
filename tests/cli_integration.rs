@@ -473,6 +473,83 @@ fn idempotent_edge_cases_plaintext() {
     );
 }
 
+#[test]
+fn default_cli_keeps_gfm_table_list_and_splits_prose() {
+    let dir = tempfile::tempdir().unwrap();
+    let input = "Intro. Second sentence.\n\n| Col | Value |\n|---|---|\n| a | 1. Next |\n\n- item one\n- item two\n";
+    let expected = "Intro.\nSecond sentence.\n\n| Col | Value |\n|---|---|\n| a | 1. Next |\n\n- item one\n- item two\n";
+    let mut child = snapper_binary();
+    child
+        .args(["--format", "markdown"])
+        .current_dir(dir.path())
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped());
+    let mut spawned = child.spawn().expect("spawn snapper");
+    {
+        use std::io::Write;
+        spawned
+            .stdin
+            .take()
+            .unwrap()
+            .write_all(input.as_bytes())
+            .unwrap();
+    }
+    let out = spawned.wait_with_output().expect("wait");
+    assert!(
+        out.status.success(),
+        "default must stay native; stderr={}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let stdout = String::from_utf8(out.stdout).unwrap();
+    assert_eq!(stdout, expected);
+    assert!(
+        String::from_utf8_lossy(&out.stderr).is_empty(),
+        "native default must not warn"
+    );
+}
+
+#[test]
+fn snapperrc_use_pandoc_matches_flag() {
+    let dir = tempfile::tempdir().unwrap();
+    fs::write(dir.path().join(".snapperrc.toml"), "use_pandoc = true\n").unwrap();
+    let input = "Hello world. Second sentence.\n";
+    let run = |args: &[&str]| {
+        let mut child = snapper_binary();
+        child
+            .args(args)
+            .current_dir(dir.path())
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped());
+        let mut spawned = child.spawn().expect("spawn snapper");
+        {
+            use std::io::Write;
+            spawned
+                .stdin
+                .take()
+                .unwrap()
+                .write_all(input.as_bytes())
+                .unwrap();
+        }
+        spawned.wait_with_output().expect("wait")
+    };
+    let from_config = run(&["--format", "markdown"]);
+    let from_flag = run(&["--use-pandoc", "--format", "markdown"]);
+    assert_eq!(from_config.status.success(), from_flag.status.success());
+    if from_flag.status.success() {
+        assert_eq!(
+            String::from_utf8_lossy(&from_config.stdout),
+            String::from_utf8_lossy(&from_flag.stdout)
+        );
+        let stdout = String::from_utf8_lossy(&from_config.stdout);
+        assert!(
+            stdout.contains("Hello world.\n") && stdout.contains("Second sentence"),
+            "config use_pandoc must split prose:\n{stdout}"
+        );
+    }
+}
+
 // ---- FEATURE 7: snapper init ----
 
 #[test]

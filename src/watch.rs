@@ -14,9 +14,17 @@ pub fn run_watch(
     patterns: &[String],
     format_override: Option<Format>,
     config_path: Option<&std::path::Path>,
-    use_pandoc: bool,
+    native: bool,
+    use_pandoc_flag: bool,
 ) -> Result<()> {
     let project_config = ProjectConfig::resolve(config_path).unwrap_or_default();
+    let use_pandoc = if native {
+        false
+    } else if use_pandoc_flag {
+        true
+    } else {
+        project_config.use_pandoc.unwrap_or(false)
+    };
 
     // Resolve patterns to actual file paths
     let files = resolve_patterns(patterns)?;

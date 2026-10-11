@@ -112,10 +112,11 @@ pub enum PandocError {
     DropsComments(String),
 }
 
-/// Whether the CLI default can run the pandoc path without erroring.
+/// Whether a pandoc write can finish without erroring.
 ///
 /// True when an in-process FFI writer is loaded or `pandoc` is on PATH.
 /// Reader-only FFI without PATH is not enough (write would fail).
+/// The CLI default does not use this; `--use-pandoc` or `use_pandoc` does.
 pub fn pandoc_default_available() -> bool {
     ffi_write_available() || pandoc_available()
 }

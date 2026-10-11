@@ -119,6 +119,9 @@ pub struct ProjectConfig {
     /// `max_width = 0` this still inserts a newline after each mark that
     /// is already followed by whitespace.
     pub clause_breaks: Option<bool>,
+    /// When true, the CLI takes the pandoc path without `--use-pandoc`.
+    /// `--native` still forces the native parsers. Default false.
+    pub use_pandoc: Option<bool>,
     /// Default language for abbreviation sets.
     pub lang: Option<String>,
 
@@ -284,6 +287,16 @@ lang = "de"
     fn parse_long_threshold() {
         let config = ProjectConfig::parse("long_threshold = 100\n").unwrap();
         assert_eq!(config.long_threshold, Some(100));
+    }
+
+    #[test]
+    fn parse_use_pandoc() {
+        let on = ProjectConfig::parse("use_pandoc = true\n").unwrap();
+        assert_eq!(on.use_pandoc, Some(true));
+        let off = ProjectConfig::parse("use_pandoc = false\n").unwrap();
+        assert_eq!(off.use_pandoc, Some(false));
+        let missing = ProjectConfig::parse("").unwrap();
+        assert_eq!(missing.use_pandoc, None);
     }
 
     #[test]

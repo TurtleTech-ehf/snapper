@@ -37,6 +37,10 @@ max_width = 0
 # that is already followed by whitespace.
 # clause_breaks = false
 
+# Opt into the pandoc writer. The default is the native parsers.
+# Markdown on this path is read and written as gfm.
+# use_pandoc = false
+
 # Per-format overrides
 [org]
 extra_abbreviations = ["PROPERTIES", "DEADLINE"]
@@ -134,6 +138,20 @@ When true, snapper inserts a soft break after independent-clause punctuation (co
 
 Tokens such as =1,000=, =10:30=, URLs, =--flags=, and unspaced dashes never split.
 =--check= uses the same mode when this flag or config is on.
+
+** use_pandoc
+:PROPERTIES:
+:CUSTOM_ID: field-use-pandoc
+:END:
+
+Boolean.
+Default: =false=.
+Also selectable via =--use-pandoc= (and forced off by =--native=).
+
+When true, the CLI takes the pandoc path for every format.
+Markdown is read and written as =gfm=.
+A render mismatch leaves the file unchanged and warns on stderr.
+Editors, wasm, and LSP stay on the native parsers.
 
 ** long_threshold
 :PROPERTIES:
