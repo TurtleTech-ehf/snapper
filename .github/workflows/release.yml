@@ -360,3 +360,38 @@ jobs:
         with:
           persist-credentials: false
           submodules: recursive
+
+  # After the GitHub Release exists, confirm cargo-binstall resolves a
+  # prebuilt for every dist target. Skip on pull requests and other
+  # non-publishing runs. Musl assets are produced by this same release.
+  binstall-smoke:
+    needs:
+      - plan
+      - host
+    if: ${{ needs.plan.outputs.publishing == 'true' && needs.host.result == 'success' }}
+    runs-on: "ubuntu-22.04"
+    steps:
+      - name: Install cargo-binstall
+        run: |
+          curl --proto '=https' --tlsv1.2 -fsSL -o /tmp/cargo-binstall.tgz \
+            https://github.com/cargo-bins/cargo-binstall/releases/download/v1.25.2/cargo-binstall-x86_64-unknown-linux-gnu.tgz
+          echo "ca1217094690d15606c050e3d085bc03ce6fe12486de9a815d85dae345bb6803  /tmp/cargo-binstall.tgz" | sha256sum -c -
+          tar -xzf /tmp/cargo-binstall.tgz -C /usr/local/bin
+          cargo binstall -V
+      - name: Dry-run prebuilt installs
+        env:
+          TAG: ${{ needs.plan.outputs.tag }}
+        run: |
+          version="${TAG#v}"
+          for target in \
+            aarch64-apple-darwin \
+            aarch64-unknown-linux-gnu \
+            aarch64-unknown-linux-musl \
+            x86_64-apple-darwin \
+            x86_64-unknown-linux-gnu \
+            x86_64-unknown-linux-musl \
+            x86_64-pc-windows-msvc
+          do
+            cargo binstall --dry-run --no-confirm --disable-strategies compile \
+              --targets "$target" "snapper-fmt@${version}"
+          done
