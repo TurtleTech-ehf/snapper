@@ -1,8 +1,9 @@
 //! Reflow Para/Plain in a pandoc AST. Other node kinds stay structure.
 //!
 //! Sentence (and optional wrap) breaks become `SoftBreak` inlines. The
-//! writer (`--wrap=preserve`) turns those into source line breaks. Math
-//! and inline Code are masked so their periods cannot end a sentence.
+//! writer (`--wrap=preserve`) turns those into source line breaks. Math,
+//! inline Code, Link, and Image are masked so their periods cannot end
+//! a sentence.
 
 use pandoc_ast::{Block, Inline, Pandoc};
 
@@ -139,12 +140,43 @@ fn mask_into(inlines: &[Inline], out: &mut String) {
             | Inline::SmallCaps(c)
             | Inline::Quoted(_, c)
             | Inline::Span(_, c)
-            | Inline::Cite(_, c)
-            | Inline::Link(_, c, _)
-            | Inline::Image(_, c, _) => mask_into(c, out),
+            | Inline::Cite(_, c) => mask_into(c, out),
+            Inline::Link(_, c, _) | Inline::Image(_, c, _) => {
+                let n = inlines_width(c);
+                out.extend(std::iter::repeat_n('X', n));
+            }
             Inline::RawInline(_, raw) => out.push_str(raw),
             Inline::Note(_) => {}
         }
+    }
+}
+
+/// Width of inlines in the masked string. Link and Image contribute the
+/// width of their children and nothing for the URL, matching [`mask_into`].
+fn inlines_width(inlines: &[Inline]) -> usize {
+    inlines.iter().map(inline_width).sum()
+}
+
+fn inline_width(inline: &Inline) -> usize {
+    match inline {
+        Inline::Str(s) => s.len(),
+        Inline::Space | Inline::SoftBreak | Inline::LineBreak => 1,
+        Inline::Code(_, code) => 2 + code.len(),
+        Inline::Math(ty, body) => format_math(ty, body).len(),
+        Inline::Emph(c)
+        | Inline::Strong(c)
+        | Inline::Underline(c)
+        | Inline::Strikeout(c)
+        | Inline::Superscript(c)
+        | Inline::Subscript(c)
+        | Inline::SmallCaps(c)
+        | Inline::Quoted(_, c)
+        | Inline::Span(_, c)
+        | Inline::Cite(_, c)
+        | Inline::Link(_, c, _)
+        | Inline::Image(_, c, _) => inlines_width(c),
+        Inline::RawInline(_, raw) => raw.len(),
+        Inline::Note(_) => 0,
     }
 }
 
@@ -258,14 +290,12 @@ fn insert_breaks(
                 out.push(Inline::Cite(cite, inner));
             }
             Inline::Link(attr, c, target) => {
-                let mut inner = Vec::new();
-                insert_breaks(c, pos, breaks, bi, &mut inner);
-                out.push(Inline::Link(attr, inner, target));
+                let n = inlines_width(&c);
+                emit_protected(Inline::Link(attr, c, target), n, pos, breaks, bi, out);
             }
             Inline::Image(attr, c, target) => {
-                let mut inner = Vec::new();
-                insert_breaks(c, pos, breaks, bi, &mut inner);
-                out.push(Inline::Image(attr, inner, target));
+                let n = inlines_width(&c);
+                emit_protected(Inline::Image(attr, c, target), n, pos, breaks, bi, out);
             }
             Inline::RawInline(fmt, raw) => {
                 emit_str_at(raw, pos, breaks, bi, out, |s| {
@@ -419,6 +449,63 @@ mod tests {
                 assert!(flat.contains("Second sentence."));
             }
             other => panic!("expected Para, got {other:?}"),
+        }
+    }
+
+    fn atomic_inline(image: bool) -> Inline {
+        let children = vec![
+            Inline::Str("the".into()),
+            Inline::Space,
+            Inline::Str("docs.".into()),
+            Inline::Space,
+            Inline::Str("Really".into()),
+        ];
+        let target = ("https://x.y/a.b".into(), String::new());
+        let attr = (String::new(), Vec::new(), Vec::new());
+        if image {
+            Inline::Image(attr, children, target)
+        } else {
+            Inline::Link(attr, children, target)
+        }
+    }
+
+    fn para(inlines: Vec<Inline>) -> Pandoc {
+        Pandoc {
+            meta: pandoc_ast::Map::new(),
+            pandoc_api_version: vec![1, 23, 1],
+            blocks: vec![Block::Para(inlines)],
+        }
+    }
+
+    #[test]
+    fn link_and_image_stay_atomic_across_an_interior_period() {
+        for image in [false, true] {
+            let mut doc = para(vec![
+                Inline::Str("See".into()),
+                Inline::Space,
+                atomic_inline(image),
+                Inline::Space,
+                Inline::Str("for".into()),
+                Inline::Space,
+                Inline::Str("more.".into()),
+            ]);
+            reflow_pandoc(&mut doc, &UnicodeSentenceSplitter::new(), &cfg());
+            let Block::Para(inlines) = &doc.blocks[0] else {
+                panic!("expected Para");
+            };
+            assert!(
+                !inlines.iter().any(|i| matches!(i, Inline::SoftBreak)),
+                "period inside the target must not split the sentence: {inlines:?}"
+            );
+            let inner = inlines.iter().find_map(|i| match i {
+                Inline::Link(_, c, _) | Inline::Image(_, c, _) => Some(c),
+                _ => None,
+            });
+            let inner = inner.expect("atomic inline survives");
+            assert!(
+                !inner.iter().any(|i| matches!(i, Inline::SoftBreak)),
+                "{inner:?}"
+            );
         }
     }
 

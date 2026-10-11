@@ -539,6 +539,43 @@ fn pandoc_org_verbatim_inner_equals_stays_one_span() {
     );
 }
 
+/// `--use-pandoc` must not break a link or image on a period inside the brackets.
+#[test]
+fn snapper_cli_use_pandoc_does_not_split_inside_link_or_image() {
+    if !require_writer() {
+        return;
+    }
+    let bin = env!("CARGO_BIN_EXE_snapper");
+    let dir = tempfile::tempdir().expect("tempdir");
+    for name in ["link.md", "image.md"] {
+        let body = if name.starts_with("link") {
+            "Hello world. See [the docs. Really](https://x.y/a.b) for more.\n"
+        } else {
+            "Hello world. See ![the docs. Really](https://x.y/a.b) for more.\n"
+        };
+        std::fs::write(dir.path().join(name), body).unwrap();
+        let out = std::process::Command::new(bin)
+            .args(["--use-pandoc", "--format", "markdown", name])
+            .current_dir(dir.path())
+            .output()
+            .expect("spawn snapper");
+        assert!(
+            out.status.success(),
+            "{name} stderr={}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        let stdout = String::from_utf8(out.stdout).unwrap();
+        assert!(
+            stdout.contains("Hello world.\n"),
+            "{name} must still split the sentence before the target:\n{stdout}"
+        );
+        assert!(
+            stdout.contains("[the docs. Really](https://x.y/a.b)"),
+            "{name} split inside the brackets:\n{stdout}"
+        );
+    }
+}
+
 /// `snapper --use-pandoc` exits 0.
 /// Prose that round-trips through gfm is sentence-split.
 /// A file whose gfm write changes structure (tables, fences) is left unchanged
