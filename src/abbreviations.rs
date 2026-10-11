@@ -65,6 +65,25 @@ pub static PL_ABBREVIATIONS: &[&str] = &[
     "T", "U", "V", "W", "X", "Y", "Z",
 ];
 
+/// Journal title abbreviations in ISO 4 form, as reference lists print them
+/// (`J. Chem. Phys.`, `SIAM J. Sci. Comput.`, `ACM Trans. Math. Softw.`).
+/// ISO 4 abbreviates the same words in every language, so these join a
+/// sentence whatever `--lang` says.
+/// Each entry is capitalised and is not an English word that ends a
+/// sentence on its own, so `Org` and `Ann` stay out; a run such as
+/// `J. Org. Chem.` or `Ann. Phys.` still holds through the next listed word.
+#[rustfmt::skip]
+pub static JOURNAL_ABBREVIATIONS: &[&str] = &[
+    "Acad", "Adv", "Am", "Anal", "Angew", "Annu", "Appl", "Arch", "Astron", "Astrophys",
+    "Biochem", "Biol", "Biophys", "Bull", "Catal", "Chem", "Chim", "Clin", "Comb", "Commun",
+    "Comp", "Comput", "Crystallogr", "Curr", "Electrochem", "Electron", "Eng", "Environ", "Eur",
+    "Exp", "Geophys", "Ind", "Inf", "Inorg", "Instrum", "Int", "Jpn", "Lett", "Lond", "Macromol",
+    "Mater", "Math", "Mech", "Med", "Microsc", "Mol", "Nanotechnol", "Natl", "Nucl", "Numer",
+    "Opt", "Optim", "Philos", "Photochem", "Phys", "Polym", "Proc", "Psychol", "Rep", "Res",
+    "Sci", "Ser", "Simul", "Soc", "Softw", "Spectrosc", "Stat", "Struct", "Surf", "Syst",
+    "Technol", "Theor", "Thermodyn",
+];
+
 /// Multi-word abbreviations where the period is after the second part.
 pub static EN_MULTI_ABBREVS: &[&str] = &["e.g", "i.e", "a.m", "p.m", "v.s", "w.r.t"];
 pub static DE_MULTI_ABBREVS: &[&str] = &["z.B", "d.h", "u.a", "o.g", "s.o", "u.U"];

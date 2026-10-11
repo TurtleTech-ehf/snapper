@@ -67,6 +67,21 @@ vs., misc., est., govt., dept., univ., inc., corp., ltd., Ave., Blvd., Rd., pp.,
 
 A. through Z. (for names like J. K. Rowling).
 
+* Journal titles (every language)
+:PROPERTIES:
+:CUSTOM_ID: journals
+:END:
+
+Reference lists print journal titles in ISO 4 form, as a run of abbreviated words (=J. Chem. Phys.=, =SIAM J. Sci. Comput.=, =ACM Trans. Math. Softw.=).
+ISO 4 abbreviates the same words whatever the language, so this list applies under every =--lang=:
+
+Acad., Adv., Am., Anal., Angew., Annu., Appl., Arch., Astron., Astrophys., Biochem., Biol., Biophys., Bull., Catal., Chem., Chim., Clin., Comb., Commun., Comp., Comput., Crystallogr., Curr., Electrochem., Electron., Eng., Environ., Eur., Exp., Geophys., Ind., Inf., Inorg., Instrum., Int., Jpn., Lett., Lond., Macromol., Mater., Math., Mech., Med., Microsc., Mol., Nanotechnol., Natl., Nucl., Numer., Opt., Optim., Philos., Photochem., Phys., Polym., Proc., Psychol., Rep., Res., Sci., Ser., Simul., Soc., Softw., Spectrosc., Stat., Struct., Surf., Syst., Technol., Theor., Thermodyn.
+
+Words that also end ordinary sentences (=Front.=, =Org.=, =Ann.=) are left out.
+A run still holds across them: a capitalised word and its period stay joined to the next piece when that piece opens with a listed journal word, so =Front. Chem. 8= and =J. Org. Chem.= stay on one line.
+A title or a figure reference after the period still opens a sentence, so =We used Python. Fig. 3 shows= splits.
+Add a missing journal word with =extra_abbreviations=.
+
 * German abbreviations (=--lang de=)
 :PROPERTIES:
 :CUSTOM_ID: german

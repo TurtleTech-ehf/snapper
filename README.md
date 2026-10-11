@@ -62,7 +62,7 @@ It is not [admk/sembr](https://github.com/admk/sembr) (learned clause breaks) an
 Math environments, tables, front matter, drawers, and non-source comments pass through unchanged.
 Fenced and delimited source blocks are `Region::Code`: fence/open/close lines stay structure, non-comment code stays verbatim, and comment lines reflow at sentence boundaries when the language has a `[code.<lang>]` entry in `.snapperrc.toml` (`snapper init` seeds common languages).
 Pass `--format-code` to also pipe each block body through an optional per-language `formatter` argv (missing binary, non-zero exit, and timeouts degrade to the reflowed body).
-Sentence detection relies on Unicode UAX #29 segmentation with abbreviation-aware post-processing that avoids false breaks at titles (Dr., Prof.), references (Fig., Eq.), and Latin terms (e.g., i.e., et al.).
+Sentence detection relies on Unicode UAX #29 segmentation with abbreviation-aware post-processing that avoids false breaks at titles (Dr., Prof.), references (Fig., Eq.), journal titles (J. Chem. Phys., SIAM J. Sci. Comput.), and Latin terms (e.g., i.e., et al.).
 Org emphasis (`*bold*`, `/italic/`, `_underline_`, `+strike+`) is kept atomic so splits cannot open a pseudo-headline mid-span.
 Markdown `*em*` / `**strong**` (CommonMark flanking) and GFM `~~strike~~` are kept atomic the same way.
 
@@ -74,6 +74,10 @@ Markdown `*em*` / `**strong**` (CommonMark flanking) and GFM `~~strike~~` are ke
 Pre-built binary (fastest):
 
     cargo binstall snapper-fmt
+
+`cargo binstall` fetches the archive for your platform from the [GitHub release](https://github.com/TurtleTech-ehf/snapper/releases/latest) and never compiles.
+Each release ships archives for Linux on x86_64 and aarch64 (glibc, and static musl for Alpine and minimal containers), macOS on x86_64 and Apple silicon, and Windows on x86_64 (a zip).
+The static musl builds cannot load the optional in-process pandoc library, so `--use-pandoc` there runs the `pandoc` on `PATH`.
 
 Shell one-liner (Linux/macOS):
 
@@ -243,7 +247,7 @@ Configuration guide (org source in-tree): `docs/orgmode/howto/mcp-integration.or
 ## Pre-commit hook
 
     - repo: https://github.com/TurtleTech-ehf/snapper
-      rev: v0.11.9
+      rev: v0.11.10
       hooks:
         - id: snapper
 

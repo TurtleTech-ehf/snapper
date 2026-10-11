@@ -742,3 +742,50 @@ fn markdown_setext_heading_not_collapsed() {
         "must not glue underline onto title:\n{result}"
     );
 }
+
+#[test]
+fn reference_list_journal_abbreviations_stay_on_one_line() {
+    let input = "1. R. Goswami, J. Chem. Phys. 150, 154105 (2019). Next entry.\n\
+                 2. A. B. Author, SIAM J. Sci. Comput. 4, 5 (1983).\n\
+                 3. C. D. Author, ACM Trans. Math. Softw. 1, 2 (1975).\n";
+    // Plaintext has no list items, so `1.` stays a line of its own there;
+    // the journal title is what this test is about.
+    for format in ["markdown", "org"] {
+        let out = pipe_stdin(input, &["--format", format]);
+        assert!(
+            out.status.success(),
+            "stderr={}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        let result = String::from_utf8(out.stdout).unwrap();
+        for line in [
+            "1. R. Goswami, J. Chem. Phys. 150, 154105 (2019).\n",
+            "2. A. B. Author, SIAM J. Sci. Comput. 4, 5 (1983).\n",
+            "3. C. D. Author, ACM Trans. Math. Softw. 1, 2 (1975).\n",
+        ] {
+            assert!(
+                result.contains(line),
+                "{format}: journal title split, got:\n{result}"
+            );
+        }
+    }
+}
+
+#[test]
+fn plaintext_journal_abbreviations_stay_in_the_sentence() {
+    let input = "Smith showed it in Front. Chem. 8, 589 (2020). \
+                 Jones followed in Modelling Simul. Mater. Sci. Eng. 12, 3 (2004). Done.\n";
+    let out = pipe_stdin(input, &["--format", "plaintext"]);
+    assert!(
+        out.status.success(),
+        "stderr={}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let result = String::from_utf8(out.stdout).unwrap();
+    assert_eq!(
+        result,
+        "Smith showed it in Front. Chem. 8, 589 (2020).\n\
+         Jones followed in Modelling Simul. Mater. Sci. Eng. 12, 3 (2004).\n\
+         Done.\n"
+    );
+}
