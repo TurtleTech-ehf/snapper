@@ -122,10 +122,11 @@ Pipe through stdin (for editor integration):
 
     cat draft.org | snapper --native --format org
 
-The CLI uses pandoc (auto FFI, then CLI) when an FFI writer or `pandoc` on `PATH` is available.
-Otherwise it keeps the native line parsers (no error).
-Pass `--native` to force today's parsers.
-Pass `--use-pandoc` to require pandoc (error if missing).
+The CLI uses the native line parsers unless `--use-pandoc` is set or `.snapperrc.toml` sets `use_pandoc = true`.
+`--native` is accepted and selects those same parsers.
+`--use-pandoc` requires pandoc (error if missing).
+Markdown on that path is read and written as `gfm`.
+A render mismatch leaves the input unchanged and warns on stderr.
 Editors, wasm, and LSP stay native.
 Check formatting without modifying (for CI):
 
@@ -142,6 +143,10 @@ With the default unlimited width this inserts a newline after every such mark th
 
 With `--max-width` set, overflowing sentences prefer those marks.
 A one-clause sentence stays one line.
+Split before a lowercase word after a terminator (`pass. pytest` becomes two lines).
+Abbreviations such as `e.g.` and `vs.` still join:
+
+    snapper --lowercase-starts paper.md
 Preview changes as a unified diff before committing:
 
     snapper --diff paper.org

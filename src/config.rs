@@ -53,6 +53,9 @@ pub struct FormatOverrides {
     /// Meaningful under `[latex]` only. Missing or empty keeps
     /// verb/lstinline/lstinputlisting/spverb/mintinline/inputminted/mint/Verb/SaveVerb/VerbatimInput/piton/verbatiminput/PitonInputFile/PitonInputFileT/PitonInputFileF/PitonInputFileTF/tcbinputlisting/tcboxverb/inputpy/inputpycon/inputpylab/inputpylabcon/inputsympy/inputsympycon/py/pyc/pys/pyb/pyv/pycon and twins/sympy/pylab and twins/usefamily ruby/rb/julia/jl/matlab/octave/bash/sage/rust/rs/R/perl/pl/perlsix/psix/javascript/js and twins/pyq/pycq/pyfile/pyfileq/pyfilerepl/inputpygments/pygment/pythontexcustomc/inputpython/inputpythonfile/CatchFileBetweenTags/CatchFileBetweenDelims/ExecuteMetaData/CatchFileDef/CatchFileEdef/listinginput/verbatimtabinput/verbatimwrite/listingcont/sageinput/sageplot/sagestr/pyth/Scontents/typestored/getstored/mergesc/meaningsc/foreachsc/setupsc/countsc/cleanseqsc/UseVerb/UseVerbatim/LUseVerbatim/BUseVerbatim/DefineShortVerb/UndefineShortVerb/EscVerb/inputsc/VerbatimInsertBuffer/VerbatimClearBuffer/InsertBuffer/IterateBuffer/ClearBuffer/WriteBuffer/lstset/lstdefinestyle/lstMakeShortInline/lstDeleteShortInline/lstnewenvironment/verbinput/verbwrite.
     pub verbatim_commands: Vec<String>,
+    /// Open a sentence at a lowercase word after a terminator.
+    /// Overrides the top-level `lowercase_starts` for this format.
+    pub lowercase_starts: Option<bool>,
 }
 
 /// Per-language entry under the `[code]` table.
@@ -119,6 +122,12 @@ pub struct ProjectConfig {
     /// `max_width = 0` this still inserts a newline after each mark that
     /// is already followed by whitespace.
     pub clause_breaks: Option<bool>,
+    /// Open a sentence at a lowercase word after a terminator and a space.
+    /// Per-format sections override this. Default false.
+    pub lowercase_starts: Option<bool>,
+    /// When true, the CLI takes the pandoc path without `--use-pandoc`.
+    /// `--native` still forces the native parsers. Default false.
+    pub use_pandoc: Option<bool>,
     /// Default language for abbreviation sets.
     pub lang: Option<String>,
 
@@ -205,6 +214,24 @@ impl ProjectConfig {
         overrides.and_then(|ov| ov.max_width).or(self.max_width)
     }
 
+    /// Whether a lowercase word after a terminator opens a sentence.
+    /// Per-format `lowercase_starts` overrides the top-level key.
+    /// Missing keys stay false.
+    pub fn lowercase_starts_for_format(&self, format: &str) -> bool {
+        let overrides = match format {
+            "org" => self.org.as_ref(),
+            "latex" => self.latex.as_ref(),
+            "markdown" => self.markdown.as_ref(),
+            "rst" => self.rst.as_ref(),
+            "plaintext" => self.plaintext.as_ref(),
+            _ => None,
+        };
+        overrides
+            .and_then(|ov| ov.lowercase_starts)
+            .or(self.lowercase_starts)
+            .unwrap_or(false)
+    }
+
     /// Extra `[latex].verbatim_envs` names. Empty when the key is missing.
     pub fn latex_verbatim_envs(&self) -> Vec<String> {
         self.latex
@@ -284,6 +311,30 @@ lang = "de"
     fn parse_long_threshold() {
         let config = ProjectConfig::parse("long_threshold = 100\n").unwrap();
         assert_eq!(config.long_threshold, Some(100));
+    }
+
+    #[test]
+    fn parse_lowercase_starts() {
+        let top = ProjectConfig::parse("lowercase_starts = true\n").unwrap();
+        assert!(top.lowercase_starts_for_format("markdown"));
+        assert!(top.lowercase_starts_for_format("org"));
+        let over =
+            ProjectConfig::parse("lowercase_starts = true\n[markdown]\nlowercase_starts = false\n")
+                .unwrap();
+        assert!(!over.lowercase_starts_for_format("markdown"));
+        assert!(over.lowercase_starts_for_format("org"));
+        let missing = ProjectConfig::parse("").unwrap();
+        assert!(!missing.lowercase_starts_for_format("plaintext"));
+    }
+
+    #[test]
+    fn parse_use_pandoc() {
+        let on = ProjectConfig::parse("use_pandoc = true\n").unwrap();
+        assert_eq!(on.use_pandoc, Some(true));
+        let off = ProjectConfig::parse("use_pandoc = false\n").unwrap();
+        assert_eq!(off.use_pandoc, Some(false));
+        let missing = ProjectConfig::parse("").unwrap();
+        assert_eq!(missing.use_pandoc, None);
     }
 
     #[test]

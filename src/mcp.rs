@@ -41,6 +41,10 @@ pub struct FormatTextParams {
     /// `max_width` greater than 0 is wrap-prefer.
     #[serde(default)]
     pub clause_breaks: bool,
+    /// Open a sentence at a lowercase word after a terminator
+    /// (same as CLI `--lowercase-starts`).
+    #[serde(default)]
+    pub lowercase_starts: bool,
     /// Optional 1-indexed inclusive line range. Same meaning as CLI `--range`.
     #[serde(default)]
     pub range: Option<LineRange>,
@@ -68,6 +72,10 @@ pub struct CheckFormattingParams {
     /// `max_width` greater than 0 is wrap-prefer.
     #[serde(default)]
     pub clause_breaks: bool,
+    /// Open a sentence at a lowercase word after a terminator
+    /// (same as CLI `--lowercase-starts`; default false).
+    #[serde(default)]
+    pub lowercase_starts: bool,
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -89,12 +97,14 @@ fn make_config(
     max_width: usize,
     extra_abbreviations: Vec<String>,
     clause_breaks: bool,
+    lowercase_starts: bool,
 ) -> FormatConfig {
     FormatConfig {
         format,
         max_width,
         extra_abbreviations,
         clause_breaks,
+        lowercase_starts,
         ..Default::default()
     }
 }
@@ -177,6 +187,7 @@ impl SnapperMcpServer {
             params.max_width,
             params.extra_abbreviations,
             params.clause_breaks,
+            params.lowercase_starts,
         );
         let result = if let Some(range) = params.range {
             crate::format_range(&params.text, &config, range.start, range.end)
@@ -215,7 +226,13 @@ impl SnapperMcpServer {
         Parameters(params): Parameters<CheckFormattingParams>,
     ) -> Json<CheckFormattingResult> {
         let format = parse_format(&params.format);
-        let config = make_config(format, params.max_width, vec![], params.clause_breaks);
+        let config = make_config(
+            format,
+            params.max_width,
+            vec![],
+            params.clause_breaks,
+            params.lowercase_starts,
+        );
         let splitter = crate::build_splitter(&config).unwrap();
         let would = would_reformat(&params.text, &config).unwrap_or(true);
         let threshold = resolve_long_threshold(params.max_width, None);
@@ -350,6 +367,7 @@ mod tests {
             max_width: 0,
             extra_abbreviations: vec![],
             clause_breaks: false,
+            lowercase_starts: false,
             range: None,
         }
     }
@@ -366,6 +384,7 @@ mod tests {
                 format: "plaintext".to_string(),
                 max_width: 0,
                 clause_breaks,
+                lowercase_starts: false,
             }))
             .0
     }
@@ -457,6 +476,15 @@ mod tests {
         assert!(params.clause_breaks);
         assert_eq!(params.range, Some(LineRange { start: 2, end: 3 }));
         assert_eq!(params.max_width, 80);
+    }
+
+    #[test]
+    fn format_text_lowercase_starts_splits_a_tool_name() {
+        let mut params = plaintext("There are two. setup-python moved to PyPy 8.0.0.");
+        params.format = "markdown".to_string();
+        params.lowercase_starts = true;
+        let out = format(params);
+        assert_eq!(out, "There are two.\nsetup-python moved to PyPy 8.0.0.");
     }
 
     #[test]

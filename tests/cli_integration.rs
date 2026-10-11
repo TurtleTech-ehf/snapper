@@ -473,6 +473,128 @@ fn idempotent_edge_cases_plaintext() {
     );
 }
 
+#[test]
+fn render_mismatch_warns_and_keeps_the_good_paragraph() {
+    let input = "**Note.** Next sentence here. Third one.\n\nA. a0.A.\n";
+    let out = pipe_stdin(input, &["--format", "markdown"]);
+    assert!(out.status.success(), "{:?}", out.stderr);
+    let stdout = String::from_utf8(out.stdout).unwrap();
+    assert!(
+        stdout.starts_with("**Note.**\nNext sentence here.\nThird one.\n\n"),
+        "{stdout}"
+    );
+    assert!(stdout.ends_with("A. a0.A.\n"), "{stdout}");
+    let err = String::from_utf8(out.stderr).unwrap();
+    assert!(
+        err.contains("render check failed") && err.contains("left lines") && err.contains("3-3"),
+        "stderr must name the unchanged line range, got: {err}"
+    );
+}
+
+#[test]
+fn lowercase_starts_flag_and_config_split_tool_names() {
+    let input = "There are two. setup-python moved to PyPy 8.0.0.\n";
+    let off = pipe_stdin(input, &["--format", "markdown"]);
+    assert!(off.status.success(), "{:?}", off.stderr);
+    assert_eq!(String::from_utf8(off.stdout).unwrap(), input);
+    let on = pipe_stdin(input, &["--format", "markdown", "--lowercase-starts"]);
+    assert!(on.status.success(), "{:?}", on.stderr);
+    assert_eq!(
+        String::from_utf8(on.stdout).unwrap(),
+        "There are two.\nsetup-python moved to PyPy 8.0.0.\n"
+    );
+
+    let dir = tempfile::tempdir().unwrap();
+    fs::write(
+        dir.path().join(".snapperrc.toml"),
+        "lowercase_starts = false\n[markdown]\nlowercase_starts = true\n",
+    )
+    .unwrap();
+    let configured = pipe_stdin_in_dir(input, &["--format", "markdown"], dir.path());
+    assert!(configured.status.success(), "{:?}", configured.stderr);
+    assert_eq!(
+        String::from_utf8(configured.stdout).unwrap(),
+        "There are two.\nsetup-python moved to PyPy 8.0.0.\n"
+    );
+}
+
+#[test]
+fn default_cli_keeps_gfm_table_list_and_splits_prose() {
+    let dir = tempfile::tempdir().unwrap();
+    let input = "Intro. Second sentence.\n\n| Col | Value |\n|---|---|\n| a | 1. Next |\n\n- item one\n- item two\n";
+    let expected = "Intro.\nSecond sentence.\n\n| Col | Value |\n|---|---|\n| a | 1. Next |\n\n- item one\n- item two\n";
+    let mut child = snapper_binary();
+    child
+        .args(["--format", "markdown"])
+        .current_dir(dir.path())
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped());
+    let mut spawned = child.spawn().expect("spawn snapper");
+    {
+        use std::io::Write;
+        spawned
+            .stdin
+            .take()
+            .unwrap()
+            .write_all(input.as_bytes())
+            .unwrap();
+    }
+    let out = spawned.wait_with_output().expect("wait");
+    assert!(
+        out.status.success(),
+        "default must stay native; stderr={}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let stdout = String::from_utf8(out.stdout).unwrap();
+    assert_eq!(stdout, expected);
+    assert!(
+        String::from_utf8_lossy(&out.stderr).is_empty(),
+        "native default must not warn"
+    );
+}
+
+#[test]
+fn snapperrc_use_pandoc_matches_flag() {
+    let dir = tempfile::tempdir().unwrap();
+    fs::write(dir.path().join(".snapperrc.toml"), "use_pandoc = true\n").unwrap();
+    let input = "Hello world. Second sentence.\n";
+    let run = |args: &[&str]| {
+        let mut child = snapper_binary();
+        child
+            .args(args)
+            .current_dir(dir.path())
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped());
+        let mut spawned = child.spawn().expect("spawn snapper");
+        {
+            use std::io::Write;
+            spawned
+                .stdin
+                .take()
+                .unwrap()
+                .write_all(input.as_bytes())
+                .unwrap();
+        }
+        spawned.wait_with_output().expect("wait")
+    };
+    let from_config = run(&["--format", "markdown"]);
+    let from_flag = run(&["--use-pandoc", "--format", "markdown"]);
+    assert_eq!(from_config.status.success(), from_flag.status.success());
+    if from_flag.status.success() {
+        assert_eq!(
+            String::from_utf8_lossy(&from_config.stdout),
+            String::from_utf8_lossy(&from_flag.stdout)
+        );
+        let stdout = String::from_utf8_lossy(&from_config.stdout);
+        assert!(
+            stdout.contains("Hello world.\n") && stdout.contains("Second sentence"),
+            "config use_pandoc must split prose:\n{stdout}"
+        );
+    }
+}
+
 // ---- FEATURE 7: snapper init ----
 
 #[test]

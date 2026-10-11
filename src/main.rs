@@ -108,7 +108,8 @@ fn run() -> Result<()> {
                     patterns,
                     fmt,
                     cli.config.as_deref(),
-                    cli.resolve_use_pandoc(),
+                    cli.native,
+                    cli.use_pandoc,
                 );
             }
         }
@@ -333,6 +334,7 @@ struct SplitterKey {
     neural_lang: String,
     neural_model: Option<std::path::PathBuf>,
     extras: Vec<String>,
+    lowercase_starts: bool,
 }
 
 impl SplitterKey {
@@ -343,6 +345,7 @@ impl SplitterKey {
             neural_lang: config.neural_lang.clone(),
             neural_model: config.neural_model_path.clone(),
             extras: config.extra_abbreviations.clone(),
+            lowercase_starts: config.lowercase_starts,
         }
     }
 }
@@ -398,6 +401,8 @@ fn build_format_config(
 
     // CLI --clause-breaks wins when set; otherwise project config (default false).
     let clause_breaks = cli.clause_breaks || project_config.clause_breaks.unwrap_or(false);
+    let lowercase_starts =
+        cli.lowercase_starts || project_config.lowercase_starts_for_format(format_key);
 
     FormatConfig {
         format,
@@ -409,7 +414,7 @@ fn build_format_config(
         latex_verbatim_envs: project_config.latex_verbatim_envs(),
         latex_structure_envs: project_config.latex_structure_envs(),
         latex_verbatim_commands: project_config.latex_verbatim_commands(),
-        use_pandoc: cli.resolve_use_pandoc(),
+        use_pandoc: cli.resolve_use_pandoc_config(project_config.use_pandoc),
         #[cfg(feature = "pandoc")]
         pandoc_backend: cli
             .pandoc_backend
@@ -418,6 +423,7 @@ fn build_format_config(
         code: project_config.code.clone(),
         format_code: cli.format_code,
         clause_breaks,
+        lowercase_starts,
         ..Default::default()
     }
 }

@@ -3,10 +3,7 @@ use std::sync::Mutex;
 use nnsplit::NNSplit;
 
 use super::SentenceSplitter;
-use super::unicode::{
-    UnicodeSentenceSplitter, protect_inline_tokens_with, restore_inline_tokens,
-    split_after_markup_sentence_end,
-};
+use super::unicode::{UnicodeSentenceSplitter, protect_inline_tokens_with, restore_inline_tokens};
 
 /// nnsplit downloads models to `~/.cache/nnsplit/` on first use; concurrent
 /// loads race the download and can observe a partially written model
@@ -52,6 +49,12 @@ impl NeuralSentenceSplitter {
         self
     }
 
+    /// Open a sentence at a lowercase word after a terminator and a space.
+    pub fn with_lowercase_starts(mut self, on: bool) -> Self {
+        self.post = self.post.with_lowercase_starts(on);
+        self
+    }
+
     /// Load from a custom ONNX model file path.
     pub fn from_path(path: &std::path::Path) -> Result<Self, Box<dyn std::error::Error>> {
         Self::from_path_with_extras(path, "en", &[])
@@ -92,13 +95,16 @@ impl SentenceSplitter for NeuralSentenceSplitter {
             splits[0]
                 .flatten(0)
                 .into_iter()
-                .map(|s| s.trim().to_string())
-                .filter(|s| !s.is_empty())
+                .map(|s| s.to_string())
+                .filter(|s| !s.trim().is_empty())
                 .collect()
         };
+        // Same newline rule as the Unicode path: a line-leading `*` is a bullet.
+        let raw = crate::sentence::unicode::reattach_leading_closer_runs(raw);
 
         let restored = restore_inline_tokens(raw, &placeholders);
-        split_after_markup_sentence_end(self.post.refine_segments(restored))
+        self.post
+            .split_markup_sentences(self.post.refine_segments(restored))
     }
 }
 

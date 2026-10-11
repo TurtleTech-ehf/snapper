@@ -37,6 +37,14 @@ max_width = 0
 # that is already followed by whitespace.
 # clause_breaks = false
 
+# Opt into the pandoc writer. The default is the native parsers.
+# Markdown on this path is read and written as gfm.
+# use_pandoc = false
+
+# Open a sentence at a lowercase word after a terminator (default false).
+# Abbreviations such as e.g. and vs. still join.
+# lowercase_starts = false
+
 # Per-format overrides
 [org]
 extra_abbreviations = ["PROPERTIES", "DEADLINE"]
@@ -135,6 +143,34 @@ When true, snapper inserts a soft break after independent-clause punctuation (co
 Tokens such as =1,000=, =10:30=, URLs, =--flags=, and unspaced dashes never split.
 =--check= uses the same mode when this flag or config is on.
 
+** lowercase_starts
+:PROPERTIES:
+:CUSTOM_ID: field-lowercase-starts
+:END:
+
+Boolean.
+Default: =false=.
+Also selectable via =--lowercase-starts=.
+
+When true, a lowercase word after a terminator and a space opens a sentence.
+Abbreviations such as =e.g.= and =vs.= still join.
+A per-format =lowercase_starts= overrides this top-level value.
+Editors and the LSP read the same key.
+
+** use_pandoc
+:PROPERTIES:
+:CUSTOM_ID: field-use-pandoc
+:END:
+
+Boolean.
+Default: =false=.
+Also selectable via =--use-pandoc= (and forced off by =--native=).
+
+When true, the CLI takes the pandoc path for every format.
+Markdown is read and written as =gfm=.
+A render mismatch leaves the file unchanged and warns on stderr.
+Editors, wasm, and LSP stay on the native parsers.
+
 ** long_threshold
 :PROPERTIES:
 :CUSTOM_ID: field-long-threshold
@@ -154,6 +190,7 @@ Add =[org]=, =[latex]=, =[markdown]=, =[rst]=, or =[plaintext]= sections to over
 
 Per-format =extra_abbreviations= merge with the top-level list.
 Per-format =max_width= overrides the top-level value.
+Per-format =lowercase_starts= overrides the top-level value.
 
 The following keys are meaningful under =[latex]= only.
 Missing keys (or empty arrays) keep the built-in lists; present entries are added to those lists.

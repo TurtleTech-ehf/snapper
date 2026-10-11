@@ -33,10 +33,12 @@ Writer still needs =pandoc= on =PATH= when the library has no writer.
 
 **CLI backend.**
 Pandoc 2.x or 3.x on =PATH=.
-The CLI default uses pandoc when an FFI writer or =pandoc= on =PATH= is available.
-Otherwise it keeps the native line parsers (no error, no silent all-prose).
+The CLI default is the native line parsers.
+=--use-pandoc=, or =use_pandoc = true= in =.snapperrc.toml=, opts into pandoc.
 With =--use-pandoc=, a missing or failing pandoc is an explicit error (no silent all-prose).
-Pass =--native= to force today's line parsers.
+=--native= is accepted and selects the native parsers.
+Markdown on the pandoc path is read and written as =gfm=.
+A render mismatch leaves the input unchanged and warns on stderr.
 
 **Writer.**
 The library =libsnapper_pandoc= is reader-only.
@@ -66,21 +68,21 @@ See =native/snapper-pandoc/README.md=.
 :END:
 
 #+begin_src bash
-# Default: pandoc when FFI or pandoc on PATH is available
+# Default: native line parsers
 snapper paper.md
-snapper --pandoc-backend auto paper.md
-snapper --pandoc-backend cli guide.adoc
-snapper --pandoc-backend ffi paper.md
-# Require pandoc (error if missing)
+# Require pandoc (error if missing). Markdown is read and written as gfm.
+snapper --use-pandoc paper.md
+snapper --use-pandoc --pandoc-backend auto paper.md
+snapper --use-pandoc --pandoc-backend cli guide.adoc
+snapper --use-pandoc --pandoc-backend ffi paper.md
 snapper --use-pandoc paper.typ
-# Force today's line parsers
+# Accepted no-op: the default is already native
 snapper --native paper.md
 #+end_src
 
-The CLI default uses pandoc (auto FFI, then CLI) when an in-process writer or =pandoc= on =PATH= is available.
-Otherwise it keeps the native line parsers (no error, no silent all-prose).
-Pass =--native= to force today's line parsers.
-Pass =--use-pandoc= to require the pandoc path (explicit error if FFI and =pandoc= are missing).
+The CLI default is the native line parsers.
+=--use-pandoc=, or =use_pandoc = true= in =.snapperrc.toml=, requires the pandoc path (explicit error if FFI and =pandoc= are missing).
+=--native= is accepted and selects those same native parsers.
 The writer still needs =pandoc= on =PATH= unless the library exports a writer.
 
 **Speed.**
@@ -95,8 +97,8 @@ Disable with =SNAPPER_PANDOC_CACHE=0=; override dir with =SNAPPER_PANDOC_CACHE_D
 :CUSTOM_ID: when-to-use
 :END:
 
-- **Pandoc** (CLI default when available): structure from pandoc’s model and coverage of formats without a built-in parser.
-- **Built-in** (=--native=): fast, source-oriented parsers for Org / LaTeX / Markdown / RST (e.g. full ATX lines as structure).
+- **Built-in** (CLI default): fast, source-oriented parsers for Org / LaTeX / Markdown / RST (e.g. full ATX lines as structure).
+- **Pandoc** (=--use-pandoc= or =use_pandoc = true=): structure from pandoc’s model and coverage of formats without a built-in parser.
 
 The two paths are different pipelines, not two ways to fake the same source lines.
 
@@ -110,4 +112,4 @@ The two paths are different pipelines, not two ways to fake the same source line
 - Other HTML / Org / LaTeX comments that are not snapper pragmas may still be dropped.
 - Round-trip is through the AST (not a perfect source-preserving rewrite of every markup character)
 - FFI library is optional; wasm/editor bundles do not embed GHC/pandoc
-- CLI pandoc versus editor native is the contract: the CLI default may use pandoc; VS Code, Obsidian, Word, wasm, and LSP stay on native parsers.
+- CLI pandoc versus editor native is the contract: the CLI default is native; =--use-pandoc= opts into pandoc; VS Code, Obsidian, Word, wasm, and LSP stay on native parsers.

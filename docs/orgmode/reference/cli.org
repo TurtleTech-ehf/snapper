@@ -89,6 +89,16 @@ With =--max-width= set, overflowing sentences prefer those marks; a sentence tha
 Tokens such as =1,000=, =10:30=, URLs, =--flags=, and unspaced dashes never split.
 =--check= uses the same mode when the flag or =clause_breaks= config is on.
 
+*** =--lowercase-starts=
+:PROPERTIES:
+:CUSTOM_ID: opt-lowercase-starts
+:END:
+
+Open a sentence at a lowercase word after a terminator and a space.
+Abbreviations such as =e.g.= and =vs.= still join.
+Off by default (UAX #29 SB8).
+Also set with =lowercase_starts= in =.snapperrc.toml= (top level, or per format).
+
 *** =--format-code=
 :PROPERTIES:
 :CUSTOM_ID: opt-format-code
@@ -186,16 +196,19 @@ Parse may use in-process FFI when =libsnapper_pandoc= loads; the writer still ne
 Without FFI, both parse and write use the =pandoc= CLI.
 A missing binary is an explicit error (never silent all-prose).
 Enables support for typst, asciidoc, docx, html, and all other pandoc-supported formats.
-The default (omit this flag) already uses pandoc when an FFI writer or =pandoc= on =PATH= is available.
+The default is the native line parsers.
+This flag, or =use_pandoc = true= in =.snapperrc.toml=, opts into pandoc.
+Markdown is read and written as =gfm=.
+A render mismatch leaves the input unchanged and warns on stderr.
 
 *** =--native=
 :PROPERTIES:
 :CUSTOM_ID: opt-native
 :END:
 
-Force today's native line parsers (markdown / org / rst / latex / plaintext).
+Accepted for compatibility.
+The default is already the native line parsers (markdown / org / rst / latex / plaintext).
 Conflicts with =--use-pandoc=.
-Use this when you want source-oriented splice instead of the pandoc writer.
 Editors, wasm, and LSP stay native even without this flag.
 
 *** =--pandoc-backend <auto|ffi|cli>=

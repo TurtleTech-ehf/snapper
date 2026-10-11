@@ -80,6 +80,14 @@ pub struct Cli {
     #[arg(long, default_value_t = false)]
     pub clause_breaks: bool,
 
+    /// Open a sentence at a lowercase word after a terminator and a space.
+    /// Abbreviations such as `e.g.` and `vs.` still join.
+    /// Off by default (UAX #29 SB8).
+    /// Also set with `lowercase_starts` in `.snapperrc.toml`
+    /// (top level, or per format).
+    #[arg(long, default_value_t = false)]
+    pub lowercase_starts: bool,
+
     /// Use neural sentence detection (nnsplit LSTM model).
     #[arg(long)]
     pub neural: bool,
@@ -95,8 +103,10 @@ pub struct Cli {
 
     /// Force the pandoc path (auto FFI then CLI).
     /// Errors if FFI and `pandoc` on PATH are both missing (no silent
-    /// all-prose). The default (omit this flag) already uses pandoc when
-    /// an FFI writer or `pandoc` on PATH is available.
+    /// all-prose). The default is the native line parsers.
+    /// This flag, or `use_pandoc = true` in `.snapperrc.toml`, opts into pandoc.
+    /// Markdown is read and written as `gfm`.
+    /// A render mismatch leaves the input unchanged and warns on stderr.
     /// RST `..` comments and `snapper:off` / `snapper:on` are written
     /// through so the output still contains that text.
     /// Parse may use in-process FFI; the writer still needs `pandoc` on PATH
@@ -105,10 +115,11 @@ pub struct Cli {
     #[arg(long, conflicts_with = "native")]
     pub use_pandoc: bool,
 
-    /// Force today's native line parsers (markdown/org/rst/latex/plaintext).
-    /// The default (omit this flag) uses pandoc when an FFI writer or
-    /// `pandoc` on PATH is available; otherwise it keeps these parsers
-    /// (no error, no silent all-prose). Editors, wasm, and LSP stay native.
+    /// Accepted for compatibility.
+    /// The default is already the native line parsers
+    /// (markdown/org/rst/latex/plaintext).
+    /// Editors, wasm, and LSP stay native.
+    /// Conflicts with `--use-pandoc`.
     #[arg(long, conflicts_with = "use_pandoc")]
     pub native: bool,
 
@@ -217,32 +228,32 @@ pub enum Commands {
 }
 
 impl Cli {
-    /// Whether this invocation should take the pandoc write path.
+    /// Whether the flags alone select the pandoc write path.
     ///
-    /// `--native` forces today's line parsers. `--use-pandoc` requires
-    /// pandoc (error if missing). With neither flag, use pandoc when an
-    /// FFI writer or `pandoc` on PATH is available, else native.
+    /// `--use-pandoc` is true. `--native` is accepted and stays false,
+    /// the same as omitting both flags. `.snapperrc.toml` `use_pandoc`
+    /// is applied by the caller when neither flag is set.
     pub fn resolve_use_pandoc(&self) -> bool {
+        self.use_pandoc
+    }
+
+    /// CLI default (no `--native` / `--use-pandoc` and no config opt-in):
+    /// native parsers for every format. Library/wasm/LSP stay
+    /// `FormatConfig::default().use_pandoc == false`.
+    pub fn default_use_pandoc() -> bool {
+        false
+    }
+
+    /// `--native` forces native parsers. `--use-pandoc` forces pandoc.
+    /// With neither flag, `configured` (`use_pandoc` in `.snapperrc.toml`)
+    /// opts in. Missing config stays native.
+    pub fn resolve_use_pandoc_config(&self, configured: Option<bool>) -> bool {
         if self.native {
             false
         } else if self.use_pandoc {
             true
         } else {
-            Self::default_use_pandoc()
-        }
-    }
-
-    /// CLI default (no `--native` / `--use-pandoc`): pandoc when the
-    /// write path can complete, else native. Library/wasm/LSP stay
-    /// `FormatConfig::default().use_pandoc == false`.
-    pub fn default_use_pandoc() -> bool {
-        #[cfg(feature = "pandoc")]
-        {
-            crate::parser::pandoc::pandoc_default_available()
-        }
-        #[cfg(not(feature = "pandoc"))]
-        {
-            false
+            configured.unwrap_or(false)
         }
     }
 }
@@ -316,7 +327,13 @@ mod tests {
         let cli = Cli::parse_from(["snapper"]);
         assert!(!cli.native);
         assert!(!cli.use_pandoc);
-        assert_eq!(cli.resolve_use_pandoc(), Cli::default_use_pandoc());
+        assert!(!Cli::default_use_pandoc());
+        assert!(!cli.resolve_use_pandoc());
+        assert!(!cli.resolve_use_pandoc_config(None));
+        assert!(!cli.resolve_use_pandoc_config(Some(false)));
+        assert!(cli.resolve_use_pandoc_config(Some(true)));
+        let native = Cli::parse_from(["snapper", "--native"]);
+        assert!(!native.resolve_use_pandoc_config(Some(true)));
     }
 
     #[test]

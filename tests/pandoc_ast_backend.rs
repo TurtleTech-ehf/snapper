@@ -539,33 +539,103 @@ fn pandoc_org_verbatim_inner_equals_stays_one_span() {
     );
 }
 
-/// `snapper --use-pandoc FILE` must exit 0 and emit sentence breaks.
+/// `--use-pandoc` must not break a link or image on a period inside the brackets.
+#[test]
+fn snapper_cli_use_pandoc_does_not_split_inside_link_or_image() {
+    if !require_writer() {
+        return;
+    }
+    let bin = env!("CARGO_BIN_EXE_snapper");
+    let dir = tempfile::tempdir().expect("tempdir");
+    for name in ["link.md", "image.md"] {
+        let body = if name.starts_with("link") {
+            "Hello world. See [the docs. Really](https://x.y/a.b) for more.\n"
+        } else {
+            "Hello world. See ![the docs. Really](https://x.y/a.b) for more.\n"
+        };
+        std::fs::write(dir.path().join(name), body).unwrap();
+        let out = std::process::Command::new(bin)
+            .args(["--use-pandoc", "--format", "markdown", name])
+            .current_dir(dir.path())
+            .output()
+            .expect("spawn snapper");
+        assert!(
+            out.status.success(),
+            "{name} stderr={}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        let stdout = String::from_utf8(out.stdout).unwrap();
+        assert!(
+            stdout.contains("Hello world.\n"),
+            "{name} must still split the sentence before the target:\n{stdout}"
+        );
+        assert!(
+            stdout.contains("[the docs. Really](https://x.y/a.b)"),
+            "{name} split inside the brackets:\n{stdout}"
+        );
+    }
+}
+
+/// `snapper --use-pandoc` exits 0.
+/// Prose that round-trips through gfm is sentence-split.
+/// A file whose gfm write changes structure (tables, fences) is left unchanged
+/// and warned, because that write fails the render oracle.
 #[test]
 fn snapper_cli_use_pandoc_exits_0() {
     if !require_writer() {
         return;
     }
     let bin = env!("CARGO_BIN_EXE_snapper");
-    let input = fixture("mixed.md");
-    let out = std::process::Command::new(bin)
-        .args(["--use-pandoc", "--format", "markdown"])
-        .arg(&input)
+    let dir = tempfile::tempdir().expect("tempdir");
+    std::fs::write(
+        dir.path().join("prose.md"),
+        "Hello world. Second sentence.\n",
+    )
+    .unwrap();
+    let prose = std::process::Command::new(bin)
+        .args(["--use-pandoc", "--format", "markdown", "prose.md"])
+        .current_dir(dir.path())
         .output()
         .expect("spawn snapper");
     assert!(
-        out.status.success(),
+        prose.status.success(),
         "snapper --use-pandoc must exit 0; stderr={} stdout={}",
-        String::from_utf8_lossy(&out.stderr),
-        String::from_utf8_lossy(&out.stdout)
+        String::from_utf8_lossy(&prose.stderr),
+        String::from_utf8_lossy(&prose.stdout)
     );
-    let stdout = String::from_utf8_lossy(&out.stdout);
+    let stdout = String::from_utf8_lossy(&prose.stdout);
     assert!(
         stdout.contains("Hello world.\n") && stdout.contains("Second sentence"),
         "CLI write must break sentences:\n{stdout}"
     );
+
+    let mixed = std::process::Command::new(bin)
+        .args(["--use-pandoc", "--format", "markdown"])
+        .arg(fixture("mixed.md"))
+        .output()
+        .expect("spawn snapper mixed");
     assert!(
-        stdout.contains("```") || stdout.contains("print(1)"),
-        "CLI write keeps CodeBlock:\n{stdout}"
+        mixed.status.success(),
+        "mixed.md --use-pandoc must exit 0; stderr={}",
+        String::from_utf8_lossy(&mixed.stderr)
+    );
+    let mixed_out = String::from_utf8_lossy(&mixed.stdout);
+    let mixed_in = read_fixture("mixed.md");
+    let err = String::from_utf8_lossy(&mixed.stderr);
+    if mixed_out == mixed_in {
+        assert!(
+            err.contains("render check failed"),
+            "unchanged gfm write must warn: {err}"
+        );
+    } else {
+        assert!(
+            mixed_out.contains("Hello world.\n") && mixed_out.contains("Second sentence"),
+            "accepted gfm write must break sentences:\n{mixed_out}"
+        );
+    }
+    assert!(
+        mixed_out.contains("```") || mixed_out.contains("print(1)"),
+        "CLI write keeps CodeBlock:\n{mixed_out}"
     );
 }
 
@@ -913,7 +983,7 @@ fn snapper_ffi_without_pandoc_on_path_is_inprocess_or_explicit() {
     );
 }
 
-/// CLI default (no flag) uses pandoc when a writer runtime exists.
+/// CLI default (no flag) stays on the native parsers even when pandoc can write.
 #[test]
 fn snapper_cli_default_uses_pandoc_when_available() {
     if !pandoc_default_available() {
@@ -927,26 +997,26 @@ fn snapper_cli_default_uses_pandoc_when_available() {
         .arg(&input)
         .output()
         .expect("spawn default");
-    let forced = std::process::Command::new(bin)
-        .args(["--use-pandoc", "--format", "markdown"])
+    let native = std::process::Command::new(bin)
+        .args(["--native", "--format", "markdown"])
         .arg(&input)
         .output()
-        .expect("spawn --use-pandoc");
+        .expect("spawn --native");
     assert!(
         default_out.status.success(),
-        "default must use pandoc without error; stderr={} stdout={}",
+        "default must stay native without error; stderr={} stdout={}",
         String::from_utf8_lossy(&default_out.stderr),
         String::from_utf8_lossy(&default_out.stdout)
     );
     assert!(
-        forced.status.success(),
-        "--use-pandoc must still work; stderr={}",
-        String::from_utf8_lossy(&forced.stderr)
+        native.status.success(),
+        "--native must still work; stderr={}",
+        String::from_utf8_lossy(&native.stderr)
     );
     assert_eq!(
         String::from_utf8_lossy(&default_out.stdout),
-        String::from_utf8_lossy(&forced.stdout),
-        "default CLI output must match --use-pandoc when runtime exists"
+        String::from_utf8_lossy(&native.stdout),
+        "default CLI output must match --native even when pandoc can write"
     );
     let stdout = String::from_utf8_lossy(&default_out.stdout);
     assert_has_sentence_break(&stdout, "Hello world.", "Second sentence");
@@ -990,14 +1060,6 @@ fn snapper_cli_default_is_native_when_pandoc_missing() {
         .env_remove("SNAPPER_PANDOC_LIB_DIR")
         .output()
         .expect("spawn default without pandoc");
-    if ffi_write_available() {
-        assert!(
-            out.status.success(),
-            "FFI writer default must still succeed; stderr={}",
-            String::from_utf8_lossy(&out.stderr)
-        );
-        return;
-    }
     assert!(
         out.status.success(),
         "default without pandoc must stay native, not error; stderr={} stdout={}",
@@ -1007,7 +1069,7 @@ fn snapper_cli_default_is_native_when_pandoc_missing() {
     let stdout = String::from_utf8_lossy(&out.stdout);
     assert!(
         stdout.contains("### 1. `cargo binstall` (preferred binary install)"),
-        "missing pandoc must keep native ATX line, not all-prose:\n{stdout}"
+        "default must keep native ATX line, not all-prose:\n{stdout}"
     );
 }
 
@@ -1063,8 +1125,9 @@ fn snapper_help_names_native_and_default_pandoc() {
         "help must describe the native flag:\n{text}"
     );
     assert!(
-        text.contains("when") && (text.contains("available") || text.contains("PATH")),
-        "help must say the default uses pandoc when available:\n{text}"
+        text.contains("The default is the native line parsers")
+            || text.contains("The default is already the native line parsers"),
+        "help must say the default is the native parsers:\n{text}"
     );
 }
 

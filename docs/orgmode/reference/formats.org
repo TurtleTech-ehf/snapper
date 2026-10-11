@@ -19,7 +19,8 @@ The classification depends on the format.
 :CUSTOM_ID: org-structure
 :END:
 - Non-source =#+BEGIN_*= ...
-=#+END_*= fences, and the bodies of literal blocks (example, export, comment, verse). An unmatched =#+BEGIN_EXPORT= is a paragraph (org-element export-block-parser)
+=#+END_*= fences, and the bodies of literal blocks (example, export, comment, verse).
+An unmatched =#+BEGIN_EXPORT= is a paragraph (org-element export-block-parser)
 - Dynamic blocks (=#+BEGIN: NAME= ... =#+END:=), including the generated body
 - Quote, center, and special-block (NOTE and other unknown NAME) open/close lines
 - Verse-block body (org-element verse-lines; leftover opaque walker, GitHub #395)
@@ -33,15 +34,19 @@ The classification depends on the format.
 - Column-0 diary-sexp lines (=%%(...)=; org-element-diary-sexp-parser)
 - Full headline lines (stars, optional TODO keyword, and title text)
 - List item markers (=-=, =+=, =1.=, including a tab after the bullet).
-  An ordered marker is one or more digits. A wrap cut that would park it at column 0 skip-cuts the token onto the previous line.
+  An ordered marker is one or more digits.
+  A wrap cut that would park it at column 0 skip-cuts the token onto the previous line.
   Continuation sentences hang at the marker width.
-  One blank line stays inside the item. Two blank lines end the plain list.
+  One blank line stays inside the item.
+  Two blank lines end the plain list.
   An item also ends at a line indented less than or equal to its bullet, so a two-space line stays in a column-0 item.
   A line indented like a child bullet ends that child and stays in the parent
-- LaTeX environments (=\begin{equation}= ... =\end{equation}=, =\begin{align}=, etc.). An unmatched =\begin{env}= is a paragraph (org-element latex-environment-parser)
+- LaTeX environments (=\begin{equation}= ... =\end{equation}=, =\begin{align}=, etc.).
+  An unmatched =\begin{env}= is a paragraph (org-element latex-environment-parser)
 - Display math (=\[= ... =\]=)
 - Line breaks (org-element-line-break-parser: =\\= plus optional spaces or tabs at end of line)
-- A line that is only an export snippet (=@@latex:\newpage@@=). Trailing prose after the closer stays Prose.
+- A line that is only an export snippet (=@@latex:\newpage@@=).
+  Trailing prose after the closer stays Prose.
 
 *** Code regions (=#+BEGIN_SRC= ... =#+END_SRC=)
 :PROPERTIES:
@@ -82,7 +87,9 @@ These tokens within prose are not split across lines:
 - Inline babel call: =call_name(...)= / =call_name[inside](...)[end]= (org-element-inline-babel-call-parser; same =\<call_= / subscript rule)
 - Inline footnotes: =[fn:: def]= / =[fn:name: def]= (org-element-footnote-reference-parser)
 - LaTeX fragments: =\(...\)=, =$...$=, =\cmd{arg}=, =\cmd[opt]{arg}= (org-element-latex-fragment-parser; interior backslash and optional =[arg]= stay one token). Same-line =\[...\]= is Structure
-- Brace sub/superscripts: =H_{2. 0}= / =x^{n. 1}= (org-match-substring-regexp brace arm; interior punct stays one wrap token). Bare =H_2= / =x^n= and no-space =H_{2.0}= are unchanged. Distinct from latex-fragment.
+- Brace sub/superscripts: =H_{2. 0}= / =x^{n. 1}= (org-match-substring-regexp brace arm; interior punct stays one wrap token).
+  Bare =H_2= / =x^n= and no-space =H_{2.0}= are unchanged.
+  Distinct from latex-fragment.
 - URLs: =https://...= (trailing sentence punctuation not swallowed)
 
 ** LaTeX (=--format latex=)
@@ -145,37 +152,7 @@ These tokens within prose are not split across lines:
 - Inline leftover =\verb= / =\verb*= / leftover =\lstinline= / leftover =\spverb= / leftover =\mintinline= / leftover =\mint= / leftover fancyvrb =\Verb= / =\Verb*= / leftover =\SaveVerb= / leftover =\UseVerb= / leftover =\UseVerbatim= / leftover =\LUseVerbatim= / leftover =\BUseVerbatim= / leftover =\DefineShortVerb= / =\UndefineShortVerb= / leftover fvextra =\EscVerb= / leftover fvextra =\VerbatimInsertBuffer= / =\VerbatimClearBuffer= / =\InsertBuffer= / =\IterateBuffer= / =\VerbatimInput= / =\BVerbatimInput= / =\LVerbatimInput= / piton.sty leftover =\piton= / =\PitonInputFile= / =\PitonInputFileT= / =\PitonInputFileF= / =\PitonInputFileTF= / listings.sty =\lstinputlisting= / minted.sty =\inputminted= / tools/verbatim.sty =\verbatiminput= / tcolorbox =\tcbinputlisting= / pythontex.sty =\inputpy= / =\inputpycon= / leftover inline =\py= / =\pyc= / =\pys= / =\pyb= / =\pyv= / =\pycon= and twins / =\sympy= / =\pylab= and twins / leftover usefamily =\ruby= / =\rb= / =\julia= / =\jl= / =\matlab= / =\octave= / =\bash= / =\sage= / =\rust= / =\rs= / =\R= / =\perl= / =\pl= / =\perlsix= / =\psix= / =\javascript= / =\js= and twins / =\inputpygments= / =\pygment= / leftover =\pythontexcustomc= / pythonhighlight.sty =\inputpython= / =\inputpythonfile= / leftover =\pyth= / catchfilebetweentags.sty =\CatchFileBetweenTags= / =\CatchFileBetweenDelims= / =\ExecuteMetaData= / catchfile.sty leftover =\CatchFileDef= / =\CatchFileEdef= / moreverb =\listinginput= / leftover =\verbatimtabinput= / =\verbatimtabinput*= / leftover =\verbatimwrite= / =\verbatimwrite*= / leftover =\listingcont= / sagetex =\sageinput= / leftover inline =\sageplot= / =\sagestr= / scontents leftover =\Scontents= / =\Scontents*= / =\typestored= / =\getstored= / =\mergesc= / =\meaningsc= / =\foreachsc= (and extra =[latex].verbatim_commands=) stay atomic; inner =.!?%= do not split or comment.
   leftover =\verb= / =\verb*= / =\lstinline= / =\spverb= take a delimiter or, for =\lstinline=, optional =[...]= then a delimiter or ={...}=; spaces after the control word are not the delimiter, so =\verb x...x= closes on =x=; a flush following sentence stays on its own line.
   url.sty =\url= / =\path= and hyperref =\nolinkurl= take a non-brace delimiter the same way (=\url|...|=); a braced argument stays on the generic command path; a flush following sentence stays on its own line.
-  A width wrap keeps a space inside that delimiter on the same line
-  leftover =\mintinline= / =\mint= take optional =[...]=, ={lang}=, then a delimiter or ={...}= body; a flush following sentence stays on its own line
-  leftover =\SaveVerb= takes optional =[...]=, a ={name}=, then the same delimiter body as =\Verb=; a flush following sentence stays on its own line
-  leftover =\UseVerb= / =\UseVerb*= take optional =[...]= then a ={name}=; leftover =\UseVerbatim= / =\LUseVerbatim= / =\BUseVerbatim= take optional =[...]= then a ={name}=; a flush following sentence stays on its own line
-  leftover =\DefineShortVerb= takes optional =[...]= then a ={char}=; leftover =\UndefineShortVerb= takes a ={char}=; a flush following sentence stays on its own line
-  leftover =\Verb= takes a delimiter like =\verb=; leftover =\EscVerb= takes a delimiter or ={code}=; a flush following sentence stays on its own line
-  leftover =\VerbatimInsertBuffer= / =\InsertBuffer= take optional =[...]=; leftover =\VerbatimClearBuffer= takes no args; leftover =\IterateBuffer= takes optional =[...]= then a ={cmd}=; a flush following sentence stays on its own line
-  leftover =\piton|...|= is verb-like; leftover =\piton{...}= stays one token via the generic command argument; a flush following sentence stays on its own line
-  =\lstinputlisting= / =\lstinputlisting*= take optional =[...]= then a ={filename}=; a flush following sentence stays on its own line
-  =\inputminted= / =\inputminted*= take optional =[...]=, ={lang}=, then a ={filename}=; a flush following sentence stays on its own line
-  =\VerbatimInput= / =\BVerbatimInput= / =\LVerbatimInput= take optional =[...]= then a ={filename}=; a flush following sentence stays on its own line
-  =\verbatiminput= / =\verbatiminput*= take a ={filename}=; a flush following sentence stays on its own line
-  =\PitonInputFile= takes optional =<...>=, optional =[...]=, then a ={filename}=; a flush following sentence stays on its own line
-  =\PitonInputFileT= / =\PitonInputFileF= take the same optional args then ={file}= and one extra required brace; =\PitonInputFileTF= takes two extra braces; a flush following sentence stays on its own line
-  =\tcbinputlisting= takes one required ={keyval}= group; a flush following sentence stays on its own line
-  =\inputpy= / =\inputpycon= take optional =[...]= then a ={filename}=; a flush following sentence stays on its own line
-  =\py= / =\pyc= / =\pys= / =\pyb= / =\pyv= / =\pycon= and twins / =\sympy= / =\pylab= and twins take optional =[...]= then a delimiter or ={body}=; a flush following sentence stays on its own line
-  =\inputpygments= takes optional =[...]=, ={lang}=, then a ={filename}=; =\pygment= takes ={lang}= then a delimiter or ={code}= body; a flush following sentence stays on its own line
-  =\inputpython= takes ={file}= ={first}= ={last}=; =\inputpythonfile= takes ={file}= then optional =[first]= =[last]=; a flush following sentence stays on its own line
-  =\pyth= takes a delimiter or ={code}= body; a flush following sentence stays on its own line
-  =\CatchFileBetweenTags= takes ={macro}= ={file}= ={tag}=; =\CatchFileBetweenDelims= takes ={macro}= ={file}= ={start}= ={end}=; =\ExecuteMetaData= takes optional =[file]= then ={tag}=; a flush following sentence stays on its own line
-  leftover =\CatchFileDef= / =\CatchFileEdef= take ={macro}= ={file}= ={setup}=; a flush following sentence stays on its own line
-  =\listinginput= takes optional =[interval]= then ={start}= and ={filename}=; a flush following sentence stays on its own line
-  =\verbatimtabinput= / =\verbatimtabinput*= take optional =[tabwidth]= then a ={filename}=; a flush following sentence stays on its own line
-  leftover =\verbatimwrite= / =\verbatimwrite*= take a ={filename}=; a flush following sentence stays on its own line
-  leftover =\listingcont= takes no args; a flush following sentence stays on its own line
-  =\sageinput= takes optional =[...]= then a ={filename}=; a flush following sentence stays on its own line
-  =\sageplot= takes optional =[ltx opts]= =[fmt]= then a ={graphics}=; =\sagestr= takes a ={code}=; a flush following sentence stays on its own line
-  =\inputsc= takes optional =[...]= then a ={name}=; a flush following sentence stays on its own line
-  =\pythontexcustomc= takes optional =[begin|end]=, a required ={type}=, then a delimiter or ={code}= body; a flush following sentence stays on its own line
-  =\Scontents= / =\Scontents*= take optional =[...]= then a standard or verbatim arg; =\typestored= / =\getstored= / =\mergesc= / =\meaningsc= / =\foreachsc= take optional =[...]= then a ={seq}=; a flush following sentence stays on its own line
+  A width wrap keeps a space inside that delimiter on the same line leftover =\mintinline= / =\mint= take optional =[...]=, ={lang}=, then a delimiter or ={...}= body; a flush following sentence stays on its own line leftover =\SaveVerb= takes optional =[...]=, a ={name}=, then the same delimiter body as =\Verb=; a flush following sentence stays on its own line leftover =\UseVerb= / =\UseVerb*= take optional =[...]= then a ={name}=; leftover =\UseVerbatim= / =\LUseVerbatim= / =\BUseVerbatim= take optional =[...]= then a ={name}=; a flush following sentence stays on its own line leftover =\DefineShortVerb= takes optional =[...]= then a ={char}=; leftover =\UndefineShortVerb= takes a ={char}=; a flush following sentence stays on its own line leftover =\Verb= takes a delimiter like =\verb=; leftover =\EscVerb= takes a delimiter or ={code}=; a flush following sentence stays on its own line leftover =\VerbatimInsertBuffer= / =\InsertBuffer= take optional =[...]=; leftover =\VerbatimClearBuffer= takes no args; leftover =\IterateBuffer= takes optional =[...]= then a ={cmd}=; a flush following sentence stays on its own line leftover =\piton|...|= is verb-like; leftover =\piton{...}= stays one token via the generic command argument; a flush following sentence stays on its own line =\lstinputlisting= / =\lstinputlisting*= take optional =[...]= then a ={filename}=; a flush following sentence stays on its own line =\inputminted= / =\inputminted*= take optional =[...]=, ={lang}=, then a ={filename}=; a flush following sentence stays on its own line =\VerbatimInput= / =\BVerbatimInput= / =\LVerbatimInput= take optional =[...]= then a ={filename}=; a flush following sentence stays on its own line =\verbatiminput= / =\verbatiminput*= take a ={filename}=; a flush following sentence stays on its own line =\PitonInputFile= takes optional =<...>=, optional =[...]=, then a ={filename}=; a flush following sentence stays on its own line =\PitonInputFileT= / =\PitonInputFileF= take the same optional args then ={file}= and one extra required brace; =\PitonInputFileTF= takes two extra braces; a flush following sentence stays on its own line =\tcbinputlisting= takes one required ={keyval}= group; a flush following sentence stays on its own line =\inputpy= / =\inputpycon= take optional =[...]= then a ={filename}=; a flush following sentence stays on its own line =\py= / =\pyc= / =\pys= / =\pyb= / =\pyv= / =\pycon= and twins / =\sympy= / =\pylab= and twins take optional =[...]= then a delimiter or ={body}=; a flush following sentence stays on its own line =\inputpygments= takes optional =[...]=, ={lang}=, then a ={filename}=; =\pygment= takes ={lang}= then a delimiter or ={code}= body; a flush following sentence stays on its own line =\inputpython= takes ={file}= ={first}= ={last}=; =\inputpythonfile= takes ={file}= then optional =[first]= =[last]=; a flush following sentence stays on its own line =\pyth= takes a delimiter or ={code}= body; a flush following sentence stays on its own line =\CatchFileBetweenTags= takes ={macro}= ={file}= ={tag}=; =\CatchFileBetweenDelims= takes ={macro}= ={file}= ={start}= ={end}=; =\ExecuteMetaData= takes optional =[file]= then ={tag}=; a flush following sentence stays on its own line leftover =\CatchFileDef= / =\CatchFileEdef= take ={macro}= ={file}= ={setup}=; a flush following sentence stays on its own line =\listinginput= takes optional =[interval]= then ={start}= and ={filename}=; a flush following sentence stays on its own line =\verbatimtabinput= / =\verbatimtabinput*= take optional =[tabwidth]= then a ={filename}=; a flush following sentence stays on its own line leftover =\verbatimwrite= / =\verbatimwrite*= take a ={filename}=; a flush following sentence stays on its own line leftover =\listingcont= takes no args; a flush following sentence stays on its own line =\sageinput= takes optional =[...]= then a ={filename}=; a flush following sentence stays on its own line =\sageplot= takes optional =[ltx opts]= =[fmt]= then a ={graphics}=; =\sagestr= takes a ={code}=; a flush following sentence stays on its own line =\inputsc= takes optional =[...]= then a ={name}=; a flush following sentence stays on its own line =\pythontexcustomc= takes optional =[begin|end]=, a required ={type}=, then a delimiter or ={code}= body; a flush following sentence stays on its own line =\Scontents= / =\Scontents*= take optional =[...]= then a standard or verbatim arg; =\typestored= / =\getstored= / =\mergesc= / =\meaningsc= / =\foreachsc= take optional =[...]= then a ={seq}=; a flush following sentence stays on its own line
 
 *** Prose regions (reflowed)
 :PROPERTIES:
@@ -199,7 +176,8 @@ These tokens within prose are not split across lines:
 - Setext headings (title line plus a line of one or more = or - characters).
   A wrap cut that would park a short underline at column 0 escapes it
 - List item markers (=-=, =*=, =+=, =1.=); continuation sentences hang at the marker width.
-  A line indented four spaces past the marker stays in an open item paragraph. After a blank line it is indented code.
+  A line indented four spaces past the marker stays in an open item paragraph.
+  After a blank line it is indented code.
   A fence, ATX heading, thematic break, HTML block, or GFM table in the marker remainder stays a block
 - Empty list markers (including quoted) stay Structure
 - Definition-list terms and =: = markers (pulldown =ENABLE_DEFINITION_LIST=); the body hangs at the marker width
@@ -210,7 +188,8 @@ These tokens within prose are not split across lines:
 - GFM footnote definitions (=[^label]:=); the marker is Structure and the body hangs
 - Hard line breaks (two trailing spaces, or a trailing backslash)
 - HTML comments (=<!-- ... -->=, including multiline); =<!-- snapper:off -->= / =<!-- snapper:on -->= remain pragmas
-- Type-6 and type-7 HTML blocks run to the next blank line. A matching end tag does not end the block
+- Type-6 and type-7 HTML blocks run to the next blank line.
+  A matching end tag does not end the block
 - Void type-6 tags (=<hr>= / =<col>= / =<link>= / =<base>= / =<param>= / =<track>=) end on the tag line; they have no closer, so leftover following prose stays Prose even without a blank
 - Pipe tables
 
@@ -258,14 +237,11 @@ These tokens within prose are not split across lines:
 - Same-line body after =::= on those containers, leftover =.. parsed-literal::=, =.. header::=, =.. footer::=, =.. |name| replace::=, and =.. meta::= fields hangs and splits.
   Flush bibliographic fields close a meta leftover
 - Literal blocks (text after =::= with indented or line-prefix-quoted content).
-  A paragraph whose text is only =::= is that marker. A two-character title underlined with =::= stays a section
+  A paragraph whose text is only =::= is that marker.
+  A two-character title underlined with =::= stays a section
 - Section titles and underlines (=====, =-----=, etc.).
-  A wrap cut that would park a solid Docutils =Body.line= adornment at column 0 skip-cuts the token onto the previous line (snapper-7xd3)
-  A wrap cut that would park a Docutils simple-table border at column 0 skip-cuts the token onto the previous line (snapper-2knx)
-  A wrap cut that would park a Docutils grid-table top (=+---+=) at column 0 skip-cuts the token onto the previous line
-  A wrap cut that would park a Jinja statement (=\{% ... %\}=) or a Docutils anonymous target (=__ uri=) at column 0 skip-cuts the token onto the previous line.
-  The indented link block under that target stays structure until a blank
-  A wrap cut that would park a leftover plus fragment (=+===+=, =+foo=) at column 0 skip-cuts the token onto the previous line
+  A wrap cut that would park a solid Docutils =Body.line= adornment at column 0 skip-cuts the token onto the previous line (snapper-7xd3) A wrap cut that would park a Docutils simple-table border at column 0 skip-cuts the token onto the previous line (snapper-2knx) A wrap cut that would park a Docutils grid-table top (=+---+=) at column 0 skip-cuts the token onto the previous line A wrap cut that would park a Jinja statement (=\{% ... %\}=) or a Docutils anonymous target (=__ uri=) at column 0 skip-cuts the token onto the previous line.
+  The indented link block under that target stays structure until a blank A wrap cut that would park a leftover plus fragment (=+===+=, =+foo=) at column 0 skip-cuts the token onto the previous line
 - Field lists (=:Author:=, =:Date:=, etc.)
 - Empty list items, empty doctest openers, and empty field-list markers at EOL stay Structure
 - Comments (=..= without a directive)

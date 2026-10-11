@@ -44,13 +44,14 @@ Semantic line break formatter
 
   Default value: `0`
 * `--clause-breaks` — Prefer soft breaks after independent-clause punctuation (comma, semicolon, colon, em dash). With `--max-width 0` (the default), insert a newline after every such mark that is already followed by whitespace. With `--max-width` set, prefer those marks when wrapping an overflowing sentence
+* `--lowercase-starts` — Open a sentence at a lowercase word after a terminator and a space. Abbreviations such as `e.g.` and `vs.` still join. Off by default (UAX #29 SB8). Also set with `lowercase_starts` in `.snapperrc.toml` (top level, or per format)
 
   Default value: `false`
 * `--neural` — Use neural sentence detection (nnsplit LSTM model)
 * `--lang <LANG>` — Language for neural sentence detection (default: en). Available: en, de, fr, no, sv, zh, tr, ru, uk
 * `--model-path <MODEL_PATH>` — Path to custom ONNX model file for neural detection
-* `--use-pandoc` — Force the pandoc path (auto FFI then CLI). Errors if FFI and `pandoc` on PATH are both missing (no silent all-prose). The default (omit this flag) already uses pandoc when an FFI writer or `pandoc` on PATH is available. RST `..` comments and `snapper:off` / `snapper:on` are written through so the output still contains that text. Parse may use in-process FFI; the writer still needs `pandoc` on PATH (`libsnapper_pandoc` is reader-only) unless that library exports a writer
-* `--native` — Force today's native line parsers (markdown/org/rst/latex/plaintext). The default (omit this flag) uses pandoc when an FFI writer or `pandoc` on PATH is available; otherwise it keeps these parsers (no error, no silent all-prose). Editors, wasm, and LSP stay native
+* `--use-pandoc` — Force the pandoc path (auto FFI then CLI). Errors if FFI and `pandoc` on PATH are both missing (no silent all-prose). The default is the native line parsers. This flag, or `use_pandoc = true` in `.snapperrc.toml`, opts into pandoc. Markdown is read and written as `gfm`. A render mismatch leaves the input unchanged and warns on stderr. RST `..` comments and `snapper:off` / `snapper:on` are written through so the output still contains that text. Parse may use in-process FFI; the writer still needs `pandoc` on PATH (`libsnapper_pandoc` is reader-only) unless that library exports a writer
+* `--native` — Accepted for compatibility. The default is already the native line parsers (markdown/org/rst/latex/plaintext). Editors, wasm, and LSP stay native. Conflicts with `--use-pandoc`
 * `--pandoc-backend <BACKEND>` — Pandoc AST source when the pandoc path is used: `auto` (prefer in-process FFI, else CLI), `ffi` (`libsnapper_pandoc`), or `cli` (`pandoc` subprocess). Default: `auto`. `ffi` fails explicitly if the library is missing. The writer still needs `pandoc` on PATH (no silent spawn surprise)
 
   Default value: `auto`

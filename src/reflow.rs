@@ -91,6 +91,20 @@ fn splice(
     splitter: &dyn SentenceSplitter,
     config: &ReflowConfig,
 ) -> Result<String, SpliceError> {
+    let rewrites = region_rewrites(source, spanned, splitter, config)?;
+    apply_rewrites(source, &rewrites)
+}
+
+/// Prose and rewritten code-body replacements, in source order.
+///
+/// A span whose text did not change is omitted. Callers that salvage a
+/// rejected document try each entry on its own.
+pub(crate) fn region_rewrites(
+    source: &str,
+    spanned: &[SpannedRegion],
+    splitter: &dyn SentenceSplitter,
+    config: &ReflowConfig,
+) -> Result<Vec<(usize, usize, String)>, SpliceError> {
     let regions: Vec<Region> = spanned.iter().map(|s| s.region.clone()).collect();
     let mut rewrites: Vec<(usize, usize, String)> = Vec::new();
     for (idx, sr) in spanned.iter().enumerate() {
@@ -104,7 +118,9 @@ fn splice(
                     continue;
                 }
                 let replacement = reflow_prose(text, idx, &regions, splitter, config);
-                rewrites.push((span.start, span.end, replacement));
+                if source.get(span.start..span.end) != Some(replacement.as_str()) {
+                    rewrites.push((span.start, span.end, replacement));
+                }
             }
             (
                 Region::Code { lang, body, .. },
@@ -132,18 +148,29 @@ fn splice(
         }
     }
     rewrites.sort_by_key(|(start, _, _)| *start);
+    Ok(rewrites)
+}
+
+pub(crate) fn apply_rewrites(
+    source: &str,
+    rewrites: &[(usize, usize, String)],
+) -> Result<String, SpliceError> {
     let mut out = String::with_capacity(source.len());
     let mut cursor = 0usize;
     for (start, end, repl) in rewrites {
-        if start < cursor || end > source.len() || start > end || source.get(start..end).is_none() {
+        if *start < cursor
+            || *end > source.len()
+            || *start > *end
+            || source.get(*start..*end).is_none()
+        {
             return Err(SpliceError(format!(
                 "invalid splice span {start}..{end} (cursor={cursor}, len={})",
                 source.len()
             )));
         }
-        out.push_str(&source[cursor..start]);
-        out.push_str(&repl);
-        cursor = end;
+        out.push_str(&source[cursor..*start]);
+        out.push_str(repl);
+        cursor = *end;
     }
     out.push_str(&source[cursor..]);
     Ok(out)
@@ -237,8 +264,14 @@ fn reflow_prose(
     };
     let hanging = hang.chars().count();
     let mut sentences = splitter.split(text);
-    if config.format == Format::Markdown && hanging > 0 {
-        glue_md_same_line_ol_opener(&mut sentences, text);
+    if config.format == Format::Markdown {
+        if hanging > 0 {
+            glue_md_same_line_ol_opener(&mut sentences, text);
+        }
+        // A continuation that starts with a block marker (`1.`, `- `, `# `,
+        // `> `, a setext underline) is reread as a new block. Keep the
+        // marker on the previous sentence.
+        glue_md_continuation_block_markers(&mut sentences);
     }
     let nsent = sentences.len();
     for (i, sentence) in sentences.iter().enumerate() {
@@ -957,6 +990,96 @@ fn md_same_line_ol_opener(text: &str) -> bool {
         && bytes.get(i + 1).is_some_and(|b| !b.is_ascii_whitespace())
 }
 
+/// Move a leading block marker off a continuation sentence and onto the
+/// previous one. The first sentence of the paragraph is left alone.
+fn glue_md_continuation_block_markers(sentences: &mut Vec<String>) {
+    let mut i = 1usize;
+    while i < sentences.len() {
+        let Some((token, rest)) = md_continuation_block_token(sentences[i].trim()) else {
+            i += 1;
+            continue;
+        };
+        let token = token.to_string();
+        let rest = rest.to_string();
+        let prev = sentences[i - 1].trim_end();
+        sentences[i - 1] = if prev.is_empty() {
+            token
+        } else {
+            format!("{prev} {token}")
+        };
+        if rest.is_empty() {
+            sentences.remove(i);
+        } else {
+            sentences[i] = rest;
+        }
+    }
+}
+
+/// Token that CommonMark would read as a block start if it opened a line.
+/// The returned token excludes the following whitespace. The rest is the
+/// remainder of the sentence, or empty when the line is only the marker
+/// or a setext underline.
+fn md_continuation_block_token(sent: &str) -> Option<(&str, &str)> {
+    let s = sent.trim();
+    if s.is_empty() {
+        return None;
+    }
+    if is_setext_underline(s) {
+        return Some((s, ""));
+    }
+    if let Some(end) = ordered_marker_end(s) {
+        return Some((&s[..end], s[end..].trim_start()));
+    }
+    for prefix in ["- ", "+ ", "* ", "-\t", "+\t", "*\t"] {
+        if let Some(rest) = s.strip_prefix(prefix) {
+            return Some((&s[..1], rest.trim_start()));
+        }
+    }
+    if matches!(s, "*" | "+") {
+        return Some((s, ""));
+    }
+    let hashes = s.bytes().take_while(|&b| b == b'#').count();
+    if (1..=6).contains(&hashes) && matches!(s.as_bytes().get(hashes), Some(b' ' | b'\t')) {
+        return Some((&s[..hashes], s[hashes..].trim_start()));
+    }
+    if let Some(rest) = s.strip_prefix("> ").or_else(|| s.strip_prefix(">\t")) {
+        return Some((">", rest.trim_start()));
+    }
+    if s == ">" {
+        return Some((">", ""));
+    }
+    None
+}
+
+fn is_setext_underline(s: &str) -> bool {
+    let t = s.trim();
+    let Some(&b) = t.as_bytes().first() else {
+        return false;
+    };
+    (b == b'-' || b == b'=') && t.bytes().all(|c| c == b)
+}
+
+/// End index of a CommonMark ordered-list marker (`1.` / `1)`), when the
+/// marker is the whole line or is followed by whitespace.
+fn ordered_marker_end(s: &str) -> Option<usize> {
+    let bytes = s.as_bytes();
+    let mut i = 0;
+    while i < bytes.len() && bytes[i].is_ascii_digit() {
+        i += 1;
+    }
+    if i == 0 || i > 9 {
+        return None;
+    }
+    if !matches!(bytes.get(i), Some(b'.') | Some(b')')) {
+        return None;
+    }
+    let end = i + 1;
+    match bytes.get(end) {
+        None | Some(b' ' | b'\t') => Some(end),
+        _ => None,
+    }
+}
+
 /// Join a same-line Markdown `0.` / `1)` opener onto the next sentence so
 /// sembr does not hang after the opener.
 fn glue_md_same_line_ol_opener(sentences: &mut Vec<String>, source: &str) {
@@ -1320,6 +1443,31 @@ mod tests {
         let regions = vec![Region::Prose(input.to_string())];
         let config = ReflowConfig::default();
         reflow(&regions, &UnicodeSentenceSplitter::new(), &config)
+    }
+
+    #[test]
+    fn continuation_block_marker_stays_on_the_previous_sentence() {
+        let mut enumerated = vec![
+            "All set.".to_string(),
+            "1.".to_string(),
+            "Then foo happens.".to_string(),
+        ];
+        glue_md_continuation_block_markers(&mut enumerated);
+        assert_eq!(
+            enumerated,
+            vec!["All set. 1.".to_string(), "Then foo happens.".to_string()]
+        );
+
+        let mut dashed = vec!["Done.".to_string(), "- not a list.".to_string()];
+        glue_md_continuation_block_markers(&mut dashed);
+        assert_eq!(
+            dashed,
+            vec!["Done. -".to_string(), "not a list.".to_string()]
+        );
+
+        let mut first = vec!["1. Then foo happens.".to_string()];
+        glue_md_continuation_block_markers(&mut first);
+        assert_eq!(first, vec!["1. Then foo happens.".to_string()]);
     }
 
     #[test]

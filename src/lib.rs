@@ -106,6 +106,9 @@ pub struct FormatConfig {
     /// Default `false` keeps one sentence per line (greedy wrap only
     /// under `max_width`).
     pub clause_breaks: bool,
+    /// Open a sentence at a lowercase word after a terminator and a space.
+    /// Abbreviations such as `e.g.` still join. Default `false` keeps UAX #29 SB8.
+    pub lowercase_starts: bool,
     /// Run `format_text` to a byte fixpoint (cap 4). Production default
     /// `true`; tests set `false` so a planner that needs the backstop fails.
     pub fixpoint_backstop: bool,
@@ -169,6 +172,7 @@ impl Default for FormatConfig {
             code: HashMap::new(),
             format_code: false,
             clause_breaks: false,
+            lowercase_starts: false,
             fixpoint_backstop: true,
             render_backstop: true,
             latex_verbatim_envs: vec![],
@@ -253,7 +257,8 @@ pub fn build_splitter(config: &FormatConfig) -> Result<Box<dyn SentenceSplitter>
             Ok(Box::new(
                 neural
                     .map_err(|e| anyhow::anyhow!("{e}"))?
-                    .with_verbatim_commands(config.latex_verbatim_commands.clone()),
+                    .with_verbatim_commands(config.latex_verbatim_commands.clone())
+                    .with_lowercase_starts(config.lowercase_starts),
             ))
         }
         #[cfg(not(feature = "neural"))]
@@ -265,7 +270,8 @@ pub fn build_splitter(config: &FormatConfig) -> Result<Box<dyn SentenceSplitter>
     } else {
         Ok(Box::new(
             UnicodeSentenceSplitter::for_lang(&config.neural_lang, &config.extra_abbreviations)
-                .with_verbatim_commands(config.latex_verbatim_commands.clone()),
+                .with_verbatim_commands(config.latex_verbatim_commands.clone())
+                .with_lowercase_starts(config.lowercase_starts),
         ))
     }
 }
@@ -303,8 +309,26 @@ pub fn format_text_with_splitter(
     // The pandoc writer is not a native splice: it normalizes markup, so
     // the native region-tree oracle and byte fixpoint would veto a correct
     // write-through and return the original (no sentence breaks).
+    // Markdown opted in via `--use-pandoc` is the exception: it is read and
+    // written as gfm, and a render mismatch returns the input unchanged.
     let candidate = if config.use_pandoc {
-        format_once(work_input, config, splitter, config.format_code)?
+        let written = format_once(work_input, config, splitter, config.format_code)?;
+        if pandoc_markdown_oracle(config)
+            && config.render_backstop
+            && written != work_input
+            && !oracle::matches_ex(
+                config.format,
+                work_input,
+                &written,
+                config.format_code,
+                Some(config),
+            )
+        {
+            eprintln!("snapper: pandoc markdown render check failed; left input unchanged");
+            work_input.to_string()
+        } else {
+            written
+        }
     } else {
         let once = format_once(work_input, config, splitter, config.format_code)?;
         // Later passes prove prose stability. External code formatters
@@ -328,7 +352,7 @@ pub fn format_text_with_splitter(
                 Some(config),
             )
         {
-            work_input.to_string()
+            salvage_regions(work_input, config, splitter)?
         } else {
             candidate
         }
@@ -351,6 +375,95 @@ pub fn format_text_with_splitter(
     }
 
     Ok(output)
+}
+
+/// When the whole-document render check fails, keep each region whose
+/// own rewrite still matches and leave the rest as original bytes.
+fn salvage_regions(
+    work_input: &str,
+    config: &FormatConfig,
+    splitter: &dyn SentenceSplitter,
+) -> Result<String> {
+    use crate::reflow::{ReflowConfig, apply_rewrites, region_rewrites};
+
+    let spanned =
+        parser::parser_for_format_config(config.format, Some(config)).parse_full(work_input);
+    let reflow_config = ReflowConfig {
+        max_width: config.max_width,
+        code: Some(&config.code),
+        format_code: config.format_code,
+        clause_breaks: config.clause_breaks,
+        format: config.format,
+    };
+    let rewrites = match region_rewrites(work_input, &spanned, splitter, &reflow_config) {
+        Ok(rewrites) => rewrites,
+        Err(_) => {
+            let (start, end) = byte_line_span(work_input, 0, work_input.len());
+            eprintln!("snapper: render check failed; left lines {start}-{end} unchanged");
+            return Ok(work_input.to_string());
+        }
+    };
+    let mut kept = Vec::new();
+    let mut rejected = Vec::new();
+    for (start, end, repl) in rewrites {
+        let mut candidate = String::with_capacity(work_input.len() - (end - start) + repl.len());
+        candidate.push_str(&work_input[..start]);
+        candidate.push_str(&repl);
+        candidate.push_str(&work_input[end..]);
+        if oracle::matches_ex(
+            config.format,
+            work_input,
+            &candidate,
+            config.format_code,
+            Some(config),
+        ) {
+            kept.push((start, end, repl));
+        } else {
+            rejected.push(byte_line_span(work_input, start, end));
+        }
+    }
+    if !rejected.is_empty() {
+        let ranges = rejected
+            .iter()
+            .map(|(start, end)| format!("{start}-{end}"))
+            .collect::<Vec<_>>()
+            .join(", ");
+        eprintln!("snapper: render check failed; left lines {ranges} unchanged");
+    }
+    apply_rewrites(work_input, &kept).map_err(|e| anyhow::anyhow!("{e}"))
+}
+
+/// 1-indexed inclusive line numbers covering `[start, end)`.
+fn byte_line_span(source: &str, start: usize, end: usize) -> (usize, usize) {
+    let start_line = byte_to_line(source, start);
+    let end_at = end.saturating_sub(1).max(start);
+    let end_line = byte_to_line(source, end_at);
+    (start_line, end_line.max(start_line))
+}
+
+fn byte_to_line(source: &str, byte: usize) -> usize {
+    let byte = byte.min(source.len());
+    source[..byte].bytes().filter(|&b| b == b'\n').count() + 1
+}
+
+/// Pandoc reader/writer name for this config.
+/// Markdown defaults to `gfm` so `--use-pandoc` does not emit pandoc tables.
+fn pandoc_input_format(config: &FormatConfig) -> &str {
+    if let Some(fmt) = config.pandoc_format.as_deref() {
+        return fmt;
+    }
+    match config.format {
+        Format::Org => "org",
+        Format::Latex => "latex",
+        Format::Markdown => "gfm",
+        Format::Rst => "rst",
+        Format::Plaintext => "markdown",
+    }
+}
+
+/// True when a pandoc markdown write should be checked with the render oracle.
+fn pandoc_markdown_oracle(config: &FormatConfig) -> bool {
+    config.format == Format::Markdown && pandoc_input_format(config) == "gfm"
 }
 
 /// One parse+reflow pass. Native parsers splice into original bytes;
@@ -378,16 +491,7 @@ fn format_once(
     if config.use_pandoc {
         #[cfg(feature = "pandoc")]
         {
-            let pandoc_fmt = config
-                .pandoc_format
-                .as_deref()
-                .unwrap_or(match config.format {
-                    Format::Org => "org",
-                    Format::Latex => "latex",
-                    Format::Markdown => "markdown",
-                    Format::Rst => "rst",
-                    Format::Plaintext => "markdown",
-                });
+            let pandoc_fmt = pandoc_input_format(config);
             return parser::pandoc::format_via_pandoc(
                 work_input,
                 pandoc_fmt,
@@ -469,4 +573,162 @@ pub fn format_range(
     }
 
     Ok(result)
+}
+
+#[cfg(test)]
+mod region_fallback_tests {
+    use super::*;
+    use crate::format::Format;
+
+    #[test]
+    fn rejected_paragraph_does_not_revert_the_file() {
+        let input = "**Note.** Next sentence here. Third one.\n\nA. a0.A.\n";
+        let out = format_text(
+            input,
+            &FormatConfig {
+                format: Format::Markdown,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        assert!(
+            out.starts_with("**Note.**\nNext sentence here.\nThird one.\n\n"),
+            "first paragraph must split, got:\n{out}"
+        );
+        assert!(
+            out.ends_with("A. a0.A.\n"),
+            "rejected paragraph must stay unchanged, got:\n{out}"
+        );
+    }
+
+    #[test]
+    fn emphasis_closer_paragraph_splits_without_reverting() {
+        let input =
+            "**Note.** Next sentence here. Third one.\n\nThis is done.** Next starts here.\n";
+        let out = format_text(
+            input,
+            &FormatConfig {
+                format: Format::Markdown,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        assert_eq!(
+            out,
+            "**Note.**\nNext sentence here.\nThird one.\n\nThis is done.**\nNext starts here.\n"
+        );
+    }
+}
+
+#[cfg(test)]
+mod markdown_block_marker_tests {
+    use super::*;
+    use crate::format::Format;
+
+    fn format_md(input: &str) -> String {
+        format_text(
+            input,
+            &FormatConfig {
+                format: Format::Markdown,
+                ..Default::default()
+            },
+        )
+        .unwrap()
+    }
+
+    fn opens_block_line(line: &str) -> bool {
+        let t = line.trim_start();
+        t == "1."
+            || t.starts_with("1. ")
+            || t.starts_with("1) ")
+            || t.starts_with("- ")
+            || t.starts_with("+ ")
+            || t.starts_with("* ")
+            || t.starts_with("# ")
+            || t.starts_with("> ")
+            || (!t.is_empty() && (t.bytes().all(|b| b == b'-') || t.bytes().all(|b| b == b'=')))
+    }
+
+    #[test]
+    fn continuation_lines_do_not_start_with_block_markers() {
+        let enumerated = format_md("All set. 1. Then foo happens.\n");
+        assert_eq!(enumerated, "All set. 1.\nThen foo happens.\n");
+        assert!(
+            !enumerated.lines().any(|l| l.trim() == "1."),
+            "{enumerated}"
+        );
+
+        let dashed = format_md("Done. - not a list.\n");
+        assert!(
+            dashed.lines().skip(1).all(|l| !opens_block_line(l)),
+            "{dashed}"
+        );
+        assert!(dashed.contains("Done."));
+        assert!(dashed.contains("not a list."));
+        assert!(dashed.contains('-'));
+    }
+}
+
+#[cfg(test)]
+mod lowercase_starts_tests {
+    use super::*;
+    use crate::format::Format;
+
+    fn cfg(on: bool) -> FormatConfig {
+        FormatConfig {
+            format: Format::Markdown,
+            lowercase_starts: on,
+            ..Default::default()
+        }
+    }
+
+    fn lines(on: bool, input: &str) -> Vec<String> {
+        format_text(input, &cfg(on))
+            .unwrap()
+            .lines()
+            .map(str::to_string)
+            .collect()
+    }
+
+    #[test]
+    fn lowercase_starts_split_the_documented_cases() {
+        let tool = "There are two. setup-python moved to PyPy 8.0.0.";
+        let meson = "`meson test`: 58 of 58 pass. pytest: 661 pass and 31 skip.";
+        let abbrev = "Use e.g. this, i.e. that, vs. the other, etc. and more. Dr. Smith agreed.";
+        assert_eq!(lines(false, tool), vec![tool]);
+        assert_eq!(lines(false, meson), vec![meson]);
+        assert_eq!(
+            lines(true, tool),
+            vec![
+                "There are two.".to_string(),
+                "setup-python moved to PyPy 8.0.0.".to_string()
+            ]
+        );
+        assert_eq!(
+            lines(true, meson),
+            vec![
+                "`meson test`: 58 of 58 pass.".to_string(),
+                "pytest: 661 pass and 31 skip.".to_string()
+            ]
+        );
+        assert_eq!(
+            lines(true, abbrev),
+            vec![
+                "Use e.g. this, i.e. that, vs. the other, etc. and more.".to_string(),
+                "Dr. Smith agreed.".to_string()
+            ]
+        );
+    }
+
+    #[test]
+    fn period_in_code_span_or_escape_stays_one_line() {
+        let pip = "`pip install -e .` and then the rest.";
+        let into = "`1.` into the list.";
+        let esc = "1\\. and the rest.";
+        let seen = "See 1\\. and the rest.";
+        for text in [pip, into, esc, seen] {
+            assert_eq!(lines(false, text), vec![text], "default {text:?}");
+            assert_eq!(lines(true, text), vec![text], "lowercase {text:?}");
+        }
+    }
 }
