@@ -225,6 +225,29 @@ fn md_html_ok(original: &str, output: &str) -> bool {
     normalize_ws(&html_without_pre_inner(&ha)) == normalize_ws(&html_without_pre_inner(&hb))
 }
 
+/// True when every inline code span in `original` comes back with the same
+/// contents, in the same order, in `output` (CommonMark code span rules).
+/// The pandoc writer may normalize other markup; it must not touch code.
+pub fn inline_code_kept(original: &str, output: &str) -> bool {
+    md_inline_code(original) == md_inline_code(output)
+}
+
+fn md_inline_code(src: &str) -> Vec<String> {
+    use pulldown_cmark::{Event, Options, Parser};
+    let mut opts = Options::empty();
+    opts.insert(Options::ENABLE_TABLES);
+    opts.insert(Options::ENABLE_FOOTNOTES);
+    opts.insert(Options::ENABLE_STRIKETHROUGH);
+    opts.insert(Options::ENABLE_TASKLISTS);
+    opts.insert(Options::ENABLE_DEFINITION_LIST);
+    Parser::new_ext(src, opts)
+        .filter_map(|ev| match ev {
+            Event::Code(code) => Some(code.to_string()),
+            _ => None,
+        })
+        .collect()
+}
+
 fn md_html(src: &str) -> String {
     use pulldown_cmark::{Options, Parser, html};
     let mut opts = Options::empty();
