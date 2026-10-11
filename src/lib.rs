@@ -621,6 +621,55 @@ mod region_fallback_tests {
 }
 
 #[cfg(test)]
+mod markdown_block_marker_tests {
+    use super::*;
+    use crate::format::Format;
+
+    fn format_md(input: &str) -> String {
+        format_text(
+            input,
+            &FormatConfig {
+                format: Format::Markdown,
+                ..Default::default()
+            },
+        )
+        .unwrap()
+    }
+
+    fn opens_block_line(line: &str) -> bool {
+        let t = line.trim_start();
+        t == "1."
+            || t.starts_with("1. ")
+            || t.starts_with("1) ")
+            || t.starts_with("- ")
+            || t.starts_with("+ ")
+            || t.starts_with("* ")
+            || t.starts_with("# ")
+            || t.starts_with("> ")
+            || (!t.is_empty() && (t.bytes().all(|b| b == b'-') || t.bytes().all(|b| b == b'=')))
+    }
+
+    #[test]
+    fn continuation_lines_do_not_start_with_block_markers() {
+        let enumerated = format_md("All set. 1. Then foo happens.\n");
+        assert_eq!(enumerated, "All set. 1.\nThen foo happens.\n");
+        assert!(
+            !enumerated.lines().any(|l| l.trim() == "1."),
+            "{enumerated}"
+        );
+
+        let dashed = format_md("Done. - not a list.\n");
+        assert!(
+            dashed.lines().skip(1).all(|l| !opens_block_line(l)),
+            "{dashed}"
+        );
+        assert!(dashed.contains("Done."));
+        assert!(dashed.contains("not a list."));
+        assert!(dashed.contains('-'));
+    }
+}
+
+#[cfg(test)]
 mod lowercase_starts_tests {
     use super::*;
     use crate::format::Format;
