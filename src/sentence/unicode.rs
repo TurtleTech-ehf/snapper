@@ -247,7 +247,48 @@ pub fn protect_inline_tokens_with(
         placeholders.push(token.to_string());
         format!("\x00PH{idx}\x00")
     });
-    (protected.into_owned(), placeholders)
+    // CommonMark `\.` is not a sentence end. Mask it after the other
+    // tokens so a URL or verb span that already swallowed the escape
+    // stays one placeholder.
+    let protected = protect_escaped_terminators(&protected, &mut placeholders);
+    (protected, placeholders)
+}
+
+/// Hide a backslash-escaped `.` `!` or `?` from UAX and the later scans.
+/// An odd run of backslashes escapes the punctuation (`1\.`, `\\\.`).
+/// An even run leaves a real terminator (`\\.` is a backslash plus a period).
+fn protect_escaped_terminators(text: &str, placeholders: &mut Vec<String>) -> String {
+    let bytes = text.as_bytes();
+    let mut out = String::with_capacity(text.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'\\' {
+            let mut n = 0;
+            while i + n < bytes.len() && bytes[i + n] == b'\\' {
+                n += 1;
+            }
+            if n % 2 == 1 {
+                if let Some(&punct) = bytes.get(i + n) {
+                    if matches!(punct, b'.' | b'!' | b'?') {
+                        let pairs = n - 1;
+                        out.push_str(&text[i..i + pairs]);
+                        let start = i + pairs;
+                        let end = i + n + 1;
+                        push_placeholder(&mut out, placeholders, &text[start..end]);
+                        i = end;
+                        continue;
+                    }
+                }
+            }
+            out.push_str(&text[i..i + n]);
+            i += n;
+            continue;
+        }
+        let ch = text[i..].chars().next().expect("i is in range");
+        out.push(ch);
+        i += ch.len_utf8();
+    }
+    out
 }
 
 fn dollar_closer_post_context(next: Option<char>) -> bool {
@@ -3292,6 +3333,8 @@ fn take_lowercase_proper_noun_sentence(seg: &str) -> Option<(String, String)> {
 /// opens with a digit, or with a lowercase letter when `lowercase` is set.
 /// A head with no letter (`1.` opening a list item, `...`) is not a
 /// sentence, so the scan moves on to the next terminator.
+/// A backslash-escaped terminator, or one inside a code span, is not a
+/// sentence end.
 fn split_before_sentence_starts(segments: &[String], lowercase: bool) -> Vec<String> {
     let mut out = Vec::with_capacity(segments.len());
     for seg in segments {
@@ -3299,8 +3342,11 @@ fn split_before_sentence_starts(segments: &[String], lowercase: bool) -> Vec<Str
         let mut from = 0usize;
         let mut i = 0usize;
         while i < chars.len() {
-            let (_, c) = chars[i];
-            if !matches!(c, '.' | '!' | '?') {
+            let (at, c) = chars[i];
+            if !matches!(c, '.' | '!' | '?')
+                || escaped_punct(seg, at)
+                || punct_inside_code_span(seg, at)
+            {
                 i += 1;
                 continue;
             }
@@ -3494,6 +3540,8 @@ fn take_markup_terminal_sentence(
     // A new sentence is an uppercase word, an opening quote plus an
     // uppercase word, or an opening backtick (a code span).
     // When lowercase starts are on, a lowercase word counts too.
+    // A period inside a code span (`\`1.\``) or a backslash escape
+    // (`1\.`) is not that terminator, even when a closer follows it.
     // Prefix closer is `:role:`text`. / `:domain:role:`text`. Suffix
     // closer is `text`:role:. / `text`:domain:role:. (the closer is
     // `:role:`, not the backtick). Opening ```` is not a closer. Role
@@ -3513,22 +3561,120 @@ fn take_markup_terminal_sentence(
         .expect("valid markup-terminal lowercase sentence regex")
     });
     let re = if lowercase { &*CAP_LOWER } else { &*CAP };
-    let c = re.captures(seg)?;
-    let head = c.get(1)?.as_str().trim();
-    let rest = c.get(2)?.as_str().trim();
-    if head.is_empty() || rest.is_empty() {
-        return None;
+    let mut offset = 0usize;
+    while offset < seg.len() {
+        let c = re.captures(&seg[offset..])?;
+        let head_end = offset + c.get(1)?.end();
+        let rest = c.get(2)?.as_str().trim();
+        if let Some(at) = markup_terminator_at(&seg[..head_end]) {
+            // `**Bold.** Next` and `` `Code.` Next `` stay boundaries:
+            // the closer's period still ends a sentence before a capital.
+            // A lowercase word does not, and neither does an escaped period.
+            let false_end = escaped_punct(seg, at)
+                || (punct_inside_code_span(seg, at) && starts_lowercase_word(rest));
+            if false_end {
+                let step = seg[at..].chars().next().map_or(1, char::len_utf8);
+                let next = at + step;
+                if next <= offset {
+                    return None;
+                }
+                offset = next;
+                continue;
+            }
+        }
+        let head = seg[..head_end].trim();
+        if head.is_empty() || rest.is_empty() {
+            return None;
+        }
+        if markup_head_is_abbreviation(head, abbrev_re, multi_re, extra) {
+            return None;
+        }
+        // GitHub #374: `.` plus a capital looks like a markup sentence end,
+        // but the backticks may sit inside a still-open quote/paren span.
+        // Same protect + DelimState feed as newlines_respect_delimiter_spans.
+        if markup_head_leaves_delim_span_open(head) {
+            return None;
+        }
+        return Some((head.to_string(), rest.to_string()));
     }
-    if markup_head_is_abbreviation(head, abbrev_re, multi_re, extra) {
-        return None;
+    None
+}
+
+/// Byte index of the `.!?` the markup-terminal pattern treated as the
+/// sentence end: the punctuation immediately before the trailing closers.
+fn markup_terminator_at(head: &str) -> Option<usize> {
+    let bytes = head.as_bytes();
+    let mut end = head.len();
+    loop {
+        if end == 0 {
+            return None;
+        }
+        if bytes[end - 1] == b')' {
+            if let Some(open) = head[..end].rfind("](") {
+                let dest = &head[open + 2..end];
+                if dest.ends_with(')') && !dest[..dest.len() - 1].contains(')') {
+                    end = open;
+                    continue;
+                }
+            }
+        }
+        let ch = head[..end].chars().next_back()?;
+        if matches!(ch, '*' | '_' | '`' | '~' | '/' | '=' | '+') {
+            end -= ch.len_utf8();
+            continue;
+        }
+        break;
     }
-    // GitHub #374: `.` plus a capital looks like a markup sentence end,
-    // but the backticks may sit inside a still-open quote/paren span.
-    // Same protect + DelimState feed as newlines_respect_delimiter_spans.
-    if markup_head_leaves_delim_span_open(head) {
-        return None;
+    let ch = head[..end].chars().next_back()?;
+    if matches!(ch, '.' | '!' | '?') {
+        Some(end - ch.len_utf8())
+    } else {
+        None
     }
-    Some((head.to_string(), rest.to_string()))
+}
+
+/// True when `at` is a `.!?` preceded by an odd number of backslashes.
+fn escaped_punct(text: &str, at: usize) -> bool {
+    let bytes = text.as_bytes();
+    if at == 0 || at >= bytes.len() {
+        return false;
+    }
+    let mut i = at;
+    let mut n = 0usize;
+    while i > 0 && bytes[i - 1] == b'\\' {
+        n += 1;
+        i -= 1;
+    }
+    n % 2 == 1
+}
+
+/// True when `rest` opens with a lowercase word.
+fn starts_lowercase_word(rest: &str) -> bool {
+    rest.chars().next().is_some_and(|c| c.is_lowercase())
+}
+
+/// True when byte `at` sits inside a Markdown backtick span.
+/// Emphasis, strike, and Org verbatim stay sentence ends before a capital
+/// (`**Bold.** Next`, `` `Code.` Next ``, `=Verbatim.= Next`).
+fn punct_inside_code_span(text: &str, at: usize) -> bool {
+    let bytes = text.as_bytes();
+    let mut i = 0;
+    while i < text.len() && i <= at {
+        if bytes[i] == b'`' {
+            if let Some(end) = find_md_code_span(text, i) {
+                if i < at && at < end {
+                    return true;
+                }
+                if end > i {
+                    i = end;
+                    continue;
+                }
+            }
+        }
+        let ch = text[i..].chars().next().expect("i is in range");
+        i += ch.len_utf8();
+    }
+    false
 }
 
 /// True when the word before the closer's period is an abbreviation
@@ -4105,6 +4251,50 @@ mod tests {
             vec!["[Example Inc.](url) now works."]
         );
         assert_eq!(on.split("**e.g.** foo bar."), vec!["**e.g.** foo bar."]);
+    }
+
+    #[test]
+    fn period_inside_code_span_or_escape_is_not_a_sentence_end() {
+        let on = UnicodeSentenceSplitter::new().with_lowercase_starts(true);
+        let cases = [
+            "`pip install -e .` and then the rest.",
+            "`1.` into the list.",
+            "1\\. and the rest.",
+            "See 1\\. and the rest.",
+            "See 1\\. Next stays here.",
+        ];
+        for text in cases {
+            assert_eq!(split(text), vec![text.to_string()], "default {text:?}");
+            assert_eq!(on.split(text), vec![text.to_string()], "lowercase {text:?}");
+        }
+        // A capital after a code span still ends the sentence. The period
+        // before the closer is the boundary; only a lowercase follower is not.
+        assert_eq!(
+            split("`Code sentence.` Next one."),
+            vec!["`Code sentence.`".to_string(), "Next one.".to_string()]
+        );
+        assert_eq!(
+            on.split("`pip install -e .` Next stays here."),
+            vec![
+                "`pip install -e .`".to_string(),
+                "Next stays here.".to_string(),
+            ]
+        );
+        assert_eq!(
+            split("See `file`. Next one."),
+            vec!["See `file`.".to_string(), "Next one.".to_string()]
+        );
+        assert_eq!(
+            on.split("See `file`. Next one."),
+            vec!["See `file`.".to_string(), "Next one.".to_string()]
+        );
+        assert_eq!(
+            on.split("Done. `pip install -e .` and go."),
+            vec![
+                "Done.".to_string(),
+                "`pip install -e .` and go.".to_string(),
+            ]
+        );
     }
 
     #[test]

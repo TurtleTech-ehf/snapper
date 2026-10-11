@@ -719,4 +719,16 @@ mod lowercase_starts_tests {
             ]
         );
     }
+
+    #[test]
+    fn period_in_code_span_or_escape_stays_one_line() {
+        let pip = "`pip install -e .` and then the rest.";
+        let into = "`1.` into the list.";
+        let esc = "1\\. and the rest.";
+        let seen = "See 1\\. and the rest.";
+        for text in [pip, into, esc, seen] {
+            assert_eq!(lines(false, text), vec![text], "default {text:?}");
+            assert_eq!(lines(true, text), vec![text], "lowercase {text:?}");
+        }
+    }
 }
