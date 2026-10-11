@@ -141,7 +141,12 @@ impl UnicodeSentenceSplitter {
         let abbrevs = abbreviations::abbreviations_for_lang(lang);
         let multi = abbreviations::multi_abbrevs_for_lang(lang);
 
-        let alts: Vec<&str> = abbrevs.to_vec();
+        let mut alts: Vec<&str> = abbrevs.to_vec();
+        alts.extend(
+            abbreviations::JOURNAL_ABBREVIATIONS
+                .iter()
+                .filter(|j| !abbrevs.contains(j)),
+        );
         let pattern = format!(r#"(?:^|[\s"'`(\[])(?:{})$"#, alts.join("|"));
         let lang_abbrev_pattern = Regex::new(&pattern).expect("valid abbreviation regex");
 
@@ -3384,6 +3389,7 @@ fn merge_abbreviation_splits(
     for &segment in segments {
         let should_merge = if let Some(prev) = result.last() {
             is_abbreviation_ending(prev, abbrev_re, multi_re, extra)
+                || continues_journal_abbreviation_run(prev, segment)
         } else {
             false
         };
@@ -4128,6 +4134,26 @@ pub fn newlines_respect_delimiter_spans(formatted: &str) -> bool {
     true
 }
 
+/// A citation prints a journal as a run of capitalised abbreviations
+/// (`Front. Chem. 8`, `Ann. Phys.`, `J. Org. Chem.`).
+/// The list holds the common ISO 4 words, but a run can open on a word it
+/// leaves out because the word also ends sentences (`Front`, `Org`).
+/// Hold the break after a capitalised word and its period when the next
+/// piece opens on a listed journal word with its own period.
+/// A title such as `Dr.` or `Fig.` opening the next piece is not a journal
+/// word, so `We used Python. Fig. 3 shows` still splits.
+fn continues_journal_abbreviation_run(prev: &str, next: &str) -> bool {
+    static PREV_RE: LazyLock<Regex> = LazyLock::new(|| {
+        Regex::new(r"(?:^|[\s(\[])\p{Lu}\p{Ll}{0,11}\.$").expect("valid journal-run tail regex")
+    });
+    static NEXT_RE: LazyLock<Regex> = LazyLock::new(|| {
+        let alts = abbreviations::JOURNAL_ABBREVIATIONS.join("|");
+        Regex::new(&format!(r"^(?:{alts})\.(?:\s|$|[,;:)\]])"))
+            .expect("valid journal-run head regex")
+    });
+    PREV_RE.is_match(prev.trim_end()) && NEXT_RE.is_match(next.trim_start())
+}
+
 fn is_abbreviation_ending(
     s: &str,
     abbrev_re: &Regex,
@@ -4180,6 +4206,69 @@ mod tests {
             split("'!!A'A"),
             vec!["'!!A'A".to_string()],
             "UAX/refine must keep balanced '!!A' as one sentence"
+        );
+    }
+
+    #[test]
+    fn journal_abbreviations_hold_the_sentence() {
+        for (journal, rest) in [
+            ("J. Chem. Phys.", "150, 154105 (2019)"),
+            ("Front. Chem.", "8, 589 (2020)"),
+            ("J. Chem. Theory Comput.", "17, 3 (2021)"),
+            ("Modelling Simul. Mater. Sci. Eng.", "12, 3 (2004)"),
+            ("SIAM J. Sci. Comput.", "4, 5 (1983)"),
+            ("ACM Trans. Math. Softw.", "1, 2 (1975)"),
+            ("SIAM J. Optim.", "3, 1 (1993)"),
+            ("J. Am. Chem. Soc.", "141, 2 (2019)"),
+            ("Phys. Rev. Lett.", "77, 3865 (1996)"),
+        ] {
+            let text = format!("See Smith, {journal} {rest} for details. The next one opens.");
+            assert_eq!(
+                split(&text),
+                vec![
+                    format!("See Smith, {journal} {rest} for details."),
+                    "The next one opens.".to_string(),
+                ],
+                "{journal} must not end a sentence"
+            );
+        }
+    }
+
+    #[test]
+    fn journal_abbreviation_runs_hold_through_unlisted_words() {
+        // `Org` and `Ann` end sentences on their own and are not listed;
+        // the listed word after them keeps the run whole.
+        assert_eq!(
+            split("It appeared in J. Org. Chem. 84, 1 and Ann. Phys. 4, 2. Done."),
+            vec![
+                "It appeared in J. Org. Chem. 84, 1 and Ann. Phys. 4, 2.",
+                "Done."
+            ]
+        );
+    }
+
+    #[test]
+    fn journal_runs_leave_ordinary_breaks_alone() {
+        assert_eq!(
+            split("We used Python. Fig. 3 shows the rest."),
+            vec!["We used Python.", "Fig. 3 shows the rest."]
+        );
+        assert_eq!(
+            split("The mode is written in Org. It reflows."),
+            vec!["The mode is written in Org.", "It reflows."]
+        );
+        assert_eq!(
+            split("I met Ann. She waved."),
+            vec!["I met Ann.", "She waved."]
+        );
+    }
+
+    #[test]
+    fn journal_abbreviations_hold_in_every_language() {
+        let de = UnicodeSentenceSplitter::for_lang("de", &[]);
+        assert_eq!(
+            de.split("Siehe J. Chem. Phys. 150, 1 (2019). Danach mehr."),
+            vec!["Siehe J. Chem. Phys. 150, 1 (2019).", "Danach mehr."]
         );
     }
 
