@@ -54,6 +54,8 @@ mod md_example_list;
 mod md_four_space_nested_list;
 #[path = "md_gfm_alerts.rs"]
 mod md_gfm_alerts;
+#[path = "md_gfm_table_lazy_rows.rs"]
+mod md_gfm_table_lazy_rows;
 #[path = "md_html_comment_indent.rs"]
 mod md_html_comment_indent;
 #[path = "md_html_type6_close.rs"]
@@ -108,6 +110,8 @@ mod md_ref_link_interior_punct;
 mod md_shortcut_ref_label;
 #[path = "md_spanning_lrd_title.rs"]
 mod md_spanning_lrd_title;
+#[path = "md_unclosed_double_backtick.rs"]
+mod md_unclosed_double_backtick;
 #[path = "md_yaml_front_matter.rs"]
 mod md_yaml_front_matter;
 #[path = "org_angle_links.rs"]

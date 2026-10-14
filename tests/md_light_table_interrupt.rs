@@ -69,6 +69,8 @@ fn heavy_table_still_interrupts() {
         "| alpha. | bravo. |\n",
         "| --- | --- |\n",
         "After. Next.\n",
+        "\n",
+        "One more. Last one.\n",
     );
     let regions = MarkdownParser.parse(input);
     assert!(
@@ -79,8 +81,13 @@ fn heavy_table_still_interrupts() {
         "heavy table must still interrupt, got {regions:?}"
     );
     let out = format_text(input, &md_cfg()).unwrap();
+    // GFM ex. 202: the line under the delimiter row is a body row.
     assert!(
-        out.contains("After.\nNext."),
-        "following prose must still split, got:\n{out}"
+        out.contains("| --- | --- |\nAfter. Next.\n"),
+        "the pipe-less line under the table is a row, got:\n{out}"
+    );
+    assert!(
+        out.contains("One more.\nLast one."),
+        "prose after the blank line must still split, got:\n{out}"
     );
 }
