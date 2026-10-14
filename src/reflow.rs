@@ -365,6 +365,7 @@ pub fn wrap_with_clause_breaks(sentence: &str, max_width: usize) -> String {
 }
 
 /// Wrap one sentence with no hanging indent (pandoc AST reflow).
+#[cfg_attr(not(feature = "pandoc"), allow(dead_code))]
 pub(crate) fn wrap_sentence_plain(
     sentence: &str,
     max_width: usize,
