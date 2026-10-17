@@ -7,11 +7,18 @@ static QUOTED_PUNCT_END_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r##"[.!?]["')\]}”’»›]+\s*$"##).expect("valid quoted-punct regex"));
 
 use crate::abbreviations;
+use crate::format::Format;
 use crate::sentence::SentenceSplitter;
+
+const ORG_ITALIC_PATTERN: &str = r"/[^/\s\n](?:[^/\n]*[^/\s\n])?/";
 
 /// Patterns for inline tokens that should not be split across sentences.
 /// These get replaced with safe placeholders before sentence detection.
-static INLINE_TOKEN_RE: LazyLock<Regex> = LazyLock::new(|| {
+static INLINE_TOKEN_RE: LazyLock<Regex> = LazyLock::new(|| build_inline_token_regex(true));
+static INLINE_TOKEN_RE_WITHOUT_ORG_ITALIC: LazyLock<Regex> =
+    LazyLock::new(|| build_inline_token_regex(false));
+
+fn build_inline_token_regex(include_org_italic: bool) -> Regex {
     Regex::new(
         &[
             r"\[\[[^\]]*\]\]",           // Org links: [[url]] or [[url][desc]]
@@ -80,7 +87,7 @@ static INLINE_TOKEN_RE: LazyLock<Regex> = LazyLock::new(|| {
             // the closer; content may include spaces and sentence punctuation.
             // (Rust `regex` has no lookbehind; encode the border as char classes.)
             r"\*[^*\s\n](?:[^*\n]*[^*\s\n])?\*", // Org bold: *text*
-            r"/[^/\s\n](?:[^/\n]*[^/\s\n])?/",   // Org italic: /text/
+            ORG_ITALIC_PATTERN,                       // Org italic: /text/
             r"_[^_\s\n](?:[^_\n]*[^_\s\n])?_",   // Org underline: _text_
             r"\+[^\+\s\n](?:[^\+\n]*[^\+\s\n])?\+", // Org strike-through: +text+
             // Org `=verbatim=` / `~code~` and Markdown backtick spans are
@@ -103,15 +110,28 @@ static INLINE_TOKEN_RE: LazyLock<Regex> = LazyLock::new(|| {
             // so html5 and hyphen names stay one token (GitHub #354).
             r"@@[-A-Za-z0-9]+:.*?@@",
         ]
+        .into_iter()
+        .filter(|pattern| include_org_italic || *pattern != ORG_ITALIC_PATTERN)
+        .collect::<Vec<_>>()
         .join("|"),
     )
     .expect("valid inline token regex")
-});
+}
+
+fn inline_token_regex(format: Option<Format>) -> &'static Regex {
+    if format.is_some_and(|format| format != Format::Org) {
+        &INLINE_TOKEN_RE_WITHOUT_ORG_ITALIC
+    } else {
+        &INLINE_TOKEN_RE
+    }
+}
 
 // Static patterns removed -- now compiled per-instance in UnicodeSentenceSplitter::for_lang().
 
 /// Sentence splitter using Unicode UAX #29 with abbreviation-aware merging.
 pub struct UnicodeSentenceSplitter {
+    /// None preserves mixed-syntax behavior for existing direct splitter users.
+    format: Option<Format>,
     /// Compiled regex for extra user-provided abbreviations, if any.
     extra_pattern: Option<Regex>,
     /// Compiled abbreviation pattern for the selected language.
@@ -164,6 +184,7 @@ impl UnicodeSentenceSplitter {
         };
 
         Self {
+            format: None,
             extra_pattern,
             lang_abbrev_pattern,
             lang_multi_pattern,
@@ -187,9 +208,14 @@ impl UnicodeSentenceSplitter {
         self
     }
 
-    #[cfg_attr(not(feature = "neural"), allow(dead_code))]
-    pub(crate) fn verbatim_commands(&self) -> &[String] {
-        &self.extra_verbatim_commands
+    /// Select the document format for format-specific inline token protection.
+    pub fn with_format(mut self, format: Format) -> Self {
+        self.format = Some(format);
+        self
+    }
+
+    pub(crate) fn protect_inline_tokens(&self, text: &str) -> (String, Vec<String>) {
+        protect_inline_tokens_in_format(text, &self.extra_verbatim_commands, self.format)
     }
 
     /// Split after a markup closer when the next sentence is a capital, a
@@ -223,6 +249,14 @@ pub fn protect_inline_tokens_with(
     text: &str,
     extra_verbatim_commands: &[String],
 ) -> (String, Vec<String>) {
+    protect_inline_tokens_in_format(text, extra_verbatim_commands, None)
+}
+
+fn protect_inline_tokens_in_format(
+    text: &str,
+    extra_verbatim_commands: &[String],
+    format: Option<Format>,
+) -> (String, Vec<String>) {
     let mut placeholders: Vec<String> = Vec::new();
     let after_verb = protect_latex_verbatim(text, &mut placeholders, extra_verbatim_commands);
     // After `\verb|` / `\Verb|` so a configured delimiter is gone.
@@ -235,7 +269,8 @@ pub fn protect_inline_tokens_with(
     // closer does not end `[fn:: …]` early (GitHub #231).
     let after_org = protect_org_inline_src_and_call(&after_rst, &mut placeholders);
     let after_spans = protect_paired_spans(&after_org, &mut placeholders);
-    let protected = INLINE_TOKEN_RE.replace_all(&after_spans, |caps: &regex::Captures| {
+    let token_regex = inline_token_regex(format);
+    let protected = token_regex.replace_all(&after_spans, |caps: &regex::Captures| {
         let m = caps.get(0).expect("regex match");
         let token = m.as_str();
         // org-element leftover: `$…$` closer must be followed by
@@ -3070,6 +3105,13 @@ fn find_md_code_span(text: &str, open_at: usize) -> Option<usize> {
 /// Ranges are half-open `[start, end)`, sorted, non-overlapping, and merged
 /// when a regex match wraps a paired span.
 pub fn atomic_inline_spans(text: &str) -> Vec<(usize, usize)> {
+    atomic_inline_spans_in_format(text, None)
+}
+
+pub(crate) fn atomic_inline_spans_in_format(
+    text: &str,
+    format: Option<Format>,
+) -> Vec<(usize, usize)> {
     let mut spans = Vec::new();
     let mut org_src_call_spans = Vec::new();
     let bytes = text.as_bytes();
@@ -3123,7 +3165,7 @@ pub fn atomic_inline_spans(text: &str) -> Vec<(usize, usize)> {
         let ch = text[i..].chars().next().expect("i is in range");
         i += ch.len_utf8();
     }
-    for m in INLINE_TOKEN_RE.find_iter(text) {
+    for m in inline_token_regex(format).find_iter(text) {
         let (ms, me) = (m.start(), m.end());
         // Org `\<src_` / `\<call_` wins over the underline regex `_src_` /
         // `_call_` when `_src_python{...}` is an object (BOL / after
@@ -3187,8 +3229,7 @@ impl SentenceSplitter for UnicodeSentenceSplitter {
             return vec![];
         }
 
-        let (protected, placeholders) =
-            protect_inline_tokens_with(text, &self.extra_verbatim_commands);
+        let (protected, placeholders) = self.protect_inline_tokens(text);
 
         // UAX #29 sentence bounds. `unicode_sentences()` filters
         // whitespace-only segments but also drops trailing closing

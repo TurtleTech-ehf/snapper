@@ -5,7 +5,7 @@ use crate::config::CodeLang;
 use crate::format::Format;
 use crate::parser::{Region, RegionOrigin, SpannedRegion};
 use crate::sentence::SentenceSplitter;
-use crate::sentence::unicode::atomic_inline_spans;
+use crate::sentence::unicode::atomic_inline_spans_in_format;
 
 /// Configuration for the reflow engine.
 pub struct ReflowConfig<'a> {
@@ -411,8 +411,8 @@ fn wrap_prose(
 /// Whitespace words with links, images, inline code, autolinks, math, and
 /// Org `[[...]]` kept whole (internal spaces do not split). Adjacent
 /// non-space text glues to a token so `foo[a](b)bar` is one word.
-fn split_atomic_words(text: &str) -> Vec<&str> {
-    let spans = atomic_inline_spans(text);
+fn split_atomic_words(text: &str, format: Format) -> Vec<&str> {
+    let spans = atomic_inline_spans_in_format(text, Some(format));
     let mut words = Vec::new();
     let mut buf_start: Option<usize> = None;
     let mut buf_end = 0usize;
@@ -1122,7 +1122,7 @@ fn emit_wrapped_line(
 /// followed by whitespace. A sentence with no such mark stays one line.
 /// Hang and interrupt handling match the `max_width` wrap path.
 fn break_at_clause_punct(text: &str, format: Format, layout: WrapLayout<'_>) -> Vec<String> {
-    let words = split_atomic_words(text);
+    let words = split_atomic_words(text, format);
     if words.is_empty() {
         return Vec::new();
     }
@@ -1166,7 +1166,7 @@ fn wrap_atomic_words(
     format: Format,
     layout: WrapLayout<'_>,
 ) -> Vec<String> {
-    let words = split_atomic_words(text);
+    let words = split_atomic_words(text, format);
     if words.is_empty() {
         return Vec::new();
     }
