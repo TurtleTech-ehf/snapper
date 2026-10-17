@@ -108,6 +108,8 @@ mod md_quoted_lrd;
 mod md_ref_link_interior_punct;
 #[path = "md_shortcut_ref_label.rs"]
 mod md_shortcut_ref_label;
+#[path = "md_slash_sentence_boundaries.rs"]
+mod md_slash_sentence_boundaries;
 #[path = "md_spanning_lrd_title.rs"]
 mod md_spanning_lrd_title;
 #[path = "md_unclosed_double_backtick.rs"]

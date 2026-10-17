@@ -3,7 +3,8 @@ use std::sync::Mutex;
 use nnsplit::NNSplit;
 
 use super::SentenceSplitter;
-use super::unicode::{UnicodeSentenceSplitter, protect_inline_tokens_with, restore_inline_tokens};
+use super::unicode::{UnicodeSentenceSplitter, restore_inline_tokens};
+use crate::format::Format;
 
 /// nnsplit downloads models to `~/.cache/nnsplit/` on first use; concurrent
 /// loads race the download and can observe a partially written model
@@ -41,6 +42,12 @@ impl NeuralSentenceSplitter {
             inner,
             post: UnicodeSentenceSplitter::for_lang(language, extras),
         })
+    }
+
+    /// Select the document format for the shared token protection pipeline.
+    pub fn with_format(mut self, format: Format) -> Self {
+        self.post = self.post.with_format(format);
+        self
     }
 
     /// Extra LaTeX command names tokenized like `\verb` before split.
@@ -85,8 +92,7 @@ impl SentenceSplitter for NeuralSentenceSplitter {
             return vec![];
         }
 
-        let (protected, placeholders) =
-            protect_inline_tokens_with(text, self.post.verbatim_commands());
+        let (protected, placeholders) = self.post.protect_inline_tokens(text);
 
         let splits = self.inner.split(&[protected.as_str()]);
         let raw: Vec<String> = if splits.is_empty() {
