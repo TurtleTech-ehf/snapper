@@ -3197,6 +3197,10 @@ impl SentenceSplitter for UnicodeSentenceSplitter {
         // We re-collect from the unfiltered iterator and merge any
         // non-sentence tail back onto the preceding sentence.
         let raw_segments: Vec<&str> = merge_tail_punctuation(&protected);
+        // `\x00PHn\x00` starts with `P` (UAX Upper). An attached token such
+        // as `^{}` therefore looks like a sentence start (`".["]^{}a`).
+        // A token after whitespace still starts a sentence (`End. *Bold*`).
+        let raw_segments = merge_attached_placeholder_breaks(&protected, raw_segments);
 
         if raw_segments.is_empty() {
             return vec![text.to_string()];
@@ -3291,6 +3295,84 @@ fn merge_tail_punctuation(text: &str) -> Vec<&str> {
     }
 
     merged.into_iter().map(|(s, e)| &text[s..e]).collect()
+}
+
+/// Drop a UAX break that exists only because a placeholder's `P` is Upper.
+///
+/// The break must sit on an attached `\x00PHn\x00` (no whitespace before
+/// it). `".["]^{}a` is one sentence: after the token the letter is
+/// lowercase. `End. *Bold* after` keeps its break: the token follows a
+/// space, so it starts the next sentence. When the attached token is
+/// followed by a real sentence start (`Hello.^{} World`), the break stays
+/// in front of the token, which is where UAX put it.
+fn merge_attached_placeholder_breaks<'a>(text: &'a str, segments: Vec<&'a str>) -> Vec<&'a str> {
+    if segments.len() < 2 {
+        return segments;
+    }
+    let mut ranges: Vec<(usize, usize)> = Vec::with_capacity(segments.len());
+    for seg in segments {
+        let start = byte_offset(text, seg);
+        let end = start + seg.len();
+        if let Some(prev) = ranges.last_mut() {
+            if prev.1 == start
+                && attached_placeholder_break_is_false(&text[prev.0..prev.1], &text[start..end])
+            {
+                prev.1 = end;
+                continue;
+            }
+        }
+        ranges.push((start, end));
+    }
+    ranges.into_iter().map(|(s, e)| &text[s..e]).collect()
+}
+
+fn byte_offset(outer: &str, inner: &str) -> usize {
+    let outer_start = outer.as_ptr().addr();
+    let inner_start = inner.as_ptr().addr();
+    debug_assert!(inner_start >= outer_start);
+    debug_assert!(inner_start + inner.len() <= outer_start + outer.len());
+    inner_start - outer_start
+}
+
+fn attached_placeholder_break_is_false(prev: &str, next: &str) -> bool {
+    if prev.ends_with(char::is_whitespace) {
+        return false;
+    }
+    let Some(after) = strip_leading_placeholders(next) else {
+        return false;
+    };
+    !continuation_opens_sentence(after)
+}
+
+/// Text after a run of `\x00PHn\x00` marks, when `seg` starts with one.
+fn strip_leading_placeholders(seg: &str) -> Option<&str> {
+    let bytes = seg.as_bytes();
+    let mut i = 0;
+    if bytes.first() != Some(&0) {
+        return None;
+    }
+    while i < bytes.len() && bytes[i] == 0 {
+        let rest = seg.get(i + 1..)?;
+        if !rest.starts_with("PH") {
+            return None;
+        }
+        let after_ph = &rest[2..];
+        let nul = after_ph.find('\x00')?;
+        if nul == 0 || !after_ph[..nul].bytes().all(|b| b.is_ascii_digit()) {
+            return None;
+        }
+        i += 1 + 2 + nul + 1;
+    }
+    seg.get(i..)
+}
+
+fn continuation_opens_sentence(after_placeholder: &str) -> bool {
+    let trimmed = after_placeholder.trim_start();
+    let spaced = trimmed.len() < after_placeholder.len();
+    if spaced && trimmed.starts_with(|c: char| c.is_ascii_digit()) {
+        return true;
+    }
+    starts_sentence_after_closers(trimmed)
 }
 
 /// UAX SB8 refuses a break after ATerm when the next letter is lowercase.
@@ -3775,9 +3857,9 @@ fn merge_quoted_punct_splits(segments: Vec<String>) -> Vec<String> {
 /// `!!a` is one UAX fragment. Split so first and second format_text
 /// passes agree (`!!` ends the sentence; the letter starts the next).
 /// Do not split when `!!` sits inside a wrapper this piece closes
-/// (`"!!a"`, `'!!A'A`). DelimState's apostrophe heuristic treats the
-/// closer in `'!!A'A` as `A'A`, so this walk toggles `'` without it.
-/// An unclosed opener (`[=!!a`) still splits.
+/// (`"!!a"`, `'x!!A'A`, `(!!A'"""")`). The closer test is [`DelimState`],
+/// the same machine as the span invariant. An unclosed opener (`[=!!a`)
+/// still splits.
 fn split_double_bang_then_letter(segments: Vec<String>) -> Vec<String> {
     let mut out = Vec::new();
     for seg in segments {
@@ -3793,7 +3875,11 @@ fn split_double_bang_then_letter(segments: Vec<String>) -> Vec<String> {
                             prev,
                             Some('"' | '\'' | '\u{201C}' | '\u{2018}' | '\u{00AB}')
                         );
-                        if !quote_before && !wrap_closes_after_bang(&seg[start..], off - start) {
+                        // Probe the whole segment. A suffix after an earlier
+                        // `!!` split would drop openers that are still open
+                        // (`"""(!!a(')!!a'`), so the next pass would split
+                        // a bang this pass kept.
+                        if !quote_before && !wrap_closes_after_bang(&seg, off) {
                             out.push(seg[start..off].to_string());
                             start = off;
                             idx += 2;
@@ -3811,49 +3897,24 @@ fn split_double_bang_then_letter(segments: Vec<String>) -> Vec<String> {
     out
 }
 
-/// True when `!!` at `bang_at` is inside `"…"` / `'…'` / ` ``…'' ` /
-/// `(…)` / `[…]` / `{…}` and that wrapper closes later in `piece`.
+/// True when `!!` at `bang_at` is inside a [`DelimState`] span and that
+/// span closes later in `piece`.
+///
+/// `bang_at` is the byte offset of the letter after `!!`, so the probe
+/// sees every opener before that letter and every closer after it.
+/// Feeding the two halves on one state keeps apostrophe `prev`/`next`
+/// intact: the boundary char is `!`, never `'`.
 fn wrap_closes_after_bang(piece: &str, bang_at: usize) -> bool {
-    let chars: Vec<(usize, char)> = piece.char_indices().collect();
-    let mut dq = false;
-    let mut sq = false;
-    let mut latex = 0i32;
-    let mut paren = 0i32;
-    let mut bracket = 0i32;
-    let mut brace = 0i32;
-    let mut i = 0;
-    while i < chars.len() {
-        let ch = chars[i].1;
-        let next = chars.get(i + 1).map(|c| c.1);
-        if ch == '`' && next == Some('`') {
-            latex += 1;
-            i += 2;
-        } else if ch == '\'' && next == Some('\'') {
-            latex = (latex - 1).max(0);
-            i += 2;
-        } else {
-            match ch {
-                '"' => dq = !dq,
-                '\'' => sq = !sq,
-                '(' => paren += 1,
-                ')' => paren -= 1,
-                '[' => bracket += 1,
-                ']' => bracket -= 1,
-                '{' => brace += 1,
-                '}' => brace -= 1,
-                _ => {}
-            }
-            i += 1;
-        }
-        let consumed_to = chars.get(i).map_or(piece.len(), |c| c.0);
-        if consumed_to == bang_at {
-            let inside = dq || sq || latex > 0 || paren > 0 || bracket > 0 || brace > 0;
-            if !inside {
-                return false;
-            }
-        }
+    if bang_at > piece.len() || !piece.is_char_boundary(bang_at) {
+        return false;
     }
-    !dq && !sq && latex <= 0 && paren <= 0 && bracket <= 0 && brace <= 0
+    let mut state = DelimState::for_text(piece);
+    state.feed(&piece[..bang_at]);
+    if !state.is_inside() {
+        return false;
+    }
+    state.feed(&piece[bang_at..]);
+    !state.is_inside()
 }
 
 /// Append `` `Capital `` onto a segment that already ends in `.!?`.
@@ -3978,6 +4039,9 @@ pub struct DelimState {
     brace_depth: i32,
     /// Last character fed (survives chunk boundaries for apostrophe heuristics).
     last_char: Option<char>,
+    /// Character before [`Self::last_char`]. Name-prefix apostrophes
+    /// (`O'Brien`) need the boundary before the letter that precedes `'`.
+    penultimate_char: Option<char>,
     /// When the previous chunk ended in `\`, the next `"` / `'` is escaped.
     pending_escape: bool,
     /// LaTeX `''` closers still ahead in the text, when known.
@@ -4027,7 +4091,7 @@ impl DelimState {
 
             if self.pending_escape {
                 self.pending_escape = false;
-                self.last_char = Some(ch);
+                self.note_char(ch);
                 continue;
             }
 
@@ -4040,7 +4104,7 @@ impl DelimState {
                     while iter.peek() == Some(&'`') {
                         let _ = iter.next();
                     }
-                    self.last_char = Some('`');
+                    self.note_char('`');
                     continue;
                 }
                 if self
@@ -4049,7 +4113,7 @@ impl DelimState {
                 {
                     self.latex_quote_depth += 1;
                 }
-                self.last_char = Some('`');
+                self.note_char('`');
                 continue;
             }
             if ch == '\'' && next == Some('\'') {
@@ -4058,18 +4122,18 @@ impl DelimState {
                     *ahead -= 1;
                 }
                 self.latex_quote_depth = (self.latex_quote_depth - 1).max(0);
-                self.last_char = Some('\'');
+                self.note_char('\'');
                 continue;
             }
 
             // Escaped ASCII quotes do not toggle (may span chunk boundary).
             if ch == '\\' && matches!(next, Some('"') | Some('\'')) {
-                self.last_char = iter.next();
+                self.note_char(iter.next().expect("peeked quote"));
                 continue;
             }
             if ch == '\\' && next.is_none() {
                 self.pending_escape = true;
-                self.last_char = Some('\\');
+                self.note_char('\\');
                 continue;
             }
 
@@ -4100,17 +4164,33 @@ impl DelimState {
                 }
                 _ => {}
             }
-            self.last_char = Some(ch);
+            self.note_char(ch);
         }
+    }
+
+    fn note_char(&mut self, ch: char) {
+        self.penultimate_char = self.last_char;
+        self.last_char = Some(ch);
     }
 
     /// ASCII `'` is ambiguous (dialogue vs apostrophe). Open only in opener
     /// context; never toggle on in-word apostrophes (`don't`, `it's`).
+    ///
+    /// A closer glued to the next capital (`'x!!A'A`, `'Stop'A`) is not an
+    /// apostrophe: the quote is open and the next letter is uppercase.
+    /// Contractions stay open (`'don't'`). A leading `O'` / `D'` / `L'`
+    /// (`'O'Brien'`) stays an apostrophe too.
     fn feed_ascii_single(&mut self, prev: Option<char>, next: Option<char>) {
         let prev_alnum = prev.is_some_and(|c| c.is_alphanumeric());
         let next_alnum = next.is_some_and(|c| c.is_alphanumeric());
         // Classic apostrophe: letter/digit on both sides.
         if prev_alnum && next_alnum {
+            if self.ascii_single_open
+                && next.is_some_and(|c| c.is_uppercase())
+                && !is_leading_name_apostrophe(prev, self.penultimate_char)
+            {
+                self.ascii_single_open = false;
+            }
             return;
         }
         if self.ascii_single_open {
@@ -4131,6 +4211,16 @@ impl DelimState {
             self.ascii_single_open = true;
         }
     }
+}
+
+/// `O'Brien`, `D'Artagnan`, `L'Homme`: the letter before `'` is a one-letter
+/// name prefix at a word boundary, not the end of a quoted span.
+fn is_leading_name_apostrophe(prev: Option<char>, before: Option<char>) -> bool {
+    let Some(prev) = prev else {
+        return false;
+    };
+    matches!(prev, 'O' | 'D' | 'L' | 'o' | 'd' | 'l')
+        && !before.is_some_and(|c| c.is_alphanumeric())
 }
 
 /// Return `true` if `formatted` never inserts a **mid-document** line break
@@ -4234,6 +4324,20 @@ mod tests {
             split("'!!A'A"),
             vec!["'!!A'A".to_string()],
             "UAX/refine must keep balanced '!!A' as one sentence"
+        );
+        // The closer is `A'A`, not an apostrophe, even with a letter before `!!`.
+        assert_eq!(split("'x!!A'A"), vec!["'x!!A'A".to_string()]);
+    }
+
+    #[test]
+    fn name_apostrophe_inside_quotes_is_not_a_closer() {
+        assert_eq!(
+            split("'O'Brien left early.' Then."),
+            vec!["'O'Brien left early.'".to_string(), "Then.".to_string()]
+        );
+        assert_eq!(
+            split("He said 'don't stop.' Next."),
+            vec!["He said 'don't stop.'".to_string(), "Next.".to_string()]
         );
     }
 
