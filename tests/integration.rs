@@ -62,6 +62,8 @@ mod md_html_comment_indent;
 mod md_html_type6_close;
 #[path = "md_html_type7_close.rs"]
 mod md_html_type7_close;
+#[path = "md_inline_sentence_boundaries.rs"]
+mod md_inline_sentence_boundaries;
 #[path = "md_light_table_interrupt.rs"]
 mod md_light_table_interrupt;
 #[path = "md_link_ref_dest_next_line.rs"]
@@ -108,8 +110,6 @@ mod md_quoted_lrd;
 mod md_ref_link_interior_punct;
 #[path = "md_shortcut_ref_label.rs"]
 mod md_shortcut_ref_label;
-#[path = "md_slash_sentence_boundaries.rs"]
-mod md_slash_sentence_boundaries;
 #[path = "md_spanning_lrd_title.rs"]
 mod md_spanning_lrd_title;
 #[path = "md_unclosed_double_backtick.rs"]
