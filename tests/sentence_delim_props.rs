@@ -33,6 +33,95 @@ fn plaintext_setext_looking_bang_letter_is_idempotent() {
     );
 }
 
+/// macOS proptest `cc f9376f6b…`. `^{}` is an org superscript on `]`.
+/// A placeholder that looked like an uppercase letter made the first
+/// pass split after `"]`; the next pass joined those lines with a space.
+#[test]
+fn plaintext_period_bracket_superscript_is_idempotent() {
+    let input = r#"".["]^{}a"#;
+    let out = format_plain(input);
+    let again = format_plain(&out);
+    assert_eq!(
+        out, "\".[\"]^{}a\n",
+        "must not invent a break or a space before the superscript\n out={out:?}"
+    );
+    assert_eq!(
+        again, out,
+        "idempotence\n in={input:?}\n out={out:?}\n again={again:?}"
+    );
+    assert!(
+        newlines_respect_delimiter_spans(&out),
+        "span newline\n in={input:?}\n out={out:?}"
+    );
+}
+
+/// macOS proptest `cc d779f657…` on 764688f. `"]'0!!a\A"` is one balanced
+/// double-quoted span. `!!` then a letter must not break inside it.
+#[test]
+fn plaintext_quoted_bang_letter_after_bracket_is_span_safe() {
+    let input = "\"]'0!!a\\A\"";
+    assert!(
+        delimiters_balanced(input),
+        "seed must be balanced so the property would fire\n in={input:?}"
+    );
+    let out = format_plain(input);
+    let again = format_plain(&out);
+    assert_eq!(
+        out, "\"]'0!!a\\A\"\n",
+        "must not split !! inside the quotes\n in={input:?}\n out={out:?}"
+    );
+    assert_eq!(
+        again, out,
+        "idempotence\n in={input:?}\n out={out:?}\n again={again:?}"
+    );
+    assert!(
+        newlines_respect_delimiter_spans(&out),
+        "span newline\n in={input:?}\n out={out:?}"
+    );
+}
+
+/// macOS proptest `cc 3d241f00…` on 17474b4. `(!!A'"""")` keeps the bang
+/// inside the parens. The extra closer in `(!!A'""""))` is the same shape.
+#[test]
+fn plaintext_paren_bang_mixed_quotes_is_span_safe() {
+    for input in ["(!!A'\"\"\"\")", "(!!A'\"\"\"\"))"] {
+        assert!(
+            delimiters_balanced(input),
+            "seed must be balanced so the property would fire\n in={input:?}"
+        );
+        let out = format_plain(input);
+        let again = format_plain(&out);
+        assert_eq!(
+            out,
+            format!("{input}\n"),
+            "must not split !! inside the parens\n in={input:?}\n out={out:?}"
+        );
+        assert_eq!(
+            again, out,
+            "idempotence\n in={input:?}\n out={out:?}\n again={again:?}"
+        );
+        assert!(
+            newlines_respect_delimiter_spans(&out),
+            "span newline\n in={input:?}\n out={out:?}"
+        );
+    }
+}
+
+/// Raised-case proptest `cc ba6f9a9c…`. Two `!!a` runs share still-open
+/// outer delimiters. Splitting the first must not hide those openers from
+/// the second, or the next pass splits again.
+#[test]
+fn plaintext_two_bang_runs_under_open_delims_are_idempotent() {
+    let input = "\"\"\"(!!a(')!!a'";
+    let out = format_plain(input);
+    let again = format_plain(&out);
+    assert_eq!(out, "\"\"\"(!!\na(')!!\na'\n", "out={out:?}");
+    assert_eq!(
+        again, out,
+        "idempotence\n in={input:?}\n out={out:?}\n again={again:?}"
+    );
+}
+
 /// Quoted `!!a` is one DelimState span. Splitting `!!` then the letter
 /// parks a newline inside the quotes and fails proptest_balanced_wrappers.
 #[test]
