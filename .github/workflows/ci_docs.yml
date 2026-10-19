@@ -14,16 +14,41 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
+permissions:
+  contents: read
+
 jobs:
   build-deploy:
     runs-on: ubuntu-latest
+    env:
+      # Same condition as the deploy step below.
+      DEPLOY: ${{ github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v') }}
     steps:
       - uses: actions/checkout@v4
 
       - name: Check public availability contract
         run: bash scripts/check_public_contract.sh
 
+      # Fork PRs get no repository secrets, so the private ttech-ui
+      # checkout cannot run there. Build the docs without the landing
+      # page in that case. A deploy still needs the full site.
+      - name: Check ttech-ui access
+        id: ui
+        env:
+          TTECH_UI_TOKEN: ${{ secrets.TTECH_UI_TOKEN }}
+        run: |
+          if [ -n "$TTECH_UI_TOKEN" ]; then
+            echo "available=true" >> "$GITHUB_OUTPUT"
+          elif [ "$DEPLOY" = "true" ]; then
+            echo "::error::TTECH_UI_TOKEN is required to deploy the site"
+            exit 1
+          else
+            echo "available=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::TTECH_UI_TOKEN is not available (fork PR); building docs without the landing page"
+          fi
+
       - uses: actions/checkout@v4
+        if: steps.ui.outputs.available == 'true'
         with:
           repository: TurtleTech-ehf/ttech-ui
           token: ${{ secrets.TTECH_UI_TOKEN }}
@@ -35,6 +60,7 @@ jobs:
           environments: docs
 
       - name: Install SvelteKit deps and link ttech-ui
+        if: steps.ui.outputs.available == 'true'
         run: |
           cd site-svelte
           pixi run -e docs npm install --legacy-peer-deps
@@ -43,9 +69,11 @@ jobs:
           ln -sf ${{ github.workspace }}/ttech-ui node_modules/@turtletech/ui
 
       - name: Build ttech-ui svelte output
+        if: steps.ui.outputs.available == 'true'
         run: cd ${{ github.workspace }}/ttech-ui && npm run build:svelte
 
       - name: Build SvelteKit landing page
+        if: steps.ui.outputs.available == 'true'
         run: cd site-svelte && pixi run -e docs npm run build
 
       - name: Build docs and assemble site
@@ -53,7 +81,9 @@ jobs:
           pixi run -e docs orgbld
           pixi run -e docs docbld
           mkdir -p dist
-          cp -r site-svelte/build/* dist/
+          if [ -d site-svelte/build ]; then
+            cp -r site-svelte/build/* dist/
+          fi
           cp -r docs/build dist/docs
 
       - name: Deploy to Cloudflare Pages
