@@ -257,6 +257,7 @@ pub fn build_splitter(config: &FormatConfig) -> Result<Box<dyn SentenceSplitter>
             Ok(Box::new(
                 neural
                     .map_err(|e| anyhow::anyhow!("{e}"))?
+                    .with_format(config.format)
                     .with_verbatim_commands(config.latex_verbatim_commands.clone())
                     .with_lowercase_starts(config.lowercase_starts),
             ))
@@ -270,6 +271,7 @@ pub fn build_splitter(config: &FormatConfig) -> Result<Box<dyn SentenceSplitter>
     } else {
         Ok(Box::new(
             UnicodeSentenceSplitter::for_lang(&config.neural_lang, &config.extra_abbreviations)
+                .with_format(config.format)
                 .with_verbatim_commands(config.latex_verbatim_commands.clone())
                 .with_lowercase_starts(config.lowercase_starts),
         ))

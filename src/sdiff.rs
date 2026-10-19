@@ -13,7 +13,7 @@ use crate::sentence::unicode::UnicodeSentenceSplitter;
 fn extract_sentences(input: &str, format: Format) -> Vec<String> {
     let parser = crate::parser::parser_for_format(format);
 
-    let splitter = UnicodeSentenceSplitter::new();
+    let splitter = UnicodeSentenceSplitter::new().with_format(format);
     let regions = parser.parse(input);
     let mut sentences = Vec::new();
 
@@ -115,6 +115,50 @@ pub fn sentence_diff(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn sentence_extraction_uses_document_inline_syntax() {
+        for (input, expected) in [
+            ("A/B works. C/D works.", vec!["A/B works.", "C/D works."]),
+            (
+                "foo_bar works. Baz_qux works.",
+                vec!["foo_bar works.", "Baz_qux works."],
+            ),
+            ("a+b works. C+d works.", vec!["a+b works.", "C+d works."]),
+        ] {
+            assert_eq!(extract_sentences(input, Format::Markdown), expected);
+        }
+        for marker in ['/', '+', '_'] {
+            let span = format!("{marker}First sentence. Second sentence{marker}");
+            let input = format!("{span} stays together. Next sentence.");
+            assert_eq!(
+                extract_sentences(&input, Format::Org),
+                vec![format!("{span} stays together."), "Next sentence.".into()]
+            );
+        }
+    }
+
+    #[test]
+    fn markdown_inline_character_reflow_produces_no_semantic_diff() {
+        let dir = tempfile::tempdir().unwrap();
+        let old = dir.path().join("old.md");
+        let new = dir.path().join("new.md");
+        for (input, formatted) in [
+            ("A/B works. C/D works.\n", "A/B works.\nC/D works.\n"),
+            (
+                "foo_bar works. Baz_qux works.\n",
+                "foo_bar works.\nBaz_qux works.\n",
+            ),
+            ("a+b works. C+d works.\n", "a+b works.\nC+d works.\n"),
+        ] {
+            std::fs::write(&old, input).unwrap();
+            std::fs::write(&new, formatted).unwrap();
+            assert!(
+                sentence_diff(&old, &new, None, false).unwrap().is_empty(),
+                "{input:?}"
+            );
+        }
+    }
 
     #[test]
     fn identical_files_produce_empty_diff() {
