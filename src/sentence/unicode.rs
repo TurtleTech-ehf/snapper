@@ -7,11 +7,26 @@ static QUOTED_PUNCT_END_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r##"[.!?]["')\]}”’»›]+\s*$"##).expect("valid quoted-punct regex"));
 
 use crate::abbreviations;
+use crate::format::Format;
 use crate::sentence::SentenceSplitter;
+
+const ORG_ITALIC_PATTERN: &str = r"/[^/\s\n](?:[^/\n]*[^/\s\n])?/";
+const ORG_UNDERLINE_PATTERN: &str = r"_[^_\s\n](?:[^_\n]*[^_\s\n])?_";
+const ORG_STRIKE_PATTERN: &str = r"\+[^\+\s\n](?:[^\+\n]*[^\+\s\n])?\+";
+// Unicode word boundaries exclude intraword underscores without consuming
+// surrounding punctuation or whitespace. Keep whole delimiter runs so
+// Markdown strong emphasis is protected along with single-underscore emphasis.
+const MARKDOWN_UNDERSCORE_PATTERN: &str = r"\b_+[^_\s\n](?:[^_\n]*[^_\s\n])?_+\b";
 
 /// Patterns for inline tokens that should not be split across sentences.
 /// These get replaced with safe placeholders before sentence detection.
-static INLINE_TOKEN_RE: LazyLock<Regex> = LazyLock::new(|| {
+static INLINE_TOKEN_RE: LazyLock<Regex> = LazyLock::new(|| build_inline_token_regex(None));
+static NON_ORG_INLINE_TOKEN_RE: LazyLock<Regex> =
+    LazyLock::new(|| build_inline_token_regex(Some(Format::Plaintext)));
+static MARKDOWN_INLINE_TOKEN_RE: LazyLock<Regex> =
+    LazyLock::new(|| build_inline_token_regex(Some(Format::Markdown)));
+
+fn build_inline_token_regex(format: Option<Format>) -> Regex {
     Regex::new(
         &[
             r"\[\[[^\]]*\]\]",           // Org links: [[url]] or [[url][desc]]
@@ -80,9 +95,9 @@ static INLINE_TOKEN_RE: LazyLock<Regex> = LazyLock::new(|| {
             // the closer; content may include spaces and sentence punctuation.
             // (Rust `regex` has no lookbehind; encode the border as char classes.)
             r"\*[^*\s\n](?:[^*\n]*[^*\s\n])?\*", // Org bold: *text*
-            r"/[^/\s\n](?:[^/\n]*[^/\s\n])?/",   // Org italic: /text/
-            r"_[^_\s\n](?:[^_\n]*[^_\s\n])?_",   // Org underline: _text_
-            r"\+[^\+\s\n](?:[^\+\n]*[^\+\s\n])?\+", // Org strike-through: +text+
+            ORG_ITALIC_PATTERN,                       // Org italic: /text/
+            ORG_UNDERLINE_PATTERN,                    // Org underline: _text_
+            ORG_STRIKE_PATTERN,                       // Org strike-through: +text+
             // Org `=verbatim=` / `~code~` and Markdown backtick spans are
             // paired below: a regex that forbids the delimiter inside the
             // span closes on the first inner copy and leaves the real closer
@@ -103,15 +118,35 @@ static INLINE_TOKEN_RE: LazyLock<Regex> = LazyLock::new(|| {
             // so html5 and hyphen names stay one token (GitHub #354).
             r"@@[-A-Za-z0-9]+:.*?@@",
         ]
+        .into_iter()
+        .filter_map(|pattern| match pattern {
+            ORG_ITALIC_PATTERN | ORG_STRIKE_PATTERN
+                if format.is_some_and(|format| format != Format::Org) => None,
+            ORG_UNDERLINE_PATTERN if format == Some(Format::Markdown) => {
+                Some(MARKDOWN_UNDERSCORE_PATTERN)
+            }
+            _ => Some(pattern),
+        })
+        .collect::<Vec<_>>()
         .join("|"),
     )
     .expect("valid inline token regex")
-});
+}
+
+fn inline_token_regex(format: Option<Format>) -> &'static Regex {
+    match format {
+        None | Some(Format::Org) => &INLINE_TOKEN_RE,
+        Some(Format::Markdown) => &MARKDOWN_INLINE_TOKEN_RE,
+        Some(_) => &NON_ORG_INLINE_TOKEN_RE,
+    }
+}
 
 // Static patterns removed -- now compiled per-instance in UnicodeSentenceSplitter::for_lang().
 
 /// Sentence splitter using Unicode UAX #29 with abbreviation-aware merging.
 pub struct UnicodeSentenceSplitter {
+    /// None preserves mixed-syntax behavior for existing direct splitter users.
+    format: Option<Format>,
     /// Compiled regex for extra user-provided abbreviations, if any.
     extra_pattern: Option<Regex>,
     /// Compiled abbreviation pattern for the selected language.
@@ -164,6 +199,7 @@ impl UnicodeSentenceSplitter {
         };
 
         Self {
+            format: None,
             extra_pattern,
             lang_abbrev_pattern,
             lang_multi_pattern,
@@ -187,9 +223,14 @@ impl UnicodeSentenceSplitter {
         self
     }
 
-    #[cfg_attr(not(feature = "neural"), allow(dead_code))]
-    pub(crate) fn verbatim_commands(&self) -> &[String] {
-        &self.extra_verbatim_commands
+    /// Select the document format for format-specific inline token protection.
+    pub fn with_format(mut self, format: Format) -> Self {
+        self.format = Some(format);
+        self
+    }
+
+    pub(crate) fn protect_inline_tokens(&self, text: &str) -> (String, Vec<String>) {
+        protect_inline_tokens_in_format(text, &self.extra_verbatim_commands, self.format)
     }
 
     /// Split after a markup closer when the next sentence is a capital, a
@@ -201,6 +242,7 @@ impl UnicodeSentenceSplitter {
             &self.lang_abbrev_pattern,
             &self.lang_multi_pattern,
             self.extra_pattern.as_ref(),
+            self.format,
         )
     }
 }
@@ -223,6 +265,14 @@ pub fn protect_inline_tokens_with(
     text: &str,
     extra_verbatim_commands: &[String],
 ) -> (String, Vec<String>) {
+    protect_inline_tokens_in_format(text, extra_verbatim_commands, None)
+}
+
+fn protect_inline_tokens_in_format(
+    text: &str,
+    extra_verbatim_commands: &[String],
+    format: Option<Format>,
+) -> (String, Vec<String>) {
     let mut placeholders: Vec<String> = Vec::new();
     let after_verb = protect_latex_verbatim(text, &mut placeholders, extra_verbatim_commands);
     // After `\verb|` / `\Verb|` so a configured delimiter is gone.
@@ -235,7 +285,8 @@ pub fn protect_inline_tokens_with(
     // closer does not end `[fn:: …]` early (GitHub #231).
     let after_org = protect_org_inline_src_and_call(&after_rst, &mut placeholders);
     let after_spans = protect_paired_spans(&after_org, &mut placeholders);
-    let protected = INLINE_TOKEN_RE.replace_all(&after_spans, |caps: &regex::Captures| {
+    let token_regex = inline_token_regex(format);
+    let protected = token_regex.replace_all(&after_spans, |caps: &regex::Captures| {
         let m = caps.get(0).expect("regex match");
         let token = m.as_str();
         // org-element leftover: `$…$` closer must be followed by
@@ -3070,6 +3121,13 @@ fn find_md_code_span(text: &str, open_at: usize) -> Option<usize> {
 /// Ranges are half-open `[start, end)`, sorted, non-overlapping, and merged
 /// when a regex match wraps a paired span.
 pub fn atomic_inline_spans(text: &str) -> Vec<(usize, usize)> {
+    atomic_inline_spans_in_format(text, None)
+}
+
+pub(crate) fn atomic_inline_spans_in_format(
+    text: &str,
+    format: Option<Format>,
+) -> Vec<(usize, usize)> {
     let mut spans = Vec::new();
     let mut org_src_call_spans = Vec::new();
     let bytes = text.as_bytes();
@@ -3123,7 +3181,7 @@ pub fn atomic_inline_spans(text: &str) -> Vec<(usize, usize)> {
         let ch = text[i..].chars().next().expect("i is in range");
         i += ch.len_utf8();
     }
-    for m in INLINE_TOKEN_RE.find_iter(text) {
+    for m in inline_token_regex(format).find_iter(text) {
         let (ms, me) = (m.start(), m.end());
         // Org `\<src_` / `\<call_` wins over the underline regex `_src_` /
         // `_call_` when `_src_python{...}` is an object (BOL / after
@@ -3187,8 +3245,7 @@ impl SentenceSplitter for UnicodeSentenceSplitter {
             return vec![];
         }
 
-        let (protected, placeholders) =
-            protect_inline_tokens_with(text, &self.extra_verbatim_commands);
+        let (protected, placeholders) = self.protect_inline_tokens(text);
 
         // UAX #29 sentence bounds. `unicode_sentences()` filters
         // whitespace-only segments but also drops trailing closing
@@ -3508,10 +3565,19 @@ fn split_after_markup_sentence_end(
     abbrev_re: &Regex,
     multi_re: &Regex,
     extra: Option<&Regex>,
+    format: Option<Format>,
 ) -> Vec<String> {
     let mut out = Vec::new();
     for seg in segments {
-        push_markup_sentence_splits(&mut out, seg.trim(), lowercase, abbrev_re, multi_re, extra);
+        push_markup_sentence_splits(
+            &mut out,
+            seg.trim(),
+            lowercase,
+            abbrev_re,
+            multi_re,
+            extra,
+            format,
+        );
     }
     out.into_iter().filter(|s| !s.is_empty()).collect()
 }
@@ -3523,12 +3589,13 @@ fn push_markup_sentence_splits(
     abbrev_re: &Regex,
     multi_re: &Regex,
     extra: Option<&Regex>,
+    format: Option<Format>,
 ) {
     if let Some((head, rest)) =
-        take_markup_terminal_sentence(seg, lowercase, abbrev_re, multi_re, extra)
+        take_markup_terminal_sentence(seg, lowercase, abbrev_re, multi_re, extra, format)
     {
         out.push(head);
-        push_markup_sentence_splits(out, &rest, lowercase, abbrev_re, multi_re, extra);
+        push_markup_sentence_splits(out, &rest, lowercase, abbrev_re, multi_re, extra, format);
     } else if !seg.is_empty() {
         out.push(seg.to_string());
     }
@@ -3540,6 +3607,7 @@ fn take_markup_terminal_sentence(
     abbrev_re: &Regex,
     multi_re: &Regex,
     extra: Option<&Regex>,
+    format: Option<Format>,
 ) -> Option<(String, String)> {
     // Terminal `.!?` immediately before `**` / `*` / `_` / backticks /
     // `~~` / Org `/` `=` `+` / `](url)`, or an RST interpreted-text
@@ -3599,7 +3667,7 @@ fn take_markup_terminal_sentence(
         // GitHub #374: `.` plus a capital looks like a markup sentence end,
         // but the backticks may sit inside a still-open quote/paren span.
         // Same protect + DelimState feed as newlines_respect_delimiter_spans.
-        if markup_head_leaves_delim_span_open(head) {
+        if markup_head_leaves_delim_span_open(head, format) {
             return None;
         }
         return Some((head.to_string(), rest.to_string()));
@@ -3728,8 +3796,8 @@ fn strip_md_link_suffix(s: &str) -> &str {
 /// True when `head` still has an open DelimState span after inline tokens
 /// are protected. Used so markup closer-split cannot invent a newline
 /// inside a balanced quote (GitHub #374).
-fn markup_head_leaves_delim_span_open(head: &str) -> bool {
-    let (protected, _) = protect_inline_tokens(head);
+fn markup_head_leaves_delim_span_open(head: &str, format: Option<Format>) -> bool {
+    let (protected, _) = protect_inline_tokens_in_format(head, &[], format);
     let mut state = DelimState::default();
     state.feed(&protected);
     state.is_inside()
@@ -4214,6 +4282,64 @@ fn is_abbreviation_ending(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn inline_token_regex_selects_format_specific_emphasis() {
+        for text in ["A/B works. C/D works.", "a+b works. C+d works."] {
+            assert!(inline_token_regex(None).is_match(text));
+            assert!(inline_token_regex(Some(Format::Org)).is_match(text));
+            for format in [
+                Format::Markdown,
+                Format::Plaintext,
+                Format::Latex,
+                Format::Rst,
+            ] {
+                assert!(
+                    !inline_token_regex(Some(format)).is_match(text),
+                    "{format:?}: {text}"
+                );
+            }
+        }
+        for text in [
+            "foo_bar works. Baz_qux works.",
+            "été_bar works. Baz_qux works.",
+            "2_bar works. Baz_3 works.",
+            "foo_bar works. Baz_ works.",
+            "_bar works. Baz_qux works.",
+        ] {
+            assert!(inline_token_regex(None).is_match(text));
+            assert!(inline_token_regex(Some(Format::Org)).is_match(text));
+            assert!(
+                !inline_token_regex(Some(Format::Markdown)).is_match(text),
+                "{text}"
+            );
+        }
+        for text in [
+            "_First. Second_",
+            "__First. Second__",
+            "___First. Second___",
+            "(_First. Second_)",
+        ] {
+            assert!(
+                inline_token_regex(Some(Format::Markdown)).is_match(text),
+                "{text}"
+            );
+        }
+    }
+
+    #[test]
+    fn markdown_markup_guard_sees_delimiters_between_slashes() {
+        let text = "A/B (\"Quoted C/D `code.` Still quoted\") ends. Next sentence.";
+        assert_eq!(
+            UnicodeSentenceSplitter::new()
+                .with_format(Format::Markdown)
+                .split(text),
+            vec![
+                "A/B (\"Quoted C/D `code.` Still quoted\") ends.",
+                "Next sentence."
+            ]
+        );
+    }
 
     fn split(text: &str) -> Vec<String> {
         UnicodeSentenceSplitter::new().split(text)

@@ -62,6 +62,8 @@ mod md_html_comment_indent;
 mod md_html_type6_close;
 #[path = "md_html_type7_close.rs"]
 mod md_html_type7_close;
+#[path = "md_inline_sentence_boundaries.rs"]
+mod md_inline_sentence_boundaries;
 #[path = "md_light_table_interrupt.rs"]
 mod md_light_table_interrupt;
 #[path = "md_link_ref_dest_next_line.rs"]

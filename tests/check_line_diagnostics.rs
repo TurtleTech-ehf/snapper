@@ -66,6 +66,62 @@ fn check_json_emits_fused_line_kind_excerpt() {
 }
 
 #[test]
+fn markdown_inline_characters_fail_check_until_sentence_boundaries_are_formatted() {
+    let dir = tempfile::tempdir().unwrap();
+    for (input, formatted, lowercase) in [
+        (
+            "A/B works. See https://example.com.\n",
+            "A/B works.\nSee https://example.com.\n",
+            false,
+        ),
+        ("A/B works. C/D works.\n", "A/B works.\nC/D works.\n", false),
+        (
+            "foo_bar works. Baz_qux works.\n",
+            "foo_bar works.\nBaz_qux works.\n",
+            false,
+        ),
+        ("a+b works. C+d works.\n", "a+b works.\nC+d works.\n", false),
+        (
+            "foo_bar works. baz_qux works.\n",
+            "foo_bar works.\nbaz_qux works.\n",
+            true,
+        ),
+        ("a+b works. c+d works.\n", "a+b works.\nc+d works.\n", true),
+    ] {
+        let path = write_txt(dir.path(), "inline.md", input);
+        let check = || {
+            let mut command = snapper_binary();
+            command.current_dir(dir.path()).args([
+                "--native",
+                "--format",
+                "markdown",
+                "--max-width",
+                "0",
+                "--check",
+                "--output-format",
+                "json",
+                &path,
+            ]);
+            if lowercase {
+                command.arg("--lowercase-starts");
+            }
+            command.output().unwrap()
+        };
+        let output = check();
+        assert_eq!(output.status.code(), Some(1));
+        let parsed: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+        assert!(diagnostics(&parsed).iter().any(|d| d["kind"] == "fused"));
+        assert_eq!(parsed[0]["would_reformat"], true);
+
+        fs::write(&path, formatted).unwrap();
+        let output = check();
+        assert!(output.status.success());
+        let parsed: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+        assert!(diagnostics(&parsed).is_empty());
+    }
+}
+
+#[test]
 fn check_json_fused_is_abbrev_aware() {
     let dir = tempfile::tempdir().unwrap();
     let path = write_txt(dir.path(), "fig.txt", "See Fig. 3 for details.\n");
