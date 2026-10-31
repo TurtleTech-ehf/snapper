@@ -160,8 +160,9 @@ fn generate_precommit_hook() -> String {
         r#"#!/usr/bin/env bash
 # {HOOK_MARKER}. Format staged prose with native parsers.
 # bash, not /bin/sh: NUL-delimited `read -d ''` is not POSIX, and
-# Ubuntu's dash skips the loop.
-set -e
+# Ubuntu's dash skips the loop. pipefail: a failed format must not
+# stage an empty blob.
+set -eo pipefail
 # Prefer snapper-fmt: argv0 snapper collides with openSUSE's Btrfs tool.
 if command -v snapper-fmt >/dev/null 2>&1; then
   SNAPPER=snapper-fmt
@@ -175,9 +176,20 @@ fi
 git diff --cached --name-only --diff-filter=ACM -z |
 while IFS= read -r -d '' f || [ -n "$f" ]; do
   case "$f" in
-    *.org|*.tex|*.latex|*.md|*.markdown|*.rst|*.txt)
-      "$SNAPPER" --native --in-place -- "$f"
-      git -c filter.snapper.clean=cat add -- "$f"
+    *.org|*.tex|*.latex|*.md|*.markdown|*.rst)
+      staged=$(git rev-parse ":0:$f")
+      if [ "$staged" = "$(git hash-object --no-filters -- "$f" 2>/dev/null)" ] ||
+        [ "$staged" = "$(git hash-object -- "$f" 2>/dev/null)" ]; then
+        "$SNAPPER" --native --in-place -- "$f"
+        git -c filter.snapper.clean=cat add -- "$f"
+      else
+        # Unstaged edits stay out of the commit: format the staged blob.
+        mode=$(git ls-files -s -- "$f" | cut -d' ' -f1)
+        blob=$(git cat-file blob "$staged" |
+          "$SNAPPER" --native --stdin-filepath "$f" |
+          git hash-object -w --stdin)
+        git update-index --cacheinfo "$mode,$blob,$f"
+      fi
       ;;
   esac
 done
@@ -422,6 +434,15 @@ mod tests {
         );
         assert!(hook.contains("--in-place"));
         assert!(hook.contains("filter.snapper.clean=cat"));
-        assert!(hook.contains("*.org|*.tex|*.latex|*.md|*.markdown|*.rst|*.txt"));
+        assert!(hook.contains("*.org|*.tex|*.latex|*.md|*.markdown|*.rst)"));
+    }
+
+    #[test]
+    fn generated_hook_leaves_txt_files_alone() {
+        let hook = generate_precommit_hook();
+        assert!(
+            !hook.contains("*.txt"),
+            "requirements.txt and CMakeLists.txt are not prose:\n{hook}"
+        );
     }
 }

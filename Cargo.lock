@@ -2252,6 +2252,7 @@ dependencies = [
  "tokio",
  "toml",
  "tower-lsp",
+ "tower-service",
  "tree-sitter",
  "tree-sitter-bash",
  "tree-sitter-c",

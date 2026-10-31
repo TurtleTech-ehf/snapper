@@ -17,7 +17,7 @@ pub fn run_watch(
     native: bool,
     use_pandoc_flag: bool,
 ) -> Result<()> {
-    let project_config = ProjectConfig::resolve(config_path).unwrap_or_default();
+    let project_config = ProjectConfig::resolve(config_path)?;
     let use_pandoc = if native {
         false
     } else if use_pandoc_flag {
@@ -143,6 +143,7 @@ fn format_file_in_place(
         latex_verbatim_commands: project_config.latex_verbatim_commands(),
         clause_breaks: project_config.clause_breaks.unwrap_or(false),
         lowercase_starts: project_config.lowercase_starts_for_format(format_key),
+        code: project_config.code.clone(),
         use_pandoc,
         ..Default::default()
     };

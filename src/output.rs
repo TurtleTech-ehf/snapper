@@ -12,27 +12,41 @@ pub fn sarif_artifact_uri(path: &str, cwd: Option<&Path>) -> String {
     let given = Path::new(path);
     if let Some(cwd) = cwd {
         if let Ok(rel) = given.strip_prefix(cwd) {
-            return rel.to_string_lossy().replace('\\', "/");
+            return uri_path(rel);
         }
         if given.is_relative() {
-            return given.to_string_lossy().replace('\\', "/");
+            return uri_path(given);
         }
         if let (Ok(abs), Ok(cwd_abs)) = (given.canonicalize(), cwd.canonicalize()) {
             if let Ok(rel) = abs.strip_prefix(cwd_abs) {
-                return rel.to_string_lossy().replace('\\', "/");
+                return uri_path(rel);
             }
         }
     }
     if given.is_relative() {
-        return given.to_string_lossy().replace('\\', "/");
+        return uri_path(given);
     }
     let abs = given.canonicalize().unwrap_or_else(|_| PathBuf::from(path));
-    format!("file://{}", abs.display())
+    format!("file://{}", uri_path(&abs))
 }
 
 fn file_uri(path: &Path) -> String {
     let abs = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
-    format!("file://{}", abs.display())
+    format!("file://{}", uri_path(&abs))
+}
+
+/// A path as a URI path. Spaces, `#`, `?`, `%` and non-ASCII bytes would
+/// otherwise read as URI syntax or make the URI invalid.
+fn uri_path(path: &Path) -> String {
+    let mut out = String::new();
+    for byte in path.to_string_lossy().replace('\\', "/").bytes() {
+        if byte.is_ascii_alphanumeric() || b"-._~/".contains(&byte) {
+            out.push(byte as char);
+        } else {
+            out.push_str(&format!("%{byte:02X}"));
+        }
+    }
+    out
 }
 
 /// Summary of a file inspected by `--check`, including line diagnostics.

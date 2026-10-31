@@ -242,7 +242,8 @@ Add to your =.pre-commit-config.yaml=:
     - id: snapper
 #+end_src
 
-Runs =snapper --in-place= on =*.org=, =*.tex=/=*.latex=, =*.md=/=*.markdown=, =*.rst=, and =*.txt= (extension match; identify has no =org= type).
+Runs =snapper --in-place= on =*.org=, =*.tex=/=*.latex=, =*.md=/=*.markdown=, and =*.rst= (extension match; identify has no =org= type).
+Plain =*.txt= files are skipped; set =files:= on the hook to add prose =.txt= files.
 Requires a Rust toolchain so pre-commit can build the hook from this repo.
 
 ** Editor integration

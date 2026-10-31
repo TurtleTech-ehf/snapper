@@ -88,6 +88,9 @@ fn run() -> Result<()> {
                     let rt =
                         tokio::runtime::Runtime::new().expect("failed to create tokio runtime");
                     rt.block_on(snapper_fmt::lsp::run_lsp());
+                    // The stdin reader blocks in a runtime thread until the
+                    // editor closes the pipe; dropping the runtime would wait.
+                    rt.shutdown_background();
                     return Ok(());
                 }
                 #[cfg(not(feature = "lsp"))]
@@ -135,7 +138,7 @@ fn run() -> Result<()> {
         }
     }
 
-    let project_config = ProjectConfig::resolve(cli.config.as_deref()).unwrap_or_default();
+    let project_config = ProjectConfig::resolve(cli.config.as_deref())?;
 
     if cli.files.is_empty() {
         // Read from stdin
@@ -161,6 +164,12 @@ fn run() -> Result<()> {
             format_text(&input, &config)?
         };
 
+        let file = cli
+            .stdin_filepath
+            .as_ref()
+            .map(|p| p.display().to_string())
+            .unwrap_or_else(|| "<stdin>".to_string());
+
         if cli.check {
             let splitter = build_splitter(&config).context("failed to build sentence splitter")?;
             let threshold = resolve_long_threshold(config.max_width, project_config.long_threshold);
@@ -169,11 +178,6 @@ fn run() -> Result<()> {
             let would = output != input;
             let long_fail =
                 cli.strict_long && diagnostics.iter().any(|d| d.kind == DiagnosticKind::Long);
-            let file = cli
-                .stdin_filepath
-                .as_ref()
-                .map(|p| p.display().to_string())
-                .unwrap_or_else(|| "<stdin>".to_string());
             let check_results = if would || !diagnostics.is_empty() {
                 vec![CheckResult {
                     file,
@@ -189,12 +193,12 @@ fn run() -> Result<()> {
                 OutputFormat::Json => output_json(&check_results),
                 OutputFormat::Sarif => output_sarif(&check_results),
                 OutputFormat::Text => {
-                    if would {
-                        eprintln!("would reformat: <stdin>");
-                    }
                     if let Some(r) = check_results.first() {
+                        if r.would_reformat {
+                            eprintln!("would reformat: {}", r.file);
+                        }
                         for d in &r.diagnostics {
-                            eprintln!("<stdin>:{}:{}: {}", d.line, d.kind.as_str(), d.excerpt);
+                            eprintln!("{}:{}:{}: {}", r.file, d.line, d.kind.as_str(), d.excerpt);
                         }
                     }
                 }
@@ -204,7 +208,7 @@ fn run() -> Result<()> {
             }
         } else if cli.diff {
             let color = resolve_color(cli.color, false);
-            snapper_fmt::diff::print_diff("<stdin>", &input, &output, color);
+            snapper_fmt::diff::print_diff(&file, &input, &output, color);
             if output != input {
                 process::exit(1);
             }
@@ -259,6 +263,7 @@ fn run() -> Result<()> {
         let mut any_changed = false;
         let mut check_failed = false;
         let mut check_results: Vec<CheckResult> = Vec::new();
+        let mut output_file_text: Option<String> = None;
 
         let color = resolve_color(cli.color, false);
         for (path_str, input, output) in &results {
@@ -318,12 +323,18 @@ fn run() -> Result<()> {
                     fs::write(path_str, output)
                         .with_context(|| format!("failed to write {path_str}"))?;
                 }
-            } else if let Some(ref out_path) = cli.output {
-                fs::write(out_path, output)
-                    .with_context(|| format!("failed to write {}", out_path.display()))?;
+            } else if cli.output.is_some() {
+                output_file_text
+                    .get_or_insert_with(String::new)
+                    .push_str(output);
             } else {
                 print!("{output}");
             }
+        }
+
+        if let (Some(out_path), Some(text)) = (&cli.output, &output_file_text) {
+            fs::write(out_path, text)
+                .with_context(|| format!("failed to write {}", out_path.display()))?;
         }
 
         // Structured output for check mode (empty array/run is still valid JSON).

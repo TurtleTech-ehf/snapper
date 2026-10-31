@@ -28,14 +28,27 @@ impl SnapperLsp {
         }
     }
 
-    fn reload_config(&self) {
+    /// Returns the load error, if any; the defaults apply in that case.
+    fn reload_config(&self) -> Option<String> {
         let root = self.root_path.lock().expect("root_path lock poisoned");
-        let config = if let Some(ref root) = *root {
-            ProjectConfig::find_and_load(root).unwrap_or_default()
-        } else {
-            ProjectConfig::default()
+        let (config, error) = match root.as_deref().map(ProjectConfig::find_and_load) {
+            Some(Ok(config)) => (config, None),
+            Some(Err(e)) => (ProjectConfig::default(), Some(format!("{e:#}"))),
+            None => (ProjectConfig::default(), None),
         };
         *self.project_config.lock().expect("config lock poisoned") = config;
+        error
+    }
+
+    async fn report_config_error(&self, error: Option<String>) {
+        if let Some(error) = error {
+            self.client
+                .show_message(
+                    MessageType::WARNING,
+                    format!("snapper uses its default settings: {error}"),
+                )
+                .await;
+        }
     }
 
     fn make_config(&self, format: Format) -> FormatConfig {
@@ -50,12 +63,14 @@ impl SnapperLsp {
         FormatConfig {
             format,
             max_width: project.max_width_for_format(format_str).unwrap_or(0),
+            neural_lang: project.lang.clone().unwrap_or_else(|| "en".to_string()),
             extra_abbreviations: project.abbreviations_for_format(format_str),
             latex_verbatim_envs: project.latex_verbatim_envs(),
             latex_structure_envs: project.latex_structure_envs(),
             latex_verbatim_commands: project.latex_verbatim_commands(),
             clause_breaks: project.clause_breaks.unwrap_or(false),
             lowercase_starts: project.lowercase_starts_for_format(format_str),
+            code: project.code.clone(),
             // VS Code / Helix LSP stay native even if the CLI default flips.
             use_pandoc: false,
             ..Default::default()
@@ -73,14 +88,10 @@ impl SnapperLsp {
             return None;
         }
 
-        let lines_count = text.lines().count();
-        let end_line = lines_count.saturating_sub(1);
-        let last_line_len = text.lines().last().map_or(0, |l| l.len());
-
         Some(vec![TextEdit {
             range: Range {
                 start: Position::new(0, 0),
-                end: Position::new(end_line as u32, last_line_len as u32),
+                end: end_position(text),
             },
             new_text: formatted,
         }])
@@ -100,11 +111,14 @@ impl SnapperLsp {
             resolve_long_threshold(config.max_width, project.long_threshold)
         };
 
+        let lines: Vec<&str> = text.lines().collect();
         collect_diagnostics(text, *format, splitter.as_ref(), threshold, Some(&config))
             .into_iter()
             .map(|d| {
                 let line = d.line.saturating_sub(1) as u32;
-                let end_col = d.excerpt.chars().count() as u32;
+                let end_col = lines
+                    .get(line as usize)
+                    .map_or(0, |l| l.encode_utf16().count()) as u32;
                 let severity = match d.kind {
                     DiagnosticKind::Long => DiagnosticSeverity::INFORMATION,
                     DiagnosticKind::Fused | DiagnosticKind::Wrap => DiagnosticSeverity::WARNING,
@@ -141,7 +155,8 @@ impl LanguageServer for SnapperLsp {
         if let Some(ref root) = root {
             *self.root_path.lock().expect("root_path lock poisoned") = Some(root.clone());
         }
-        self.reload_config();
+        let config_error = self.reload_config();
+        self.report_config_error(config_error).await;
 
         Ok(InitializeResult {
             capabilities: ServerCapabilities {
@@ -233,7 +248,8 @@ impl LanguageServer for SnapperLsp {
     }
 
     async fn did_change_watched_files(&self, _params: DidChangeWatchedFilesParams) {
-        self.reload_config();
+        let config_error = self.reload_config();
+        self.report_config_error(config_error).await;
         self.client
             .log_message(MessageType::INFO, "Reloaded .snapperrc.toml")
             .await;
@@ -268,7 +284,16 @@ impl LanguageServer for SnapperLsp {
 
         let lines: Vec<&str> = text.lines().collect();
         let start = range.start.line as usize;
-        let end = (range.end.line as usize).min(lines.len().saturating_sub(1));
+        // The end position is exclusive: a range that stops at column 0
+        // selects nothing on that line.
+        let mut end = range.end.line as usize;
+        if range.end.character == 0 && end > start {
+            end -= 1;
+        }
+        let end = end.min(lines.len().saturating_sub(1));
+        if start >= lines.len() || start > end {
+            return Ok(None);
+        }
         let range_text = lines[start..=end].join("\n");
 
         let config = self.make_config(*format);
@@ -288,7 +313,7 @@ impl LanguageServer for SnapperLsp {
                 start: Position::new(start as u32, 0),
                 end: Position::new(end as u32, last_col as u32),
             },
-            new_text: formatted,
+            new_text: with_line_endings_of(text, formatted),
         }]))
     }
 
@@ -362,7 +387,7 @@ impl LanguageServer for SnapperLsp {
                     start: Position::new(start as u32, 0),
                     end: Position::new(end as u32, last_col as u32),
                 },
-                new_text: formatted,
+                new_text: with_line_endings_of(text, formatted),
             };
 
             let mut changes = HashMap::new();
@@ -423,16 +448,37 @@ impl LanguageServer for SnapperLsp {
         params: DocumentOnTypeFormattingParams,
     ) -> Result<Option<Vec<TextEdit>>> {
         let position = params.text_document_position.position;
-        self.range_formatting(DocumentRangeFormattingParams {
-            text_document: params.text_document_position.text_document,
-            range: Range {
-                start: Position::new(position.line, 0),
-                end: Position::new(position.line, position.character),
-            },
-            options: params.options,
-            work_done_progress_params: Default::default(),
-        })
-        .await
+        let uri = params.text_document_position.text_document.uri.clone();
+        let Some(mut edits) = self
+            .range_formatting(DocumentRangeFormattingParams {
+                text_document: params.text_document_position.text_document,
+                range: Range {
+                    start: Position::new(position.line, 0),
+                    end: Position::new(position.line, position.character),
+                },
+                options: params.options,
+                work_done_progress_params: Default::default(),
+            })
+            .await?
+        else {
+            return Ok(None);
+        };
+
+        // Formatting trims trailing blanks, which would eat the space the
+        // user just typed.
+        let docs = self.documents.lock().expect("document store poisoned");
+        let line = docs
+            .get(&uri)
+            .and_then(|(text, _)| text.lines().nth(position.line as usize))
+            .unwrap_or("");
+        let trailing = &line[line.trim_end().len()..];
+        for edit in &mut edits {
+            edit.new_text.push_str(trailing);
+        }
+        if edits.iter().all(|edit| edit.new_text == line) {
+            return Ok(None);
+        }
+        Ok(Some(edits))
     }
 
     async fn hover(&self, params: HoverParams) -> Result<Option<Hover>> {
@@ -467,12 +513,30 @@ impl LanguageServer for SnapperLsp {
         params: ExecuteCommandParams,
     ) -> Result<Option<serde_json::Value>> {
         if params.command == "snapper.reloadConfig" {
-            self.reload_config();
+            let config_error = self.reload_config();
+            self.report_config_error(config_error).await;
             self.client
                 .log_message(MessageType::INFO, "Manually reloaded .snapperrc.toml")
                 .await;
         }
         Ok(None)
+    }
+}
+
+/// Position just past the last character of `text`, in UTF-16 code units.
+fn end_position(text: &str) -> Position {
+    let line = text.matches('\n').count();
+    let tail = &text[text.rfind('\n').map_or(0, |i| i + 1)..];
+    Position::new(line as u32, tail.encode_utf16().count() as u32)
+}
+
+/// Line-range edits format lines joined with LF; a CRLF document needs
+/// its own line endings back.
+fn with_line_endings_of(text: &str, formatted: String) -> String {
+    if text.contains("\r\n") {
+        formatted.replace('\n', "\r\n")
+    } else {
+        formatted
     }
 }
 
@@ -492,11 +556,53 @@ fn detect_format_from_uri(uri: &Url, language_id: &str) -> Format {
     }
 }
 
+/// Signals when the `exit` notification arrives. tower-lsp marks itself
+/// exited there, yet keeps reading stdin until another message or EOF.
+struct ExitSignal<S> {
+    inner: S,
+    exited: Option<tokio::sync::oneshot::Sender<()>>,
+}
+
+impl<S> tower_service::Service<tower_lsp::jsonrpc::Request> for ExitSignal<S>
+where
+    S: tower_service::Service<tower_lsp::jsonrpc::Request>,
+{
+    type Response = S::Response;
+    type Error = S::Error;
+    type Future = S::Future;
+
+    fn poll_ready(
+        &mut self,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<std::result::Result<(), Self::Error>> {
+        self.inner.poll_ready(cx)
+    }
+
+    fn call(&mut self, request: tower_lsp::jsonrpc::Request) -> Self::Future {
+        let is_exit = request.method() == "exit";
+        let response = self.inner.call(request);
+        if is_exit {
+            if let Some(exited) = self.exited.take() {
+                let _ = exited.send(());
+            }
+        }
+        response
+    }
+}
+
 /// Run the LSP server on stdin/stdout.
 pub async fn run_lsp() {
     let stdin = tokio::io::stdin();
     let stdout = tokio::io::stdout();
 
     let (service, socket) = LspService::new(SnapperLsp::new);
-    Server::new(stdin, stdout, socket).serve(service).await;
+    let (exited, on_exit) = tokio::sync::oneshot::channel();
+    let service = ExitSignal {
+        inner: service,
+        exited: Some(exited),
+    };
+    tokio::select! {
+        () = Server::new(stdin, stdout, socket).serve(service) => {}
+        _ = on_exit => {}
+    }
 }

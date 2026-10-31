@@ -11,7 +11,7 @@ inputs:
     required: false
     default: '**/*.org **/*.tex **/*.md'
   format:
-    description: 'Force format (org, latex, markdown, plaintext). Auto-detected if omitted.'
+    description: 'Force format (org, latex, markdown, rst, plaintext). Auto-detected if omitted.'
     required: false
   sarif:
     description: 'Upload SARIF results to GitHub Code Scanning'
@@ -30,10 +30,10 @@ runs:
       run: |
         if [ "${{ inputs.version }}" = "latest" ]; then
           curl --proto '=https' --tlsv1.2 -LsSf \
-            https://github.com/TurtleTech-ehf/snapper/releases/latest/download/snapper-installer.sh | sh
+            https://github.com/TurtleTech-ehf/snapper/releases/latest/download/snapper-fmt-installer.sh | sh
         else
           curl --proto '=https' --tlsv1.2 -LsSf \
-            https://github.com/TurtleTech-ehf/snapper/releases/download/v${{ inputs.version }}/snapper-installer.sh | sh
+            https://github.com/TurtleTech-ehf/snapper/releases/download/v${{ inputs.version }}/snapper-fmt-installer.sh | sh
         fi
 
     - name: Check formatting
@@ -44,10 +44,15 @@ runs:
           FORMAT_ARG="--format ${{ inputs.format }}"
         fi
 
+        # snapper does not expand globs. With no match at all it reads
+        # stdin, so /dev/null keeps an empty file list an empty check.
+        shopt -s globstar nullglob
+        FILES=( ${{ inputs.files }} )
+
         if [ "${{ inputs.sarif }}" = "true" ]; then
-          snapper --check --output-format sarif $FORMAT_ARG ${{ inputs.files }} > snapper.sarif 2>/dev/null || true
+          snapper --check --output-format sarif $FORMAT_ARG "${FILES[@]}" < /dev/null > snapper.sarif 2>/dev/null || true
         else
-          snapper --check $FORMAT_ARG ${{ inputs.files }}
+          snapper --check $FORMAT_ARG "${FILES[@]}" < /dev/null
         fi
 
     - name: Upload SARIF

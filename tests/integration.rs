@@ -6,14 +6,27 @@
 
 #[path = "check_line_diagnostics.rs"]
 mod check_line_diagnostics;
+#[path = "cli_config_errors.rs"]
+mod cli_config_errors;
+#[path = "cli_encodings.rs"]
+mod cli_encodings;
+#[path = "cli_file_args.rs"]
+mod cli_file_args;
 #[path = "cli_integration.rs"]
 mod cli_integration;
+#[cfg(feature = "watch")]
+#[path = "cli_watch.rs"]
+mod cli_watch;
 #[path = "code_block_format.rs"]
 mod code_block_format;
 #[path = "code_block_reflow.rs"]
 mod code_block_reflow;
 #[path = "code_span_nested_backticks.rs"]
 mod code_span_nested_backticks;
+#[path = "format_range_bounds.rs"]
+mod format_range_bounds;
+#[path = "init_hook.rs"]
+mod init_hook;
 #[path = "latex_enumerate_hang.rs"]
 mod latex_enumerate_hang;
 #[path = "latex_figure_table_captions.rs"]
@@ -34,6 +47,9 @@ mod latex_section_short_title;
 mod latex_tikz_pgf_envs;
 #[path = "latex_verbatim_envs.rs"]
 mod latex_verbatim_envs;
+#[cfg(feature = "lsp")]
+#[path = "lsp_session.rs"]
+mod lsp_session;
 #[path = "md_atx_heading_indent.rs"]
 mod md_atx_heading_indent;
 #[path = "md_compact_dl_markers.rs"]

@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::path::Path;
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 #[cfg(any(feature = "cli", feature = "watch"))]
 use glob::Pattern;
 use serde::Deserialize;
@@ -164,8 +164,9 @@ impl ProjectConfig {
 
     /// Load config from a specific path.
     pub fn load(path: &Path) -> Result<Self> {
-        let contents = std::fs::read_to_string(path)?;
-        Self::parse(&contents)
+        let contents = std::fs::read_to_string(path)
+            .with_context(|| format!("failed to read config {}", path.display()))?;
+        Self::parse(&contents).with_context(|| format!("invalid config {}", path.display()))
     }
 
     fn parse(toml_str: &str) -> Result<Self> {
@@ -258,8 +259,12 @@ impl ProjectConfig {
 
     #[cfg(any(feature = "cli", feature = "watch"))]
     pub fn is_ignored(&self, path: &Path) -> bool {
+        let path = drop_cur_dir(path);
+        let path = path.as_path();
         self.ignore_patterns.iter().any(|pattern| {
-            Pattern::new(pattern).ok().is_some_and(|compiled| {
+            let pattern = drop_cur_dir(Path::new(pattern));
+            let pattern = pattern.to_string_lossy();
+            Pattern::new(&pattern).ok().is_some_and(|compiled| {
                 compiled.matches_path(path)
                     || std::env::current_dir()
                         .ok()
@@ -271,6 +276,15 @@ impl ProjectConfig {
             })
         })
     }
+}
+
+/// A path without its `.` components, so `./docs/a.md` and `docs/a.md`
+/// compare the same on both sides of an ignore match.
+#[cfg(any(feature = "cli", feature = "watch"))]
+fn drop_cur_dir(path: &Path) -> std::path::PathBuf {
+    path.components()
+        .filter(|c| !matches!(c, std::path::Component::CurDir))
+        .collect()
 }
 
 #[cfg(test)]
