@@ -81,6 +81,7 @@ pub fn collect_diagnostics(
     long_threshold: usize,
     config: Option<&FormatConfig>,
 ) -> Vec<LineDiagnostic> {
+    let input = input.strip_prefix('\u{feff}').unwrap_or(input);
     let lines: Vec<&str> = input.lines().collect();
     let payloads = source_line_payloads(input, format, config);
     debug_assert_eq!(

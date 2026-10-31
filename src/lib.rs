@@ -296,6 +296,11 @@ pub fn format_text_with_splitter(
     config: &FormatConfig,
     splitter: &dyn SentenceSplitter,
 ) -> Result<String> {
+    // A byte order mark would hide the first line's markup from the parsers.
+    let (bom, input) = match input.strip_prefix('\u{feff}') {
+        Some(rest) => ("\u{feff}", rest),
+        None => ("", input),
+    };
     let had_trailing_newline = input.ends_with('\n');
     let uses_crlf = input.contains("\r\n");
 
@@ -383,6 +388,7 @@ pub fn format_text_with_splitter(
         output = output.replace('\n', "\r\n");
     }
 
+    output.insert_str(0, bom);
     Ok(output)
 }
 
@@ -452,7 +458,11 @@ fn byte_line_span(source: &str, start: usize, end: usize) -> (usize, usize) {
 
 fn byte_to_line(source: &str, byte: usize) -> usize {
     let byte = byte.min(source.len());
-    source[..byte].bytes().filter(|&b| b == b'\n').count() + 1
+    source.as_bytes()[..byte]
+        .iter()
+        .filter(|&&b| b == b'\n')
+        .count()
+        + 1
 }
 
 /// Pandoc reader/writer name for this config.
@@ -541,6 +551,15 @@ pub fn format_range(
     start: usize,
     end: usize,
 ) -> Result<String> {
+    let original = input;
+    let uses_crlf = input.contains("\r\n");
+    let normalized;
+    let input = if uses_crlf {
+        normalized = input.replace("\r\n", "\n");
+        &normalized
+    } else {
+        input
+    };
     let lines: Vec<&str> = input.lines().collect();
     let total = lines.len();
 
@@ -548,8 +567,8 @@ pub fn format_range(
     let start = start.max(1);
     let end = end.min(total);
 
-    if start > total {
-        return Ok(input.to_string());
+    if start > total || start > end {
+        return Ok(original.to_string());
     }
 
     // Extract the range as a contiguous block
@@ -588,6 +607,9 @@ pub fn format_range(
         }
     }
 
+    if uses_crlf {
+        result = result.replace('\n', "\r\n");
+    }
     Ok(result)
 }
 

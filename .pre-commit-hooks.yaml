@@ -1,9 +1,10 @@
 # Repo-local hook definition (consumed when users pin this repo in
 # .pre-commit-config.yaml with id: snapper). identify has no "org" type, so
-# match by extension instead of types_or.
+# match by extension instead of types_or. Plain .txt stays out: plaintext
+# reflow joins lines, and requirements.txt or CMakeLists.txt are not prose.
 - id: snapper
   name: snapper
-  description: Reformat prose with semantic line breaks (Org, LaTeX, Markdown, RST, plaintext)
+  description: Reformat prose with semantic line breaks (Org, LaTeX, Markdown, RST)
   entry: snapper --in-place
   language: rust
-  files: \.(org|tex|latex|md|markdown|rst|txt)$
+  files: \.(org|tex|latex|md|markdown|rst)$

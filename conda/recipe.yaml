@@ -36,7 +36,7 @@ tests:
 
 about:
   homepage: https://snapper.turtletech.us
-  summary: Semantic line break formatter for Org, LaTeX, Markdown, and plaintext
+  summary: Semantic line break formatter for Org, LaTeX, Markdown, RST, and plaintext
   description: |
     Snapper reformats prose so each sentence sits on its own line (semantic
     line breaks), preserving markup structure for Org, LaTeX, Markdown, RST,

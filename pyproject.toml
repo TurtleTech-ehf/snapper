@@ -5,7 +5,7 @@ build-backend = "maturin"
 [project]
 name = "snapper-fmt"
 dynamic = ["version"]
-description = "Semantic line break formatter for Org, LaTeX, Markdown, and plaintext"
+description = "Semantic line break formatter for Org, LaTeX, Markdown, RST, and plaintext"
 readme = "README.md"
 license = {text = "MIT"}
 requires-python = ">=3.8"

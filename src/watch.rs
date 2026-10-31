@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
@@ -17,7 +17,7 @@ pub fn run_watch(
     native: bool,
     use_pandoc_flag: bool,
 ) -> Result<()> {
-    let project_config = ProjectConfig::resolve(config_path).unwrap_or_default();
+    let project_config = ProjectConfig::resolve(config_path)?;
     let use_pandoc = if native {
         false
     } else if use_pandoc_flag {
@@ -44,18 +44,22 @@ pub fn run_watch(
     let mut watcher = RecommendedWatcher::new(tx, notify::Config::default())
         .context("failed to create file watcher")?;
 
-    // Watch each file's parent directory
+    // Watch each file's parent directory. `resolve_patterns` stores
+    // canonical paths, so the parent exists and shares a prefix with the
+    // events from a symlinked working directory.
     let mut watched_dirs = std::collections::HashSet::new();
     for file in &files {
-        if let Some(parent) = file.parent() {
-            let dir = parent
-                .canonicalize()
-                .unwrap_or_else(|_| parent.to_path_buf());
-            if watched_dirs.insert(dir.clone()) {
-                watcher
-                    .watch(&dir, RecursiveMode::NonRecursive)
-                    .with_context(|| format!("failed to watch {}", dir.display()))?;
-            }
+        let parent = file
+            .parent()
+            .filter(|parent| !parent.as_os_str().is_empty())
+            .with_context(|| format!("no directory to watch for {}", file.display()))?;
+        let dir = parent
+            .canonicalize()
+            .unwrap_or_else(|_| parent.to_path_buf());
+        if watched_dirs.insert(dir.clone()) {
+            watcher
+                .watch(&dir, RecursiveMode::NonRecursive)
+                .with_context(|| format!("failed to watch {}", dir.display()))?;
         }
     }
 
@@ -143,6 +147,7 @@ fn format_file_in_place(
         latex_verbatim_commands: project_config.latex_verbatim_commands(),
         clause_breaks: project_config.clause_breaks.unwrap_or(false),
         lowercase_starts: project_config.lowercase_starts_for_format(format_key),
+        code: project_config.code.clone(),
         use_pandoc,
         ..Default::default()
     };
@@ -157,13 +162,21 @@ fn format_file_in_place(
     Ok(false)
 }
 
-/// Resolve glob patterns to file paths.
+/// Resolve glob patterns to canonical file paths.
+///
+/// A relative pattern such as `a.md` has an empty parent. macOS FSEvents
+/// rejects a watch on that empty path, since the path does not exist.
+/// Linux inotify joins the empty path onto the working directory, so the
+/// same call watches the right directory there. Canonical paths also keep
+/// the watch and the events on one prefix when the working directory is a
+/// symlink, which is how macOS lays out `/tmp` and `/var`.
 fn resolve_patterns(patterns: &[String]) -> Result<Vec<PathBuf>> {
+    let cwd = std::env::current_dir().context("failed to get current directory")?;
     let mut files = Vec::new();
     for pattern in patterns {
         let path = PathBuf::from(pattern);
         if path.exists() && path.is_file() {
-            files.push(path);
+            files.push(canonical_file(&path, &cwd)?);
         } else {
             // Try glob expansion
             for p in glob::glob(pattern)
@@ -171,10 +184,49 @@ fn resolve_patterns(patterns: &[String]) -> Result<Vec<PathBuf>> {
                 .flatten()
             {
                 if p.is_file() {
-                    files.push(p);
+                    files.push(canonical_file(&p, &cwd)?);
                 }
             }
         }
     }
     Ok(files)
+}
+
+fn canonical_file(path: &Path, cwd: &Path) -> Result<PathBuf> {
+    let absolute = cwd.join(path);
+    absolute
+        .canonicalize()
+        .with_context(|| format!("failed to resolve {}", absolute.display()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn relative_file_resolves_to_a_directory_the_watcher_can_open() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("a.md"), "Start.\n").unwrap();
+        let file = canonical_file(Path::new("a.md"), dir.path()).unwrap();
+        let parent = file.parent().unwrap();
+        assert!(!parent.as_os_str().is_empty());
+        assert!(parent.exists());
+        assert_eq!(parent, dir.path().canonicalize().unwrap());
+        assert_eq!(file, dir.path().join("a.md").canonicalize().unwrap());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn symlinked_workdir_resolves_to_the_canonical_directory() {
+        let real = tempfile::tempdir().unwrap();
+        std::fs::write(real.path().join("a.md"), "Start.\n").unwrap();
+        let links = tempfile::tempdir().unwrap();
+        let link = links.path().join("tmp");
+        std::os::unix::fs::symlink(real.path(), &link).unwrap();
+        let file = canonical_file(Path::new("a.md"), &link).unwrap();
+        let parent = file.parent().unwrap();
+        assert_eq!(parent, real.path().canonicalize().unwrap());
+        assert_ne!(parent, link.as_path());
+        assert!(parent.exists());
+    }
 }
