@@ -5,11 +5,17 @@
 //! Tests disable the backstop and assert the oracle themselves.
 //!
 //! The oracle is a native region-kind + slice tree for every format:
-//! Structure/Blank must be byte-identical, Code headers/footers must be
-//! identical, Code bodies may change only in comment lines, and Prose may
-//! only move inter-word whitespace. Markdown also compares pulldown-cmark
-//! HTML (including `<pre>` contents unless the only delta is a comment
-//! reflow already allowed by the code-byte check).
+//! Structure and blank lines must be byte-identical, except one trailing
+//! `Structure("\n")` line terminator. That terminator is the end of the
+//! document. A list item or blockquote stores it apart from the item
+//! text, and a file may omit the final newline. The check drops one
+//! trailing terminator from each tree before it compares. A newline
+//! inside another structure token (a heading, a section) is not a
+//! terminator, and neither is a blank line. Code headers and footers
+//! must be identical. Code bodies may change only in comment lines.
+//! Prose may only move inter-word whitespace. Markdown also compares
+//! pulldown-cmark HTML (including `<pre>` contents unless the only
+//! delta is a comment reflow already allowed by the code-byte check).
 
 use crate::format::Format;
 use crate::parser::{Region, parser_for_format, parser_for_format_config};
@@ -53,12 +59,19 @@ fn structure_tree_ok(
     // Hang list/quote continuations (`> One.` / `> Two.`) reparse as more
     // regions than the source. Coalesce adjacent same-marker items so the
     // tree compares as one item with the same prose words.
-    let a = coalesce_hang_items(&parser_for_format_config(format, config).parse(original));
-    let b = coalesce_hang_items(&parser_for_format_config(format, config).parse(output));
+    let a_all = coalesce_hang_items(&parser_for_format_config(format, config).parse(original));
+    let b_all = coalesce_hang_items(&parser_for_format_config(format, config).parse(output));
+    // A list item or blockquote keeps its line terminator as its own
+    // structure region. The source may omit that newline at end of file,
+    // while a rewrite of the item text still ends with one. Drop that
+    // one terminator so the check compares the document, not the file's
+    // final-newline convention. Interior terminators stay in the tree.
+    let a = without_eof_terminator(&a_all);
+    let b = without_eof_terminator(&b_all);
     if a.len() != b.len() {
         return false;
     }
-    for (ra, rb) in a.iter().zip(&b) {
+    for (ra, rb) in a.iter().zip(b.iter()) {
         match (ra, rb) {
             (Region::Prose(x), Region::Prose(y)) => {
                 if prose_tokens(format, x) != prose_tokens(format, y) {
@@ -96,6 +109,18 @@ fn structure_tree_ok(
         }
     }
     true
+}
+
+/// One trailing line terminator, or the tree unchanged.
+///
+/// Only an exact `"\n"` structure region at the end of the tree counts.
+/// `"## Title"` versus `"## Title\n"` keeps the newline inside the token,
+/// and a blank line is `BlankLines`, so both still fail the check.
+fn without_eof_terminator(regions: &[Region]) -> &[Region] {
+    match regions.last() {
+        Some(Region::Structure(s)) if s == "\n" => &regions[..regions.len() - 1],
+        _ => regions,
+    }
 }
 
 fn prose_tokens(format: Format, s: &str) -> Vec<String> {
@@ -438,6 +463,59 @@ mod tests {
         assert!(
             matches_ex(Format::Latex, original, output, false, Some(&cfg)),
             "extras must parse the same region tree as format_once"
+        );
+    }
+
+    /// GitHub #538: a hang whose only extra region is the final line
+    /// terminator is the same document as a file with no final newline.
+    #[test]
+    fn eof_terminator_does_not_veto_a_hang() {
+        assert!(matches(Format::Markdown, "- One. Two.", "- One.\n  Two.\n"));
+        assert!(matches(
+            Format::Markdown,
+            "- outer\n  - One. Two.",
+            "- outer\n  - One.\n    Two.\n"
+        ));
+        assert!(matches(Format::Markdown, "> One. Two.", "> One.\n> Two.\n"));
+        assert!(matches(
+            Format::Markdown,
+            "- One. Two.\n",
+            "- One.\n  Two.\n"
+        ));
+        assert!(matches(
+            Format::Markdown,
+            "> One. Two.\n",
+            "> One.\n> Two.\n"
+        ));
+    }
+
+    /// The end-of-file trim must not hide a real render change, including
+    /// one that also differs by that final newline.
+    #[test]
+    fn eof_terminator_still_rejects_a_render_change() {
+        assert!(
+            !matches(Format::Markdown, "* 0. A.", "* 0.\n  A.\n"),
+            "nested 0. versus a hung continuation is still a veto"
+        );
+        assert!(
+            !matches(Format::Markdown, "- One. Two.", "- One.\n\n  Two.\n"),
+            "a blank line is a new paragraph, not an end-of-file terminator"
+        );
+        assert!(
+            !matches(Format::Markdown, "- One. Two.", "- One.\n  Three.\n"),
+            "a different word is still a mismatch"
+        );
+        assert!(
+            !matches(Format::Markdown, "## Title", "## Title\n"),
+            "a newline inside a heading token is not the document terminator"
+        );
+        assert!(
+            !matches(Format::Markdown, "Hello.", "Hello.\n\n"),
+            "a trailing blank line is not the document terminator"
+        );
+        assert!(
+            !matches(Format::Markdown, "", "\n"),
+            "an empty file and a blank line are not the same document"
         );
     }
 

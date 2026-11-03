@@ -748,3 +748,75 @@ mod lowercase_starts_tests {
         }
     }
 }
+
+/// GitHub #538: a list item or blockquote that ends the file with no final
+/// newline must still split. The same inputs with a final newline are the
+/// controls. A real render change at that position stays unchanged.
+#[cfg(test)]
+mod eof_newline_render_check_tests {
+    use super::*;
+    use crate::format::Format;
+
+    fn format_md(input: &str) -> String {
+        format_text(
+            input,
+            &FormatConfig {
+                format: Format::Markdown,
+                ..Default::default()
+            },
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn trailing_list_item_without_final_newline_splits() {
+        assert_eq!(format_md("- One. Two."), "- One.\n  Two.");
+        assert_eq!(format_md("1. One. Two."), "1. One.\n   Two.");
+        assert_eq!(format_md("x\n\n- One. Two."), "x\n\n- One.\n  Two.");
+        let out = format_md("- One. Two.");
+        assert_eq!(format_md(&out), out);
+    }
+
+    #[test]
+    fn trailing_nested_list_item_without_final_newline_splits() {
+        let input = "- outer\n  - One. Two.";
+        let out = format_md(input);
+        assert_eq!(out, "- outer\n  - One.\n    Two.");
+        assert_eq!(format_md(&out), out);
+    }
+
+    #[test]
+    fn trailing_blockquote_without_final_newline_splits() {
+        let out = format_md("> One. Two.");
+        assert_eq!(out, "> One.\n> Two.");
+        assert_eq!(format_md(&out), out);
+    }
+
+    #[test]
+    fn trailing_list_item_with_final_newline_splits() {
+        assert_eq!(format_md("- One. Two.\n"), "- One.\n  Two.\n");
+        assert_eq!(format_md("1. One. Two.\n"), "1. One.\n   Two.\n");
+        assert_eq!(format_md("x\n\n- One. Two.\n"), "x\n\n- One.\n  Two.\n");
+    }
+
+    #[test]
+    fn trailing_nested_list_item_with_final_newline_splits() {
+        assert_eq!(
+            format_md("- outer\n  - One. Two.\n"),
+            "- outer\n  - One.\n    Two.\n"
+        );
+    }
+
+    #[test]
+    fn trailing_blockquote_with_final_newline_splits() {
+        assert_eq!(format_md("> One. Two.\n"), "> One.\n> Two.\n");
+    }
+
+    #[test]
+    fn render_check_keeps_a_real_difference_at_eof() {
+        // Splitting `a0.A.` changes the prose words. The missing final
+        // newline must not make the check accept that.
+        assert_eq!(format_md("- A. a0.A."), "- A. a0.A.");
+        assert_eq!(format_md("- A. a0.A.\n"), "- A. a0.A.\n");
+    }
+}

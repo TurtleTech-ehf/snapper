@@ -39,6 +39,7 @@ With =--use-pandoc=, a missing or failing pandoc is an explicit error (no silent
 =--native= is accepted and selects the native parsers.
 Markdown on the pandoc path is read and written as =gfm=.
 A render mismatch leaves the input unchanged and warns on stderr.
+A list item or blockquote at the end of the file still splits when the final newline is missing.
 
 **Writer.**
 The library =libsnapper_pandoc= is reader-only.

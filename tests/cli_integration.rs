@@ -473,6 +473,48 @@ fn idempotent_edge_cases_plaintext() {
     );
 }
 
+/// GitHub #538: `printf -- '- One. Two.' | snapper --stdin-filepath x.md`
+#[test]
+fn list_item_at_eof_without_final_newline_splits() {
+    let cases = [
+        ("- One. Two.", "- One.\n  Two."),
+        ("- outer\n  - One. Two.", "- outer\n  - One.\n    Two."),
+        ("> One. Two.", "> One.\n> Two."),
+        ("- One. Two.\n", "- One.\n  Two.\n"),
+        ("- outer\n  - One. Two.\n", "- outer\n  - One.\n    Two.\n"),
+        ("> One. Two.\n", "> One.\n> Two.\n"),
+    ];
+    for (input, expected) in cases {
+        let out = pipe_stdin(input, &["--stdin-filepath", "x.md"]);
+        assert!(
+            out.status.success(),
+            "input {input:?} stderr {}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        let stdout = String::from_utf8(out.stdout).unwrap();
+        assert_eq!(stdout, expected, "input {input:?}");
+        let err = String::from_utf8(out.stderr).unwrap();
+        assert!(
+            !err.contains("render check failed"),
+            "input {input:?} stderr {err}"
+        );
+    }
+}
+
+/// A real render change at end of file still fails the check.
+#[test]
+fn render_check_still_rejects_eof_list_word_change() {
+    let input = "- A. a0.A.";
+    let out = pipe_stdin(input, &["--stdin-filepath", "x.md"]);
+    assert!(out.status.success(), "{:?}", out.stderr);
+    assert_eq!(String::from_utf8(out.stdout).unwrap(), input);
+    let err = String::from_utf8(out.stderr).unwrap();
+    assert!(
+        err.contains("render check failed") && err.contains("left lines"),
+        "stderr must name the unchanged lines, got: {err}"
+    );
+}
+
 #[test]
 fn render_mismatch_warns_and_keeps_the_good_paragraph() {
     let input = "**Note.** Next sentence here. Third one.\n\nA. a0.A.\n";
