@@ -316,6 +316,10 @@ Start the Language Server Protocol server on stdin/stdout.
 Provides document formatting, range formatting, and diagnostics (flags lines with multiple sentences).
 Works with any LSP-compatible editor (Neovim, Emacs eglot, VS Code, Helix).
 
+Document formatting replaces the whole buffer, including a trailing newline, with the same bytes the command-line formatter writes.
+A file that ends in one newline still ends in one newline.
+Formatting that result again changes nothing.
+
 *** =snapper mcp=
 :PROPERTIES:
 :CUSTOM_ID: cmd-mcp

@@ -73,14 +73,15 @@ impl SnapperLsp {
             return None;
         }
 
-        let lines_count = text.lines().count();
-        let end_line = lines_count.saturating_sub(1);
-        let last_line_len = text.lines().last().map_or(0, |l| l.len());
-
+        // `str::lines()` drops the break and does not yield a row for a
+        // final newline, so a range built from it stops on the last
+        // content character. `formatted` still ends with the newline the
+        // CLI keeps, and the client then keeps the uncovered one too.
+        // Each later format that changes the buffer appends another.
         Some(vec![TextEdit {
             range: Range {
                 start: Position::new(0, 0),
-                end: Position::new(end_line as u32, last_line_len as u32),
+                end: document_end(text),
             },
             new_text: formatted,
         }])
@@ -476,6 +477,33 @@ impl LanguageServer for SnapperLsp {
     }
 }
 
+/// LSP position just past the last byte of `text`.
+///
+/// A trailing `\n`, `\r\n`, or `\r` ends a line, so the position sits at
+/// column 0 of the next line. Columns are UTF-16 code units, which is the
+/// encoding used when the client does not negotiate another one.
+fn document_end(text: &str) -> Position {
+    let mut line = 0u32;
+    let mut character = 0u32;
+    let mut rest = text;
+    while !rest.is_empty() {
+        if rest.starts_with("\r\n") {
+            rest = &rest[2..];
+            line += 1;
+            character = 0;
+        } else if rest.starts_with(['\n', '\r']) {
+            rest = &rest[1..];
+            line += 1;
+            character = 0;
+        } else {
+            let ch = rest.chars().next().expect("non-empty text has a char");
+            character += ch.len_utf16() as u32;
+            rest = &rest[ch.len_utf8()..];
+        }
+    }
+    Position::new(line, character)
+}
+
 fn detect_format_from_uri(uri: &Url, language_id: &str) -> Format {
     match language_id {
         "org" => return Format::Org,
@@ -499,4 +527,210 @@ pub async fn run_lsp() {
 
     let (service, socket) = LspService::new(SnapperLsp::new);
     Server::new(stdin, stdout, socket).serve(service).await;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::format::Format;
+    use tower_lsp::LanguageServer;
+    use tower_lsp::lsp_types::{
+        DidOpenTextDocumentParams, DocumentFormattingParams, FormattingOptions, Position,
+        TextDocumentIdentifier, TextDocumentItem, TextEdit, Url, WorkDoneProgressParams,
+    };
+
+    fn cli_format(text: &str) -> String {
+        format_text(
+            text,
+            &FormatConfig {
+                format: Format::Markdown,
+                ..FormatConfig::default()
+            },
+        )
+        .expect("cli format")
+    }
+
+    fn trailing_newlines(text: &str) -> usize {
+        text.bytes().rev().take_while(|b| *b == b'\n').count()
+    }
+
+    /// Byte index of an LSP position, using UTF-16 columns and `\n` / `\r\n` / `\r` breaks.
+    /// A column past the end of a line clamps to the line length, as the spec requires.
+    fn offset_at(text: &str, pos: Position) -> usize {
+        let mut line_start = 0usize;
+        let mut line = 0u32;
+        let bytes = text.as_bytes();
+        let mut i = 0usize;
+        while i < bytes.len() && line < pos.line {
+            if bytes[i] == b'\n' {
+                i += 1;
+                line += 1;
+                line_start = i;
+            } else if bytes[i] == b'\r' {
+                i += 1;
+                if i < bytes.len() && bytes[i] == b'\n' {
+                    i += 1;
+                }
+                line += 1;
+                line_start = i;
+            } else {
+                i += 1;
+            }
+        }
+        if line < pos.line {
+            return text.len();
+        }
+        let mut content_end = line_start;
+        while content_end < bytes.len()
+            && bytes[content_end] != b'\n'
+            && bytes[content_end] != b'\r'
+        {
+            content_end += 1;
+        }
+        let content = &text[line_start..content_end];
+        let mut seen = 0u32;
+        for (idx, ch) in content.char_indices() {
+            if seen >= pos.character {
+                return line_start + idx;
+            }
+            let width = ch.len_utf16() as u32;
+            if seen + width > pos.character {
+                return line_start + idx;
+            }
+            seen += width;
+        }
+        content_end
+    }
+
+    fn apply_text_edits(text: &str, edits: &[TextEdit]) -> String {
+        let mut ordered = edits.to_vec();
+        ordered.sort_by(|a, b| {
+            b.range
+                .start
+                .line
+                .cmp(&a.range.start.line)
+                .then(b.range.start.character.cmp(&a.range.start.character))
+        });
+        let mut result = text.to_string();
+        for edit in ordered {
+            let start = offset_at(&result, edit.range.start);
+            let end = offset_at(&result, edit.range.end);
+            assert!(start <= end, "inverted edit range");
+            result.replace_range(start..end, &edit.new_text);
+        }
+        result
+    }
+
+    async fn format_once(text: &str) -> String {
+        let (service, _socket) = LspService::new(SnapperLsp::new);
+        let server = service.inner();
+        let uri = Url::parse("file:///note.md").expect("uri");
+        server
+            .did_open(DidOpenTextDocumentParams {
+                text_document: TextDocumentItem::new(
+                    uri.clone(),
+                    "markdown".to_string(),
+                    1,
+                    text.to_string(),
+                ),
+            })
+            .await;
+        let edits = server
+            .formatting(DocumentFormattingParams {
+                text_document: TextDocumentIdentifier::new(uri),
+                options: FormattingOptions {
+                    tab_size: 2,
+                    insert_spaces: true,
+                    ..FormattingOptions::default()
+                },
+                work_done_progress_params: WorkDoneProgressParams::default(),
+            })
+            .await
+            .expect("formatting");
+        if let Some(edits) = &edits {
+            assert_eq!(
+                edits.len(),
+                1,
+                "document formatting is one full-buffer edit"
+            );
+            let edit = &edits[0];
+            assert_eq!(offset_at(text, edit.range.start), 0);
+            assert_eq!(
+                offset_at(text, edit.range.end),
+                text.len(),
+                "edit range must include a trailing newline; new_text already ends with one\n\
+                 input: {text:?}\nedit end: {:?}\nnew_text: {:?}",
+                edit.range.end,
+                edit.new_text
+            );
+            assert_eq!(edit.new_text, cli_format(text));
+        }
+        apply_text_edits(text, edits.as_deref().unwrap_or(&[]))
+    }
+
+    #[test]
+    fn client_offset_includes_the_final_newline() {
+        assert_eq!(offset_at("One. Two.\n", Position::new(0, 9)), 9);
+        assert_eq!(offset_at("One. Two.\n", Position::new(1, 0)), 10);
+        assert_eq!(offset_at("One. Two.", Position::new(0, 9)), 9);
+        assert_eq!(offset_at("One. Two.\n\n", Position::new(2, 0)), 11);
+        assert_eq!(offset_at("One. Two.\r\n", Position::new(1, 0)), 11);
+    }
+
+    /// `textDocument/formatting` applied twice must match the CLI formatter.
+    /// Inputs cover zero, one, and several trailing newlines. A document that
+    /// ends in one newline must still end in exactly one after formatting.
+    #[tokio::test]
+    async fn formatting_twice_matches_cli_and_keeps_one_final_newline() {
+        let cases = [
+            "One. Two.",
+            "One. Two.\n",
+            "One. Two.\n\n",
+            "One. Two.\n\n\n",
+            "One. Two.\n\nThree.\n",
+            "- One. Two.\n\n",
+            "- One.\n  Two.\n",
+            "One. Two.\r\n",
+            "",
+            "\n",
+            "\n\n",
+        ];
+        for input in cases {
+            let cli = cli_format(input);
+            let once = format_once(input).await;
+            let twice = format_once(&once).await;
+            assert_eq!(
+                once, cli,
+                "first LSP format is not the CLI output for {input:?}"
+            );
+            assert_eq!(
+                twice, cli,
+                "second LSP format is not the CLI output for {input:?}"
+            );
+            if trailing_newlines(input) == 1 && !input.contains('\r') {
+                assert_eq!(
+                    trailing_newlines(&twice),
+                    1,
+                    "expected exactly one final newline for {input:?}, got {twice:?}"
+                );
+            }
+            if !input.ends_with('\n') && !input.ends_with('\r') {
+                assert!(
+                    !twice.ends_with('\n') && !twice.ends_with('\r'),
+                    "a file with no final newline must stay that way, got {twice:?}"
+                );
+            }
+            assert_eq!(
+                trailing_newlines(&twice),
+                trailing_newlines(&cli),
+                "LSP trailing newlines diverged from the CLI for {input:?}"
+            );
+        }
+
+        let reproduced = format_once("One. Two.\n").await;
+        let reproduced_again = format_once(&reproduced).await;
+        assert_eq!(reproduced, "One.\nTwo.\n");
+        assert_eq!(reproduced_again, "One.\nTwo.\n");
+        assert_eq!(trailing_newlines(&reproduced_again), 1);
+    }
 }
