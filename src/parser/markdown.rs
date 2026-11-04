@@ -5652,6 +5652,41 @@ mod tests {
         assert_eq!(format_text(&quote, &cfg).unwrap(), quote);
     }
 
+    /// A list item or quote that ends the file with no final newline must
+    /// split. The render check used to reject that rewrite and leave the
+    /// line fused.
+    #[test]
+    fn list_and_quote_at_eof_without_newline_splits() {
+        use crate::format::Format;
+        use crate::{FormatConfig, format_text};
+
+        let cfg = FormatConfig {
+            format: Format::Markdown,
+            ..Default::default()
+        };
+        let cases = [
+            ("- One. Two.", "- One.\n  Two."),
+            ("1. One. Two.", "1. One.\n   Two."),
+            ("> One. Two.", "> One.\n> Two."),
+            ("x\n\n- One. Two.", "x\n\n- One.\n  Two."),
+            ("- a\n  - One. Two.", "- a\n  - One.\n    Two."),
+            (
+                "> One. Two.\nstill quoted.",
+                "> One.\n> Two.\n> still quoted.",
+            ),
+            ("intro\n\n> One. Two.", "intro\n\n> One.\n> Two."),
+            ("- One.\n\n  Two. Three.", "- One.\n\n  Two.\n  Three."),
+        ];
+        for (input, expected) in cases {
+            let out = format_text(input, &cfg).unwrap();
+            assert_eq!(out, expected, "input {input:?}");
+            assert_eq!(format_text(&out, &cfg).unwrap(), out, "input {input:?}");
+            let input_breaks = input.bytes().rev().take_while(|&b| b == b'\n').count();
+            let output_breaks = out.bytes().rev().take_while(|&b| b == b'\n').count();
+            assert_eq!(output_breaks, input_breaks, "final newlines for {input:?}");
+        }
+    }
+
     #[test]
     fn blockquote_keeps_marker_on_each_content_line() {
         use crate::format::Format;

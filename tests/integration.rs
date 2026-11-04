@@ -48,6 +48,8 @@ mod md_dollar_period;
 mod md_empty_atx_heading;
 #[path = "md_empty_list_item.rs"]
 mod md_empty_list_item;
+#[path = "md_eof_list_quote.rs"]
+mod md_eof_list_quote;
 #[path = "md_example_list.rs"]
 mod md_example_list;
 #[path = "md_four_space_nested_list.rs"]
