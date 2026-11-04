@@ -919,6 +919,51 @@ mod tests {
         assert_eq!(document_end("café. Suite.\n"), Position::new(1, 0));
     }
 
+    /// The cover check reads the whole buffer, final break included, so a
+    /// range that stops inside the last line is not the whole buffer. A
+    /// file with no final break keeps its end column on that line, and a
+    /// range that ends before that column has to take the line slice.
+    /// Accepting any range that ends on the last row would send those
+    /// ranges down the whole-document path instead.
+    #[test]
+    fn a_range_short_of_the_end_column_does_not_cover_the_document() {
+        let from_start = |line: u32, character: u32| Range {
+            start: Position::new(0, 0),
+            end: Position::new(line, character),
+        };
+        let open = [
+            "One. Two.",
+            "One. Two.\r\nThree. Four.",
+            "- One. Two.\r\n\r\n> Three. Four.",
+            "intro.\r\ncafé. Suite.",
+            "intro.\n\u{1F600} One. Two.",
+        ];
+        for text in open {
+            let end = document_end(text);
+            assert!(
+                end.character > 0,
+                "no final break leaves the end column on the last line: {text:?}"
+            );
+            assert!(
+                !range_covers_document(text, from_start(end.line, end.character - 1)),
+                "one column short of the end is not the whole buffer: {text:?}"
+            );
+            assert!(
+                range_covers_document(text, from_start(end.line, end.character)),
+                "the end column is the whole buffer: {text:?}"
+            );
+            assert!(
+                range_covers_document(text, from_start(end.line + 1, 0)),
+                "a row past the last one is the whole buffer: {text:?}"
+            );
+        }
+        // A final break puts the end column at 0, so every range that
+        // ends on that row is already the whole buffer.
+        let ended = "One. Two.\n";
+        assert_eq!(document_end(ended), Position::new(1, 0));
+        assert!(range_covers_document(ended, from_start(1, 0)));
+    }
+
     /// A last line with multi-byte text, and no final break to end it.
     /// The edit column is a UTF-16 code unit, so a byte count overshoots
     /// it, and the whole-buffer range then misses the cover check and
@@ -1137,6 +1182,36 @@ mod tests {
             );
             drop(session.socket);
         });
+    }
+
+    /// With no final break, the document ends inside its last line.
+    /// A range from the buffer start that stops one column short of that
+    /// end does not cover the document, so it takes the line slice.
+    /// On `\r\n` text the two paths return different text: the slice
+    /// joins its lines with `\n`, and the whole-document edit keeps `\r\n`.
+    #[test]
+    fn range_short_of_an_open_last_line_does_not_cover_the_document() {
+        let from_start = |end: Position| Range {
+            start: Position::new(0, 0),
+            end,
+        };
+        for text in [
+            "One. Two.\nThree. Four.",
+            "One. Two.\r\nThree. Four.",
+            "Intro.\n\n- One. Two.",
+            "Intro. Text.\n\u{1F600} One. Two.",
+        ] {
+            let end = document_end(text);
+            assert!(
+                range_covers_document(text, from_start(end)),
+                "a range to {end:?} covers {text:?}"
+            );
+            let short = Position::new(end.line, end.character - 1);
+            assert!(
+                !range_covers_document(text, from_start(short)),
+                "a range to {short:?} stops inside the last line of {text:?}"
+            );
+        }
     }
 
     /// The column of a line end is a UTF-16 code unit, not a byte.
