@@ -691,15 +691,20 @@ mod tests {
         }
 
         async fn range_formatting(&self, text: &str) -> Option<Vec<TextEdit>> {
+            self.range_formatting_over(Range {
+                start: Position::new(0, 0),
+                end: client_document_end(text),
+            })
+            .await
+        }
+
+        async fn range_formatting_over(&self, range: Range) -> Option<Vec<TextEdit>> {
             self.server()
                 .range_formatting(DocumentRangeFormattingParams {
                     text_document: TextDocumentIdentifier {
                         uri: self.uri.clone(),
                     },
-                    range: Range {
-                        start: Position::new(0, 0),
-                        end: client_document_end(text),
-                    },
+                    range,
                     options: Self::options(),
                     work_done_progress_params: WorkDoneProgressParams::default(),
                 })
@@ -897,6 +902,193 @@ mod tests {
 
                 drop(session.socket);
             }
+        });
+    }
+
+    /// A range that stops short of the whole buffer formats only its own
+    /// lines, an inverted range is no edit, and a range that ends past the
+    /// buffer is the whole-document edit.
+    #[test]
+    fn partial_range_formats_only_its_lines() {
+        let two = "One. Two.\n\nThree. Four.\n";
+        let two_open = "One. Two.\n\nThree. Four.";
+        let range = |a: (u32, u32), b: (u32, u32)| Range {
+            start: Position::new(a.0, a.1),
+            end: Position::new(b.0, b.1),
+        };
+        let cases = [
+            (two, range((0, 0), (0, 9)), "One.\nTwo.\n\nThree. Four.\n"),
+            (two, range((2, 0), (3, 0)), "One. Two.\n\nThree.\nFour.\n"),
+            // Ends on an earlier line, at a column past the last line's length.
+            (
+                two_open,
+                range((0, 0), (0, 20)),
+                "One.\nTwo.\n\nThree. Four.",
+            ),
+            (two, range((2, 0), (0, 0)), two),
+            ("One. Two.\r\n", range((0, 0), (5, 0)), "One.\r\nTwo.\r\n"),
+        ];
+        let rt = tokio::runtime::Runtime::new().expect("runtime");
+        rt.block_on(async {
+            for (text, range, expected) in cases {
+                let session = Session::open(text).await;
+                let edits = session.range_formatting_over(range).await;
+                assert_eq!(
+                    apply_optional(text, &edits),
+                    expected,
+                    "range {range:?} over {text:?}"
+                );
+                drop(session.socket);
+            }
+        });
+    }
+
+    /// Ranges a whole-buffer request never sends: an inverted one, one
+    /// over part of the buffer, one whose end runs past the last line,
+    /// and one that ends on the first line past its last column.
+    /// An inverted range returns no edit. The slice is empty when
+    /// `start > end`, and formatting that empty slice is already no edit,
+    /// so that arm does not decide alone.
+    /// A start past the last line is `start >= lines.len()`.
+    /// `empty_document_range_inside_its_line_returns_no_edit` panics when
+    /// that check is removed.
+    /// An end past the last row is the cover check, not the bounds guard.
+    #[test]
+    fn partial_ranges_pick_the_slice_path_and_stay_in_bounds() {
+        // Three prose lines, each holding two sentences, and a final
+        // break. The document end is the start of the fourth row.
+        let text = "alpha. Beta.\ngamma. Delta.\nepsilon. Zeta.\n";
+        let first_line_len = "alpha. Beta.".len() as u32;
+        let second_line_len = "gamma. Delta.".len() as u32;
+        let document_end = Position::new(3, 0);
+
+        let rt = tokio::runtime::Runtime::new().expect("runtime");
+        rt.block_on(async {
+            let session = Session::open(text).await;
+
+            // An inverted range names no lines, so there is nothing to
+            // format and nothing to slice.
+            let inverted = Range {
+                start: Position::new(1, 0),
+                end: Position::new(0, 0),
+            };
+            assert!(
+                session.range_formatting_over(inverted).await.is_none(),
+                "an inverted range has no edit"
+            );
+
+            // A start past the last line names no lines either.
+            let past_start = Range {
+                start: Position::new(9, 0),
+                end: Position::new(9, 0),
+            };
+            assert!(
+                session.range_formatting_over(past_start).await.is_none(),
+                "a start past the last line has no edit"
+            );
+
+            // Two of the three lines: the edit ends on the second line,
+            // and the third line keeps its two sentences.
+            let two_lines = Range {
+                start: Position::new(0, 0),
+                end: Position::new(1, second_line_len),
+            };
+            let edits = session
+                .range_formatting_over(two_lines)
+                .await
+                .expect("two lines need an edit");
+            assert_eq!(edits.len(), 1);
+            assert_eq!(
+                edits[0].range.end,
+                Position::new(1, second_line_len),
+                "the edit covers the named lines only"
+            );
+            assert_eq!(
+                apply_edits(text, &edits),
+                "alpha.\nBeta.\ngamma.\nDelta.\nepsilon. Zeta.\n",
+                "only the named lines are rewritten"
+            );
+
+            // An end line past the last row still covers the document,
+            // so this is the whole-document edit.
+            let past_end = Range {
+                start: Position::new(0, 0),
+                end: Position::new(99, 0),
+            };
+            let edits = session
+                .range_formatting_over(past_end)
+                .await
+                .expect("a range past the end needs an edit");
+            assert_eq!(
+                edits[0].range.end, document_end,
+                "an end past the last row is the whole document"
+            );
+
+            // An end on the first line past its last column covers that
+            // line, not the document.
+            let first_line = Range {
+                start: Position::new(0, 0),
+                end: Position::new(0, 99),
+            };
+            let edits = session
+                .range_formatting_over(first_line)
+                .await
+                .expect("the first line needs an edit");
+            assert_eq!(
+                edits[0].range.end,
+                Position::new(0, first_line_len),
+                "a column past the first line is still the first line"
+            );
+            assert_eq!(
+                apply_edits(text, &edits),
+                "alpha.\nBeta.\ngamma. Delta.\nepsilon. Zeta.\n",
+                "the rows below the range keep their sentences"
+            );
+
+            drop(session.socket);
+        });
+    }
+
+    /// A range from `(1, 0)` to `(2, 0)` on an empty document.
+    /// The end clamps to row 0, so `start > end` returns no edit.
+    /// Removing `start >= lines.len()` leaves this request with no edit,
+    /// so the test pins `start > end` and not the empty-document bound.
+    #[test]
+    fn empty_document_past_the_end_returns_no_edit() {
+        let rt = tokio::runtime::Runtime::new().expect("runtime");
+        rt.block_on(async {
+            let session = Session::open("").await;
+            let past = Range {
+                start: Position::new(1, 0),
+                end: Position::new(2, 0),
+            };
+            assert!(
+                session.range_formatting_over(past).await.is_none(),
+                "a range past an empty document has no edit"
+            );
+            drop(session.socket);
+        });
+    }
+
+    /// A range that starts inside the only line of an empty document is
+    /// not the whole buffer, so it reaches the slice path, which has no
+    /// line to format.
+    /// `start >= lines.len()` returns no edit.
+    /// Removing that check panics on the empty line list.
+    #[test]
+    fn empty_document_range_inside_its_line_returns_no_edit() {
+        let rt = tokio::runtime::Runtime::new().expect("runtime");
+        rt.block_on(async {
+            let session = Session::open("").await;
+            let inside = Range {
+                start: Position::new(0, 1),
+                end: Position::new(0, 1),
+            };
+            assert!(
+                session.range_formatting_over(inside).await.is_none(),
+                "a range inside an empty document has no edit"
+            );
+            drop(session.socket);
         });
     }
 }
