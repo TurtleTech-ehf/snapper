@@ -280,12 +280,12 @@ impl LanguageServer for SnapperLsp {
             return Ok(None);
         }
 
-        let last_col = lines.get(end).map_or(0, |l| l.len());
+        let last_col = lines.get(end).map_or(0, |l| line_end_column(l));
 
         Ok(Some(vec![TextEdit {
             range: Range {
                 start: Position::new(start as u32, 0),
-                end: Position::new(end as u32, last_col as u32),
+                end: Position::new(end as u32, last_col),
             },
             new_text: formatted,
         }]))
@@ -355,11 +355,11 @@ impl LanguageServer for SnapperLsp {
                 continue;
             }
 
-            let last_col = lines.get(end).map_or(0, |l| l.len());
+            let last_col = lines.get(end).map_or(0, |l| line_end_column(l));
             let edit = TextEdit {
                 range: Range {
                     start: Position::new(start as u32, 0),
-                    end: Position::new(end as u32, last_col as u32),
+                    end: Position::new(end as u32, last_col),
                 },
                 new_text: formatted,
             };
@@ -490,11 +490,19 @@ fn document_end(text: &str) -> Position {
     } else {
         let last = text.rsplit_once('\n').map(|(_, last)| last).unwrap_or(text);
         let last = last.strip_suffix('\r').unwrap_or(last);
-        // No position encoding is negotiated, so columns are UTF-16 code
-        // units. A byte count overshoots on a non-ASCII line and makes
-        // `range_covers_document` miss a client's whole-buffer range.
-        Position::new(newlines as u32, last.encode_utf16().count() as u32)
+        Position::new(newlines as u32, line_end_column(last))
     }
+}
+
+/// Column just past the last character of a line, in UTF-16 code units.
+///
+/// No position encoding is negotiated, so a column is a UTF-16 code
+/// unit. A byte count overshoots a line that holds multi-byte text. A
+/// client clamps the overshoot back to the line end and still applies
+/// the right text, so the only place it shows is the range the server
+/// reports.
+fn line_end_column(line: &str) -> u32 {
+    line.encode_utf16().count() as u32
 }
 
 fn range_covers_document(text: &str, range: Range) -> bool {
@@ -747,6 +755,45 @@ mod tests {
                 }
             }
             None
+        }
+
+        /// Every edit the quickfix actions carry, in the order returned.
+        async fn quickfix_edits(&self, text: &str) -> Vec<TextEdit> {
+            let diagnostics = self.server().compute_diagnostics(&self.uri);
+            let actions = self
+                .server()
+                .code_action(CodeActionParams {
+                    text_document: TextDocumentIdentifier {
+                        uri: self.uri.clone(),
+                    },
+                    range: Range {
+                        start: Position::new(0, 0),
+                        end: client_document_end(text),
+                    },
+                    context: CodeActionContext {
+                        diagnostics,
+                        only: Some(vec![CodeActionKind::QUICKFIX]),
+                        trigger_kind: None,
+                    },
+                    work_done_progress_params: WorkDoneProgressParams::default(),
+                    partial_result_params: PartialResultParams::default(),
+                })
+                .await
+                .expect("quickfix");
+            let mut all = Vec::new();
+            for action in actions.into_iter().flatten() {
+                let CodeActionOrCommand::CodeAction(action) = action else {
+                    continue;
+                };
+                let Some(edit) = action.edit else { continue };
+                let Some(changes) = edit.changes else {
+                    continue;
+                };
+                if let Some(edits) = changes.get(&self.uri) {
+                    all.extend(edits.clone());
+                }
+            }
+            all
         }
 
         async fn quickfix_newline_count(&self, text: &str) -> usize {
@@ -1087,6 +1134,138 @@ mod tests {
             assert!(
                 session.range_formatting_over(inside).await.is_none(),
                 "a range inside an empty document has no edit"
+            );
+            drop(session.socket);
+        });
+    }
+
+    /// The column of a line end is a UTF-16 code unit, not a byte.
+    #[test]
+    fn line_end_column_counts_utf16_code_units() {
+        assert_eq!(line_end_column(""), 0);
+        assert_eq!(line_end_column("alpha. Beta."), 12);
+        assert_eq!(line_end_column("café. Suite."), 12);
+        assert_eq!(line_end_column("\u{1F600} One."), 7);
+    }
+
+    /// A range that stops short of the whole buffer takes the line slice,
+    /// whose end column counted bytes. On a line with multi-byte text
+    /// that column runs past the line, and a client that reads the range
+    /// instead of clamping it edits text the server never named.
+    #[test]
+    fn slice_edit_columns_are_utf16_code_units() {
+        let range = |a: (u32, u32), b: (u32, u32)| Range {
+            start: Position::new(a.0, a.1),
+            end: Position::new(b.0, b.1),
+        };
+        let cases = [
+            ("café. Suite.", range((0, 0), (0, 11)), Position::new(0, 12)),
+            (
+                "intro. text.\ncafé. Suite.",
+                range((0, 0), (1, 11)),
+                Position::new(1, 12),
+            ),
+            (
+                "intro. text.\n\u{1F600} One. Two.",
+                range((0, 0), (1, 11)),
+                Position::new(1, 12),
+            ),
+            (
+                "café. Suite.\nintro. text.",
+                range((0, 0), (0, 11)),
+                Position::new(0, 12),
+            ),
+        ];
+        let rt = tokio::runtime::Runtime::new().expect("runtime");
+        rt.block_on(async {
+            for (text, range, expected) in cases {
+                let session = Session::open(text).await;
+                let edits = session
+                    .range_formatting_over(range)
+                    .await
+                    .expect("the slice needs an edit");
+                assert_eq!(
+                    edits[0].range.end, expected,
+                    "the slice edit end must be a UTF-16 column for {text:?}"
+                );
+                drop(session.socket);
+            }
+
+            // One buffer, three lines: a café line, an emoji line, and
+            // a line of plain letters. The range stops at column 1 so
+            // it is not the whole line and not the whole buffer.
+            let text = "café. Suite.\n\u{1F600} One. Two.\nplain. Line.\n";
+            let cafe = "café. Suite.".encode_utf16().count() as u32;
+            let astral = "\u{1F600} One. Two.".encode_utf16().count() as u32;
+            let plain = "plain. Line.".encode_utf16().count() as u32;
+            let session = Session::open(text).await;
+            for (line, units) in [(0, cafe), (1, astral), (2, plain)] {
+                let edits = session
+                    .range_formatting_over(Range {
+                        start: Position::new(line, 0),
+                        end: Position::new(line, 1),
+                    })
+                    .await
+                    .expect("a fused line needs an edit");
+                assert_eq!(
+                    edits[0].range.end,
+                    Position::new(line, units),
+                    "range formatting end on line {line}"
+                );
+            }
+            drop(session.socket);
+        });
+    }
+
+    /// The quickfix action builds its edit from the same line slice, so
+    /// its end column is a UTF-16 code unit too.
+    #[test]
+    fn quickfix_edit_columns_are_utf16_code_units() {
+        // The column the test expects, counted here rather than through
+        // the code under test.
+        let utf16_len = |line: &str| line.chars().map(|c| c.len_utf16() as u32).sum::<u32>();
+        let cases = [
+            "café. Suite.",
+            "intro. text.\ncafé. Suite.",
+            "\u{1F600} One. Two.",
+            "café. Suite.\n\u{1F600} One. Two.\nplain. Line.\n",
+        ];
+        let rt = tokio::runtime::Runtime::new().expect("runtime");
+        rt.block_on(async {
+            for text in cases {
+                let session = Session::open(text).await;
+                let edits = session.quickfix_edits(text).await;
+                assert!(!edits.is_empty(), "a quickfix edit for {text:?}");
+                for edit in &edits {
+                    let line = text
+                        .lines()
+                        .nth(edit.range.end.line as usize)
+                        .unwrap_or_default();
+                    assert_eq!(
+                        edit.range.end.character,
+                        utf16_len(line),
+                        "the quickfix edit end must be a UTF-16 column for {text:?}"
+                    );
+                }
+                drop(session.socket);
+            }
+
+            let text = "café. Suite.\n\u{1F600} One. Two.\nplain. Line.\n";
+            let session = Session::open(text).await;
+            let ends: Vec<Position> = session
+                .quickfix_edits(text)
+                .await
+                .iter()
+                .map(|edit| edit.range.end)
+                .collect();
+            assert_eq!(
+                ends,
+                vec![
+                    Position::new(0, utf16_len("café. Suite.")),
+                    Position::new(1, utf16_len("\u{1F600} One. Two.")),
+                    Position::new(2, utf16_len("plain. Line.")),
+                ],
+                "quickfix edit ends"
             );
             drop(session.socket);
         });
