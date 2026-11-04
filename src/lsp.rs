@@ -490,9 +490,10 @@ fn document_end(text: &str) -> Position {
     } else {
         let last = text.rsplit_once('\n').map(|(_, last)| last).unwrap_or(text);
         let last = last.strip_suffix('\r').unwrap_or(last);
-        // Byte length, matching the column this range used before.
-        // A column past the UTF-16 line length clamps to the line end.
-        Position::new(newlines as u32, last.len() as u32)
+        // No position encoding is negotiated, so columns are UTF-16 code
+        // units. A byte count overshoots on a non-ASCII line and makes
+        // `range_covers_document` miss a client's whole-buffer range.
+        Position::new(newlines as u32, last.encode_utf16().count() as u32)
     }
 }
 
@@ -845,11 +846,56 @@ mod tests {
             "",
             "café. Suite.\n",
             "café. Suite.",
+            "Intro. Text.\r\n\r\ncafé. Suite.",
         ];
         let rt = tokio::runtime::Runtime::new().expect("runtime");
         rt.block_on(async {
             for text in cases {
                 assert_document(text).await;
+            }
+        });
+    }
+
+    /// With no position encoding negotiated, columns are UTF-16 code units.
+    #[test]
+    fn document_end_counts_utf16_code_units() {
+        assert_eq!(document_end("café. Suite."), Position::new(0, 12));
+        assert_eq!(
+            document_end("Intro.\r\n\r\n\u{1F600} One."),
+            Position::new(2, 7)
+        );
+        assert_eq!(document_end("café. Suite.\n"), Position::new(1, 0));
+    }
+
+    /// A last line with multi-byte text, and no final break to end it.
+    /// The edit column is a UTF-16 code unit, so a byte count overshoots
+    /// it, and the whole-buffer range then misses the cover check and
+    /// falls back to the line slice, which drops the carriage returns.
+    #[test]
+    fn edit_columns_are_utf16_code_units_on_the_last_line() {
+        let cases = [
+            "café. Suite.",
+            "intro.\r\ncafé. Suite.",
+            "😀 One. Two.",
+            "intro.\r\n😀 One. Two.",
+        ];
+        let rt = tokio::runtime::Runtime::new().expect("runtime");
+        rt.block_on(async {
+            for text in cases {
+                let cli = format_text(text, &markdown_config()).expect("cli format");
+                let session = Session::open(text).await;
+
+                let edits = session.formatting().await.expect("one edit");
+                assert_eq!(
+                    edits[0].range.end,
+                    client_document_end(text),
+                    "the edit end must be a UTF-16 column for {text:?}"
+                );
+
+                let ranged = apply_optional(text, &session.range_formatting(text).await);
+                assert_eq!(ranged, cli, "range formatting vs format_text for {text:?}");
+
+                drop(session.socket);
             }
         });
     }
