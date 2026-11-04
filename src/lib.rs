@@ -819,4 +819,22 @@ mod eof_newline_render_check_tests {
         assert_eq!(format_md("- A. a0.A."), "- A. a0.A.");
         assert_eq!(format_md("- A. a0.A.\n"), "- A. a0.A.\n");
     }
+
+    #[test]
+    fn trailing_hard_break_without_final_newline_splits() {
+        // Two spaces or a backslash are a Markdown hard break. With a final
+        // newline the sentences split and the break stays on the last line.
+        // The same bytes without that newline must split the same way.
+        assert_eq!(format_md("- One. Two.  "), "- One.\n  Two.  ");
+        assert_eq!(format_md("> One. Two.  "), "> One.\n> Two.  ");
+        assert_eq!(format_md("One. Two.  "), "One.\nTwo.  ");
+        assert_eq!(format_md("- One. Two.\\"), "- One.\n  Two.\\");
+        assert_eq!(format_md("One. Two.   "), "One.\nTwo.   ");
+        assert_eq!(format_md("x\r\n- One. Two.  "), "x\r\n- One.\r\n  Two.  ");
+        let out = format_md("- One. Two.  ");
+        assert_eq!(format_md(&out), out);
+        assert_eq!(format_md("- One. Two.  \n"), "- One.\n  Two.  \n");
+        assert_eq!(format_md("One. Two.  \n"), "One.\nTwo.  \n");
+        assert_eq!(format_md("- One. Two.\\\n"), "- One.\n  Two.\\\n");
+    }
 }

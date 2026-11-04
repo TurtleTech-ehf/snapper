@@ -501,6 +501,33 @@ fn list_item_at_eof_without_final_newline_splits() {
     }
 }
 
+/// A hard break at end of file is still a list item. Two trailing spaces
+/// or a backslash must not make the render check keep the line fused.
+#[test]
+fn list_hard_break_at_eof_without_final_newline_splits() {
+    let cases = [
+        ("- One. Two.  ", "- One.\n  Two.  "),
+        ("> One. Two.  ", "> One.\n> Two.  "),
+        ("- One. Two.\\", "- One.\n  Two.\\"),
+        ("- One. Two.  \n", "- One.\n  Two.  \n"),
+    ];
+    for (input, expected) in cases {
+        let out = pipe_stdin(input, &["--stdin-filepath", "x.md"]);
+        assert!(
+            out.status.success(),
+            "input {input:?} stderr {}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        let stdout = String::from_utf8(out.stdout).unwrap();
+        assert_eq!(stdout, expected, "input {input:?}");
+        let err = String::from_utf8(out.stderr).unwrap();
+        assert!(
+            !err.contains("render check failed"),
+            "input {input:?} stderr {err}"
+        );
+    }
+}
+
 /// A real render change at end of file still fails the check.
 #[test]
 fn render_check_still_rejects_eof_list_word_change() {
