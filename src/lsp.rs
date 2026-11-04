@@ -68,23 +68,7 @@ impl SnapperLsp {
         let (text, format) = docs.get(uri)?;
         let config = self.make_config(*format);
         let formatted = format_text(text, &config).ok()?;
-
-        if formatted == *text {
-            return None;
-        }
-
-        // `str::lines()` drops the break and does not yield a row for a
-        // final newline, so a range built from it stops on the last
-        // content character. `formatted` still ends with the newline the
-        // CLI keeps, and the client then keeps the uncovered one too.
-        // Each later format that changes the buffer appends another.
-        Some(vec![TextEdit {
-            range: Range {
-                start: Position::new(0, 0),
-                end: document_end(text),
-            },
-            new_text: formatted,
-        }])
+        whole_document_edit(text, formatted)
     }
 
     fn compute_diagnostics(&self, uri: &Url) -> Vec<Diagnostic> {
@@ -267,12 +251,26 @@ impl LanguageServer for SnapperLsp {
             return Ok(None);
         };
 
+        let config = self.make_config(*format);
+        // A range that already covers the whole buffer, final break
+        // included, is the same edit as format document. Slicing through
+        // `lines` drops that break and the replacement can put it back.
+        if range_covers_document(text, range) {
+            let formatted = match format_text(text, &config) {
+                Ok(formatted) => formatted,
+                Err(_) => return Ok(None),
+            };
+            return Ok(whole_document_edit(text, formatted));
+        }
+
         let lines: Vec<&str> = text.lines().collect();
         let start = range.start.line as usize;
         let end = (range.end.line as usize).min(lines.len().saturating_sub(1));
+        if start >= lines.len() || start > end {
+            return Ok(None);
+        }
         let range_text = lines[start..=end].join("\n");
 
-        let config = self.make_config(*format);
         let formatted = match format_text(&range_text, &config) {
             Ok(f) => f,
             Err(_) => return Ok(None),
@@ -477,31 +475,47 @@ impl LanguageServer for SnapperLsp {
     }
 }
 
-/// LSP position just past the last byte of `text`.
+/// Position just past the last character, final line break included.
 ///
-/// A trailing `\n`, `\r\n`, or `\r` ends a line, so the position sits at
-/// column 0 of the next line. Columns are UTF-16 code units, which is the
-/// encoding used when the client does not negotiate another one.
+/// `str::lines` drops a final break, so a range built from the last
+/// line's length stops before that break. The replacement from
+/// `format_text` still carries the break when the input had one, and
+/// the editor keeps the uncovered break, adding a line on every
+/// reformat. A break is the boundary before the next line, so the
+/// position after it is `(newline_count, 0)`.
 fn document_end(text: &str) -> Position {
-    let mut line = 0u32;
-    let mut character = 0u32;
-    let mut rest = text;
-    while !rest.is_empty() {
-        if rest.starts_with("\r\n") {
-            rest = &rest[2..];
-            line += 1;
-            character = 0;
-        } else if rest.starts_with(['\n', '\r']) {
-            rest = &rest[1..];
-            line += 1;
-            character = 0;
-        } else {
-            let ch = rest.chars().next().expect("non-empty text has a char");
-            character += ch.len_utf16() as u32;
-            rest = &rest[ch.len_utf8()..];
-        }
+    let newlines = text.bytes().filter(|&b| b == b'\n').count();
+    if text.ends_with('\n') {
+        Position::new(newlines as u32, 0)
+    } else {
+        let last = text.rsplit_once('\n').map(|(_, last)| last).unwrap_or(text);
+        let last = last.strip_suffix('\r').unwrap_or(last);
+        // Byte length, matching the column this range used before.
+        // A column past the UTF-16 line length clamps to the line end.
+        Position::new(newlines as u32, last.len() as u32)
     }
-    Position::new(line, character)
+}
+
+fn range_covers_document(text: &str, range: Range) -> bool {
+    let end = document_end(text);
+    range.start.line == 0
+        && range.start.character == 0
+        && (range.end.line > end.line
+            || (range.end.line == end.line && range.end.character >= end.character))
+}
+
+fn whole_document_edit(text: &str, formatted: String) -> Option<Vec<TextEdit>> {
+    if formatted == text {
+        None
+    } else {
+        Some(vec![TextEdit {
+            range: Range {
+                start: Position::new(0, 0),
+                end: document_end(text),
+            },
+            new_text: formatted,
+        }])
+    }
 }
 
 fn detect_format_from_uri(uri: &Url, language_id: &str) -> Format {
@@ -531,6 +545,318 @@ pub async fn run_lsp() {
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+
+    use crate::format::Format;
+    use crate::{FormatConfig, format_text};
+
+    fn markdown_config() -> FormatConfig {
+        FormatConfig {
+            format: Format::Markdown,
+            use_pandoc: false,
+            ..Default::default()
+        }
+    }
+
+    fn final_newlines(s: &str) -> usize {
+        s.bytes().rev().take_while(|&b| b == b'\n').count()
+    }
+
+    /// End position a client sends for the whole buffer.
+    /// A final break ends at the start of the next line.
+    fn client_document_end(text: &str) -> Position {
+        let newlines = text.bytes().filter(|&b| b == b'\n').count();
+        if text.ends_with('\n') {
+            Position::new(newlines as u32, 0)
+        } else {
+            let last = text.rsplit_once('\n').map(|(_, last)| last).unwrap_or(text);
+            let last = last.strip_suffix('\r').unwrap_or(last);
+            let mut units = 0u32;
+            for ch in last.chars() {
+                units += ch.len_utf16() as u32;
+            }
+            Position::new(newlines as u32, units)
+        }
+    }
+
+    /// Byte offset of an LSP position. Columns are UTF-16 code units.
+    /// A column past the end of the line clamps to the line length.
+    fn offset_at(text: &str, line: u32, character: u32) -> usize {
+        let bytes = text.as_bytes();
+        let mut line_start = 0usize;
+        let mut seen = 0u32;
+        let mut i = 0usize;
+        while i < bytes.len() && seen < line {
+            if bytes[i] == b'\n' {
+                seen += 1;
+                line_start = i + 1;
+            }
+            i += 1;
+        }
+        if seen < line {
+            return text.len();
+        }
+        let mut line_end = line_start;
+        while line_end < bytes.len() && bytes[line_end] != b'\n' {
+            line_end += 1;
+        }
+        let mut content_end = line_end;
+        if content_end > line_start && bytes[content_end - 1] == b'\r' {
+            content_end -= 1;
+        }
+        let content = &text[line_start..content_end];
+        let mut units = 0u32;
+        for (idx, ch) in content.char_indices() {
+            if units >= character {
+                return line_start + idx;
+            }
+            units += ch.len_utf16() as u32;
+        }
+        line_start + content.len()
+    }
+
+    fn apply_edits(text: &str, edits: &[TextEdit]) -> String {
+        let mut spans: Vec<(usize, usize, &str)> = edits
+            .iter()
+            .map(|edit| {
+                let start = offset_at(text, edit.range.start.line, edit.range.start.character);
+                let end = offset_at(text, edit.range.end.line, edit.range.end.character);
+                (start, end, edit.new_text.as_str())
+            })
+            .collect();
+        spans.sort_by_key(|span| std::cmp::Reverse(span.0));
+        let mut out = text.to_string();
+        for (start, end, new_text) in spans {
+            assert!(start <= end, "edit range {start}..{end} is inverted");
+            out.replace_range(start..end, new_text);
+        }
+        out
+    }
+
+    fn apply_optional(text: &str, edits: &Option<Vec<TextEdit>>) -> String {
+        match edits {
+            None => text.to_string(),
+            Some(edits) => apply_edits(text, edits),
+        }
+    }
+
+    struct Session {
+        service: LspService<SnapperLsp>,
+        socket: tower_lsp::ClientSocket,
+        uri: Url,
+    }
+
+    impl Session {
+        async fn open(text: &str) -> Self {
+            let (service, socket) = LspService::new(SnapperLsp::new);
+            let uri = Url::parse("file:///doc.md").expect("uri");
+            service
+                .inner()
+                .did_open(DidOpenTextDocumentParams {
+                    text_document: TextDocumentItem {
+                        uri: uri.clone(),
+                        language_id: "markdown".into(),
+                        version: 1,
+                        text: text.to_string(),
+                    },
+                })
+                .await;
+            Self {
+                service,
+                socket,
+                uri,
+            }
+        }
+
+        fn server(&self) -> &SnapperLsp {
+            self.service.inner()
+        }
+
+        fn options() -> FormattingOptions {
+            FormattingOptions::default()
+        }
+
+        async fn formatting(&self) -> Option<Vec<TextEdit>> {
+            self.server()
+                .formatting(DocumentFormattingParams {
+                    text_document: TextDocumentIdentifier {
+                        uri: self.uri.clone(),
+                    },
+                    options: Self::options(),
+                    work_done_progress_params: WorkDoneProgressParams::default(),
+                })
+                .await
+                .expect("formatting")
+        }
+
+        async fn range_formatting(&self, text: &str) -> Option<Vec<TextEdit>> {
+            self.server()
+                .range_formatting(DocumentRangeFormattingParams {
+                    text_document: TextDocumentIdentifier {
+                        uri: self.uri.clone(),
+                    },
+                    range: Range {
+                        start: Position::new(0, 0),
+                        end: client_document_end(text),
+                    },
+                    options: Self::options(),
+                    work_done_progress_params: WorkDoneProgressParams::default(),
+                })
+                .await
+                .expect("range formatting")
+        }
+
+        async fn source_action(&self, text: &str) -> Option<Vec<TextEdit>> {
+            let actions = self
+                .server()
+                .code_action(CodeActionParams {
+                    text_document: TextDocumentIdentifier {
+                        uri: self.uri.clone(),
+                    },
+                    range: Range {
+                        start: Position::new(0, 0),
+                        end: client_document_end(text),
+                    },
+                    context: CodeActionContext {
+                        diagnostics: Vec::new(),
+                        only: Some(vec![CodeActionKind::SOURCE]),
+                        trigger_kind: None,
+                    },
+                    work_done_progress_params: WorkDoneProgressParams::default(),
+                    partial_result_params: PartialResultParams::default(),
+                })
+                .await
+                .expect("code action");
+            let actions = actions?;
+            for action in actions {
+                let CodeActionOrCommand::CodeAction(action) = action else {
+                    continue;
+                };
+                let Some(edit) = action.edit else { continue };
+                let Some(changes) = edit.changes else {
+                    continue;
+                };
+                if let Some(edits) = changes.get(&self.uri) {
+                    return Some(edits.clone());
+                }
+            }
+            None
+        }
+
+        async fn quickfix_newline_count(&self, text: &str) -> usize {
+            let diagnostics = self.server().compute_diagnostics(&self.uri);
+            let actions = self
+                .server()
+                .code_action(CodeActionParams {
+                    text_document: TextDocumentIdentifier {
+                        uri: self.uri.clone(),
+                    },
+                    range: Range {
+                        start: Position::new(0, 0),
+                        end: client_document_end(text),
+                    },
+                    context: CodeActionContext {
+                        diagnostics,
+                        only: Some(vec![CodeActionKind::QUICKFIX]),
+                        trigger_kind: None,
+                    },
+                    work_done_progress_params: WorkDoneProgressParams::default(),
+                    partial_result_params: PartialResultParams::default(),
+                })
+                .await
+                .expect("quickfix");
+            let Some(actions) = actions else {
+                return final_newlines(text);
+            };
+            let mut count = final_newlines(text);
+            for action in actions {
+                let CodeActionOrCommand::CodeAction(action) = action else {
+                    continue;
+                };
+                let Some(edit) = action.edit.as_ref() else {
+                    continue;
+                };
+                let Some(changes) = edit.changes.as_ref() else {
+                    continue;
+                };
+                let Some(edits) = changes.get(&self.uri) else {
+                    continue;
+                };
+                count = count.max(final_newlines(&apply_edits(text, edits)));
+            }
+            count
+        }
+    }
+
+    async fn assert_document(text: &str) {
+        let cli = format_text(text, &markdown_config()).expect("cli format");
+        let session = Session::open(text).await;
+        let formatting = session.formatting().await;
+        if text == "One. Two.\n" {
+            let edits = formatting
+                .as_ref()
+                .expect("One. Two. with a final break needs one edit");
+            assert_eq!(edits.len(), 1);
+            assert_eq!(edits[0].range.start, Position::new(0, 0));
+            assert_eq!(
+                edits[0].range.end,
+                Position::new(1, 0),
+                "the edit must cover the final line break, got {:?}",
+                edits[0].range.end
+            );
+            assert_eq!(edits[0].new_text, "One.\nTwo.\n");
+        }
+        let applied = apply_optional(text, &formatting);
+        assert_eq!(applied, cli, "formatting vs format_text for {text:?}");
+        assert_eq!(
+            final_newlines(&applied),
+            final_newlines(text),
+            "final newlines for {text:?}, applied {applied:?}"
+        );
+
+        let again = Session::open(&applied).await;
+        let second = apply_optional(&applied, &again.formatting().await);
+        assert_eq!(second, applied, "formatting twice for {text:?}");
+
+        let ranged = apply_optional(text, &session.range_formatting(text).await);
+        assert_eq!(ranged, cli, "range formatting vs format_text for {text:?}");
+
+        let source = apply_optional(text, &session.source_action(text).await);
+        assert_eq!(source, cli, "source action vs format_text for {text:?}");
+
+        let quick = session.quickfix_newline_count(text).await;
+        assert!(
+            quick <= final_newlines(text),
+            "quickfix added a trailing newline for {text:?}: {quick}"
+        );
+        drop(session.socket);
+    }
+
+    #[test]
+    fn formatting_edit_covers_the_final_line_break() {
+        let cases = [
+            "One. Two.\n",
+            "One. Two.\n\nThree.\n",
+            "- One. Two.\n\n",
+            "One. Two.",
+            "- One.\n  Two.\n",
+            "One. Two.\r\n",
+            "One. Two.\n\n",
+            "",
+            "café. Suite.\n",
+            "café. Suite.",
+        ];
+        let rt = tokio::runtime::Runtime::new().expect("runtime");
+        rt.block_on(async {
+            for text in cases {
+                assert_document(text).await;
+            }
+        });
+    }
+}
+
+#[cfg(test)]
+mod newline_cover {
     use super::*;
     use crate::format::Format;
     use tower_lsp::LanguageServer;
