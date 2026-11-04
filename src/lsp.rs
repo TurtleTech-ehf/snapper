@@ -1038,9 +1038,14 @@ mod tests {
     /// Ranges a whole-buffer request never sends: an inverted one, one
     /// over part of the buffer, one whose end runs past the last line,
     /// and one that ends on the first line past its last column.
-    /// An inverted range returns no edit. The slice is empty when
-    /// `start > end`, and formatting that empty slice is already no edit,
-    /// so that arm does not decide alone.
+    /// An inverted range returns no edit.
+    /// When the start is one line past the end, the slice is empty and
+    /// formatting it is already no edit.
+    /// `lines[start..=end]` panics once `start` is more than one row past
+    /// `end`, so `start > end` decides that case alone.
+    /// Without that arm, the `(2, 0)` to `(0, 0)` case of
+    /// `partial_range_formats_only_its_lines` panics at the slice with
+    /// `slice index starts at 2 but ends at 1`.
     /// A start past the last line is `start >= lines.len()`.
     /// `empty_document_range_inside_its_line_returns_no_edit` panics when
     /// that check is removed.
@@ -1142,9 +1147,9 @@ mod tests {
     }
 
     /// A range from `(1, 0)` to `(2, 0)` on an empty document.
-    /// The end clamps to row 0, so `start > end` returns no edit.
-    /// Removing `start >= lines.len()` leaves this request with no edit,
-    /// so the test pins `start > end` and not the empty-document bound.
+    /// The end clamps to row 0, and `start >= lines.len()` returns no edit.
+    /// With that check removed, `start > end` still returns no edit, so
+    /// this test fails only when both checks are removed.
     #[test]
     fn empty_document_past_the_end_returns_no_edit() {
         let rt = tokio::runtime::Runtime::new().expect("runtime");
