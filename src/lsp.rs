@@ -475,23 +475,33 @@ impl LanguageServer for SnapperLsp {
     }
 }
 
-/// Position just past the last character, final line break included.
+/// LSP position just past the last byte of `text`.
 ///
-/// `str::lines` drops a final break, so a range built from the last
-/// line's length stops before that break. The replacement from
-/// `format_text` still carries the break when the input had one, and
-/// the editor keeps the uncovered break, adding a line on every
-/// reformat. A break is the boundary before the next line, so the
-/// position after it is `(newline_count, 0)`.
+/// A trailing `\n`, `\r\n`, or `\r` ends a line, so the position sits at
+/// column 0 of the next line. Columns are UTF-16 code units, which is the
+/// encoding used when the client does not negotiate another one. The
+/// whole-document edit uses this position, so the final break stays inside
+/// the range and a later reformat does not grow a blank line.
 fn document_end(text: &str) -> Position {
-    let newlines = text.bytes().filter(|&b| b == b'\n').count();
-    if text.ends_with('\n') {
-        Position::new(newlines as u32, 0)
-    } else {
-        let last = text.rsplit_once('\n').map(|(_, last)| last).unwrap_or(text);
-        let last = last.strip_suffix('\r').unwrap_or(last);
-        Position::new(newlines as u32, line_end_column(last))
+    let mut line = 0u32;
+    let mut character = 0u32;
+    let mut rest = text;
+    while !rest.is_empty() {
+        if rest.starts_with("\r\n") {
+            rest = &rest[2..];
+            line += 1;
+            character = 0;
+        } else if rest.starts_with(['\n', '\r']) {
+            rest = &rest[1..];
+            line += 1;
+            character = 0;
+        } else {
+            let ch = rest.chars().next().expect("non-empty text has a char");
+            character += ch.len_utf16() as u32;
+            rest = &rest[ch.len_utf8()..];
+        }
     }
+    Position::new(line, character)
 }
 
 /// Column just past the last character of a line, in UTF-16 code units.
@@ -552,8 +562,10 @@ pub async fn run_lsp() {
     Server::new(stdin, stdout, socket).serve(service).await;
 }
 
+/// Range, column and quickfix checks for language-server edits.
+/// The newline tests that already covered a final break stay in `tests`.
 #[cfg(test)]
-mod tests {
+mod edit_cover {
     use super::*;
 
     use crate::format::Format;
@@ -572,24 +584,35 @@ mod tests {
     }
 
     /// End position a client sends for the whole buffer.
-    /// A final break ends at the start of the next line.
+    ///
+    /// A trailing `\n`, `\r\n`, or a lone `\r` ends a line, so the position
+    /// sits at column 0 of the next line. Columns are UTF-16 code units.
+    /// This walks the text on its own and does not call `document_end`.
     fn client_document_end(text: &str) -> Position {
-        let newlines = text.bytes().filter(|&b| b == b'\n').count();
-        if text.ends_with('\n') {
-            Position::new(newlines as u32, 0)
-        } else {
-            let last = text.rsplit_once('\n').map(|(_, last)| last).unwrap_or(text);
-            let last = last.strip_suffix('\r').unwrap_or(last);
-            let mut units = 0u32;
-            for ch in last.chars() {
-                units += ch.len_utf16() as u32;
+        let mut line = 0u32;
+        let mut character = 0u32;
+        let mut rest = text;
+        while !rest.is_empty() {
+            if rest.starts_with("\r\n") {
+                rest = &rest[2..];
+                line += 1;
+                character = 0;
+            } else if rest.starts_with(['\n', '\r']) {
+                rest = &rest[1..];
+                line += 1;
+                character = 0;
+            } else {
+                let ch = rest.chars().next().expect("non-empty text has a char");
+                character += ch.len_utf16() as u32;
+                rest = &rest[ch.len_utf8()..];
             }
-            Position::new(newlines as u32, units)
         }
+        Position::new(line, character)
     }
 
     /// Byte offset of an LSP position. Columns are UTF-16 code units.
     /// A column past the end of the line clamps to the line length.
+    /// A line ends on `\n`, `\r\n`, or a lone `\r`.
     fn offset_at(text: &str, line: u32, character: u32) -> usize {
         let bytes = text.as_bytes();
         let mut line_start = 0usize;
@@ -597,21 +620,29 @@ mod tests {
         let mut i = 0usize;
         while i < bytes.len() && seen < line {
             if bytes[i] == b'\n' {
+                i += 1;
                 seen += 1;
-                line_start = i + 1;
+                line_start = i;
+            } else if bytes[i] == b'\r' {
+                i += 1;
+                if i < bytes.len() && bytes[i] == b'\n' {
+                    i += 1;
+                }
+                seen += 1;
+                line_start = i;
+            } else {
+                i += 1;
             }
-            i += 1;
         }
         if seen < line {
             return text.len();
         }
-        let mut line_end = line_start;
-        while line_end < bytes.len() && bytes[line_end] != b'\n' {
-            line_end += 1;
-        }
-        let mut content_end = line_end;
-        if content_end > line_start && bytes[content_end - 1] == b'\r' {
-            content_end -= 1;
+        let mut content_end = line_start;
+        while content_end < bytes.len()
+            && bytes[content_end] != b'\n'
+            && bytes[content_end] != b'\r'
+        {
+            content_end += 1;
         }
         let content = &text[line_start..content_end];
         let mut units = 0u32;
@@ -619,9 +650,13 @@ mod tests {
             if units >= character {
                 return line_start + idx;
             }
-            units += ch.len_utf16() as u32;
+            let width = ch.len_utf16() as u32;
+            if units + width > character {
+                return line_start + idx;
+            }
+            units += width;
         }
-        line_start + content.len()
+        content_end
     }
 
     fn apply_edits(text: &str, edits: &[TextEdit]) -> String {
@@ -760,6 +795,16 @@ mod tests {
         /// Every edit the quickfix actions carry, in the order returned.
         async fn quickfix_edits(&self, text: &str) -> Vec<TextEdit> {
             let diagnostics = self.server().compute_diagnostics(&self.uri);
+            self.quickfix_edits_for(text, diagnostics).await
+        }
+
+        /// The same, for diagnostics the caller supplies. A client may send
+        /// back a diagnostic it received before an edit shortened the file.
+        async fn quickfix_edits_for(
+            &self,
+            text: &str,
+            diagnostics: Vec<Diagnostic>,
+        ) -> Vec<TextEdit> {
             let actions = self
                 .server()
                 .code_action(CodeActionParams {
@@ -899,11 +944,58 @@ mod tests {
             "café. Suite.\n",
             "café. Suite.",
             "Intro. Text.\r\n\r\ncafé. Suite.",
+            // A lone carriage return ends a line. The second format must settle.
+            "One. Two.\r",
+            "One. Two.\r\nThree. Four.\r",
+            "One. Two.\nThree. Four.\r",
+            "One. Two.\rThree. Four.\n",
         ];
         let rt = tokio::runtime::Runtime::new().expect("runtime");
         rt.block_on(async {
             for text in cases {
                 assert_document(text).await;
+            }
+        });
+    }
+
+    /// A lone carriage return ends a line, as a line feed and a CRLF pair do.
+    /// The whole-document edit ends at column 0 of the next row, past that
+    /// break, so the replacement covers the buffer. A second format of the
+    /// applied text reports no edit.
+    #[test]
+    fn a_bare_carriage_return_at_the_end_is_inside_the_edit() {
+        // Each trailing break advances one row. A line feed, a CRLF pair and
+        // a lone carriage return are one break each, and a trailing break
+        // ends at column 0.
+        let cases = [
+            ("One. Two.\r", Position::new(1, 0)),
+            ("One. Two.\r\nThree. Four.\r", Position::new(2, 0)),
+            ("One. Two.\nThree. Four.\r", Position::new(2, 0)),
+            ("One. Two.\rThree. Four.\n", Position::new(2, 0)),
+        ];
+        let rt = tokio::runtime::Runtime::new().expect("runtime");
+        rt.block_on(async {
+            for (text, end) in cases {
+                assert_eq!(document_end(text), end, "document end for {text:?}");
+                assert_eq!(client_document_end(text), end, "client end for {text:?}");
+
+                let cli = format_text(text, &markdown_config()).expect("cli format");
+                let session = Session::open(text).await;
+                let edits = session.formatting().await.expect("one edit");
+                assert_eq!(edits.len(), 1);
+                assert_eq!(edits[0].range.start, Position::new(0, 0));
+                assert_eq!(edits[0].range.end, end, "edit end for {text:?}");
+
+                let applied = apply_edits(text, &edits);
+                assert_eq!(applied, cli, "applied vs format_text for {text:?}");
+
+                let again = Session::open(&applied).await;
+                assert!(
+                    again.formatting().await.is_none(),
+                    "a second format of {applied:?} must report no edit"
+                );
+                drop(again.socket);
+                drop(session.socket);
             }
         });
     }
@@ -1350,10 +1442,47 @@ mod tests {
             drop(session.socket);
         });
     }
+
+    /// A client sends diagnostics back in the request context, and those
+    /// can name a line an edit has since removed. The quickfix loop slices
+    /// the buffer by those line numbers, so it has to drop a start that
+    /// the buffer no longer holds before it builds the slice.
+    #[test]
+    fn a_quickfix_diagnostic_past_the_last_line_returns_no_edit() {
+        let text = "One. Two.";
+        let stale = |line: u32| Diagnostic {
+            range: Range {
+                start: Position::new(line, 0),
+                end: Position::new(line, 0),
+            },
+            severity: Some(DiagnosticSeverity::WARNING),
+            source: Some("snapper".to_string()),
+            message: "fused: One. Two.".to_string(),
+            ..Default::default()
+        };
+        let rt = tokio::runtime::Runtime::new().expect("runtime");
+        rt.block_on(async {
+            let session = Session::open(text).await;
+            for line in [1u32, 5] {
+                let edits = session.quickfix_edits_for(text, vec![stale(line)]).await;
+                assert!(
+                    edits.is_empty(),
+                    "a diagnostic on row {line} of a one-row buffer has no quickfix: {edits:?}"
+                );
+            }
+
+            // A diagnostic the buffer still holds keeps its quickfix, so
+            // the drop above is the length check and not a blanket refusal.
+            let edits = session.quickfix_edits_for(text, vec![stale(0)]).await;
+            assert_eq!(edits.len(), 1, "row 0 is in the buffer and still fixable");
+            assert_eq!(edits[0].range.end, Position::new(0, 9));
+            drop(session.socket);
+        });
+    }
 }
 
 #[cfg(test)]
-mod newline_cover {
+mod tests {
     use super::*;
     use crate::format::Format;
     use tower_lsp::LanguageServer;
@@ -1514,6 +1643,11 @@ mod newline_cover {
             "- One. Two.\n\n",
             "- One.\n  Two.\n",
             "One. Two.\r\n",
+            // A lone carriage return ends a line. The second format must settle.
+            "One. Two.\r",
+            "One. Two.\r\nThree. Four.\r",
+            "One. Two.\nThree. Four.\r",
+            "One. Two.\rThree. Four.\n",
             "",
             "\n",
             "\n\n",
