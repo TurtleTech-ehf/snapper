@@ -200,6 +200,7 @@ The default is the native line parsers.
 This flag, or =use_pandoc = true= in =.snapperrc.toml=, opts into pandoc.
 Markdown is read and written as =gfm=.
 A render mismatch leaves the input unchanged and warns on stderr.
+A list item or blockquote at the end of the file still splits when the final newline is missing.
 
 *** =--native=
 :PROPERTIES:

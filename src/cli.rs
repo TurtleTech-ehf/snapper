@@ -107,6 +107,8 @@ pub struct Cli {
     /// This flag, or `use_pandoc = true` in `.snapperrc.toml`, opts into pandoc.
     /// Markdown is read and written as `gfm`.
     /// A render mismatch leaves the input unchanged and warns on stderr.
+    /// A list item or blockquote at the end of the file still splits when
+    /// the final newline is missing.
     /// RST `..` comments and `snapper:off` / `snapper:on` are written
     /// through so the output still contains that text.
     /// Parse may use in-process FFI; the writer still needs `pandoc` on PATH

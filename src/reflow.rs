@@ -320,6 +320,14 @@ fn reflow_prose(
         // tight punctuation structures — those continue the same line.
         let suppress = match regions.get(idx + 1) {
             Some(Region::Structure(s)) if suppress_prose_trailing_newline(s) => true,
+            // A hard break at end of file has no line terminator, so the
+            // structure is `"  "` or `"\"` rather than `"  \n"` / `"\\\n"`.
+            // Do not insert a newline before those bytes.
+            Some(Region::Structure(s))
+                if config.format == Format::Markdown && markdown_eof_hard_break(s) =>
+            {
+                true
+            }
             Some(Region::Structure(s))
                 if s.trim_start().starts_with('%') && text.ends_with([' ', '\t']) =>
             {
@@ -1396,6 +1404,21 @@ fn is_latex_item_core(core: &str) -> bool {
 
 /// Hard-break Structure payloads: Markdown two-or-more spaces plus
 /// newline, Markdown `\\\n`, or Org `\\\\[ \t]*$` plus the terminator.
+/// Markdown hard break that ends the file, with no `\n` or `\r\n` yet.
+///
+/// `hard_break_rel` still classifies two trailing spaces or an odd
+/// trailing backslash, and the span stops at EOF. `"  \n"` and `"\\\n"`
+/// stay on [`is_hard_break_structure`].
+fn markdown_eof_hard_break(s: &str) -> bool {
+    if s.contains('\n') || s.contains('\r') {
+        return false;
+    }
+    if s == "\\" {
+        return true;
+    }
+    s.len() >= 2 && s.bytes().all(|b| b == b' ')
+}
+
 fn is_hard_break_structure(s: &str) -> bool {
     if crate::parser::org::is_org_line_break_structure(s) {
         return true;

@@ -473,6 +473,204 @@ fn idempotent_edge_cases_plaintext() {
     );
 }
 
+/// GitHub #538: `printf -- '- One. Two.' | snapper --stdin-filepath x.md`
+#[test]
+fn list_item_at_eof_without_final_newline_splits() {
+    let cases = [
+        ("- One. Two.", "- One.\n  Two."),
+        ("- outer\n  - One. Two.", "- outer\n  - One.\n    Two."),
+        ("> One. Two.", "> One.\n> Two."),
+        ("- One. Two.\n", "- One.\n  Two.\n"),
+        ("- outer\n  - One. Two.\n", "- outer\n  - One.\n    Two.\n"),
+        ("> One. Two.\n", "> One.\n> Two.\n"),
+    ];
+    for (input, expected) in cases {
+        let out = pipe_stdin(input, &["--stdin-filepath", "x.md"]);
+        assert!(
+            out.status.success(),
+            "input {input:?} stderr {}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        let stdout = String::from_utf8(out.stdout).unwrap();
+        assert_eq!(stdout, expected, "input {input:?}");
+        let err = String::from_utf8(out.stderr).unwrap();
+        assert!(
+            !err.contains("render check failed"),
+            "input {input:?} stderr {err}"
+        );
+    }
+}
+
+/// A hard break at end of file is still a list item. Two trailing spaces
+/// or a backslash must not make the render check keep the line fused.
+#[test]
+fn list_hard_break_at_eof_without_final_newline_splits() {
+    let cases = [
+        ("- One. Two.  ", "- One.\n  Two.  "),
+        ("> One. Two.  ", "> One.\n> Two.  "),
+        ("- One. Two.\\", "- One.\n  Two.\\"),
+        ("- One. Two.  \n", "- One.\n  Two.  \n"),
+    ];
+    for (input, expected) in cases {
+        let out = pipe_stdin(input, &["--stdin-filepath", "x.md"]);
+        assert!(
+            out.status.success(),
+            "input {input:?} stderr {}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        let stdout = String::from_utf8(out.stdout).unwrap();
+        assert_eq!(stdout, expected, "input {input:?}");
+        let err = String::from_utf8(out.stderr).unwrap();
+        assert!(
+            !err.contains("render check failed"),
+            "input {input:?} stderr {err}"
+        );
+    }
+}
+
+/// A last line holding only a hard break keeps the newline that ends the
+/// line before it, so the paragraph still splits and the check stays quiet.
+#[test]
+fn lone_hard_break_line_at_eof_still_splits() {
+    let cases = [
+        ("One. Two.\n\\", "One.\nTwo.\n\\"),
+        ("Alpha. Beta. Gamma.\n\\", "Alpha.\nBeta.\nGamma.\n\\"),
+        ("A. B.\n    x. y.\n\\", "A. B.\nx. y.\n\\"),
+        ("One. Two.\n\\\n", "One.\nTwo.\n\\\n"),
+    ];
+    for (input, expected) in cases {
+        let out = pipe_stdin(input, &["--stdin-filepath", "x.md"]);
+        assert!(
+            out.status.success(),
+            "input {input:?} stderr {}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        let stdout = String::from_utf8(out.stdout).unwrap();
+        assert_eq!(stdout, expected, "input {input:?}");
+        let err = String::from_utf8(out.stderr).unwrap();
+        assert!(
+            !err.contains("render check failed"),
+            "input {input:?} stderr {err}"
+        );
+    }
+}
+
+/// A lone hard-break line after an indented list-item continuation keeps
+/// that continuation's terminator, so the item still splits and the check
+/// stays quiet.
+#[test]
+fn lone_hard_break_line_after_an_indented_item_line_still_splits() {
+    let cases = [
+        (
+            "- One only.    \n    indented. code.\n\\\n",
+            "- One only.    \nindented. code.\n\\\n",
+        ),
+        (
+            "- One. Two.  \n    Three. Four.\n\\\n",
+            "- One.\n  Two.  \nThree.\nFour.\n\\\n",
+        ),
+        (
+            "1. One. Two.  \n    Three. Four.\n\\\n",
+            "1. One.\n   Two.  \nThree.\nFour.\n\\\n",
+        ),
+        (
+            "- a. b.\n  - One only.  \n      Three. Four.\n\\\n",
+            "- a. b.\n  - One only.  \nThree.\nFour.\n\\\n",
+        ),
+        (
+            "- One. Two.  \n    Three. Four.\n\\",
+            "- One.\n  Two.  \nThree.\nFour.\n\\",
+        ),
+    ];
+    for (input, expected) in cases {
+        let out = pipe_stdin(input, &["--stdin-filepath", "x.md"]);
+        assert!(
+            out.status.success(),
+            "input {input:?} stderr {}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        let stdout = String::from_utf8(out.stdout).unwrap();
+        assert_eq!(stdout, expected, "input {input:?}");
+        let err = String::from_utf8(out.stderr).unwrap();
+        assert!(
+            !err.contains("render check failed"),
+            "input {input:?} stderr {err}"
+        );
+    }
+}
+
+/// Every end-of-file hard-break shape must clear the render check. A
+/// warning here means the formatter gave up on the last block.
+#[test]
+fn eof_hard_break_never_fails_the_render_check() {
+    let inputs = [
+        "1. One. Two.  ",
+        "1. One. Two.\\",
+        "* One. Two.  ",
+        "+ One. Two.\\",
+        "> One. Two.\\",
+        "One. Two.\\",
+        "> > One. Two.  ",
+        "> - One. Two.  ",
+        "- outer\n  - One. Two.  ",
+        "- a\n  - b\n    - One. Two.  ",
+        "- One. Two. Three.  ",
+        "- One.\n\n  Two. Three.  ",
+        "x\r\n- One. Two.\\",
+        "- One.  ",
+        "- One. Two.\\\\",
+        "- One. Two.\\\\\\",
+        "- One. Two. ",
+        "- One. Two.\t\t",
+        "- One. Two.    ",
+        "- One. Two is `a\\b`.  ",
+        "```\nOne. Two.\\\n```",
+        "```\nOne. Two.\\",
+        "    One. Two.\\",
+        "One. Two.  \nThree. Four.  ",
+        "One. Two.  \r\nThree. Four.  ",
+        "One. Two.\n\\",
+        "One. Two.\n\\\n",
+        "A. B.\n    x. y.\n\\",
+    ];
+    for input in inputs {
+        let out = pipe_stdin(input, &["--stdin-filepath", "x.md"]);
+        assert!(
+            out.status.success(),
+            "input {input:?} stderr {}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        let err = String::from_utf8(out.stderr).unwrap();
+        assert!(
+            !err.contains("render check failed"),
+            "input {input:?} stderr {err}"
+        );
+        // Formatting the output again must be a no-op.
+        let first = String::from_utf8(out.stdout).unwrap();
+        let again = pipe_stdin(&first, &["--stdin-filepath", "x.md"]);
+        assert!(again.status.success(), "input {input:?}");
+        assert_eq!(
+            String::from_utf8(again.stdout).unwrap(),
+            first,
+            "input {input:?}"
+        );
+    }
+}
+
+/// A real render change at end of file still fails the check.
+#[test]
+fn render_check_still_rejects_eof_list_word_change() {
+    let input = "- A. a0.A.";
+    let out = pipe_stdin(input, &["--stdin-filepath", "x.md"]);
+    assert!(out.status.success(), "{:?}", out.stderr);
+    assert_eq!(String::from_utf8(out.stdout).unwrap(), input);
+    let err = String::from_utf8(out.stderr).unwrap();
+    assert!(
+        err.contains("render check failed") && err.contains("left lines"),
+        "stderr must name the unchanged lines, got: {err}"
+    );
+}
+
 #[test]
 fn render_mismatch_warns_and_keeps_the_good_paragraph() {
     let input = "**Note.** Next sentence here. Third one.\n\nA. a0.A.\n";
