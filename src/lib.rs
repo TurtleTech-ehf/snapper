@@ -837,4 +837,23 @@ mod eof_newline_render_check_tests {
         assert_eq!(format_md("One. Two.  \n"), "One.\nTwo.  \n");
         assert_eq!(format_md("- One. Two.\\\n"), "- One.\n  Two.\\\n");
     }
+
+    #[test]
+    fn lone_hard_break_line_at_eof_still_splits() {
+        // A last line that holds only the break appends no word to the
+        // prose, so the newline before it is the previous line's
+        // terminator and not the paragraph's own trailing newline.
+        // Suppressing that newline deletes a line and the render check
+        // then keeps the paragraph fused.
+        assert_eq!(format_md("One. Two.\n\\"), "One.\nTwo.\n\\");
+        assert_eq!(
+            format_md("Alpha. Beta. Gamma.\n\\"),
+            "Alpha.\nBeta.\nGamma.\n\\"
+        );
+        assert_eq!(format_md("One. Two.\r\n\\"), "One.\r\nTwo.\r\n\\");
+        assert_eq!(format_md("A. B.\n    x. y.\n\\"), "A. B.\nx. y.\n\\");
+        assert_eq!(format_md("One. Two.\n\\\n"), "One.\nTwo.\n\\\n");
+        let out = format_md("One. Two.\n\\");
+        assert_eq!(format_md(&out), out);
+    }
 }

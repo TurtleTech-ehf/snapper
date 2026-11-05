@@ -528,6 +528,33 @@ fn list_hard_break_at_eof_without_final_newline_splits() {
     }
 }
 
+/// A last line holding only a hard break keeps the newline that ends the
+/// line before it, so the paragraph still splits and the check stays quiet.
+#[test]
+fn lone_hard_break_line_at_eof_still_splits() {
+    let cases = [
+        ("One. Two.\n\\", "One.\nTwo.\n\\"),
+        ("Alpha. Beta. Gamma.\n\\", "Alpha.\nBeta.\nGamma.\n\\"),
+        ("A. B.\n    x. y.\n\\", "A. B.\nx. y.\n\\"),
+        ("One. Two.\n\\\n", "One.\nTwo.\n\\\n"),
+    ];
+    for (input, expected) in cases {
+        let out = pipe_stdin(input, &["--stdin-filepath", "x.md"]);
+        assert!(
+            out.status.success(),
+            "input {input:?} stderr {}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        let stdout = String::from_utf8(out.stdout).unwrap();
+        assert_eq!(stdout, expected, "input {input:?}");
+        let err = String::from_utf8(out.stderr).unwrap();
+        assert!(
+            !err.contains("render check failed"),
+            "input {input:?} stderr {err}"
+        );
+    }
+}
+
 /// A real render change at end of file still fails the check.
 #[test]
 fn render_check_still_rejects_eof_list_word_change() {
