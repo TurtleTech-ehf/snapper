@@ -131,6 +131,7 @@ The CLI uses the native line parsers unless `--use-pandoc` is set or `.snapperrc
 `--use-pandoc` requires pandoc (error if missing).
 Markdown on that path is read and written as `gfm`.
 A render mismatch leaves the input unchanged and warns on stderr.
+A list item or blockquote at the end of the file still splits when the final newline is missing.
 Editors, wasm, and LSP stay native.
 Check formatting without modifying (for CI):
 

@@ -169,6 +169,7 @@ Also selectable via =--use-pandoc= (and forced off by =--native=).
 When true, the CLI takes the pandoc path for every format.
 Markdown is read and written as =gfm=.
 A render mismatch leaves the file unchanged and warns on stderr.
+A list item or blockquote at the end of the file still splits when the final newline is missing.
 Editors, wasm, and LSP stay on the native parsers.
 
 ** long_threshold

@@ -748,3 +748,254 @@ mod lowercase_starts_tests {
         }
     }
 }
+
+/// GitHub #538: a list item or blockquote that ends the file with no final
+/// newline must still split. The same inputs with a final newline are the
+/// controls. A real render change at that position stays unchanged.
+#[cfg(test)]
+mod eof_newline_render_check_tests {
+    use super::*;
+    use crate::format::Format;
+
+    fn format_md(input: &str) -> String {
+        format_text(
+            input,
+            &FormatConfig {
+                format: Format::Markdown,
+                ..Default::default()
+            },
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn trailing_list_item_without_final_newline_splits() {
+        assert_eq!(format_md("- One. Two."), "- One.\n  Two.");
+        assert_eq!(format_md("1. One. Two."), "1. One.\n   Two.");
+        assert_eq!(format_md("x\n\n- One. Two."), "x\n\n- One.\n  Two.");
+        let out = format_md("- One. Two.");
+        assert_eq!(format_md(&out), out);
+    }
+
+    #[test]
+    fn trailing_nested_list_item_without_final_newline_splits() {
+        let input = "- outer\n  - One. Two.";
+        let out = format_md(input);
+        assert_eq!(out, "- outer\n  - One.\n    Two.");
+        assert_eq!(format_md(&out), out);
+    }
+
+    #[test]
+    fn trailing_blockquote_without_final_newline_splits() {
+        let out = format_md("> One. Two.");
+        assert_eq!(out, "> One.\n> Two.");
+        assert_eq!(format_md(&out), out);
+    }
+
+    #[test]
+    fn trailing_list_item_with_final_newline_splits() {
+        assert_eq!(format_md("- One. Two.\n"), "- One.\n  Two.\n");
+        assert_eq!(format_md("1. One. Two.\n"), "1. One.\n   Two.\n");
+        assert_eq!(format_md("x\n\n- One. Two.\n"), "x\n\n- One.\n  Two.\n");
+    }
+
+    #[test]
+    fn trailing_nested_list_item_with_final_newline_splits() {
+        assert_eq!(
+            format_md("- outer\n  - One. Two.\n"),
+            "- outer\n  - One.\n    Two.\n"
+        );
+    }
+
+    #[test]
+    fn trailing_blockquote_with_final_newline_splits() {
+        assert_eq!(format_md("> One. Two.\n"), "> One.\n> Two.\n");
+    }
+
+    #[test]
+    fn render_check_keeps_a_real_difference_at_eof() {
+        // Splitting `a0.A.` changes the prose words. The missing final
+        // newline must not make the check accept that.
+        assert_eq!(format_md("- A. a0.A."), "- A. a0.A.");
+        assert_eq!(format_md("- A. a0.A.\n"), "- A. a0.A.\n");
+    }
+
+    #[test]
+    fn trailing_hard_break_without_final_newline_splits() {
+        // Two spaces or a backslash are a Markdown hard break. With a final
+        // newline the sentences split and the break stays on the last line.
+        // The same bytes without that newline must split the same way.
+        assert_eq!(format_md("- One. Two.  "), "- One.\n  Two.  ");
+        assert_eq!(format_md("> One. Two.  "), "> One.\n> Two.  ");
+        assert_eq!(format_md("One. Two.  "), "One.\nTwo.  ");
+        assert_eq!(format_md("- One. Two.\\"), "- One.\n  Two.\\");
+        assert_eq!(format_md("One. Two.   "), "One.\nTwo.   ");
+        assert_eq!(format_md("x\r\n- One. Two.  "), "x\r\n- One.\r\n  Two.  ");
+        let out = format_md("- One. Two.  ");
+        assert_eq!(format_md(&out), out);
+        assert_eq!(format_md("- One. Two.  \n"), "- One.\n  Two.  \n");
+        assert_eq!(format_md("One. Two.  \n"), "One.\nTwo.  \n");
+        assert_eq!(format_md("- One. Two.\\\n"), "- One.\n  Two.\\\n");
+    }
+
+    #[test]
+    fn lone_hard_break_line_at_eof_still_splits() {
+        // A last line that holds only the break appends no word to the
+        // prose, so the newline before it is the previous line's
+        // terminator and not the paragraph's own trailing newline.
+        // Suppressing that newline deletes a line and the render check
+        // then keeps the paragraph fused.
+        assert_eq!(format_md("One. Two.\n\\"), "One.\nTwo.\n\\");
+        assert_eq!(
+            format_md("Alpha. Beta. Gamma.\n\\"),
+            "Alpha.\nBeta.\nGamma.\n\\"
+        );
+        assert_eq!(format_md("One. Two.\r\n\\"), "One.\r\nTwo.\r\n\\");
+        assert_eq!(format_md("A. B.\n    x. y.\n\\"), "A. B.\nx. y.\n\\");
+        assert_eq!(format_md("One. Two.\n\\\n"), "One.\nTwo.\n\\\n");
+        let out = format_md("One. Two.\n\\");
+        assert_eq!(format_md(&out), out);
+    }
+
+    #[test]
+    fn lone_hard_break_line_after_an_indented_item_line_still_splits() {
+        // Inside a list item the continuation line keeps its terminator out
+        // of the prose span, so a following lone hard break has to take that
+        // byte from the pending terminator rather than from the span. The
+        // split reindents the line to column zero, where the same document
+        // does take it from the span, and the render check then compares two
+        // trees that disagree over a newline neither rewrite touched.
+        assert_eq!(
+            format_md("- One only.    \n    indented. code.\n\\\n"),
+            "- One only.    \nindented. code.\n\\\n"
+        );
+        assert_eq!(
+            format_md("- One. Two.  \n    Three. Four.\n\\\n"),
+            "- One.\n  Two.  \nThree.\nFour.\n\\\n"
+        );
+        assert_eq!(
+            format_md("1. One. Two.  \n    Three. Four.\n\\\n"),
+            "1. One.\n   Two.  \nThree.\nFour.\n\\\n"
+        );
+        assert_eq!(
+            format_md("- a. b.\n  - One only.  \n      Three. Four.\n\\\n"),
+            "- a. b.\n  - One only.  \nThree.\nFour.\n\\\n"
+        );
+        assert_eq!(
+            format_md("- One. Two.  \n    Three. Four.\n\\"),
+            "- One.\n  Two.  \nThree.\nFour.\n\\"
+        );
+        let out = format_md("- One. Two.  \n    Three. Four.\n\\\n");
+        assert_eq!(format_md(&out), out);
+    }
+
+    #[test]
+    fn eof_hard_break_splits_under_every_block_marker() {
+        assert_eq!(format_md("1. One. Two.  "), "1. One.\n   Two.  ");
+        assert_eq!(format_md("1. One. Two.\\"), "1. One.\n   Two.\\");
+        assert_eq!(format_md("* One. Two.  "), "* One.\n  Two.  ");
+        assert_eq!(format_md("+ One. Two.\\"), "+ One.\n  Two.\\");
+        assert_eq!(format_md("> One. Two.\\"), "> One.\n> Two.\\");
+        assert_eq!(format_md("One. Two.\\"), "One.\nTwo.\\");
+        assert_eq!(format_md("> > One. Two.  "), "> > One.\n> > Two.  ");
+        assert_eq!(format_md("> > One. Two.\\"), "> > One.\n> > Two.\\");
+        assert_eq!(format_md("> - One. Two.  "), "> - One.\n> Two.  ");
+        assert_eq!(
+            format_md("- outer\n  - One. Two.  "),
+            "- outer\n  - One.\n    Two.  "
+        );
+        assert_eq!(
+            format_md("- outer\n  - One. Two.\\"),
+            "- outer\n  - One.\n    Two.\\"
+        );
+        assert_eq!(
+            format_md("- a\n  - b\n    - One. Two.  "),
+            "- a\n  - b\n    - One.\n      Two.  "
+        );
+        assert_eq!(
+            format_md("- One. Two. Three.  "),
+            "- One.\n  Two.\n  Three.  "
+        );
+        assert_eq!(
+            format_md("- One.\n\n  Two. Three.  "),
+            "- One.\n\n  Two.\n  Three.  "
+        );
+        assert_eq!(format_md("x\r\n- One. Two.\\"), "x\r\n- One.\r\n  Two.\\");
+        // One sentence has nothing to split, so the bytes stay.
+        assert_eq!(format_md("- One.  "), "- One.  ");
+    }
+
+    #[test]
+    fn eof_bytes_that_are_not_a_markdown_hard_break() {
+        // An even run of backslashes is an escaped backslash, not a break.
+        assert_eq!(format_md("- One. Two.\\\\"), "- One.\n  Two.\\\\");
+        assert_eq!(format_md("- One. Two.\\\\\\\\"), "- One.\n  Two.\\\\\\\\");
+        // An odd run ends in a break, and only the last byte is the break.
+        assert_eq!(format_md("- One. Two.\\\\\\"), "- One.\n  Two.\\\\\\");
+        // One space, or a tab, is ordinary trailing whitespace.
+        assert_eq!(format_md("- One. Two. "), "- One.\n  Two.");
+        assert_eq!(format_md("- One. Two.\t\t"), "- One.\n  Two.");
+        // Four spaces are still a break and still survive the split.
+        assert_eq!(format_md("- One. Two.    "), "- One.\n  Two.    ");
+    }
+
+    #[test]
+    fn eof_hard_break_leaves_code_alone() {
+        // A backslash inside a code span is not a break, and the span
+        // stays whole while the sentences split around it.
+        assert_eq!(
+            format_md("- One. Two is `a\\b`.  "),
+            "- One.\n  Two is `a\\b`.  "
+        );
+        // A backslash inside a code block is code, open fence or not.
+        assert_eq!(format_md("```\nOne. Two.\\\n```"), "```\nOne. Two.\\\n```");
+        assert_eq!(format_md("```\nOne. Two.\\"), "```\nOne. Two.\\");
+        assert_eq!(format_md("    One. Two.\\"), "    One. Two.\\");
+    }
+
+    #[test]
+    fn hard_break_mid_file_and_at_eof_both_survive() {
+        assert_eq!(
+            format_md("One. Two.  \nThree. Four.  "),
+            "One.\nTwo.  \nThree.\nFour.  "
+        );
+        assert_eq!(
+            format_md("One. Two.  \nThree. Four.\n"),
+            "One.\nTwo.  \nThree.\nFour.\n"
+        );
+        assert_eq!(
+            format_md("- One. Two.  \n- Three. Four."),
+            "- One.\n  Two.  \n- Three.\n  Four."
+        );
+        assert_eq!(
+            format_md("One. Two.  \r\nThree. Four.  "),
+            "One.\r\nTwo.  \r\nThree.\r\nFour.  "
+        );
+    }
+
+    #[test]
+    fn eof_hard_break_is_markdown_only() {
+        // Two spaces and a lone backslash mean nothing at the end of a
+        // plaintext, RST, or LaTeX file, so the trailing bytes go.
+        for format in [Format::Plaintext, Format::Rst, Format::Latex] {
+            let config = FormatConfig {
+                format,
+                ..Default::default()
+            };
+            assert_eq!(
+                format_text("One. Two.  ", &config).unwrap(),
+                "One.\nTwo.",
+                "{format:?}"
+            );
+        }
+        // Org marks a break with `\\`, and already keeps it at end of file.
+        let org = FormatConfig {
+            format: Format::Org,
+            ..Default::default()
+        };
+        assert_eq!(
+            format_text("One. Two.\\\\", &org).unwrap(),
+            "One.\nTwo.\\\\"
+        );
+    }
+}
