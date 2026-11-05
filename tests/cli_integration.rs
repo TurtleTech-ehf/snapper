@@ -555,6 +555,64 @@ fn lone_hard_break_line_at_eof_still_splits() {
     }
 }
 
+/// Every end-of-file hard-break shape must clear the render check. A
+/// warning here means the formatter gave up on the last block.
+#[test]
+fn eof_hard_break_never_fails_the_render_check() {
+    let inputs = [
+        "1. One. Two.  ",
+        "1. One. Two.\\",
+        "* One. Two.  ",
+        "+ One. Two.\\",
+        "> One. Two.\\",
+        "One. Two.\\",
+        "> > One. Two.  ",
+        "> - One. Two.  ",
+        "- outer\n  - One. Two.  ",
+        "- a\n  - b\n    - One. Two.  ",
+        "- One. Two. Three.  ",
+        "- One.\n\n  Two. Three.  ",
+        "x\r\n- One. Two.\\",
+        "- One.  ",
+        "- One. Two.\\\\",
+        "- One. Two.\\\\\\",
+        "- One. Two. ",
+        "- One. Two.\t\t",
+        "- One. Two.    ",
+        "- One. Two is `a\\b`.  ",
+        "```\nOne. Two.\\\n```",
+        "```\nOne. Two.\\",
+        "    One. Two.\\",
+        "One. Two.  \nThree. Four.  ",
+        "One. Two.  \r\nThree. Four.  ",
+        "One. Two.\n\\",
+        "One. Two.\n\\\n",
+        "A. B.\n    x. y.\n\\",
+    ];
+    for input in inputs {
+        let out = pipe_stdin(input, &["--stdin-filepath", "x.md"]);
+        assert!(
+            out.status.success(),
+            "input {input:?} stderr {}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        let err = String::from_utf8(out.stderr).unwrap();
+        assert!(
+            !err.contains("render check failed"),
+            "input {input:?} stderr {err}"
+        );
+        // Formatting the output again must be a no-op.
+        let first = String::from_utf8(out.stdout).unwrap();
+        let again = pipe_stdin(&first, &["--stdin-filepath", "x.md"]);
+        assert!(again.status.success(), "input {input:?}");
+        assert_eq!(
+            String::from_utf8(again.stdout).unwrap(),
+            first,
+            "input {input:?}"
+        );
+    }
+}
+
 /// A real render change at end of file still fails the check.
 #[test]
 fn render_check_still_rejects_eof_list_word_change() {

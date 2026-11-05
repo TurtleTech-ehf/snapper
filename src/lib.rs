@@ -856,4 +856,114 @@ mod eof_newline_render_check_tests {
         let out = format_md("One. Two.\n\\");
         assert_eq!(format_md(&out), out);
     }
+
+    #[test]
+    fn eof_hard_break_splits_under_every_block_marker() {
+        assert_eq!(format_md("1. One. Two.  "), "1. One.\n   Two.  ");
+        assert_eq!(format_md("1. One. Two.\\"), "1. One.\n   Two.\\");
+        assert_eq!(format_md("* One. Two.  "), "* One.\n  Two.  ");
+        assert_eq!(format_md("+ One. Two.\\"), "+ One.\n  Two.\\");
+        assert_eq!(format_md("> One. Two.\\"), "> One.\n> Two.\\");
+        assert_eq!(format_md("One. Two.\\"), "One.\nTwo.\\");
+        assert_eq!(format_md("> > One. Two.  "), "> > One.\n> > Two.  ");
+        assert_eq!(format_md("> > One. Two.\\"), "> > One.\n> > Two.\\");
+        assert_eq!(format_md("> - One. Two.  "), "> - One.\n> Two.  ");
+        assert_eq!(
+            format_md("- outer\n  - One. Two.  "),
+            "- outer\n  - One.\n    Two.  "
+        );
+        assert_eq!(
+            format_md("- outer\n  - One. Two.\\"),
+            "- outer\n  - One.\n    Two.\\"
+        );
+        assert_eq!(
+            format_md("- a\n  - b\n    - One. Two.  "),
+            "- a\n  - b\n    - One.\n      Two.  "
+        );
+        assert_eq!(
+            format_md("- One. Two. Three.  "),
+            "- One.\n  Two.\n  Three.  "
+        );
+        assert_eq!(
+            format_md("- One.\n\n  Two. Three.  "),
+            "- One.\n\n  Two.\n  Three.  "
+        );
+        assert_eq!(format_md("x\r\n- One. Two.\\"), "x\r\n- One.\r\n  Two.\\");
+        // One sentence has nothing to split, so the bytes stay.
+        assert_eq!(format_md("- One.  "), "- One.  ");
+    }
+
+    #[test]
+    fn eof_bytes_that_are_not_a_markdown_hard_break() {
+        // An even run of backslashes is an escaped backslash, not a break.
+        assert_eq!(format_md("- One. Two.\\\\"), "- One.\n  Two.\\\\");
+        assert_eq!(format_md("- One. Two.\\\\\\\\"), "- One.\n  Two.\\\\\\\\");
+        // An odd run ends in a break, and only the last byte is the break.
+        assert_eq!(format_md("- One. Two.\\\\\\"), "- One.\n  Two.\\\\\\");
+        // One space, or a tab, is ordinary trailing whitespace.
+        assert_eq!(format_md("- One. Two. "), "- One.\n  Two.");
+        assert_eq!(format_md("- One. Two.\t\t"), "- One.\n  Two.");
+        // Four spaces are still a break and still survive the split.
+        assert_eq!(format_md("- One. Two.    "), "- One.\n  Two.    ");
+    }
+
+    #[test]
+    fn eof_hard_break_leaves_code_alone() {
+        // A backslash inside a code span is not a break, and the span
+        // stays whole while the sentences split around it.
+        assert_eq!(
+            format_md("- One. Two is `a\\b`.  "),
+            "- One.\n  Two is `a\\b`.  "
+        );
+        // A backslash inside a code block is code, open fence or not.
+        assert_eq!(format_md("```\nOne. Two.\\\n```"), "```\nOne. Two.\\\n```");
+        assert_eq!(format_md("```\nOne. Two.\\"), "```\nOne. Two.\\");
+        assert_eq!(format_md("    One. Two.\\"), "    One. Two.\\");
+    }
+
+    #[test]
+    fn hard_break_mid_file_and_at_eof_both_survive() {
+        assert_eq!(
+            format_md("One. Two.  \nThree. Four.  "),
+            "One.\nTwo.  \nThree.\nFour.  "
+        );
+        assert_eq!(
+            format_md("One. Two.  \nThree. Four.\n"),
+            "One.\nTwo.  \nThree.\nFour.\n"
+        );
+        assert_eq!(
+            format_md("- One. Two.  \n- Three. Four."),
+            "- One.\n  Two.  \n- Three.\n  Four."
+        );
+        assert_eq!(
+            format_md("One. Two.  \r\nThree. Four.  "),
+            "One.\r\nTwo.  \r\nThree.\r\nFour.  "
+        );
+    }
+
+    #[test]
+    fn eof_hard_break_is_markdown_only() {
+        // Two spaces and a lone backslash mean nothing at the end of a
+        // plaintext, RST, or LaTeX file, so the trailing bytes go.
+        for format in [Format::Plaintext, Format::Rst, Format::Latex] {
+            let config = FormatConfig {
+                format,
+                ..Default::default()
+            };
+            assert_eq!(
+                format_text("One. Two.  ", &config).unwrap(),
+                "One.\nTwo.",
+                "{format:?}"
+            );
+        }
+        // Org marks a break with `\\`, and already keeps it at end of file.
+        let org = FormatConfig {
+            format: Format::Org,
+            ..Default::default()
+        };
+        assert_eq!(
+            format_text("One. Two.\\\\", &org).unwrap(),
+            "One.\nTwo.\\\\"
+        );
+    }
 }
