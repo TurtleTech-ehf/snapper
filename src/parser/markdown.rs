@@ -764,6 +764,18 @@ fn append_piece(
         }
         if !flushed {
             flush_prose_spanned(acc.text, acc.span, regions);
+            // The previous line kept its terminator out of the prose span and
+            // parked it here, so dropping it leaves that newline in no region
+            // at all. Reindenting the prose moves the line onto the branch
+            // above, which does give the newline a region, and the two trees
+            // then disagree over bytes neither rewrite touched.
+            if trimmed.is_empty() {
+                if let Some(span) = acc.term.take() {
+                    if !span.is_empty() {
+                        regions.push(SpannedRegion::structure(input, span));
+                    }
+                }
+            }
         }
         let hard = ByteSpan::new(line.start + piece_from + hard_at, line.end);
         if !hard.is_empty() {
