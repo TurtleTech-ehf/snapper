@@ -858,6 +858,38 @@ mod eof_newline_render_check_tests {
     }
 
     #[test]
+    fn lone_hard_break_line_after_an_indented_item_line_still_splits() {
+        // Inside a list item the continuation line keeps its terminator out
+        // of the prose span, so a following lone hard break has to take that
+        // byte from the pending terminator rather than from the span. The
+        // split reindents the line to column zero, where the same document
+        // does take it from the span, and the render check then compares two
+        // trees that disagree over a newline neither rewrite touched.
+        assert_eq!(
+            format_md("- One only.    \n    indented. code.\n\\\n"),
+            "- One only.    \nindented. code.\n\\\n"
+        );
+        assert_eq!(
+            format_md("- One. Two.  \n    Three. Four.\n\\\n"),
+            "- One.\n  Two.  \nThree.\nFour.\n\\\n"
+        );
+        assert_eq!(
+            format_md("1. One. Two.  \n    Three. Four.\n\\\n"),
+            "1. One.\n   Two.  \nThree.\nFour.\n\\\n"
+        );
+        assert_eq!(
+            format_md("- a. b.\n  - One only.  \n      Three. Four.\n\\\n"),
+            "- a. b.\n  - One only.  \nThree.\nFour.\n\\\n"
+        );
+        assert_eq!(
+            format_md("- One. Two.  \n    Three. Four.\n\\"),
+            "- One.\n  Two.  \nThree.\nFour.\n\\"
+        );
+        let out = format_md("- One. Two.  \n    Three. Four.\n\\\n");
+        assert_eq!(format_md(&out), out);
+    }
+
+    #[test]
     fn eof_hard_break_splits_under_every_block_marker() {
         assert_eq!(format_md("1. One. Two.  "), "1. One.\n   Two.  ");
         assert_eq!(format_md("1. One. Two.\\"), "1. One.\n   Two.\\");

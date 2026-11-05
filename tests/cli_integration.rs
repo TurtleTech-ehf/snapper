@@ -555,6 +555,50 @@ fn lone_hard_break_line_at_eof_still_splits() {
     }
 }
 
+/// A lone hard-break line after an indented list-item continuation keeps
+/// that continuation's terminator, so the item still splits and the check
+/// stays quiet.
+#[test]
+fn lone_hard_break_line_after_an_indented_item_line_still_splits() {
+    let cases = [
+        (
+            "- One only.    \n    indented. code.\n\\\n",
+            "- One only.    \nindented. code.\n\\\n",
+        ),
+        (
+            "- One. Two.  \n    Three. Four.\n\\\n",
+            "- One.\n  Two.  \nThree.\nFour.\n\\\n",
+        ),
+        (
+            "1. One. Two.  \n    Three. Four.\n\\\n",
+            "1. One.\n   Two.  \nThree.\nFour.\n\\\n",
+        ),
+        (
+            "- a. b.\n  - One only.  \n      Three. Four.\n\\\n",
+            "- a. b.\n  - One only.  \nThree.\nFour.\n\\\n",
+        ),
+        (
+            "- One. Two.  \n    Three. Four.\n\\",
+            "- One.\n  Two.  \nThree.\nFour.\n\\",
+        ),
+    ];
+    for (input, expected) in cases {
+        let out = pipe_stdin(input, &["--stdin-filepath", "x.md"]);
+        assert!(
+            out.status.success(),
+            "input {input:?} stderr {}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        let stdout = String::from_utf8(out.stdout).unwrap();
+        assert_eq!(stdout, expected, "input {input:?}");
+        let err = String::from_utf8(out.stderr).unwrap();
+        assert!(
+            !err.contains("render check failed"),
+            "input {input:?} stderr {err}"
+        );
+    }
+}
+
 /// Every end-of-file hard-break shape must clear the render check. A
 /// warning here means the formatter gave up on the last block.
 #[test]
