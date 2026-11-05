@@ -735,7 +735,36 @@ fn append_piece(
                 Some(s) => s.end = end,
             }
         }
-        flush_prose_spanned(acc.text, acc.span, regions);
+        // A break that is the whole piece appends no word, so the prose it
+        // flushes came from earlier lines and its span already covers that
+        // line's terminator. The reflow regenerates that terminator as the
+        // prose's own trailing newline, which a hard-break suppression then
+        // deletes. Hand the terminator to the tree instead.
+        let mut flushed = false;
+        if trimmed.is_empty() {
+            if let Some(span) = *acc.span {
+                let covered = &input[span.start..span.end];
+                let nl = if covered.ends_with("\r\n") {
+                    2
+                } else if covered.ends_with('\n') {
+                    1
+                } else {
+                    0
+                };
+                if nl > 0 {
+                    *acc.span = Some(ByteSpan::new(span.start, span.end - nl));
+                    flush_prose_spanned(acc.text, acc.span, regions);
+                    regions.push(SpannedRegion::structure(
+                        input,
+                        ByteSpan::new(span.end - nl, span.end),
+                    ));
+                    flushed = true;
+                }
+            }
+        }
+        if !flushed {
+            flush_prose_spanned(acc.text, acc.span, regions);
+        }
         let hard = ByteSpan::new(line.start + piece_from + hard_at, line.end);
         if !hard.is_empty() {
             regions.push(SpannedRegion::structure(input, hard));
