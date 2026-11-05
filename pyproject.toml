@@ -29,3 +29,15 @@ Documentation = "https://snapper.turtletech.us/docs/"
 [tool.maturin]
 bindings = "bin"
 strip = true
+
+[tool.towncrier]
+directory = "newsfragments"
+filename = "NEWS.rst"
+package = "snapper-fmt"
+title_format = "{version} ({project_date})"
+issue_format = "#{issue}"
+
+[[tool.towncrier.type]]
+directory = "bugfix"
+name = "Bug Fixes"
+showcontent = true

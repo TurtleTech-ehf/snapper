@@ -127,6 +127,10 @@ snapper lsp
 
 This provides document formatting, range formatting, and diagnostics (flags lines with multiple sentences) over the standard LSP protocol on stdin/stdout.
 
+The formatting edit covers the whole document, including a final newline, and matches the command-line formatter byte for byte.
+A file that ends in one newline still ends in one newline.
+Formatting again does not append another trailing newline.
+
 ** Neovim (snapper.nvim plugin)
 :PROPERTIES:
 :CUSTOM_ID: lsp-neovim
