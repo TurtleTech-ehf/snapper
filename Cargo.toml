@@ -65,7 +65,9 @@ pandoc-ffi = ["pandoc"]
 # Requires native/snapper-pandoc/build-static.sh output — not shared+rpath.
 pandoc-colink = ["pandoc"]
 wasm = ["dep:wasm-bindgen", "dep:serde-wasm-bindgen", "dep:js-sys"]
-mcp = ["dep:rmcp", "dep:schemars"]
+# The stdio server starts a tokio runtime in main. lsp used to be the only
+# feature that enabled tokio, so `--features cli,mcp` failed to resolve it.
+mcp = ["dep:rmcp", "dep:schemars", "dep:tokio"]
 # Grammar-backed comment discovery inside code blocks. The runtime and the
 # grammars are C, so this is off for wasm32-unknown-unknown, which has no
 # libc for them; that target keeps the line-start scanner.

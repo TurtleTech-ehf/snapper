@@ -425,6 +425,23 @@ mod tests {
     }
 
     #[test]
+    fn mcp_feature_enables_tokio() {
+        let manifest = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/Cargo.toml"));
+        let after = manifest
+            .split("[features]")
+            .nth(1)
+            .expect("Cargo.toml [features]");
+        let mcp_line = after
+            .lines()
+            .find(|l| l.starts_with("mcp ") || l.starts_with("mcp="))
+            .expect("mcp = [...]");
+        assert!(
+            mcp_line.contains("\"dep:tokio\"") || mcp_line.contains("\"tokio\""),
+            "mcp must enable tokio so `cargo build --no-default-features --features cli,mcp` resolves the runtime: {mcp_line}"
+        );
+    }
+
+    #[test]
     fn default_features_include_mcp() {
         let manifest = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/Cargo.toml"));
         let after = manifest

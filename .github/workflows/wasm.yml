@@ -45,6 +45,12 @@ jobs:
         env:
           RUSTFLAGS: -D warnings
 
+      # mcp must build without lsp. The server starts its own tokio runtime.
+      - name: Check the CLI with the MCP server and no LSP
+        run: cargo check --no-default-features --features cli,mcp --bins
+        env:
+          RUSTFLAGS: -D warnings
+
       - name: Check WASM target compiles
         run: cargo check --no-default-features --features wasm --target wasm32-unknown-unknown --lib
 

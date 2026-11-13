@@ -50,6 +50,13 @@ jobs:
       - name: Clippy
         run: cargo clippy -- -D warnings
 
+      # The mcp command starts a tokio runtime. tokio used to be enabled
+      # only by the lsp feature, so this set failed to resolve the crate.
+      - name: Check CLI with MCP and no LSP
+        run: cargo check --no-default-features --features cli,mcp --bins
+        env:
+          RUSTFLAGS: -D warnings
+
       - name: Test (default features, no colink / no GHC)
         run: cargo test
 
