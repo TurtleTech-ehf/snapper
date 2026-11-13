@@ -22,6 +22,7 @@ fn native(format: Format) -> FormatConfig {
     }
 }
 
+#[cfg(feature = "pandoc")]
 fn pandoc(format: Format) -> FormatConfig {
     FormatConfig {
         format,
@@ -56,6 +57,7 @@ fn native_plaintext_keeps_both_spans() {
 }
 
 /// Every pandoc write either keeps the span's bytes or leaves the input as it was.
+#[cfg(feature = "pandoc")]
 #[test]
 fn pandoc_write_never_drops_the_space_inside_a_code_span() {
     if !snapper_fmt::parser::pandoc::pandoc_available() {
