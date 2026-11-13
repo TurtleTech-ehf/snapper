@@ -180,11 +180,41 @@ Start the stdio server:
 
 Agents should call snapper MCP (`format_text`) or the `snapper` CLI instead of applying [sembr.org](https://sembr.org/) / [sembr/skills](https://github.com/sembr/skills) wrapping by hand.
 `format_text` accepts `clause_breaks`, `range` (`start` / `end`, 1-indexed inclusive), and `max_width` (default 0).
-From source with `--no-default-features`, rebuild with MCP:
+Install with default features, which already include the server:
 
     cargo install snapper-fmt --features mcp
 
+A build that turns default features off still needs `cli` and `mcp`:
+
+    cargo build --no-default-features --features cli,mcp
+
 Tools: `format_text`, `detect_format`, `check_formatting`, `split_sentences`.
+Claude Desktop reads `claude_desktop_config.json` (`~/Library/Application Support/Claude/` on macOS, `%APPDATA%\Claude\` on Windows, `~/.config/Claude/` on Linux).
+Quit Claude Desktop and open it again after saving the file.
+
+    {
+      "mcpServers": {
+        "snapper": {
+          "command": "snapper",
+          "args": ["mcp"]
+        }
+      }
+    }
+
+Cursor reads `.cursor/mcp.json` in the project and `~/.cursor/mcp.json` in the home directory.
+The project file wins when both name a server `snapper`.
+
+    {
+      "mcpServers": {
+        "snapper": {
+          "type": "stdio",
+          "command": "snapper",
+          "args": ["mcp"]
+        }
+      }
+    }
+
+`command` is the `snapper` executable on `PATH`, or an absolute path when the client does not inherit a shell path.
 Configuration guide (org source in-tree): `docs/orgmode/howto/mcp-integration.org`; HTML docs: <https://snapper.turtletech.us/docs/howto/mcp-integration/> .
 
 

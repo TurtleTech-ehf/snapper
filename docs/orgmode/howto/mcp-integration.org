@@ -20,10 +20,17 @@ This launches the server on stdin/stdout using the MCP protocol.
 Agents should call this server or the =snapper= CLI to apply semantic line breaks.
 Do not apply [[https://sembr.org/][sembr.org]] or [[https://github.com/sembr/skills][sembr/skills]] rewrites by hand.
 
-From source with =--no-default-features=, rebuild with MCP:
+Default features already include the server.
+Install it with:
 
 #+begin_src bash
 cargo install snapper-fmt --features mcp
+#+end_src
+
+A build that turns default features off still needs =cli= for the binary and =mcp= for the server:
+
+#+begin_src bash
+cargo build --no-default-features --features cli,mcp
 #+end_src
 
 * Configuration
@@ -31,12 +38,21 @@ cargo install snapper-fmt --features mcp
 :CUSTOM_ID: configuration
 :END:
 
-** MCP client configuration
+Both clients below start =snapper mcp= and speak MCP on stdin and stdout.
+The server does not open a port.
+=command= must be the =snapper= executable.
+Use an absolute path if the client does not inherit a shell =PATH=.
+
+** Claude Desktop
 :PROPERTIES:
-:CUSTOM_ID: mcp-client-config
+:CUSTOM_ID: claude-desktop
 :END:
 
-Add to your MCP configuration:
+Claude Desktop reads =claude_desktop_config.json=.
+On macOS that file is =~/Library/Application Support/Claude/claude_desktop_config.json=.
+On Windows it is =%APPDATA%\Claude\claude_desktop_config.json=.
+On Linux it is =~/.config/Claude/claude_desktop_config.json=.
+Quit Claude Desktop completely and open it again after saving the file.
 
 #+begin_src json
 {
@@ -48,6 +64,32 @@ Add to your MCP configuration:
   }
 }
 #+end_src
+
+** Cursor
+:PROPERTIES:
+:CUSTOM_ID: cursor
+:END:
+
+Cursor reads =mcp.json= from the project and from the home directory.
+The project file is =.cursor/mcp.json=.
+The home file is =~/.cursor/mcp.json=.
+When both files name a server =snapper=, the project file wins.
+Save the file and reload Cursor so it starts the server.
+
+#+begin_src json
+{
+  "mcpServers": {
+    "snapper": {
+      "type": "stdio",
+      "command": "snapper",
+      "args": ["mcp"]
+    }
+  }
+}
+#+end_src
+
+=type= is =stdio=.
+=args= is the =mcp= subcommand.
 
 * Tools
 :PROPERTIES:
@@ -79,6 +121,8 @@ Returns the formatted text.
 :END:
 
 Detect document format from text content using heuristics.
+Org keywords, citations, and headlines win over an embedded LaTeX command, as do Markdown headings and pandoc citations.
+A LaTeX section or =\cite= still selects LaTeX when the buffer has neither of those.
 
 Parameters:
 - =text= (string, required): Text to analyze
