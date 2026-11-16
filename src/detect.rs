@@ -2023,16 +2023,16 @@ See the sample. Next sentence.
 
     #[test]
     fn charged_ieee_lib_scores_from_content_without_a_typ_extension() {
-        // Unmodified @preview/charged-ieee:0.1.4 lib.typ from the Typst
-        // templates repository (Typst GmbH, MIT-0). The license text is
-        // tests/fixtures/charged-ieee/LICENSE. A // comment in the caption
-        // block carries a URL fragment `#discussion_r...`. The path has
-        // no extension, so the `.typ` suffix cannot decide.
+        // Published @preview/charged-ieee:0.1.4 lib.typ from the Typst
+        // package registry (Typst GmbH, MIT-0). sha256 starts 874df443.
+        // The license text is tests/fixtures/charged-ieee/LICENSE. A //
+        // comment in the caption block carries a URL fragment
+        // `#discussion_r...`. The path has no extension, so the `.typ`
+        // suffix cannot decide.
         let src = include_str!("../tests/fixtures/charged-ieee/lib.typ");
         let license = include_str!("../tests/fixtures/charged-ieee/LICENSE");
         assert!(license.contains("MIT No Attribution"));
-        assert!(src.contains("top + center"));
-        assert!(src.contains("std.title()"));
+        assert!(src.contains("block(below: 8.35mm, title)"));
         assert!(src.contains("#discussion_r2112947947"));
         assert_eq!(Format::detect(None, src), Format::Typst);
         assert_eq!(
