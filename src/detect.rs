@@ -12,15 +12,18 @@
 //! Typst 0.15.1 compiles there (`#show heading: strong`, not
 //! `#show heading: h`). A show-all body is a content callable
 //! (`#show: strong`) or a set rule. One code-mode scan tracks strings,
-//! line comments, nested block comments, raw spans, and brackets.
-//! Delimiters and `#` count outside strings and comments. An open group
-//! or an unclosed string keeps every following line inside that span, so
-//! a later `#set` under `#let x = "hello (` is not its own signal. An
-//! unclosed block comment keeps those lines as well, and the opening
-//! statement still counts when the expression in front of the comment is
-//! already complete. A finished right-hand side may use Typst's operators
-//! (`1 + 2`, `not false`). `#show notes: bring the figures.` and
-//! `#show: tonight` do not score.
+//! line comments, nested block comments, raw spans, and a bracket stack.
+//! `(` `[` `{` each close on their own closer. A mismatched closer in
+//! code ends that statement, so a later statement can still score. A
+//! `)` or `}` inside a content block is markup, and the code bracket
+//! stays open. Delimiters and `#` count outside strings and comments.
+//! An open group or an unclosed string keeps every following line inside
+//! that span, so a later `#set` under `#let x = "hello (` is not its own
+//! signal. An unclosed block comment keeps those lines as well, and the
+//! opening statement still counts when the expression in front of the
+//! comment is already complete. A finished right-hand side may use
+//! Typst's operators (`1 + 2`, `not false`). `#show notes: bring the
+//! figures.` and `#show: tonight` do not score.
 
 use crate::format::Format;
 
@@ -222,45 +225,315 @@ const MATH_SELECTORS: &[&str] = &[
 const PDF_SELECTORS: &[&str] = &["artifact", "attach"];
 
 pub(crate) fn score_text(text: &str) -> Format {
-    let lines = lines_outside_fences(text);
-    let mut latex = false;
-    let mut org_line = false;
-    let mut org_body = false;
-    let mut markdown = false;
-    let mut rst = false;
-    for line in &lines {
-        if is_latex_line(line) {
-            latex = true;
+    let mut scorer = Scorer {
+        text,
+        latex: false,
+        org_line: false,
+        org_body: false,
+        markdown: false,
+        rst: false,
+        typst: false,
+        typst_stop: false,
+        active: None,
+        fence: None,
+        gaps: Vec::new(),
+    };
+    let bytes = text.as_bytes();
+    let mut offset = 0;
+    for line in text.lines() {
+        let start = offset;
+        let end = start + line.len();
+        debug_assert_eq!(&text[start..end], line);
+        offset = end;
+        if offset < bytes.len() && bytes[offset] == b'\r' {
+            offset += 1;
         }
-        if line.starts_with("#+") || line.starts_with("* ") {
-            org_line = true;
+        if offset < bytes.len() && bytes[offset] == b'\n' {
+            offset += 1;
         }
-        if line.contains(":PROPERTIES:") || line.contains(":END:") || line.contains("#+begin_") {
-            org_body = true;
+        scorer.observe(line, start, end, offset);
+    }
+    scorer.finish()
+}
+
+struct Scorer<'a> {
+    text: &'a str,
+    latex: bool,
+    org_line: bool,
+    org_body: bool,
+    markdown: bool,
+    rst: bool,
+    typst: bool,
+    typst_stop: bool,
+    active: Option<Active>,
+    fence: Option<Fence>,
+    gaps: Vec<(usize, usize)>,
+}
+
+#[derive(Clone)]
+struct Active {
+    scan: CodeScan,
+    start: usize,
+    end: usize,
+    gap_len: usize,
+    comment_at: Option<usize>,
+    /// A keyword statement can be evidence. A bare `#` expression only
+    /// owns following lines while its group stays open.
+    evidence: bool,
+}
+
+struct Fence {
+    len: usize,
+    start: usize,
+    snap: Snap,
+}
+
+struct Snap {
+    latex: bool,
+    org_line: bool,
+    org_body: bool,
+    markdown: bool,
+    rst: bool,
+    typst: bool,
+    typst_stop: bool,
+    active: Option<Active>,
+    gap_len: usize,
+}
+
+impl<'a> Scorer<'a> {
+    fn observe(&mut self, line: &str, start: usize, end: usize, next: usize) {
+        if line.as_bytes().contains(&b'`') {
+            if let Some(mark) = backtick_fence(line) {
+                let open_len = self.fence.as_ref().map(|fence| fence.len);
+                if let Some(open_len) = open_len {
+                    if mark.closer && mark.len >= open_len {
+                        self.close_fence(next);
+                        return;
+                    }
+                } else {
+                    let snap = self.snapshot();
+                    self.fence = Some(Fence {
+                        len: mark.len,
+                        start,
+                        snap,
+                    });
+                }
+            }
         }
-        if line.starts_with("# ") || line.starts_with("## ") {
-            markdown = true;
+        self.note_signals(line);
+        self.note_typst(line, start, end);
+    }
+
+    fn close_fence(&mut self, next: usize) {
+        let Some(fence) = self.fence.take() else {
+            return;
+        };
+        let had_stmt = fence.snap.active.is_some();
+        self.gaps.truncate(fence.snap.gap_len);
+        if had_stmt {
+            self.gaps.push((fence.start, next));
         }
-        if is_rst_line(line) {
-            rst = true;
+        self.latex = fence.snap.latex;
+        self.org_line = fence.snap.org_line;
+        self.org_body = fence.snap.org_body;
+        self.markdown = fence.snap.markdown;
+        self.rst = fence.snap.rst;
+        self.typst = fence.snap.typst;
+        self.typst_stop = fence.snap.typst_stop;
+        self.active = fence.snap.active;
+    }
+
+    fn snapshot(&self) -> Snap {
+        Snap {
+            latex: self.latex,
+            org_line: self.org_line,
+            org_body: self.org_body,
+            markdown: self.markdown,
+            rst: self.rst,
+            typst: self.typst,
+            typst_stop: self.typst_stop,
+            active: self.active.clone(),
+            gap_len: self.gaps.len(),
         }
     }
-    let typst = has_typst(&lines);
-    // A positive tally is that format's score. When several formats score,
-    // the earlier one wins, which keeps a Markdown heading ahead of a Typst
-    // statement and a Typst statement ahead of an RST underline.
-    if latex {
-        Format::Latex
-    } else if org_line && org_body {
-        Format::Org
-    } else if markdown {
-        Format::Markdown
-    } else if typst {
-        Format::Typst
-    } else if rst {
-        Format::Rst
-    } else {
-        Format::Plaintext
+
+    fn note_signals(&mut self, line: &str) {
+        let bytes = line.as_bytes();
+        if bytes.is_empty() {
+            return;
+        }
+        let underline = bytes[0] == b'=' || bytes[0] == b'-';
+        if bytes.starts_with(b"* ") {
+            self.org_line = true;
+        }
+        if bytes.starts_with(b"# ") || bytes.starts_with(b"## ") {
+            self.markdown = true;
+        }
+        if bytes.starts_with(b"#+") {
+            self.org_line = true;
+        }
+        let mut slash = false;
+        let mut hash = false;
+        let mut dot = false;
+        let mut colon = false;
+        for &byte in bytes {
+            match byte {
+                b'\\' => slash = true,
+                b'#' => hash = true,
+                b'.' => dot = true,
+                b':' => colon = true,
+                _ => {}
+            }
+        }
+        if slash && is_latex_line(line) {
+            self.latex = true;
+        }
+        if hash && line.contains("#+begin_") {
+            self.org_body = true;
+        }
+        if colon && (line.contains(":PROPERTIES:") || line.contains(":END:")) {
+            self.org_body = true;
+        }
+        if (dot || underline) && is_rst_line(line) {
+            self.rst = true;
+        }
+    }
+
+    fn note_typst(&mut self, line: &str, start: usize, end: usize) {
+        if self.typst_stop {
+            return;
+        }
+        if self.active.is_some() {
+            self.continue_span(line, start, end);
+            return;
+        }
+        let trimmed = line.trim_start();
+        if !trimmed.starts_with('#') {
+            return;
+        }
+        let evidence = starts_typst_keyword(trimmed);
+        if !evidence && !markup_code_owns_next(trimmed) {
+            return;
+        }
+        let mut scan = CodeScan::default();
+        scan.feed(line);
+        if !scan.owns_next() {
+            if evidence && scan.finished_span() && typst_statement(trimmed) {
+                self.typst = true;
+                self.typst_stop = true;
+            }
+            return;
+        }
+        let comment_at = scan.comment_in_feed.map(|rel| start + rel);
+        self.active = Some(Active {
+            scan,
+            start,
+            end,
+            gap_len: self.gaps.len(),
+            comment_at,
+            evidence,
+        });
+    }
+
+    fn continue_span(&mut self, line: &str, start: usize, end: usize) {
+        let owns = {
+            let active = self.active.as_mut().expect("open typst span");
+            active.scan.feed("\n");
+            active.scan.feed(line);
+            if active.scan.block_comment == 0 {
+                active.comment_at = None;
+            } else if let Some(rel) = active.scan.comment_in_feed {
+                active.comment_at = Some(start + rel);
+            }
+            active.end = end;
+            active.scan.owns_next()
+        };
+        if owns {
+            return;
+        }
+        let active = self.active.take().expect("open typst span");
+        self.finish_span(active);
+    }
+
+    fn finish_span(&mut self, active: Active) {
+        if active.scan.group_still_open() {
+            self.typst_stop = true;
+            return;
+        }
+        if active.evidence && self.span_is_statement(&active) {
+            self.typst = true;
+            self.typst_stop = true;
+            return;
+        }
+        if active.scan.block_comment > 0 {
+            self.typst_stop = true;
+        }
+    }
+
+    fn span_is_statement(&self, active: &Active) -> bool {
+        let end = if active.scan.block_comment > 0 && !active.scan.extra_close {
+            active.comment_at.unwrap_or(active.end)
+        } else {
+            active.end
+        };
+        let src = self.statement_text(active.start, end, active.gap_len);
+        typst_statement(src.trim_start())
+    }
+
+    fn statement_text(
+        &self,
+        start: usize,
+        end: usize,
+        gap_len: usize,
+    ) -> std::borrow::Cow<'a, str> {
+        if end <= start || end > self.text.len() || start > self.text.len() {
+            return std::borrow::Cow::Borrowed("");
+        }
+        let gaps = &self.gaps[gap_len..];
+        let covers = gaps
+            .iter()
+            .any(|&(gap_start, gap_end)| gap_end > start && gap_start < end);
+        if !covers {
+            return std::borrow::Cow::Borrowed(&self.text[start..end]);
+        }
+        let mut out = String::new();
+        let mut cursor = start;
+        for &(gap_start, gap_end) in gaps {
+            if gap_end <= cursor || gap_start >= end {
+                continue;
+            }
+            let cut = gap_start.min(end).max(cursor);
+            if cut > cursor {
+                out.push_str(&self.text[cursor..cut]);
+            }
+            cursor = gap_end.max(cursor);
+            if cursor >= end {
+                break;
+            }
+        }
+        if cursor < end {
+            out.push_str(&self.text[cursor..end]);
+        }
+        std::borrow::Cow::Owned(out)
+    }
+
+    fn finish(mut self) -> Format {
+        if let Some(active) = self.active.take() {
+            self.finish_span(active);
+        }
+        if self.latex {
+            Format::Latex
+        } else if self.org_line && self.org_body {
+            Format::Org
+        } else if self.markdown {
+            Format::Markdown
+        } else if self.typst {
+            Format::Typst
+        } else if self.rst {
+            Format::Rst
+        } else {
+            Format::Plaintext
+        }
     }
 }
 
@@ -276,33 +549,6 @@ struct BacktickFence {
     len: usize,
     /// A line of only backticks, long enough to close an opener.
     closer: bool,
-}
-
-/// Lines that are not inside a closed ``` fence.
-///
-/// One forward pass and one buffer. A closer drops the opener and its
-/// interior with `truncate`, so an unmatched opener does not rescan the
-/// tail. A `~~~` line is never a fence. The info string is ignored, so
-/// ```typst is still a fence when a closer exists.
-fn lines_outside_fences(text: &str) -> Vec<&str> {
-    let mut kept = Vec::new();
-    // Index of the unmatched opener in `kept`, and its backtick length.
-    let mut open: Option<(usize, usize)> = None;
-    for line in text.lines() {
-        if let Some(mark) = backtick_fence(line) {
-            if let Some((at, len)) = open {
-                if mark.closer && mark.len >= len {
-                    kept.truncate(at);
-                    open = None;
-                    continue;
-                }
-            } else {
-                open = Some((kept.len(), mark.len));
-            }
-        }
-        kept.push(line);
-    }
-    kept
 }
 
 fn backtick_fence(line: &str) -> Option<BacktickFence> {
@@ -368,64 +614,36 @@ fn starts_typst_keyword(line: &str) -> bool {
         || keyword_rest(line, "#context").is_some()
 }
 
-/// A statement counts when its code scan closes and the finished text is
-/// valid. `#let ieee(\n body\n) = body` closes. An open group, an unclosed
-/// string, or an unclosed block comment owns every following line until
-/// that span ends, so `#set text(size: 12pt)` under `#let x = "hello (` is
-/// inside the string. A group or string that is still open at the end of
-/// the block drops the tail. A block comment may run to the end of the
-/// file; the opening statement still counts when its expression was
-/// already complete.
-fn has_typst(lines: &[&str]) -> bool {
-    let mut i = 0;
-    while i < lines.len() {
-        let line = lines[i].trim_start();
-        if !starts_typst_keyword(line) {
-            i += 1;
-            continue;
-        }
-        let mut scan = CodeScan::default();
-        scan.feed(lines[i]);
-        if !scan.owns_next() {
-            if scan.finished_span() && typst_statement(line) {
-                return true;
-            }
-            i += 1;
-            continue;
-        }
-        let mut j = i + 1;
-        while j < lines.len() && scan.owns_next() {
-            scan.feed("\n");
-            scan.feed(lines[j]);
-            j += 1;
-        }
-        let buf = lines[i..j].join("\n");
-        if scan.group_still_open() {
-            return false;
-        }
-        if typst_statement(buf.trim_start()) {
-            return true;
-        }
-        // The comment swallowed the rest of this statement. Lines inside
-        // it are not their own evidence.
-        if scan.block_comment > 0 {
-            return false;
-        }
-        i = j;
+/// A column-0 `#` expression that is not a keyword. Typst stays in code
+/// while a group or string opened by that expression is unclosed, so a
+/// later `#let` under `#f([a)]` is not its own signal. A complete
+/// expression (`#see the (figure`, `#f(1)`) leaves the rest as markup.
+fn markup_code_owns_next(line: &str) -> bool {
+    let line = line.trim_start();
+    let Some(rest) = line.strip_prefix('#') else {
+        return false;
+    };
+    if rest.is_empty() || rest.starts_with(char::is_whitespace) {
+        return false;
     }
-    false
+    if expr_prec(rest, 0, 0).is_some() {
+        return false;
+    }
+    let mut scan = CodeScan::default();
+    scan.feed(line);
+    scan.group_still_open()
 }
 
 /// Code-mode scan shared by statement grouping and group matching.
 ///
 /// Strings (with `\"` escapes), line comments, nested block comments, and
-/// raw spans hide delimiters and `#`. Parentheses and braces count in
-/// code. Content brackets count on their own, so a `)` inside markup is
-/// text. `feed` continues across lines in one pass.
-#[derive(Default)]
+/// raw spans hide delimiters and `#`. `(`, `[`, and `{` share one stack.
+/// Content mode, while the top is `[`, treats `(` `)` `{` `}` as markup.
+/// A closer that does not match the code opener sets `extra_close` and
+/// does not pop, which ends the statement. `feed` continues across lines.
+#[derive(Clone, Default)]
 struct CodeScan {
-    code: i32,
-    content: i32,
+    stack: Vec<u8>,
     string: bool,
     escape: bool,
     line_comment: bool,
@@ -434,10 +652,13 @@ struct CodeScan {
     raw_have: usize,
     code_hash: bool,
     extra_close: bool,
+    /// Index in the latest `feed` where an outermost block comment opened.
+    comment_in_feed: Option<usize>,
 }
 
 impl CodeScan {
     fn feed(&mut self, text: &str) {
+        self.comment_in_feed = None;
         let bytes = text.as_bytes();
         let mut idx = 0;
         while idx < bytes.len() {
@@ -450,25 +671,19 @@ impl CodeScan {
         if self.extra_close {
             return false;
         }
-        self.code > 0
-            || self.content > 0
-            || self.string
-            || self.block_comment > 0
-            || self.raw_need != 0
+        !self.stack.is_empty() || self.string || self.block_comment > 0 || self.raw_need != 0
     }
 
     /// Brackets, the string, or a raw span are still open. A block comment
     /// is trivia Typst accepts through the end of the file, so it does not
     /// by itself keep the statement unfinished.
     fn group_still_open(&self) -> bool {
-        !self.extra_close
-            && (self.code > 0 || self.content > 0 || self.string || self.raw_need != 0)
+        !self.extra_close && (!self.stack.is_empty() || self.string || self.raw_need != 0)
     }
 
     fn finished_span(&self) -> bool {
         !self.extra_close
-            && self.code == 0
-            && self.content == 0
+            && self.stack.is_empty()
             && !self.string
             && self.block_comment == 0
             && self.raw_need == 0
@@ -478,74 +693,105 @@ impl CodeScan {
         if idx >= bytes.len() {
             return idx;
         }
-        let byte = bytes[idx];
         if self.raw_need != 0 {
-            return self.step_raw(byte, idx);
+            return self.skip_raw(bytes, idx);
         }
         if self.string {
-            return self.step_string(byte, idx);
+            return self.skip_string(bytes, idx);
         }
         if self.line_comment {
-            if byte == b'\n' {
-                self.line_comment = false;
-            }
-            return idx + 1;
+            return self.skip_line_comment(bytes, idx);
         }
         if self.block_comment > 0 {
-            return self.step_block_comment(bytes, byte, idx);
+            return self.skip_block_comment(bytes, idx);
         }
-        if byte == b'/' && bytes.get(idx + 1) == Some(&b'/') {
-            self.line_comment = true;
-            return idx + 2;
-        }
-        if byte == b'/' && bytes.get(idx + 1) == Some(&b'*') {
-            self.block_comment = 1;
-            return idx + 2;
-        }
-        if byte == b'"' {
-            self.string = true;
-            return idx + 1;
-        }
-        if byte == b'`' {
-            return self.step_raw_open(bytes, idx);
-        }
-        if self.content > 0 {
-            if byte == b'[' {
-                self.content += 1;
-            } else if byte == b']' {
-                self.content -= 1;
-            }
-            return idx + 1;
-        }
-        self.step_code(byte, idx)
+        self.skip_code(bytes, idx)
     }
 
-    fn step_raw(&mut self, byte: u8, idx: usize) -> usize {
-        if byte == b'`' {
-            self.raw_have += 1;
+    fn skip_raw(&mut self, bytes: &[u8], mut idx: usize) -> usize {
+        while idx < bytes.len() && self.raw_need != 0 {
+            if self.raw_have >= self.raw_need {
+                self.raw_need = 0;
+                self.raw_have = 0;
+                return idx;
+            }
+            if bytes[idx] != b'`' {
+                self.raw_have = 0;
+                idx += 1;
+                while idx < bytes.len() && bytes[idx] != b'`' {
+                    idx += 1;
+                }
+                continue;
+            }
+            let need = self.raw_need - self.raw_have;
+            let mut got = 0;
+            while idx < bytes.len() && bytes[idx] == b'`' && got < need {
+                idx += 1;
+                got += 1;
+            }
+            self.raw_have += got;
             if self.raw_have == self.raw_need {
                 self.raw_need = 0;
                 self.raw_have = 0;
+                return idx;
             }
-        } else {
-            self.raw_have = 0;
         }
-        idx + 1
+        idx
     }
 
-    fn step_string(&mut self, byte: u8, idx: usize) -> usize {
+    fn skip_string(&mut self, bytes: &[u8], mut idx: usize) -> usize {
         if self.escape {
             self.escape = false;
-            return idx + 1;
+            if idx < bytes.len() {
+                idx += 1;
+            }
         }
-        if byte == b'\\' {
-            self.escape = true;
-            return idx + 1;
+        while idx < bytes.len() {
+            match bytes[idx] {
+                b'\\' => {
+                    if idx + 1 >= bytes.len() {
+                        self.escape = true;
+                        return idx + 1;
+                    }
+                    idx += 2;
+                }
+                b'"' => {
+                    self.string = false;
+                    return idx + 1;
+                }
+                _ => idx += 1,
+            }
         }
-        if byte == b'"' {
-            self.string = false;
+        idx
+    }
+
+    fn skip_line_comment(&mut self, bytes: &[u8], idx: usize) -> usize {
+        match bytes[idx..].iter().position(|&byte| byte == b'\n') {
+            Some(rel) => {
+                self.line_comment = false;
+                idx + rel + 1
+            }
+            None => bytes.len(),
         }
-        idx + 1
+    }
+
+    fn skip_block_comment(&mut self, bytes: &[u8], mut idx: usize) -> usize {
+        while idx < bytes.len() && self.block_comment > 0 {
+            let byte = bytes[idx];
+            if byte != b'/' && byte != b'*' {
+                idx += 1;
+                while idx < bytes.len() {
+                    let next = bytes[idx];
+                    if next == b'/' || next == b'*' {
+                        break;
+                    }
+                    idx += 1;
+                }
+                continue;
+            }
+            idx = self.step_block_comment(bytes, byte, idx);
+        }
+        idx
     }
 
     fn step_block_comment(&mut self, bytes: &[u8], byte: u8, idx: usize) -> usize {
@@ -556,6 +802,77 @@ impl CodeScan {
         if byte == b'*' && bytes.get(idx + 1) == Some(&b'/') {
             self.block_comment -= 1;
             return idx + 2;
+        }
+        idx + 1
+    }
+
+    fn skip_code(&mut self, bytes: &[u8], mut idx: usize) -> usize {
+        let content = self.stack.last() == Some(&b'[');
+        while idx < bytes.len() {
+            let byte = bytes[idx];
+            let special = if content {
+                matches!(byte, b'[' | b']' | b'"' | b'`' | b'/')
+            } else {
+                matches!(
+                    byte,
+                    b'(' | b')' | b'[' | b']' | b'{' | b'}' | b'"' | b'#' | b'`' | b'/'
+                )
+            };
+            if special {
+                return self.step_visible(bytes, idx);
+            }
+            idx += 1;
+        }
+        idx
+    }
+
+    fn step_visible(&mut self, bytes: &[u8], idx: usize) -> usize {
+        let byte = bytes[idx];
+        if byte == b'/' && bytes.get(idx + 1) == Some(&b'/') {
+            self.line_comment = true;
+            return idx + 2;
+        }
+        if byte == b'/' && bytes.get(idx + 1) == Some(&b'*') {
+            self.comment_in_feed = Some(idx);
+            self.block_comment = 1;
+            return idx + 2;
+        }
+        if byte == b'"' {
+            self.string = true;
+            return idx + 1;
+        }
+        if byte == b'`' {
+            return self.step_raw_open(bytes, idx);
+        }
+        if self.stack.last() == Some(&b'[') {
+            match byte {
+                b'[' => self.stack.push(b'['),
+                b']' => {
+                    self.stack.pop();
+                }
+                _ => {}
+            }
+            return idx + 1;
+        }
+        if byte == b'#' {
+            self.code_hash = true;
+            return idx + 1;
+        }
+        match byte {
+            b'(' | b'[' | b'{' => self.stack.push(byte),
+            b')' | b']' | b'}' => {
+                let want = match byte {
+                    b')' => b'(',
+                    b']' => b'[',
+                    _ => b'{',
+                };
+                if self.stack.last() == Some(&want) {
+                    self.stack.pop();
+                } else {
+                    self.extra_close = true;
+                }
+            }
+            _ => {}
         }
         idx + 1
     }
@@ -575,26 +892,6 @@ impl CodeScan {
         }
         end
     }
-
-    fn step_code(&mut self, byte: u8, idx: usize) -> usize {
-        if byte == b'#' {
-            self.code_hash = true;
-            return idx + 1;
-        }
-        match byte {
-            b'(' | b'{' => self.code += 1,
-            b'[' => self.content += 1,
-            b')' | b'}' => {
-                self.code -= 1;
-                if self.code < 0 {
-                    self.extra_close = true;
-                }
-            }
-            b']' => self.extra_close = true,
-            _ => {}
-        }
-        idx + 1
-    }
 }
 
 /// End of the group that opens at `open_idx`.
@@ -613,9 +910,8 @@ fn group_end(text: &str, open_idx: usize, reject_hash: bool) -> Option<usize> {
         if scan.extra_close || (reject_hash && scan.code_hash) {
             return None;
         }
-        let balanced = scan.code == 0 && scan.content == 0;
         let hidden = scan.string || scan.block_comment > 0 || scan.raw_need != 0;
-        if balanced && !hidden {
+        if scan.stack.is_empty() && !hidden {
             return Some(idx);
         }
     }
@@ -1654,6 +1950,24 @@ The binding #let script-size = 1pt is just an example.
     }
 
     #[test]
+    fn a_closed_fence_inside_a_let_is_hidden() {
+        let closed = "\
+#let x = (
+```
+hidden #set text(size: 99pt)
+```
+1)
+";
+        assert_text(closed, Format::Typst);
+        let open = "\
+#let x = (
+```
+1)
+";
+        assert_text(open, Format::Plaintext);
+    }
+
+    #[test]
     fn tilde_lines_do_not_hide_typst() {
         let between = "\
 ~~~
@@ -1709,10 +2023,16 @@ See the sample. Next sentence.
 
     #[test]
     fn charged_ieee_lib_scores_from_content_without_a_typ_extension() {
-        // MIT-0 @preview/charged-ieee:0.1.4 lib.typ. A // comment in the
-        // caption block carries a URL fragment `#discussion_r...`. The
-        // path has no extension, so the `.typ` suffix cannot decide.
-        let src = include_str!("../tests/fixtures/charged-ieee-lib.typ");
+        // Unmodified @preview/charged-ieee:0.1.4 lib.typ from the Typst
+        // templates repository (Typst GmbH, MIT-0). The license text is
+        // tests/fixtures/charged-ieee/LICENSE. A // comment in the caption
+        // block carries a URL fragment `#discussion_r...`. The path has
+        // no extension, so the `.typ` suffix cannot decide.
+        let src = include_str!("../tests/fixtures/charged-ieee/lib.typ");
+        let license = include_str!("../tests/fixtures/charged-ieee/LICENSE");
+        assert!(license.contains("MIT No Attribution"));
+        assert!(src.contains("top + center"));
+        assert!(src.contains("std.title()"));
         assert!(src.contains("#discussion_r2112947947"));
         assert_eq!(Format::detect(None, src), Format::Typst);
         assert_eq!(

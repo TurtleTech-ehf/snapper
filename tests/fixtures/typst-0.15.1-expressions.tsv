@@ -82,3 +82,28 @@ source	compiles	detect
 #let x = /*\n#set text(size: 12pt)	no	plaintext
 #let x = 1 /* (\n#set text(size: 12pt)	yes	typst
 #let x = `hello\n#set text(size: 12pt)	no	plaintext
+# A ) closes (, a ] closes [, and a } closes {. A mismatched
+# closer in code ends that statement, so a later statement can
+# still score. A ) or } inside content is markup, and the code
+# bracket stays open. A bare # expression owns later lines only
+# while a group it opened is still open.
+#let x = (1}	no	plaintext
+#let x = {1)	no	plaintext
+#let x = ( {1) }	no	plaintext
+#let x = ( {1} )	yes	typst
+#let x = [hello (world)]	yes	typst
+#let x = (1}\n#let y = 2	no	typst
+#let x = {1)\n#let y = 2	no	typst
+#let x = ( {1) }\n#let y = 2	no	typst
+#let x = { [ } ]	no	plaintext
+#let x = { [ } ]\n#let y = 2	no	plaintext
+#let x = f([a)]	no	plaintext
+#let x = f([a)]\n#let y = 2	no	plaintext
+#let x = f([a])	no	typst
+#f([a)]	no	plaintext
+#f([a)]\n#let y = 2	no	plaintext
+#{ [ } ]	no	plaintext
+#{ [ } ]\n#let y = 2	no	plaintext
+#f(1)\n#let y = 2	no	typst
+#see the (figure\n#let y = 2	no	typst
+#f("hello\n#let y = 2	no	plaintext
