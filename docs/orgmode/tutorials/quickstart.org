@@ -125,6 +125,7 @@ Source blocks are code regions: fences stay fixed and configured language commen
 - =.tex=, =.latex= -- LaTeX
 - =.md=, =.markdown= -- Markdown
 - =.rst=, =.rest= -- reStructuredText
+- =.typ=, =.typst= -- Typst
 - =.txt= -- plaintext
 
 Unknown extensions (=.rs=, =.py=, no extension) are refused unless =--format= is explicit.
@@ -243,7 +244,7 @@ Add to your =.pre-commit-config.yaml=:
     - id: snapper
 #+end_src
 
-Runs =snapper --in-place= on =*.org=, =*.tex=/=*.latex=, =*.md=/=*.markdown=, =*.rst=, and =*.txt= (extension match; identify has no =org= type).
+Runs =snapper --in-place= on =*.org=, =*.tex=/=*.latex=, =*.md=/=*.markdown=, =*.rst=, =*.typ=/=*.typst=, and =*.txt= (extension match; identify has no =org= type).
 Requires a Rust toolchain so pre-commit can build the hook from this repo.
 
 ** Editor integration

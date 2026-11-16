@@ -33,7 +33,7 @@ If no files are given, ~snapper~ reads from stdin and writes to stdout.
 :END:
 
 Input format.
-One of: =org=, =latex=, =markdown=, =rst=, =plaintext=.
+One of: =org=, =latex=, =markdown=, =rst=, =typst=, =plaintext=.
 
 Auto-detected from file extension when omitted.
 Defaults to =plaintext= for stdin.
@@ -195,7 +195,9 @@ Require the pandoc path (auto FFI, then CLI).
 Parse may use in-process FFI when =libsnapper_pandoc= loads; the writer still needs =pandoc= on =PATH= (=libsnapper_pandoc= is reader-only) unless that library exports a writer.
 Without FFI, both parse and write use the =pandoc= CLI.
 A missing binary is an explicit error (never silent all-prose).
-Enables support for typst, asciidoc, docx, html, and all other pandoc-supported formats.
+Enables support for asciidoc, docx, html, and other pandoc formats.
+Typst is a native parser.
+=--use-pandoc= still selects pandoc's typst reader when you ask for it.
 The default is the native line parsers.
 This flag, or =use_pandoc = true= in =.snapperrc.toml=, opts into pandoc.
 Markdown is read and written as =gfm=.
@@ -208,7 +210,7 @@ A list item or blockquote at the end of the file still splits when the final new
 :END:
 
 Accepted for compatibility.
-The default is already the native line parsers (markdown / org / rst / latex / plaintext).
+The default is already the native line parsers (markdown / org / rst / latex / typst / plaintext).
 Conflicts with =--use-pandoc=.
 Editors, wasm, and LSP stay native even without this flag.
 

@@ -3,7 +3,7 @@
 # match by extension instead of types_or.
 - id: snapper
   name: snapper
-  description: Reformat prose with semantic line breaks (Org, LaTeX, Markdown, RST, plaintext)
+  description: Reformat prose with semantic line breaks (Org, LaTeX, Markdown, RST, Typst, plaintext)
   entry: snapper --in-place
   language: rust
-  files: \.(org|tex|latex|md|markdown|rst|txt)$
+  files: \.(org|tex|latex|md|markdown|rst|typ|typst|txt)$

@@ -11,6 +11,7 @@ pub enum FormatArg {
     Markdown,
     Rst,
     Plaintext,
+    Typst,
 }
 
 #[derive(Debug, Clone, Copy, ValueEnum)]
@@ -119,7 +120,7 @@ pub struct Cli {
 
     /// Accepted for compatibility.
     /// The default is already the native line parsers
-    /// (markdown/org/rst/latex/plaintext).
+    /// (markdown/org/rst/latex/typst/plaintext).
     /// Editors, wasm, and LSP stay native.
     /// Conflicts with `--use-pandoc`.
     #[arg(long, conflicts_with = "use_pandoc")]

@@ -97,6 +97,8 @@ async function startClient(
             { scheme: "file", language: "markdown" },
             { scheme: "file", language: "plaintext" },
             { scheme: "file", language: "restructuredtext" },
+            { scheme: "file", language: "typst" },
+            { scheme: "file", pattern: "**/*.typ" },
         ],
         synchronize: {
             fileEvents: workspace.createFileSystemWatcher("**/.snapperrc.toml"),

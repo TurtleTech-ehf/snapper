@@ -46,7 +46,7 @@ By breaking at sentence boundaries instead, each edit affects only the sentence 
 This convention, often called [semantic line breaks](https://sembr.org/), enjoys longstanding support from technical writers.
 `snapper` is a deterministic formatter (UAX #29 plus abbreviation tables and optional nnsplit).
 It is not [admk/sembr](https://github.com/admk/sembr) (learned clause breaks) and not [sembr/skills](https://github.com/sembr/skills) (agent rewrite instructions).
-`latexindent.pl` covers LaTeX only; snapper is a standalone Rust binary for Org-mode, LaTeX, Markdown, RST, and plaintext.
+`latexindent.pl` covers LaTeX only; snapper is a standalone Rust binary for Org-mode, LaTeX, Markdown, RST, Typst, and plaintext.
 
 
 <a id="design"></a>
@@ -235,6 +235,12 @@ Configuration guide (org source in-tree): `docs/orgmode/howto/mcp-integration.or
 </tr>
 
 <tr>
+<td class="org-left">Typst</td>
+<td class="org-left"><code>.typ</code></td>
+<td class="org-left">Headings, math, raw fences; <code>#set</code> / <code>#let</code> stay code; list bodies reflow</td>
+</tr>
+
+<tr>
 <td class="org-left">Plaintext</td>
 <td class="org-left"><code>.txt</code></td>
 <td class="org-left">(none; all text treated as prose). Unknown extensions are refused unless <code>--format</code> is set</td>
@@ -278,7 +284,7 @@ With `lazy.nvim` (rocks support):
 
     {
       "TurtleTech-ehf/snapper",
-      ft = { "org", "tex", "markdown", "rst" },
+      ft = { "org", "tex", "markdown", "rst", "typst" },
       config = function()
         vim.opt.runtimepath:append(
           vim.fn.stdpath("data") .. "/lazy/snapper/editors/nvim"

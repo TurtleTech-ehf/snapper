@@ -7,7 +7,7 @@ Install: `cargo install snapper-fmt` or the [release installer](https://github.c
 
 
 Format prose so each sentence occupies its own line, producing clean git diffs for collaborative writing.
-Implements the [semantic line breaks](https://sembr.org/) convention for LaTeX, Org-mode, Markdown, reStructuredText, and plaintext.
+Implements the [semantic line breaks](https://sembr.org/) convention for LaTeX, Org-mode, Markdown, reStructuredText, Typst, and plaintext.
 
 ## Quick Start
 
@@ -35,7 +35,7 @@ To format on save, add to your `settings.json`:
 - **Diagnostics** -- flags lines with multiple sentences as hints
 - **Quick fixes** -- code actions to split multi-sentence lines
 - **Project config** -- reads `.snapperrc.toml` for abbreviations, max width, per-format overrides
-- **Format-aware** -- understands Org-mode, LaTeX, Markdown, RST, and plaintext
+- **Format-aware** -- understands Org-mode, LaTeX, Markdown, RST, Typst, and plaintext
 - **Abbreviation-aware** -- handles Dr., Fig., Eq., e.g., i.e., et al. and 80+ more
 - **Status bar** -- shows whether the LSP server is running
 - **Output channel** -- check Output > snapper for logs and diagnostics

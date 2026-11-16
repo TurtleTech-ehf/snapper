@@ -6,6 +6,7 @@ pub mod pandoc;
 pub mod plaintext;
 pub mod rst;
 pub mod span;
+pub mod typst;
 
 pub use span::{
     ByteSpan, CodeSpans, Line, RegionOrigin, SpannedRegion, flush_prose_spanned, iter_lines,
@@ -108,6 +109,7 @@ pub fn parser_for_format_config(
         Format::Markdown => Box::new(markdown::MarkdownParser),
         Format::Rst => Box::new(rst::RstParser),
         Format::Plaintext => Box::new(plaintext::PlaintextParser),
+        Format::Typst => Box::new(typst::TypstParser),
     }
 }
 
@@ -128,10 +130,16 @@ fn pragma_payload(line: &str) -> &str {
     trimmed
         .strip_prefix("# ")
         .or_else(|| trimmed.strip_prefix("% "))
+        .or_else(|| trimmed.strip_prefix("// "))
         .or_else(|| {
             trimmed
                 .strip_prefix("<!-- ")
                 .and_then(|s| s.strip_suffix(" -->"))
+        })
+        .or_else(|| {
+            trimmed
+                .strip_prefix("/* ")
+                .and_then(|s| s.strip_suffix(" */"))
         })
         .unwrap_or(trimmed)
         .trim()
@@ -187,6 +195,14 @@ mod tests {
     fn pragma_html_comment() {
         assert_eq!(check_pragma("<!-- snapper:off -->"), Some(false));
         assert_eq!(check_pragma("<!-- snapper:on -->"), Some(true));
+    }
+
+    #[test]
+    fn pragma_typst_comment() {
+        assert_eq!(check_pragma("// snapper:off"), Some(false));
+        assert_eq!(check_pragma("// snapper:on"), Some(true));
+        assert_eq!(check_pragma("/* snapper:off */"), Some(false));
+        assert_eq!(check_pragma("// a comment"), None);
     }
 
     #[test]

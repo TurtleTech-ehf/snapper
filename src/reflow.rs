@@ -273,6 +273,11 @@ fn reflow_prose(
         // marker on the previous sentence.
         glue_md_continuation_block_markers(&mut sentences);
     }
+    if config.format == Format::Typst {
+        // A sentence that starts a heading, list, code call, or line
+        // comment would be reread as structure on the next pass.
+        glue_typst_attached_lines(&mut sentences);
+    }
     let nsent = sentences.len();
     for (i, sentence) in sentences.iter().enumerate() {
         if config.max_width > 0 || config.clause_breaks {
@@ -663,6 +668,7 @@ fn line_opens_block(format: Format, line: &str) -> bool {
         Format::Org => org_opens_block(line),
         Format::Latex => latex_opens_block(line),
         Format::Rst => rst_opens_block(line),
+        Format::Typst => crate::parser::typst::typst_line_opens_block(line),
     }
 }
 
@@ -999,6 +1005,29 @@ fn md_same_line_ol_opener(text: &str) -> bool {
         && bytes.get(i + 1).is_some_and(|b| !b.is_ascii_whitespace())
 }
 
+/// Keep a Typst block opener on the sentence before it.
+///
+/// A later sentence that begins with `=`, `- `, `#`, or `//` is reread as
+/// a heading, list item, code line, or comment. The first sentence of the
+/// paragraph is left alone.
+fn glue_typst_attached_lines(sentences: &mut Vec<String>) {
+    let mut i = 1usize;
+    while i < sentences.len() {
+        let trimmed = sentences[i].trim_start();
+        if !crate::parser::typst::typst_line_opens_block(trimmed) {
+            i += 1;
+            continue;
+        }
+        let extra = sentences.remove(i).trim().to_string();
+        let prev = sentences[i - 1].trim_end().to_string();
+        sentences[i - 1] = if prev.is_empty() {
+            extra
+        } else {
+            format!("{prev} {extra}")
+        };
+    }
+}
+
 /// Move a leading block marker off a continuation sentence and onto the
 /// previous one. The first sentence of the paragraph is left alone.
 fn glue_md_continuation_block_markers(sentences: &mut Vec<String>) {
@@ -1272,8 +1301,12 @@ fn hanging_prefix(s: &str) -> String {
         return s.to_string();
     }
     // RST list continuation paragraphs emit the hang spaces as Structure.
+    // Typst content blocks do the same with the body's leading indent.
     if !s.is_empty() && !s.contains('\n') && s.bytes().all(|b| b == b' ') {
         return s.to_string();
+    }
+    if crate::parser::typst::typst_term_marker_len(s) == Some(s.len()) {
+        return " ".repeat(s.chars().count());
     }
     let width = hanging_indent_width(s);
     if width > 0 {
@@ -1452,10 +1485,7 @@ fn suppress_prose_trailing_newline(s: &str) -> bool {
     }
     // Inline code island: single-line `...` (optional trailing space already trimmed).
     let code = t.trim_end_matches(' ');
-    if code.starts_with('`') && code.ends_with('`') && code.len() >= 2 && !code.contains('\n') {
-        return true;
-    }
-    false
+    code.starts_with('`') && code.ends_with('`') && code.len() >= 2 && !code.contains('\n')
 }
 
 #[cfg(test)]

@@ -46,6 +46,7 @@ impl SnapperLsp {
             Format::Markdown => "markdown",
             Format::Rst => "rst",
             Format::Plaintext => "plaintext",
+            Format::Typst => "typst",
         };
         FormatConfig {
             format,
@@ -544,6 +545,7 @@ fn detect_format_from_uri(uri: &Url, language_id: &str) -> Format {
         "markdown" => return Format::Markdown,
         "plaintext" => return Format::Plaintext,
         "restructuredtext" => return Format::Rst,
+        "typst" => return Format::Typst,
         _ => {}
     }
     if let Ok(path) = uri.to_file_path() {

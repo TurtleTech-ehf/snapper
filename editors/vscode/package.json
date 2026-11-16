@@ -32,7 +32,9 @@
     "onLanguage:latex",
     "onLanguage:markdown",
     "onLanguage:plaintext",
-    "onLanguage:restructuredtext"
+    "onLanguage:restructuredtext",
+    "onLanguage:typst",
+    "workspaceContains:**/*.typ"
   ],
   "main": "./out/extension.js",
   "contributes": {
@@ -92,7 +94,7 @@
       {
         "command": "snapper.formatDocument",
         "key": "shift+alt+f",
-        "when": "resourceLangId == 'markdown' || resourceLangId == 'org' || resourceLangId == 'latex' || resourceLangId == 'plaintext' || resourceLangId == 'restructuredtext'"
+        "when": "resourceLangId == 'markdown' || resourceLangId == 'org' || resourceLangId == 'latex' || resourceLangId == 'plaintext' || resourceLangId == 'restructuredtext' || resourceLangId == 'typst'"
       }
     ]
   },

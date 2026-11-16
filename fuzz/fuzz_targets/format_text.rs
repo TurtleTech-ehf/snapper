@@ -21,18 +21,19 @@ fn cfg(format: Format) -> FormatConfig {
 }
 
 fn format_of(b: u8) -> Format {
-    match b % 5 {
+    match b % 6 {
         0 => Format::Plaintext,
         1 => Format::Markdown,
         2 => Format::Org,
         3 => Format::Latex,
-        _ => Format::Rst,
+        4 => Format::Rst,
+        _ => Format::Typst,
     }
 }
 
 fuzz_target!(|data: &[u8]| {
     // Fixture corpus files are raw document bytes. Drive every Format.
-    for tag in 0u8..5 {
+    for tag in 0u8..6 {
         let format = format_of(tag);
         let c = cfg(format);
         match format_bytes(data, &c) {

@@ -26,7 +26,7 @@ pub struct LineRange {
 pub struct FormatTextParams {
     /// Text to format with semantic line breaks.
     pub text: String,
-    /// Document format: "org", "latex", "markdown", "rst", or "plaintext".
+    /// Document format: "org", "latex", "markdown", "rst", "typst", or "plaintext".
     #[serde(default = "default_format")]
     pub format: String,
     /// Maximum line width (0 = unlimited).
@@ -60,7 +60,7 @@ pub struct DetectFormatParams {
 pub struct CheckFormattingParams {
     /// Text to check for semantic line break violations.
     pub text: String,
-    /// Document format: "org", "latex", "markdown", "rst", or "plaintext".
+    /// Document format: "org", "latex", "markdown", "rst", "typst", or "plaintext".
     #[serde(default = "default_format")]
     pub format: String,
     /// Maximum line width (0 = unlimited). Used as the `long` threshold when set.
@@ -205,7 +205,7 @@ impl SnapperMcpServer {
 
     #[tool(
         name = "detect_format",
-        description = "Detect the document format of text using content heuristics. Returns one of: org, latex, markdown, rst, plaintext."
+        description = "Detect the document format of text using content heuristics. Returns one of: org, latex, markdown, rst, typst, plaintext."
     )]
     fn detect_format(
         &self,
@@ -306,6 +306,18 @@ fn detect_format_heuristic(input: &str) -> Format {
         return Format::Org;
     }
 
+    if lines.iter().any(|l| {
+        let t = l.trim_start();
+        t.starts_with("#set ")
+            || t.starts_with("#let ")
+            || t.starts_with("#show ")
+            || t.starts_with("#import ")
+            || t.starts_with("#include ")
+            || t.starts_with("#context ")
+    }) {
+        return Format::Typst;
+    }
+
     if lines
         .iter()
         .any(|l| l.starts_with("# ") || l.starts_with("## "))
@@ -331,6 +343,7 @@ fn format_name(f: Format) -> String {
         Format::Markdown => "markdown",
         Format::Rst => "rst",
         Format::Plaintext => "plaintext",
+        Format::Typst => "typst",
     }
     .to_string()
 }

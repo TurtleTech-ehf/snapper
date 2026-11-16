@@ -9,9 +9,9 @@ inputs:
   files:
     description: 'Files or glob patterns to check'
     required: false
-    default: '**/*.org **/*.tex **/*.md'
+    default: '**/*.org **/*.tex **/*.md **/*.typ'
   format:
-    description: 'Force format (org, latex, markdown, plaintext). Auto-detected if omitted.'
+    description: 'Force format (org, latex, markdown, rst, typst, plaintext). Auto-detected if omitted.'
     required: false
   sarif:
     description: 'Upload SARIF results to GitHub Code Scanning'

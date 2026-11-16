@@ -13,6 +13,7 @@ pub enum Format {
     Markdown,
     Rst,
     Plaintext,
+    Typst,
 }
 
 impl Format {
@@ -26,6 +27,7 @@ impl Format {
             "md" | "markdown" | "mkd" | "mdx" => Some(Format::Markdown),
             "rst" | "rest" => Some(Format::Rst),
             "txt" | "text" => Some(Format::Plaintext),
+            "typ" | "typst" => Some(Format::Typst),
             _ => None,
         }
     }
@@ -57,6 +59,7 @@ impl Format {
             Format::Markdown => "markdown",
             Format::Rst => "rst",
             Format::Plaintext => "plaintext",
+            Format::Typst => "typst",
         }
     }
 
@@ -68,6 +71,7 @@ impl Format {
             crate::cli::FormatArg::Markdown => Format::Markdown,
             crate::cli::FormatArg::Rst => Format::Rst,
             crate::cli::FormatArg::Plaintext => Format::Plaintext,
+            crate::cli::FormatArg::Typst => Format::Typst,
         }
     }
 }
@@ -98,6 +102,14 @@ mod tests {
         assert_eq!(
             Format::recognized_from_path(Path::new("notes.txt")),
             Some(Format::Plaintext)
+        );
+        assert_eq!(
+            Format::recognized_from_path(Path::new("paper.typ")),
+            Some(Format::Typst)
+        );
+        assert_eq!(
+            Format::recognized_from_extension("typst"),
+            Some(Format::Typst)
         );
     }
 

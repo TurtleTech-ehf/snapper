@@ -282,3 +282,5 @@ mod same_line_lowercase_proper_noun;
 mod sentence_delim_props;
 #[path = "snapper_19jf.rs"]
 mod snapper_19jf;
+#[path = "typst_format.rs"]
+mod typst_format;

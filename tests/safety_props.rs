@@ -19,12 +19,13 @@ fn cfg(format: Format) -> FormatConfig {
 }
 
 fn format_of(n: u8) -> Format {
-    match n % 5 {
+    match n % 6 {
         0 => Format::Plaintext,
         1 => Format::Markdown,
         2 => Format::Org,
         3 => Format::Latex,
-        _ => Format::Rst,
+        4 => Format::Rst,
+        _ => Format::Typst,
     }
 }
 
@@ -39,7 +40,7 @@ proptest! {
         // Digits before the first `. ` can mint `* 0. A.` (nested ordered
         // list vs hung continuation; snapper-9dc1). Keep letters there.
         s in "[A-Za-z#*][A-Za-z#* ,;:'\"]{0,80}\\. [A-Za-z][A-Za-z0-9 ,;:'\"]{0,40}\\.",
-        fmt_tag in 0u8..5,
+        fmt_tag in 0u8..6,
     ) {
         let format = format_of(fmt_tag);
         let c = cfg(format);
@@ -60,7 +61,7 @@ proptest! {
     fn format_text_paragraph_break_oracle(
         a in "[A-Za-z][A-Za-z0-9 ,;:'\"]{0,40}\\.",
         b in "[A-Za-z][A-Za-z0-9 ,;:'\"]{0,40}\\.",
-        fmt_tag in 0u8..5,
+        fmt_tag in 0u8..6,
     ) {
         let s = format!("{a}\n\n{b}");
         let format = format_of(fmt_tag);

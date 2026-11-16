@@ -41,6 +41,9 @@ fn detect_formats(dir: &Path) -> Vec<&'static str> {
     if check("md") || check("markdown") {
         formats.push("markdown");
     }
+    if check("typ") || check("typst") {
+        formats.push("typst");
+    }
     formats
 }
 
@@ -132,6 +135,7 @@ fn generate_gitattributes(formats: &[&str]) -> String {
             "org" => "*.org",
             "latex" => "*.tex",
             "markdown" => "*.md",
+            "typst" => "*.typ",
             _ => continue,
         };
         lines.push_str(&format!("{ext} filter=snapper\n"));
@@ -175,7 +179,7 @@ fi
 git diff --cached --name-only --diff-filter=ACM -z |
 while IFS= read -r -d '' f || [ -n "$f" ]; do
   case "$f" in
-    *.org|*.tex|*.latex|*.md|*.markdown|*.rst|*.txt)
+    *.org|*.tex|*.latex|*.md|*.markdown|*.rst|*.typ|*.typst|*.txt)
       "$SNAPPER" --native --in-place -- "$f"
       git -c filter.snapper.clean=cat add -- "$f"
       ;;
@@ -279,6 +283,11 @@ fn generate_apheleia(formats: &[&str]) -> String {
     let mut s = String::from(";; Add to your Emacs config:\n(with-eval-after-load 'apheleia\n");
     s.push_str("  (push '(snapper . (\"snapper\" \"--native\")) apheleia-formatters)\n");
     for fmt in formats {
+        if *fmt == "typst" {
+            s.push_str("  (push '(typst-mode . snapper) apheleia-mode-alist)\n");
+            s.push_str("  (push '(typst-ts-mode . snapper) apheleia-mode-alist)\n");
+            continue;
+        }
         let mode = match *fmt {
             "org" => "org-mode",
             "latex" => "latex-mode",
@@ -422,6 +431,6 @@ mod tests {
         );
         assert!(hook.contains("--in-place"));
         assert!(hook.contains("filter.snapper.clean=cat"));
-        assert!(hook.contains("*.org|*.tex|*.latex|*.md|*.markdown|*.rst|*.txt"));
+        assert!(hook.contains("*.org|*.tex|*.latex|*.md|*.markdown|*.rst|*.typ|*.typst|*.txt"));
     }
 }

@@ -63,7 +63,7 @@ Format text with semantic line breaks.
 
 Parameters:
 - =text= (string, required): Text to format
-- =format= (string): Document format ("org", "latex", "markdown", "rst", "plaintext"; default: "plaintext")
+- =format= (string): Document format ("org", "latex", "markdown", "rst", "typst", "plaintext"; default: "plaintext")
 - =max_width= (integer): Maximum line width (default: 0, unlimited)
 - =clause_breaks= (boolean): Prefer soft breaks after independent-clause punctuation (same as CLI =--clause-breaks=; default: false).
   With =max_width= 0, always break at whitespace after the punctuation.

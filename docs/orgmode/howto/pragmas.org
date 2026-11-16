@@ -92,6 +92,29 @@ snapper:on
 More prose that gets reformatted.
 #+end_src
 
+** Typst
+:PROPERTIES:
+:CUSTOM_ID: syntax-typst
+:END:
+
+Line comments and a one-line block comment carry the same payload.
+
+#+begin_src typst
+Some prose that gets reformatted normally.
+
+// snapper:off
+This text will not
+be reformatted.
+// snapper:on
+
+/* snapper:off */
+This text will not
+be reformatted.
+/* snapper:on */
+
+More prose that gets reformatted.
+#+end_src
+
 ** Plaintext
 :PROPERTIES:
 :CUSTOM_ID: syntax-plaintext

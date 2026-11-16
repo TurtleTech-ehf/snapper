@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>snapper &mdash; Semantic Line Breaks for Academic Writing</title>
-<meta name="description" content="A fast, format-aware semantic line break formatter for Org-mode, LaTeX, Markdown, and plaintext. Produces clean git diffs for collaborative academic writing.">
+<meta name="description" content="A fast, format-aware semantic line break formatter for Org-mode, LaTeX, Markdown, RST, Typst, and plaintext. Produces clean git diffs for collaborative academic writing.">
 <meta name="author" content="TurtleTech ehf">
 <meta name="keywords" content="semantic line breaks, formatter, LaTeX, Org-mode, Markdown, git diff, academic writing, sentence splitting, pre-commit">
 <link rel="canonical" href="https://snapper.turtletech.us/">
@@ -26,7 +26,7 @@
   "@context": "https://schema.org",
   "@type": "SoftwareApplication",
   "name": "snapper",
-  "description": "Semantic line break formatter for Org-mode, LaTeX, Markdown, and plaintext",
+  "description": "Semantic line break formatter for Org-mode, LaTeX, Markdown, RST, Typst, and plaintext",
   "applicationCategory": "DeveloperApplication",
   "operatingSystem": "Linux, macOS, Windows",
   "url": "https://snapper.turtletech.us",
@@ -802,7 +802,7 @@ We present a method for formatting prose documents with semantic line breaks, wh
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M16 13H8M16 17H8M10 9H8"/></svg>
         </div>
         <h3 data-i18n="feat1_title">Format-aware parsing</h3>
-        <p data-i18n="feat1_desc">Understands Org-mode, LaTeX, Markdown, RST, and plaintext natively. With pandoc backend: typst, asciidoc, docx, html, and more. Math and tables stay structure; source-block fences stay fixed while configured language comments reflow (optional --format-code).</p>
+        <p data-i18n="feat1_desc">Understands Org-mode, LaTeX, Markdown, RST, Typst, and plaintext natively. With pandoc backend: asciidoc, docx, html, and more. Math and tables stay structure; source-block fences stay fixed while configured language comments reflow (optional --format-code).</p>
       </div>
 
       <div class="feature-card">
@@ -951,7 +951,7 @@ const I18N = {
     features_title: 'Built for academic workflows',
     features_subtitle: 'Everything you need to adopt semantic line breaks across your paper writing toolchain.',
     feat1_title: 'Format-aware parsing',
-    feat1_desc: 'Understands Org-mode, LaTeX, Markdown, RST, and plaintext natively. With pandoc backend: typst, asciidoc, docx, html, and more. Math and tables stay structure; source-block fences stay fixed while configured language comments reflow (optional --format-code).',
+    feat1_desc: 'Understands Org-mode, LaTeX, Markdown, RST, Typst, and plaintext natively. With pandoc backend: asciidoc, docx, html, and more. Math and tables stay structure; source-block fences stay fixed while configured language comments reflow (optional --format-code).',
     feat2_title: 'Abbreviation-aware',
     feat2_desc: 'Handles Dr., Fig., Eq., e.g., i.e., et al. and 80+ more. Add project-specific abbreviations via <code>.snapperrc.toml</code>.',
     feat3_title: 'Pre-commit hook',

@@ -25,6 +25,24 @@ static NON_ORG_INLINE_TOKEN_RE: LazyLock<Regex> =
     LazyLock::new(|| build_inline_token_regex(Some(Format::Plaintext)));
 static MARKDOWN_INLINE_TOKEN_RE: LazyLock<Regex> =
     LazyLock::new(|| build_inline_token_regex(Some(Format::Markdown)));
+static TYPST_INLINE_TOKEN_RE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(
+        [
+            // Typst math, including display `$ x $` (spaces inside the dollars).
+            r"\$[^$\n]+\$",
+            // Strong and emphasis. A non-space must sit against each marker.
+            r"\*[^*\s\n](?:[^*\n]*[^*\s\n])?\*",
+            r"_[^_\s\n](?:[^_\n]*[^_\s\n])?_",
+            // Labels `<intro>` and references `@fig.1`.
+            r"<[A-Za-z_][-A-Za-z0-9_.:]*>",
+            r"@[A-Za-z_][-A-Za-z0-9_.:]*",
+            r#"https?://\S+[^.\s!?,;:)\]'""]"#,
+        ]
+        .join("|")
+        .as_str(),
+    )
+    .expect("valid typst inline token regex")
+});
 
 fn build_inline_token_regex(format: Option<Format>) -> Regex {
     Regex::new(
@@ -137,6 +155,7 @@ fn inline_token_regex(format: Option<Format>) -> &'static Regex {
     match format {
         None | Some(Format::Org) => &INLINE_TOKEN_RE,
         Some(Format::Markdown) => &MARKDOWN_INLINE_TOKEN_RE,
+        Some(Format::Typst) => &TYPST_INLINE_TOKEN_RE,
         Some(_) => &NON_ORG_INLINE_TOKEN_RE,
     }
 }
@@ -284,7 +303,12 @@ fn protect_inline_tokens_in_format(
     // Footnote references run in the same walk so a nested `[[link]]`
     // closer does not end `[fn:: …]` early (GitHub #231).
     let after_org = protect_org_inline_src_and_call(&after_rst, &mut placeholders);
-    let after_spans = protect_paired_spans(&after_org, &mut placeholders);
+    let after_typst = if format == Some(Format::Typst) {
+        protect_typst_inline(&after_org, &mut placeholders)
+    } else {
+        after_org
+    };
+    let after_spans = protect_paired_spans(&after_typst, &mut placeholders);
     let token_regex = inline_token_regex(format);
     let protected = token_regex.replace_all(&after_spans, |caps: &regex::Captures| {
         let m = caps.get(0).expect("regex match");
@@ -2899,6 +2923,25 @@ fn protect_paired_spans(text: &str, placeholders: &mut Vec<String>) -> String {
     out
 }
 
+/// Keep a Typst `#` call, `//` line comment, or `/* */` block atomic.
+fn protect_typst_inline(text: &str, placeholders: &mut Vec<String>) -> String {
+    let mut out = String::with_capacity(text.len());
+    let mut i = 0;
+    while i < text.len() {
+        if let Some(end) = crate::parser::typst::typst_protected_span_end(text, i) {
+            if end > i {
+                push_placeholder(&mut out, placeholders, &text[i..end]);
+                i = end;
+                continue;
+            }
+        }
+        let ch = text[i..].chars().next().expect("i is in range");
+        out.push(ch);
+        i += ch.len_utf8();
+    }
+    out
+}
+
 fn push_placeholder(out: &mut String, placeholders: &mut Vec<String>, span: &str) {
     let idx = placeholders.len();
     placeholders.push(span.to_string());
@@ -3133,6 +3176,15 @@ pub(crate) fn atomic_inline_spans_in_format(
     let bytes = text.as_bytes();
     let mut i = 0;
     while i < text.len() {
+        if format == Some(Format::Typst) {
+            if let Some(end) = crate::parser::typst::typst_protected_span_end(text, i) {
+                if end > i {
+                    spans.push((i, end));
+                    i = end;
+                    continue;
+                }
+            }
+        }
         if let Some(end) = rst_substitution_ref_span_end(text, i) {
             spans.push((i, end));
             i = end;

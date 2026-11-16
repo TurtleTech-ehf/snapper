@@ -69,6 +69,7 @@ src/
     latex.rs          -- LaTeX parser
     markdown.rs       -- Markdown parser
     rst.rs            -- reStructuredText parser
+    typst.rs          -- Typst parser
     plaintext.rs      -- Plaintext parser (everything is prose)
 editors/
   nvim/               -- Neovim plugin (LSP, conform.nvim, format-on-save)

@@ -137,6 +137,7 @@ pub struct ProjectConfig {
     pub markdown: Option<FormatOverrides>,
     pub rst: Option<FormatOverrides>,
     pub plaintext: Option<FormatOverrides>,
+    pub typst: Option<FormatOverrides>,
 
     /// Per-language code-block reflow and formatter configuration.
     /// Key is the language identifier as it appears on the code fence
@@ -193,6 +194,7 @@ impl ProjectConfig {
             "markdown" => self.markdown.as_ref(),
             "rst" => self.rst.as_ref(),
             "plaintext" => self.plaintext.as_ref(),
+            "typst" => self.typst.as_ref(),
             _ => None,
         };
         if let Some(ov) = overrides {
@@ -209,6 +211,7 @@ impl ProjectConfig {
             "markdown" => self.markdown.as_ref(),
             "rst" => self.rst.as_ref(),
             "plaintext" => self.plaintext.as_ref(),
+            "typst" => self.typst.as_ref(),
             _ => None,
         };
         overrides.and_then(|ov| ov.max_width).or(self.max_width)
@@ -224,6 +227,7 @@ impl ProjectConfig {
             "markdown" => self.markdown.as_ref(),
             "rst" => self.rst.as_ref(),
             "plaintext" => self.plaintext.as_ref(),
+            "typst" => self.typst.as_ref(),
             _ => None,
         };
         overrides

@@ -466,7 +466,7 @@ fn resolve_format(
             None => "no file extension".to_string(),
         };
         anyhow::bail!(
-            "{}: not a prose format ({hint}); pass --format or use .org/.tex/.md/.rst/.txt",
+            "{}: not a prose format ({hint}); pass --format or use .org/.tex/.md/.rst/.typ/.txt",
             path.display()
         );
     }

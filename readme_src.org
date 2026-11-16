@@ -18,7 +18,7 @@ By breaking at sentence boundaries instead, each edit affects only the sentence 
 This convention, often called [[https://sembr.org/][semantic line breaks]], enjoys longstanding support from technical writers.
 ~snapper~ is a deterministic formatter (UAX #29 plus abbreviation tables and optional nnsplit).
 It is not [[https://github.com/admk/sembr][admk/sembr]] (learned clause breaks) and not [[https://github.com/sembr/skills][sembr/skills]] (agent rewrite instructions).
-~latexindent.pl~ covers LaTeX only; snapper is a standalone Rust binary for Org-mode, LaTeX, Markdown, RST, and plaintext.
+~latexindent.pl~ covers LaTeX only; snapper is a standalone Rust binary for Org-mode, LaTeX, Markdown, RST, Typst, and plaintext.
 ** Design
 :PROPERTIES:
 :CUSTOM_ID: design
@@ -160,6 +160,7 @@ Configuration guide (org source in-tree): =docs/orgmode/howto/mcp-integration.or
 | LaTeX     | =.tex=, =.latex=       | Preamble, math; minted and lstlisting comment reflow; Piton / =\piton= |
 | Markdown  | =.md=, =.markdown=     | Front matter, HTML; fenced blocks comment reflow when configured |
 | RST       | =.rst=                 | Directives, literals; =.. code-block::= comment reflow         |
+| Typst     | =.typ=                 | Headings, math, raw fences; =#set= / =#let= stay code; list bodies reflow |
 | Plaintext | =.txt=                 | (none; all text treated as prose). Unknown extensions are refused unless =--format= is set |
 ** Pre-commit hook
 :PROPERTIES:

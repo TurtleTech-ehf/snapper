@@ -275,6 +275,59 @@ These tokens within prose are not split across lines:
 :END:
 Extensions: =.rst=, =.rest=
 
+** Typst (=--format typst=)
+:PROPERTIES:
+:CUSTOM_ID: typst
+:END:
+
+Native markup for =.typ= files.
+Pandoc's typst reader is still available with =--use-pandoc=.
+The default path does not call pandoc.
+
+*** Structure regions (unchanged)
+:PROPERTIES:
+:CUSTOM_ID: typst-structure
+:END:
+- Column-0 headings (one or more equals signs, then a space or end of line)
+- Statement lines: =#let=, =#set=, =#show=, =#import=, =#include=, =#context=, =#export=, =#return=
+- Unclosed code calls, such as =#figure(= and =#align(center)[=
+- Content closers (=]=, =),=) and the lines that follow while a group stays open
+- Line comments (=//=) and block comments (=/* */=)
+- Display math: a line whose text is =$=, or a single line =$ ... $=
+- =// snapper:off= / =// snapper:on= and =/* snapper:off */=
+
+*** Code regions (raw fences)
+:PROPERTIES:
+:CUSTOM_ID: typst-code
+:END:
+- Three or more backticks, with an optional language tag
+- Fence lines stay fixed
+- Comment lines reflow when =[code.<lang>]= is set
+
+*** Prose regions (reflowed)
+:PROPERTIES:
+:CUSTOM_ID: typst-prose
+:END:
+- Paragraphs
+- List and term bodies, hung at the marker
+- Bodies of content blocks, hung at their indent
+- A closed content call on a prose line (=#emph[Dr. Smith.]=) stays in the sentence
+
+*** Inline tokens (kept atomic)
+:PROPERTIES:
+:CUSTOM_ID: typst-inline
+:END:
+- Math =$E = m c^2$=
+- Strong =*...*= and emphasis =_..._=
+- Labels =<intro>= and references =@fig.1=
+- =#= calls, =//= comments, and raw backticks
+
+*** Auto-detection
+:PROPERTIES:
+:CUSTOM_ID: typst-detection
+:END:
+Extensions: =.typ=, =.typst=
+
 ** Plaintext (=--format plaintext=)
 :PROPERTIES:
 :CUSTOM_ID: plaintext

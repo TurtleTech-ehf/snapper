@@ -16,6 +16,7 @@
 //! - **Markdown**: front matter and headings preserved; fenced blocks are code regions
 //! - **RST**: directives and literals preserved; admonition/figure/topic/sidebar/container/parsed-literal/epigraph/highlights/pull-quote/compound bodies reflow; `.. code-block::` is a code region
 //! - **Plaintext**: everything treated as prose
+//! - **Typst**: headings, code calls, raw blocks, and math preserved; markup paragraphs and list bodies reflow
 //!
 //! ## Library usage
 //!
@@ -467,6 +468,10 @@ fn pandoc_input_format(config: &FormatConfig) -> &str {
         Format::Markdown => "gfm",
         Format::Rst => "rst",
         Format::Plaintext => "markdown",
+        // Pandoc's typst reader is not the native path. The name is here
+        // so `--use-pandoc --format typst` asks pandoc for typst instead
+        // of silently rereading the file as markdown.
+        Format::Typst => "typst",
     }
 }
 
