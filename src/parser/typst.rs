@@ -7,8 +7,8 @@
 //! kept atomic by the sentence splitter.
 
 use crate::parser::{
-    ByteSpan, FormatParser, Line, SpannedRegion, flush_prose_spanned, iter_lines, join_prose_gap,
-    push_prose_line,
+    ByteSpan, FormatParser, Line, ProseBuf, SpannedRegion, flush_prose_spanned, iter_lines,
+    join_prose_gap, push_prose_line,
 };
 #[cfg(test)]
 use crate::parser::{Region, RegionOrigin};
@@ -28,6 +28,8 @@ enum Frame {
 #[derive(Clone, Debug, Default)]
 struct Depth {
     frames: Vec<Frame>,
+    /// Backtick count of a raw span left open at the end of the last line.
+    raw: Option<usize>,
 }
 
 impl Depth {
@@ -55,6 +57,20 @@ impl Depth {
         let bytes = line.as_bytes();
         let mut i = 0;
         while i < bytes.len() {
+            if let Some(need) = self.raw {
+                if bytes[i] == b'`' {
+                    let ticks = backtick_run(bytes, i);
+                    if ticks >= need {
+                        self.raw = None;
+                        i += need;
+                        continue;
+                    }
+                    i += ticks.max(1);
+                    continue;
+                }
+                i += 1;
+                continue;
+            }
             match self.top() {
                 Some(Frame::String) => {
                     if bytes[i] == b'\\' && i + 1 < bytes.len() {
@@ -93,6 +109,20 @@ impl Depth {
                     continue;
                 }
                 _ => {}
+            }
+            if bytes[i] == b'`' {
+                let ticks = backtick_run(bytes, i);
+                // `` is an empty raw. Any other run reads through to its closer.
+                if ticks == 2 {
+                    i += 2;
+                    continue;
+                }
+                if let Some(end) = raw_closer_end(bytes, i + ticks, ticks) {
+                    i = end;
+                    continue;
+                }
+                self.raw = Some(ticks);
+                return;
             }
             if bytes[i] == b'/' && bytes.get(i + 1) == Some(&b'/') {
                 return;
@@ -141,10 +171,11 @@ impl FormatParser for TypstParser {
     fn parse_full(&self, input: &str) -> Vec<SpannedRegion> {
         let lines = iter_lines(input);
         let mut regions = Vec::new();
-        let mut prose = String::new();
+        let mut prose = ProseBuf::default();
         let mut prose_span: Option<ByteSpan> = None;
         let mut term: Option<ByteSpan> = None;
         let mut hang: Option<Hang> = None;
+        let mut carry = LineCarry::default();
         let mut depth = Depth::default();
         let mut pragma_off = false;
         let mut display_math = false;
@@ -153,6 +184,21 @@ impl FormatParser for TypstParser {
         while i < lines.len() {
             let line = lines[i];
 
+            // A raw span stays one piece, including the newline and any
+            // indentation inside it. The next line is not a heading or a list.
+            if carry.raw.is_some() {
+                extend_open_raw(
+                    &mut prose,
+                    &mut prose_span,
+                    &mut term,
+                    &line,
+                    hang.is_some(),
+                );
+                carry = line_carry(line.text, carry.raw);
+                i += 1;
+                continue;
+            }
+
             if display_math {
                 flush_open(
                     input,
@@ -160,6 +206,7 @@ impl FormatParser for TypstParser {
                     &mut prose_span,
                     &mut term,
                     &mut hang,
+                    &mut carry,
                     &mut regions,
                 );
                 regions.push(SpannedRegion::structure(input, line.span()));
@@ -177,6 +224,7 @@ impl FormatParser for TypstParser {
                     &mut prose_span,
                     &mut term,
                     &mut hang,
+                    &mut carry,
                     &mut regions,
                 );
                 depth.feed(line.text);
@@ -192,6 +240,7 @@ impl FormatParser for TypstParser {
                     &mut prose_span,
                     &mut term,
                     &mut hang,
+                    &mut carry,
                     &mut regions,
                 );
                 regions.push(SpannedRegion::blank(input, line.span()));
@@ -206,6 +255,7 @@ impl FormatParser for TypstParser {
                     &mut prose_span,
                     &mut term,
                     &mut hang,
+                    &mut carry,
                     &mut regions,
                 );
                 depth.feed(line.text);
@@ -221,6 +271,7 @@ impl FormatParser for TypstParser {
                     &mut prose_span,
                     &mut term,
                     &mut hang,
+                    &mut carry,
                     &mut regions,
                 );
                 pragma_off = !on;
@@ -235,6 +286,7 @@ impl FormatParser for TypstParser {
                     &mut prose_span,
                     &mut term,
                     &mut hang,
+                    &mut carry,
                     &mut regions,
                 );
                 regions.push(SpannedRegion::structure(input, line.span()));
@@ -249,6 +301,7 @@ impl FormatParser for TypstParser {
                     &mut prose_span,
                     &mut term,
                     &mut hang,
+                    &mut carry,
                     &mut regions,
                 );
                 depth.feed(line.text);
@@ -264,6 +317,7 @@ impl FormatParser for TypstParser {
                     &mut prose_span,
                     &mut term,
                     &mut hang,
+                    &mut carry,
                     &mut regions,
                 );
                 i = take_fence(input, &lines, i, &mut regions);
@@ -277,6 +331,7 @@ impl FormatParser for TypstParser {
                     &mut prose_span,
                     &mut term,
                     &mut hang,
+                    &mut carry,
                     &mut regions,
                 );
                 display_math = true;
@@ -292,6 +347,7 @@ impl FormatParser for TypstParser {
                     &mut prose_span,
                     &mut term,
                     &mut hang,
+                    &mut carry,
                     &mut regions,
                 );
                 regions.push(SpannedRegion::structure(input, line.span()));
@@ -306,6 +362,7 @@ impl FormatParser for TypstParser {
                     &mut prose_span,
                     &mut term,
                     &mut hang,
+                    &mut carry,
                     &mut regions,
                 );
                 regions.push(SpannedRegion::structure(input, line.span()));
@@ -320,6 +377,7 @@ impl FormatParser for TypstParser {
                     &mut prose_span,
                     &mut term,
                     &mut hang,
+                    &mut carry,
                     &mut regions,
                 );
                 depth.feed(line.text);
@@ -335,6 +393,7 @@ impl FormatParser for TypstParser {
                     &mut prose_span,
                     &mut term,
                     &mut hang,
+                    &mut carry,
                     &mut regions,
                 );
                 depth.feed(line.text);
@@ -350,6 +409,7 @@ impl FormatParser for TypstParser {
                     &mut prose_span,
                     &mut term,
                     &mut hang,
+                    &mut carry,
                     &mut regions,
                 );
                 let marker = ByteSpan::new(line.start, line.start + marker_len);
@@ -376,6 +436,7 @@ impl FormatParser for TypstParser {
                         marker_len,
                         false,
                     );
+                    carry = line_carry(body, None);
                 }
                 i += 1;
                 continue;
@@ -384,6 +445,21 @@ impl FormatParser for TypstParser {
             if let Some(active) = hang.as_ref() {
                 let indent = leading_spaces(line.text);
                 if indent >= active.width && indent < line.text.len() {
+                    if carry.hard_break {
+                        split_hang_after_terminator(
+                            input,
+                            &mut prose,
+                            &mut prose_span,
+                            &mut term,
+                            &line,
+                            &mut regions,
+                        );
+                        let spaces = leading_spaces(line.text);
+                        let body = line.text[spaces..].trim();
+                        carry = line_carry(body, None);
+                        i += 1;
+                        continue;
+                    }
                     if active.empty_body {
                         let marker = ByteSpan::new(line.start, line.start + indent);
                         regions.push(SpannedRegion::structure(input, marker));
@@ -399,8 +475,10 @@ impl FormatParser for TypstParser {
                             indent,
                             false,
                         );
+                        carry = line_carry(line.text[indent..].trim(), None);
                     } else {
                         push_hang_body(&mut prose, &mut prose_span, &mut term, &line, 0, true);
+                        carry = line_carry(line.text.trim(), None);
                     }
                     i += 1;
                     continue;
@@ -411,6 +489,7 @@ impl FormatParser for TypstParser {
                     &mut prose_span,
                     &mut term,
                     &mut hang,
+                    &mut carry,
                     &mut regions,
                 );
                 continue;
@@ -424,6 +503,7 @@ impl FormatParser for TypstParser {
                     &mut prose_span,
                     &mut term,
                     &mut hang,
+                    &mut carry,
                     &mut regions,
                 );
                 let marker = ByteSpan::new(line.start, line.start + indent);
@@ -433,12 +513,25 @@ impl FormatParser for TypstParser {
                     empty_body: false,
                 });
                 push_hang_body(&mut prose, &mut prose_span, &mut term, &line, indent, false);
+                carry = line_carry(line.text[indent..].trim(), None);
                 i += 1;
                 continue;
             }
 
+            if carry.hard_break {
+                flush_open(
+                    input,
+                    &mut prose,
+                    &mut prose_span,
+                    &mut term,
+                    &mut hang,
+                    &mut carry,
+                    &mut regions,
+                );
+            }
             push_prose_line(&mut prose, &mut prose_span, &line, true, true);
             term = None;
+            carry = line_carry(line.text.trim(), None);
             i += 1;
         }
 
@@ -448,6 +541,7 @@ impl FormatParser for TypstParser {
             &mut prose_span,
             &mut term,
             &mut hang,
+            &mut carry,
             &mut regions,
         );
         regions
@@ -456,10 +550,11 @@ impl FormatParser for TypstParser {
 
 fn flush_open(
     input: &str,
-    prose: &mut String,
+    prose: &mut ProseBuf,
     prose_span: &mut Option<ByteSpan>,
     term: &mut Option<ByteSpan>,
     hang: &mut Option<Hang>,
+    carry: &mut LineCarry,
     regions: &mut Vec<SpannedRegion>,
 ) {
     flush_prose_spanned(prose, prose_span, regions);
@@ -469,10 +564,37 @@ fn flush_open(
         }
     }
     *hang = None;
+    *carry = LineCarry::default();
+}
+
+/// End a list-item line that holds a comment or a hash expression, then
+/// keep the following indented line in the same item.
+fn split_hang_after_terminator(
+    input: &str,
+    prose: &mut ProseBuf,
+    prose_span: &mut Option<ByteSpan>,
+    term: &mut Option<ByteSpan>,
+    line: &Line<'_>,
+    regions: &mut Vec<SpannedRegion>,
+) {
+    flush_prose_spanned(prose, prose_span, regions);
+    if let Some(span) = term.take() {
+        if !span.is_empty() {
+            regions.push(SpannedRegion::structure(input, span));
+        }
+    }
+    let spaces = leading_spaces(line.text);
+    if spaces > 0 {
+        regions.push(SpannedRegion::structure(
+            input,
+            ByteSpan::new(line.start, line.start + spaces),
+        ));
+    }
+    push_hang_body(prose, prose_span, term, line, spaces, false);
 }
 
 fn push_hang_body(
-    prose: &mut String,
+    prose: &mut ProseBuf,
     prose_span: &mut Option<ByteSpan>,
     term: &mut Option<ByteSpan>,
     line: &Line<'_>,
@@ -500,6 +622,255 @@ fn push_hang_body(
         }
     }
     *term = Some(line.terminator_span());
+}
+
+#[derive(Default)]
+struct LineCarry {
+    /// Backtick count of a raw span that still wants its closer.
+    raw: Option<usize>,
+    /// This line ends with a line comment or a hash expression. The next
+    /// line must stay after that newline.
+    hard_break: bool,
+}
+
+fn backtick_run(bytes: &[u8], start: usize) -> usize {
+    let mut n = 0;
+    while start + n < bytes.len() && bytes[start + n] == b'`' {
+        n += 1;
+    }
+    n
+}
+
+/// Index just past a closing run of `ticks` backticks, if one exists.
+fn raw_closer_end(bytes: &[u8], from: usize, ticks: usize) -> Option<usize> {
+    if ticks == 0 {
+        return None;
+    }
+    let mut i = from;
+    let mut found = 0usize;
+    while i < bytes.len() {
+        if bytes[i] == b'`' {
+            found += 1;
+            if found == ticks {
+                return Some(i + 1);
+            }
+        } else {
+            found = 0;
+        }
+        i += 1;
+    }
+    None
+}
+
+/// End of a Typst raw span at `start`, or `None` when `start` is not a backtick.
+///
+/// Typst 0.15 reads the whole backtick run first. Exactly two backticks are
+/// an empty raw. Any other run, including one that crosses lines, ends at
+/// the same number of closing backticks. An unclosed raw runs to the end.
+pub(crate) fn typst_raw_span_end(text: &str, start: usize) -> Option<usize> {
+    let bytes = text.as_bytes();
+    if bytes.get(start) != Some(&b'`') {
+        return None;
+    }
+    let ticks = backtick_run(bytes, start);
+    if ticks == 2 {
+        return Some(start + 2);
+    }
+    if ticks == 0 {
+        return None;
+    }
+    Some(raw_closer_end(bytes, start + ticks, ticks).unwrap_or(text.len()))
+}
+
+/// True when byte `at` sits inside a raw span.
+pub(crate) fn typst_byte_in_raw(text: &str, at: usize) -> bool {
+    let bytes = text.as_bytes();
+    let mut i = 0;
+    while i < text.len() && i <= at {
+        if bytes[i] == b'`' {
+            if let Some(end) = typst_raw_span_end(text, i) {
+                if i < at && at < end {
+                    return true;
+                }
+                if end > i {
+                    i = end;
+                    continue;
+                }
+            }
+        }
+        i += text[i..].chars().next().map_or(1, char::len_utf8);
+    }
+    false
+}
+
+fn extend_open_raw(
+    prose: &mut ProseBuf,
+    prose_span: &mut Option<ByteSpan>,
+    term: &mut Option<ByteSpan>,
+    line: &Line<'_>,
+    in_hang: bool,
+) {
+    if let Some(span) = term.take() {
+        if !span.is_empty() {
+            prose.push('\n');
+            if let Some(s) = prose_span.as_mut() {
+                s.end = span.end;
+            }
+        }
+    } else if !prose.is_empty() {
+        prose.push('\n');
+    }
+    prose.push_str(line.text);
+    let end = if in_hang {
+        line.start + line.text.len()
+    } else {
+        line.end
+    };
+    match prose_span {
+        Some(span) => span.end = end,
+        None => *prose_span = Some(ByteSpan::new(line.start, end)),
+    }
+    if in_hang {
+        *term = Some(line.terminator_span());
+    }
+}
+
+/// How `line` ends, given a raw span already open from the previous line.
+fn line_carry(line: &str, mut raw: Option<usize>) -> LineCarry {
+    let bytes = line.as_bytes();
+    let mut i = 0;
+    let mut hard = false;
+    while i < bytes.len() {
+        if let Some(need) = raw {
+            if bytes[i] == b'`' {
+                let ticks = backtick_run(bytes, i);
+                if ticks >= need {
+                    i += need;
+                    raw = None;
+                    continue;
+                }
+                i += ticks.max(1);
+                continue;
+            }
+            i += 1;
+            continue;
+        }
+        if bytes[i] == b'`' {
+            let ticks = backtick_run(bytes, i);
+            if ticks == 2 {
+                i += 2;
+                continue;
+            }
+            if ticks > 0 {
+                if let Some(end) = raw_closer_end(bytes, i + ticks, ticks) {
+                    i = end;
+                    continue;
+                }
+                return LineCarry {
+                    raw: Some(ticks),
+                    hard_break: false,
+                };
+            }
+        }
+        if bytes[i] == b'/' && bytes.get(i + 1) == Some(&b'*') {
+            if let Some(end) = typst_block_comment_end(line, i) {
+                if end < line.len() {
+                    i = end;
+                    continue;
+                }
+            }
+            return LineCarry {
+                raw: None,
+                hard_break: hard,
+            };
+        }
+        if bytes[i] == b'/' && bytes.get(i + 1) == Some(&b'/') {
+            // `https://` is a link. The slashes sit immediately after `:`.
+            if i == 0 || bytes[i - 1] != b':' {
+                return LineCarry {
+                    raw: None,
+                    hard_break: true,
+                };
+            }
+            i += 2;
+            continue;
+        }
+        if bytes[i] == b'\\' && i + 1 < bytes.len() {
+            i += 2;
+            continue;
+        }
+        if bytes[i] == b'#' && hash_can_start(&line[i..]) {
+            hard = true;
+            let start = i;
+            if let Some(end) = typst_hash_expr_end(line, i) {
+                if end > i {
+                    if let Some(ticks) = raw_left_open(&line[start..end]) {
+                        return LineCarry {
+                            raw: Some(ticks),
+                            hard_break: false,
+                        };
+                    }
+                    i = end;
+                    continue;
+                }
+            }
+        }
+        i += line[i..].chars().next().map_or(1, char::len_utf8);
+    }
+    LineCarry {
+        raw: None,
+        hard_break: hard,
+    }
+}
+
+/// The newline after `line` ends a comment or a hash expression.
+///
+/// Joining the next line onto it would swallow text into a `//` comment or
+/// continue a code statement. A later sentence of the same paragraph has to
+/// stay on this line: a break there would not join back.
+pub(crate) fn typst_line_owns_its_newline(line: &str) -> bool {
+    line_carry(line.trim(), None).hard_break
+}
+
+/// Tick count of a raw that `text` does not close. Strings hide backticks.
+fn raw_left_open(text: &str) -> Option<usize> {
+    let bytes = text.as_bytes();
+    let mut i = 0;
+    let mut string = false;
+    while i < bytes.len() {
+        if string {
+            if bytes[i] == b'\\' && i + 1 < bytes.len() {
+                i += 2;
+                continue;
+            }
+            if bytes[i] == b'"' {
+                string = false;
+            }
+            i += 1;
+            continue;
+        }
+        if bytes[i] == b'"' {
+            string = true;
+            i += 1;
+            continue;
+        }
+        if bytes[i] == b'`' {
+            let ticks = backtick_run(bytes, i);
+            if ticks == 2 {
+                i += 2;
+                continue;
+            }
+            if ticks > 0 {
+                if let Some(end) = raw_closer_end(bytes, i + ticks, ticks) {
+                    i = end;
+                    continue;
+                }
+                return Some(ticks);
+            }
+        }
+        i += 1;
+    }
+    None
 }
 
 fn take_fence(
@@ -719,6 +1090,9 @@ pub(crate) fn typst_protected_span_end(text: &str, start: usize) -> Option<usize
     if start >= bytes.len() {
         return None;
     }
+    if bytes[start] == b'`' {
+        return typst_raw_span_end(text, start);
+    }
     if bytes[start] == b'#' {
         return typst_hash_expr_end(text, start);
     }
@@ -758,10 +1132,19 @@ pub(crate) fn typst_hash_expr_end(text: &str, start: usize) -> Option<usize> {
             .sum();
         i += n;
     }
+    // `let` / `set` / `show` run to a semicolon or the newline. A space
+    // after the keyword is still the statement.
+    let statement = statement_keyword(&text[start..]);
     let mut stack: Vec<u8> = Vec::new();
     loop {
         if i >= bytes.len() || bytes[i] == b'\n' {
             return Some(i.max(start + 1));
+        }
+        if bytes[i] == b'`' {
+            if let Some(end) = typst_raw_span_end(text, i) {
+                i = end;
+                continue;
+            }
         }
         if let Some(&top) = stack.last() {
             if top == b'"' {
@@ -863,10 +1246,14 @@ pub(crate) fn typst_hash_expr_end(text: &str, start: usize) -> Option<usize> {
                         .map(|c| c.len_utf8())
                         .sum();
                     i += n;
+                } else if statement {
+                    i += 1;
                 } else {
                     return Some(i);
                 }
             }
+            b';' if statement && stack.is_empty() => return Some(i + 1),
+            _ if stack.is_empty() && statement => i += 1,
             _ if stack.is_empty() => return Some(i),
             _ => i += 1,
         }
@@ -1192,5 +1579,209 @@ mod tests {
             matches!(&regions[0], Region::Prose(_)),
             "closed content call stays prose, got {regions:?}"
         );
+    }
+
+    #[test]
+    fn statement_hash_runs_to_the_newline_or_semicolon() {
+        let expr = "#set text(size: 12pt)";
+        let end = typst_hash_expr_end(expr, 0).unwrap();
+        assert_eq!(&expr[..end], "#set text(size: 12pt)");
+        let stopped = "#let x = 1; Next";
+        let end = typst_hash_expr_end(stopped, 0).unwrap();
+        assert_eq!(&stopped[..end], "#let x = 1;");
+    }
+
+    #[test]
+    fn raw_span_includes_the_newline() {
+        let text = "See `Dr. Smith.\nReally` now.";
+        let end = typst_raw_span_end(text, text.find('`').unwrap()).unwrap();
+        assert_eq!(&text[text.find('`').unwrap()..end], "`Dr. Smith.\nReally`");
+        assert!(typst_byte_in_raw(text, text.find("Smith").unwrap()));
+    }
+
+    #[test]
+    fn line_comment_does_not_swallow_the_next_line() {
+        let input = "Hello. World. // note\nNext line. More.\n";
+        let out = format_typst(input);
+        assert_eq!(
+            out,
+            concat!("Hello.\n", "World. // note\n", "Next line.\n", "More.\n",)
+        );
+        assert_typst_same(input, &out);
+    }
+
+    #[test]
+    fn line_comment_does_not_swallow_a_list_continuation() {
+        let input = "- Keep this. // note\n  And this stays. It continues.\n";
+        let out = format_typst(input);
+        assert_eq!(
+            out,
+            concat!(
+                "- Keep this. // note\n",
+                "  And this stays.\n",
+                "  It continues.\n",
+            )
+        );
+        assert_typst_same(input, &out);
+    }
+
+    #[test]
+    fn raw_span_stays_atomic_before_the_next_statement() {
+        let input = "Use `Dr. Smith.\nReally` now.\n#repr(raw)\nAfter the call. Next.\n";
+        let out = format_typst(input);
+        assert!(
+            out.contains("`Dr. Smith.\nReally`"),
+            "raw was split:\n{out}"
+        );
+        assert!(
+            !out.contains("` #repr") && !out.contains("\n` #repr") && !out.contains("`#repr"),
+            "closer glued onto the next call:\n{out}"
+        );
+        assert!(out.contains("#repr(raw)\n"));
+        assert!(out.contains("After the call.\nNext.\n"));
+        assert_typst_same(input, &out);
+    }
+
+    #[test]
+    fn inline_raw_with_a_period_stays_atomic() {
+        let input = "Use `Dr. Smith. Really` now. Next.\n";
+        let out = format_typst(input);
+        assert!(out.contains("`Dr. Smith. Really`"), "{out}");
+        assert!(out.contains("Next.\n") || out.ends_with("Next.\n"));
+        assert_typst_same(input, &out);
+    }
+
+    #[test]
+    fn mid_line_set_keeps_its_terminating_newline() {
+        let input = "Done. #set text(size: 12pt)\nThe next claim follows. Again.\n";
+        let out = format_typst(input);
+        assert_eq!(
+            out,
+            concat!(
+                "Done. #set text(size: 12pt)\n",
+                "The next claim follows.\n",
+                "Again.\n",
+            )
+        );
+        assert_typst_same(input, &out);
+    }
+
+    #[test]
+    fn mid_line_let_keeps_its_terminating_newline() {
+        let input = "Done. #let name = \"Dr. Smith.\"\nThe next claim follows.\n";
+        let out = format_typst(input);
+        assert_eq!(
+            out,
+            "Done. #let name = \"Dr. Smith.\"\nThe next claim follows.\n"
+        );
+        assert_typst_same(input, &out);
+    }
+
+    #[test]
+    fn hash_line_is_not_joined_under_max_width() {
+        let cfg = FormatConfig {
+            format: Format::Typst,
+            max_width: 40,
+            ..Default::default()
+        };
+        let input = "Done. #set text(size: 12pt)\nThe next claim follows after the statement.\n";
+        let out = format_text(input, &cfg).unwrap();
+        let again = format_text(&out, &cfg).unwrap();
+        assert_eq!(out, again, "{out}");
+        assert!(oracle::matches(Format::Typst, input, &out), "{out}");
+        assert!(
+            out.contains("#set text(size: 12pt)\n"),
+            "statement lost its newline:\n{out}"
+        );
+        assert!(!out.contains("12pt) The"), "{out}");
+        assert_typst_same(input, &out);
+    }
+
+    #[test]
+    fn hash_in_a_sentence_keeps_the_following_sentence() {
+        let cfg = FormatConfig {
+            format: Format::Typst,
+            ..Default::default()
+        }
+        .without_safety_backstops();
+        let input = "See #emph[Note]. Next claim. Another.\n";
+        let out = format_text(input, &cfg).unwrap();
+        assert_eq!(out, input);
+        assert_eq!(format_text(&out, &cfg).unwrap(), out);
+        assert_typst_same(input, &out);
+        let odd = "#a*\"*. aA\".";
+        let odd_out = format_text(odd, &cfg).unwrap();
+        assert_eq!(odd_out, odd);
+        assert!(oracle::matches(Format::Typst, odd, &odd_out), "{odd_out}");
+    }
+
+    /// Compile `input` and `output` with Typst 0.15.1 when that binary is on
+    /// `PATH`. A missing compiler leaves the exact-output assertion in charge.
+    fn assert_typst_same(input: &str, output: &str) {
+        let Some(bin) = typst_0151() else {
+            return;
+        };
+        let dir = tempfile::tempdir().expect("tempdir");
+        let in_svg = compile_typst_svg(&bin, dir.path(), "in", input);
+        let out_svg = compile_typst_svg(&bin, dir.path(), "out", output);
+        assert_eq!(
+            in_svg, out_svg,
+            "Typst 0.15.1 SVG diverged\n--- input ---\n{input}\n--- output ---\n{output}"
+        );
+    }
+
+    fn typst_0151() -> Option<std::path::PathBuf> {
+        let path = std::env::var_os("TYPST_BIN")
+            .map(std::path::PathBuf::from)
+            .or_else(which_typst)?;
+        let version = std::process::Command::new(&path)
+            .arg("--version")
+            .output()
+            .ok()?;
+        if !version.status.success() {
+            return None;
+        }
+        let text = String::from_utf8_lossy(&version.stdout);
+        if text.starts_with("typst 0.15.1") {
+            Some(path)
+        } else {
+            None
+        }
+    }
+
+    fn which_typst() -> Option<std::path::PathBuf> {
+        let path = std::env::var_os("PATH")?;
+        for dir in std::env::split_paths(&path) {
+            let candidate = dir.join("typst");
+            if candidate.is_file() {
+                return Some(candidate);
+            }
+        }
+        None
+    }
+
+    fn compile_typst_svg(
+        bin: &std::path::Path,
+        dir: &std::path::Path,
+        name: &str,
+        source: &str,
+    ) -> Vec<u8> {
+        let typ = dir.join(format!("{name}.typ"));
+        let svg = dir.join(format!("{name}.svg"));
+        std::fs::write(&typ, source).expect("write typst");
+        let run = std::process::Command::new(bin)
+            .arg("compile")
+            .arg("--format")
+            .arg("svg")
+            .arg(&typ)
+            .arg(&svg)
+            .output()
+            .expect("run typst");
+        assert!(
+            run.status.success(),
+            "typst failed on {name}: {}",
+            String::from_utf8_lossy(&run.stderr)
+        );
+        std::fs::read(&svg).expect("read svg")
     }
 }

@@ -3780,7 +3780,9 @@ fn take_markup_terminal_sentence(
             // the closer's period still ends a sentence before a capital.
             // A lowercase word does not, and neither does an escaped period.
             let false_end = escaped_punct(seg, at)
-                || (punct_inside_code_span(seg, at) && starts_lowercase_word(rest));
+                || (punct_inside_code_span(seg, at) && starts_lowercase_word(rest))
+                || (format == Some(Format::Typst)
+                    && crate::parser::typst::typst_byte_in_raw(seg, at));
             if false_end {
                 let step = seg[at..].chars().next().map_or(1, char::len_utf8);
                 let next = at + step;

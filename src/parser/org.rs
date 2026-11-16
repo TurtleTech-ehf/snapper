@@ -2,8 +2,8 @@ use regex::Regex;
 use std::sync::LazyLock;
 
 use crate::parser::{
-    ByteSpan, FormatParser, Line, Region, RegionOrigin, SpannedRegion, flush_prose_spanned,
-    iter_lines, join_prose_gap, push_prose_line,
+    ByteSpan, FormatParser, Line, ProseBuf, Region, RegionOrigin, SpannedRegion,
+    flush_prose_spanned, iter_lines, join_prose_gap_string, push_prose_line,
 };
 
 static HEADLINE_RE: LazyLock<Regex> =
@@ -904,7 +904,7 @@ impl OrgParser {
         input: &str,
         line: &Line<'_>,
         from: usize,
-        current_prose: &mut String,
+        current_prose: &mut ProseBuf,
         prose_span: &mut Option<ByteSpan>,
         regions: &mut Vec<SpannedRegion>,
         join_space: bool,
@@ -957,7 +957,7 @@ impl OrgParser {
 impl FormatParser for OrgParser {
     fn parse_full(&self, input: &str) -> Vec<SpannedRegion> {
         let mut regions: Vec<SpannedRegion> = Vec::new();
-        let mut current_prose = String::new();
+        let mut current_prose = ProseBuf::default();
         let mut prose_span: Option<ByteSpan> = None;
         // Open greater-element names. `#+END_NAME` pops only a matching top
         // (org-element / orgize); a mismatched closer stays structure.
@@ -1505,7 +1505,7 @@ impl FormatParser for OrgParser {
                             if !content.is_empty() {
                                 if let Some(prev) = regions.last_mut() {
                                     if let Region::Prose(prose) = &mut prev.region {
-                                        join_prose_gap(prose);
+                                        join_prose_gap_string(prose);
                                         prose.push_str(content);
                                     }
                                     if let Some(RegionOrigin::Whole(span)) = &mut prev.origin {
@@ -1520,7 +1520,7 @@ impl FormatParser for OrgParser {
                         } else {
                             if let Some(prev) = regions.last_mut() {
                                 if let Region::Prose(prose) = &mut prev.region {
-                                    join_prose_gap(prose);
+                                    join_prose_gap_string(prose);
                                     prose.push_str(line_text.trim());
                                 }
                                 if let Some(RegionOrigin::Whole(span)) = &mut prev.origin {

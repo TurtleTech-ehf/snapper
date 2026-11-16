@@ -2,7 +2,8 @@ use regex::Regex;
 use std::sync::LazyLock;
 
 use crate::parser::{
-    ByteSpan, FormatParser, Line, SpannedRegion, flush_prose_spanned, iter_lines, join_prose_gap,
+    ByteSpan, FormatParser, Line, ProseBuf, SpannedRegion, flush_prose_spanned, iter_lines,
+    join_prose_gap,
 };
 use crate::sentence::unicode::{
     catchfile_leftover_cs_name, fancyvrb_leftover_cs_name, fancyvrb_shortverb_leftover_cs_name,
@@ -1832,7 +1833,7 @@ struct ParseState<'a> {
     input: &'a str,
     parser: &'a LatexParser,
     regions: Vec<SpannedRegion>,
-    current_prose: String,
+    current_prose: ProseBuf,
     prose_span: Option<ByteSpan>,
     in_non_prose_env: Option<String>,
     non_prose_depth: usize,
@@ -2700,7 +2701,7 @@ impl FormatParser for LatexParser {
             input,
             parser: self,
             regions: Vec::new(),
-            current_prose: String::new(),
+            current_prose: ProseBuf::default(),
             prose_span: None,
             in_non_prose_env: None,
             non_prose_depth: 0,

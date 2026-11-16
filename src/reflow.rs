@@ -280,7 +280,11 @@ fn reflow_prose(
     }
     let nsent = sentences.len();
     for (i, sentence) in sentences.iter().enumerate() {
-        if config.max_width > 0 || config.clause_breaks {
+        // A Typst comment or hash expression owns its newline. Wrapping
+        // after it would be a new region on the next parse.
+        let typst_closed = config.format == Format::Typst
+            && crate::parser::typst::typst_line_owns_its_newline(sentence);
+        if !typst_closed && (config.max_width > 0 || config.clause_breaks) {
             let layout = WrapLayout {
                 initial_column: if i == 0 { hanging } else { 0 },
                 first_indent: if i == 0 { "" } else { hang.as_str() },
@@ -299,7 +303,7 @@ fn reflow_prose(
                 output.push_str(&hang);
             }
             if hanging > 0 {
-                output.push_str(&hang_internal_newlines(sentence, &hang));
+                output.push_str(&hang_internal_newlines(sentence, &hang, config.format));
             } else {
                 output.push_str(sentence);
             }
@@ -1014,7 +1018,9 @@ fn glue_typst_attached_lines(sentences: &mut Vec<String>) {
     let mut i = 1usize;
     while i < sentences.len() {
         let trimmed = sentences[i].trim_start();
-        if !crate::parser::typst::typst_line_opens_block(trimmed) {
+        let prev_owns_newline =
+            crate::parser::typst::typst_line_owns_its_newline(&sentences[i - 1]);
+        if !prev_owns_newline && !crate::parser::typst::typst_line_opens_block(trimmed) {
             i += 1;
             continue;
         }
@@ -1272,7 +1278,7 @@ fn wrap_atomic_words(
 /// abbreviation/delimiter merge then keeps that as one sentence, so
 /// splice would otherwise emit the continuation flush-left
 /// (GitHub #129, #130, #131, #143).
-fn hang_internal_newlines(text: &str, hang: &str) -> String {
+fn hang_internal_newlines(text: &str, hang: &str, format: Format) -> String {
     if hang.is_empty() || !text.contains('\n') {
         return text.to_string();
     }
@@ -1280,7 +1286,11 @@ fn hang_internal_newlines(text: &str, hang: &str) -> String {
     let bytes = text.as_bytes();
     for (i, c) in text.char_indices() {
         out.push(c);
-        if c == '\n' && i + 1 < bytes.len() {
+        // A newline inside a Typst raw span is raw text. Hanging spaces
+        // would change what the raw contains.
+        let raw_newline =
+            format == Format::Typst && crate::parser::typst::typst_byte_in_raw(text, i);
+        if c == '\n' && i + 1 < bytes.len() && !raw_newline {
             out.push_str(hang);
         }
     }

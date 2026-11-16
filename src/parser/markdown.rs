@@ -2,8 +2,8 @@ use regex::Regex;
 use std::sync::LazyLock;
 
 use crate::parser::{
-    ByteSpan, FormatParser, Line, SpannedRegion, flush_prose_spanned, iter_lines, join_prose_gap,
-    push_prose_line,
+    ByteSpan, FormatParser, Line, ProseBuf, SpannedRegion, flush_prose_spanned, iter_lines,
+    join_prose_gap, push_prose_line,
 };
 
 /// CommonMark 0.31.2 §4.2 ATX heading: 0–3 spaces, then 1–6 `#`, then
@@ -157,7 +157,7 @@ pub struct MarkdownParser;
 fn close_list_item(
     in_list_item: &mut bool,
     list_hang: &mut Option<usize>,
-    current_prose: &mut String,
+    current_prose: &mut ProseBuf,
     prose_span: &mut Option<ByteSpan>,
     list_term: &mut Option<ByteSpan>,
     in_definition_list: &mut bool,
@@ -700,7 +700,7 @@ fn hard_break_rel(text: &str) -> Option<(usize, usize)> {
 }
 
 struct ProseAcc<'a> {
-    text: &'a mut String,
+    text: &'a mut ProseBuf,
     span: &'a mut Option<ByteSpan>,
     term: &'a mut Option<ByteSpan>,
 }
@@ -892,7 +892,7 @@ pub(crate) fn md_definition_list_marker_len(line: &str) -> Option<usize> {
 
 /// Reclassify pending paragraph text as a definition-list title.
 fn flush_prose_as_structure(
-    prose: &mut String,
+    prose: &mut ProseBuf,
     prose_span: &mut Option<ByteSpan>,
     input: &str,
     regions: &mut Vec<SpannedRegion>,
@@ -2027,7 +2027,7 @@ fn first_kept_begin(line: &str) -> Option<crate::parser::latex::EnvAt> {
 }
 
 fn push_trimmed_prose(
-    current_prose: &mut String,
+    current_prose: &mut ProseBuf,
     prose_span: &mut Option<ByteSpan>,
     text: &str,
     abs_start: usize,
@@ -2052,7 +2052,7 @@ fn push_trimmed_prose(
 fn emit_bracket_tail(
     input: &str,
     line: &Line<'_>,
-    current_prose: &mut String,
+    current_prose: &mut ProseBuf,
     prose_span: &mut Option<ByteSpan>,
     regions: &mut Vec<SpannedRegion>,
 ) -> bool {
@@ -2083,7 +2083,7 @@ fn emit_midline_bracket(
     input: &str,
     lines: &[Line<'_>],
     i: usize,
-    current_prose: &mut String,
+    current_prose: &mut ProseBuf,
     prose_span: &mut Option<ByteSpan>,
     regions: &mut Vec<SpannedRegion>,
     in_display_math: &mut Option<DisplayMathKind>,
@@ -2256,7 +2256,7 @@ fn front_matter_end(lines: &[Line<'_>]) -> Option<usize> {
 impl FormatParser for MarkdownParser {
     fn parse_full(&self, input: &str) -> Vec<SpannedRegion> {
         let mut regions: Vec<SpannedRegion> = Vec::new();
-        let mut current_prose = String::new();
+        let mut current_prose = ProseBuf::default();
         let mut prose_span: Option<ByteSpan> = None;
         let mut in_fenced_code = false;
         let mut fence_marker = String::new();

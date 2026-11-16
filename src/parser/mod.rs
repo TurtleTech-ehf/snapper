@@ -9,8 +9,8 @@ pub mod span;
 pub mod typst;
 
 pub use span::{
-    ByteSpan, CodeSpans, Line, RegionOrigin, SpannedRegion, flush_prose_spanned, iter_lines,
-    join_prose_gap, push_prose_line,
+    ByteSpan, CodeSpans, Line, ProseBuf, RegionOrigin, SpannedRegion, flush_prose_spanned,
+    iter_lines, join_prose_gap, join_prose_gap_string, push_prose_line,
 };
 
 /// A region of text classified by a format parser.

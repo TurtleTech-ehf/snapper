@@ -2,7 +2,7 @@ use regex::Regex;
 use std::sync::LazyLock;
 
 use crate::parser::{
-    ByteSpan, FormatParser, Line, Region, SpannedRegion, flush_prose_spanned, iter_lines,
+    ByteSpan, FormatParser, Line, ProseBuf, Region, SpannedRegion, flush_prose_spanned, iter_lines,
     join_prose_gap, push_prose_line,
 };
 
@@ -64,7 +64,7 @@ impl FormatParser for RstParser {
 /// same-line values are leftover Prose (GitHub #434).
 fn parse_line_based(input: &str) -> Vec<SpannedRegion> {
     let mut regions = Vec::new();
-    let mut current_prose = String::new();
+    let mut current_prose = ProseBuf::default();
     let mut prose_span: Option<ByteSpan> = None;
     let mut in_literal_block = false;
     let mut literal_indent: usize = 0;

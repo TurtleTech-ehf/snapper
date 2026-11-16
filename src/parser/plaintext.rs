@@ -1,5 +1,6 @@
 use crate::parser::{
-    ByteSpan, FormatParser, SpannedRegion, flush_prose_spanned, iter_lines, push_prose_line,
+    ByteSpan, FormatParser, ProseBuf, SpannedRegion, flush_prose_spanned, iter_lines,
+    push_prose_line,
 };
 
 /// Trivial parser: everything is prose, blank lines are preserved.
@@ -8,7 +9,7 @@ pub struct PlaintextParser;
 impl FormatParser for PlaintextParser {
     fn parse_full(&self, input: &str) -> Vec<SpannedRegion> {
         let mut regions = Vec::new();
-        let mut current_prose = String::new();
+        let mut current_prose = ProseBuf::default();
         let mut prose_span: Option<ByteSpan> = None;
         let mut pragma_off = false;
 

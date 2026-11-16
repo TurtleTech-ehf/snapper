@@ -215,12 +215,87 @@ const SENTENCE_CLOSERS: [char; 14] = [
     '"', '\'', ')', ']', '}', '*', '_', '`', '~', '/', '=', '+', '\u{201d}', '\u{2019}',
 ];
 
+/// Prose accumulated across physical lines.
+///
+/// `](` indexes are recorded as text is appended. Sentence-end checks then
+/// read that list instead of scanning the whole paragraph on every join.
+#[derive(Debug, Default)]
+pub struct ProseBuf {
+    text: String,
+    /// Ascending byte indexes of `](` in `text`.
+    links: Vec<usize>,
+}
+
+impl ProseBuf {
+    pub fn as_str(&self) -> &str {
+        &self.text
+    }
+
+    pub fn push_str(&mut self, added: &str) {
+        self.note(added);
+        self.text.push_str(added);
+    }
+
+    pub fn push(&mut self, ch: char) {
+        let mut buf = [0u8; 4];
+        self.push_str(ch.encode_utf8(&mut buf));
+    }
+
+    pub fn clear(&mut self) {
+        self.text.clear();
+        self.links.clear();
+    }
+
+    /// Take the text and forget the link indexes.
+    pub fn take(&mut self) -> String {
+        self.links.clear();
+        std::mem::take(&mut self.text)
+    }
+
+    /// Sentence end using the indexes recorded in [`Self::push_str`].
+    pub fn ends_with_sentence(&self) -> bool {
+        ends_sentence_punct_tracked(self.as_str(), Some(&self.links))
+    }
+
+    fn note(&mut self, added: &str) {
+        let base = self.text.len();
+        let bytes = added.as_bytes();
+        if base > 0 && self.text.as_bytes()[base - 1] == b']' && bytes.first() == Some(&b'(') {
+            self.links.push(base - 1);
+        }
+        let mut i = 0;
+        while i + 1 < bytes.len() {
+            if bytes[i] == b']' && bytes[i + 1] == b'(' {
+                self.links.push(base + i);
+                i += 2;
+                continue;
+            }
+            i += 1;
+        }
+    }
+}
+
+impl std::ops::Deref for ProseBuf {
+    type Target = str;
+
+    fn deref(&self) -> &str {
+        &self.text
+    }
+}
+
 /// True when `s` ends a sentence: `.!?` plus optional quotes, brackets,
 /// markup closers, or a trailing Markdown `](url)` destination.
 pub fn ends_sentence_punct(s: &str) -> bool {
+    ends_sentence_punct_tracked(s, None)
+}
+
+/// `links` is every `](` index in `s` when the caller has been tracking
+/// appends. `None` scans once; that path is for a single string, not for
+/// a paragraph that is rechecked on every line.
+fn ends_sentence_punct_tracked(s: &str, links: Option<&[usize]>) -> bool {
     let mut core = s.trim_end();
     loop {
-        let next = strip_trailing_md_link_dest(core).trim_end_matches(SENTENCE_CLOSERS);
+        let next = strip_trailing_md_link_dest(core, links).trim_end_matches(SENTENCE_CLOSERS);
         if next.len() == core.len() {
             break;
         }
@@ -233,8 +308,8 @@ pub fn ends_sentence_punct(s: &str) -> bool {
 /// so [`SENTENCE_CLOSERS`] can peel it. Trailing closers after dest `)`
 /// (`"` / `*` / …) stay part of the dest tail so `trim_end_matches` cannot
 /// eat that `)` first.
-fn strip_trailing_md_link_dest(s: &str) -> &str {
-    let Some(open) = s.rfind("](") else {
+fn strip_trailing_md_link_dest<'a>(s: &'a str, links: Option<&[usize]>) -> &'a str {
+    let Some(open) = rightmost_link_open(s, links) else {
         return s;
     };
     if md_inline_dest_consumes(&s[open + 2..]) {
@@ -242,6 +317,41 @@ fn strip_trailing_md_link_dest(s: &str) -> &str {
     } else {
         s
     }
+}
+
+/// Rightmost `](` that still lies inside `s`.
+///
+/// Tracked indexes are byte offsets into the buffer `s` was trimmed from,
+/// so a peeled suffix simply drops indexes past `s.len()`. Without an
+/// index, a consuming destination has to reach the end of `s`, so a
+/// paragraph that does not end in `)` is not scanned.
+fn rightmost_link_open(s: &str, links: Option<&[usize]>) -> Option<usize> {
+    let bytes = s.as_bytes();
+    if let Some(links) = links {
+        return links
+            .iter()
+            .rev()
+            .copied()
+            .find(|&i| i + 1 < bytes.len() && bytes[i] == b']' && bytes[i + 1] == b'(');
+    }
+    if !suffix_could_close_link(s) {
+        return None;
+    }
+    s.rfind("](")
+}
+
+/// True when a trailing `](dest)` could still reach the end of `s`.
+fn suffix_could_close_link(s: &str) -> bool {
+    for ch in s.chars().rev() {
+        if ch == ')' {
+            return true;
+        }
+        if ch == ' ' || ch == '\t' || SENTENCE_CLOSERS.contains(&ch) {
+            continue;
+        }
+        return false;
+    }
+    false
 }
 
 fn only_sentence_closers(s: &str) -> bool {
@@ -327,7 +437,22 @@ fn md_title_then_close(s: &str) -> bool {
 /// A source newline after sentence punctuation is a break. Replacing it
 /// with a space lets UAX SB8 fuse the next token when it starts lowercase
 /// (`iCloud`). Mid-sentence wraps still join with a space.
-pub fn join_prose_gap(prose: &mut String) {
+pub fn join_prose_gap(prose: &mut ProseBuf) {
+    if prose.is_empty() {
+        return;
+    }
+    if prose.ends_with_sentence() {
+        prose.push('\n');
+    } else {
+        prose.push(' ');
+    }
+}
+
+/// Join a region that already owns a `String`.
+///
+/// The paragraph buffer records `](` as it grows. A region string is
+/// checked from its end, which is enough for one continuation.
+pub fn join_prose_gap_string(prose: &mut String) {
     if prose.is_empty() {
         return;
     }
@@ -344,7 +469,7 @@ pub fn join_prose_gap(prose: &mut String) {
 /// newline is inside the rewrite range) and false for list-item text
 /// (the terminator is a separate Structure slice).
 pub fn push_prose_line(
-    prose: &mut String,
+    prose: &mut ProseBuf,
     prose_span: &mut Option<ByteSpan>,
     line: &Line<'_>,
     join_space: bool,
@@ -367,7 +492,7 @@ pub fn push_prose_line(
 
 /// Flush accumulated prose into the region list.
 pub fn flush_prose_spanned(
-    prose: &mut String,
+    prose: &mut ProseBuf,
     prose_span: &mut Option<ByteSpan>,
     regions: &mut Vec<SpannedRegion>,
 ) {
@@ -375,7 +500,7 @@ pub fn flush_prose_spanned(
         return;
     }
     let span = prose_span.take().unwrap_or(ByteSpan::new(0, 0));
-    regions.push(SpannedRegion::prose(std::mem::take(prose), span));
+    regions.push(SpannedRegion::prose(prose.take(), span));
 }
 
 #[cfg(test)]
@@ -412,16 +537,21 @@ mod tests {
 
     #[test]
     fn join_prose_gap_keeps_break_after_sentence() {
-        let mut prose = String::from("First sentence.");
+        let mut prose = ProseBuf::default();
+        prose.push_str("First sentence.");
         join_prose_gap(&mut prose);
         prose.push_str("iCloud starts the second sentence.");
-        assert_eq!(prose, "First sentence.\niCloud starts the second sentence.");
+        assert_eq!(
+            prose.as_str(),
+            "First sentence.\niCloud starts the second sentence."
+        );
 
-        let mut wrap = String::from("The experiment ran for several");
+        let mut wrap = ProseBuf::default();
+        wrap.push_str("The experiment ran for several");
         join_prose_gap(&mut wrap);
         wrap.push_str("weeks using the usual protocol.");
         assert_eq!(
-            wrap,
+            wrap.as_str(),
             "The experiment ran for several weeks using the usual protocol."
         );
     }
@@ -452,9 +582,74 @@ mod tests {
 
     #[test]
     fn join_prose_gap_keeps_break_after_md_link_sentence() {
-        let mut prose = String::from("See [the docs.](http://x.com)");
+        let mut prose = ProseBuf::default();
+        prose.push_str("See [the docs.](http://x.com)");
         join_prose_gap(&mut prose);
         prose.push_str("iCloud");
-        assert_eq!(prose, "See [the docs.](http://x.com)\niCloud");
+        assert_eq!(prose.as_str(), "See [the docs.](http://x.com)\niCloud");
+    }
+
+    #[test]
+    fn tracked_link_indexes_match_a_full_scan() {
+        let mut prose = ProseBuf::default();
+        prose.push_str("See [the docs.](http://x.com)");
+        assert!(prose.ends_with_sentence());
+        assert!(ends_sentence_punct(prose.as_str()));
+        prose.push(' ');
+        prose.push_str("and then more words");
+        assert_eq!(
+            prose.ends_with_sentence(),
+            ends_sentence_punct(prose.as_str())
+        );
+        assert!(!prose.ends_with_sentence());
+        // The earlier `](` stays indexed. A later sentence end must win
+        // without rescanning the prefix for it.
+        let mut long = ProseBuf::default();
+        long.push_str("Intro [kept.](http://example.com/a)");
+        for i in 0..200 {
+            long.push(' ');
+            long.push_str("word");
+            long.push_str(&i.to_string());
+        }
+        assert!(!long.ends_with_sentence());
+        assert_eq!(
+            long.ends_with_sentence(),
+            ends_sentence_punct(long.as_str())
+        );
+        long.push(' ');
+        long.push_str("Done.");
+        assert!(long.ends_with_sentence());
+        assert_eq!(
+            long.ends_with_sentence(),
+            ends_sentence_punct(long.as_str())
+        );
+        // A `](` split across two appends is still recorded.
+        let mut split = ProseBuf::default();
+        split.push_str("See [the docs.]");
+        split.push_str("(http://x.com)");
+        assert!(split.ends_with_sentence());
+    }
+
+    #[test]
+    fn five_megabyte_paragraph_formats_in_seconds() {
+        let line = "alpha beta gamma delta epsilon zeta eta theta iota kappa lambda mu\n";
+        let target = 5 * 1024 * 1024;
+        let mut input = String::with_capacity(target);
+        while input.len() + line.len() <= target {
+            input.push_str(line);
+        }
+        let cfg = crate::FormatConfig {
+            format: crate::format::Format::Plaintext,
+            ..Default::default()
+        };
+        let started = std::time::Instant::now();
+        let out = crate::format_text(&input, &cfg).expect("format 5MB");
+        let elapsed = started.elapsed();
+        assert!(
+            elapsed.as_secs() < 15,
+            "a 5MB paragraph took {elapsed:?}, expected seconds"
+        );
+        assert!(out.len() + 1 >= input.len(), "lost paragraph text");
+        assert_eq!(out.chars().filter(|c| *c == '\n').count(), 1);
     }
 }

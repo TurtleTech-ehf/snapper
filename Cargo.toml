@@ -85,7 +85,6 @@ treesitter = [
 # Always-on (WASM-safe)
 unicode-segmentation = "1"
 regex = "1"
-textwrap = "0.16"
 thiserror = "2"
 anyhow = "1"
 pulldown-cmark = { version = "0.13", default-features = false, features = ["html"] }
