@@ -78,9 +78,10 @@ Returns the formatted text.
 :CUSTOM_ID: tool-detect-format
 :END:
 
-Detect the document format. A recognized extension on =path= wins.
-Otherwise the text is scored over the whole document, outside a
-backtick fence that has a matching closer. A ~~~ line is not a fence.
+Detect the document format.
+A recognized extension on =path= wins.
+Otherwise the text is scored over the whole document, outside a backtick fence that has a matching closer.
+A ~~~ line is not a fence.
 
 Parameters:
 - =text= (string, required): Text to analyze

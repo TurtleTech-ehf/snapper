@@ -86,7 +86,8 @@ These tokens within prose are not split across lines:
 - Inline source: =src_lang{...}= / =src_lang[headers]{...}= (org-element-inline-src-block-parser; =\<src_= is word-start. After a word, =_src_= is a subscript, so =foo_src_python{...}= is not an object; =_src_python{...}= after space is)
 - Inline babel call: =call_name(...)= / =call_name[inside](...)[end]= (org-element-inline-babel-call-parser; same =\<call_= / subscript rule)
 - Inline footnotes: =[fn:: def]= / =[fn:name: def]= (org-element-footnote-reference-parser)
-- LaTeX fragments: =\(...\)=, =$...$=, =\cmd{arg}=, =\cmd[opt]{arg}= (org-element-latex-fragment-parser; interior backslash and optional =[arg]= stay one token). Same-line =\[...\]= is Structure
+- LaTeX fragments: =\(...\)=, =$...$=, =\cmd{arg}=, =\cmd[opt]{arg}= (org-element-latex-fragment-parser; interior backslash and optional =[arg]= stay one token).
+  Same-line =\[...\]= is Structure
 - Brace sub/superscripts: =H_{2. 0}= / =x^{n. 1}= (org-match-substring-regexp brace arm; interior punct stays one wrap token).
   Bare =H_2= / =x^n= and no-space =H_{2.0}= are unchanged.
   Distinct from latex-fragment.
@@ -326,28 +327,24 @@ The default path does not call pandoc.
 :PROPERTIES:
 :CUSTOM_ID: typst-detection
 :END:
-Extensions: =.typ=, =.typst=. A path with one of those extensions is Typst
-even when the text looks like another format.
+Extensions: =.typ=, =.typst=.
+A path with one of those extensions is Typst even when the text looks like another format.
 
-With no path, snapper scores the whole document. Lines inside a closed
-backtick fence are ignored, and a marker is a fence only when a matching
-closer exists. A ~~~ line is not a fence, because ~ is a non-breaking
-space in Typst. A heading inside a backtick fence is not a heading.
+With no path, snapper scores the whole document.
+Lines inside a closed backtick fence are ignored, and a marker is a fence only when a matching closer exists.
+A ~~~ line is not a fence, because ~ is a non-breaking space in Typst.
+A heading inside a backtick fence is not a heading.
 
-A Typst signal is a statement Typst 0.15.1 accepts to the end of that
-statement. A =#let= or =#set= counts when its parentheses close and the
-right-hand side is finished, including =#let x = 1 + 2=. An unclosed
-parenthesis keeps the following lines inside that statement, so a later
-=#set= there is not a separate signal. Delimiters and hashes count in
-code, outside strings and comments. Each opener closes on its matching
-closer, and a mismatched closer in code ends that statement. A
-parenthesis or brace inside a content block is markup, so the code
-bracket stays open. An unclosed string keeps the
-following lines inside that string. Block comments nest, and a line
-comment ends on its own line. A dotted selector names a real
-element, and a show body is a name that compiles in that position.
-=#show: h=, =#show heading: h=, and =#let ieee( bring the figures.= are
-not signals.
+A Typst signal is a statement Typst 0.15.1 accepts to the end of that statement.
+A =#let= or =#set= counts when its parentheses close and the right-hand side is finished, including =#let x = 1 + 2=.
+An unclosed parenthesis keeps the following lines inside that statement, so a later =#set= there is not a separate signal.
+Delimiters and hashes count in code, outside strings and comments.
+Each opener closes on its matching closer, and a mismatched closer in code ends that statement.
+A parenthesis or brace inside a content block is markup, so the code bracket stays open.
+An unclosed string keeps the following lines inside that string.
+Block comments nest, and a line comment ends on its own line.
+A dotted selector names a real element, and a show body is a name that compiles in that position.
+=#show: h=, =#show heading: h=, and =#let ieee( bring the figures.= are not signals.
 A hyphenated word such as =#import-export= is one identifier, not a keyword.
 
 ** Plaintext (=--format plaintext=)
