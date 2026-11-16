@@ -218,7 +218,30 @@ const SENTENCE_CLOSERS: [char; 14] = [
 /// True when `s` ends a sentence: `.!?` plus optional quotes, brackets,
 /// markup closers, or a trailing Markdown `](url)` destination.
 pub fn ends_sentence_punct(s: &str) -> bool {
-    let mut core = s.trim_end();
+    let trimmed = s.trim_end();
+    if trimmed.is_empty() {
+        return false;
+    }
+    // Closers other than `)` peel in constant time per character. A `)`
+    // can close `](dest)`, which is the only reason to search for `](`.
+    // Paragraph joins call this on the growing prose, so the common
+    // ending (a letter or a bare `.!?`) must not rescan that buffer.
+    let bytes = trimmed.as_bytes();
+    let mut i = bytes.len();
+    while i > 0 {
+        let ch = trimmed[..i].chars().next_back().expect("i is on a char");
+        if !SENTENCE_CLOSERS.contains(&ch) {
+            return matches!(ch, '.' | '!' | '?');
+        }
+        if ch == ')' {
+            break;
+        }
+        i -= ch.len_utf8();
+    }
+    if i == 0 {
+        return false;
+    }
+    let mut core = trimmed;
     loop {
         let next = strip_trailing_md_link_dest(core).trim_end_matches(SENTENCE_CLOSERS);
         if next.len() == core.len() {
@@ -424,6 +447,25 @@ mod tests {
             wrap,
             "The experiment ran for several weeks using the usual protocol."
         );
+    }
+
+    #[test]
+    fn ends_sentence_punct_on_a_bare_terminator() {
+        assert!(ends_sentence_punct("Hello."));
+        assert!(ends_sentence_punct("Hello!"));
+        assert!(ends_sentence_punct("Hello?"));
+        assert!(ends_sentence_punct("Hello.\n"));
+        assert!(ends_sentence_punct("Hello.  "));
+        assert!(ends_sentence_punct("Hello.\""));
+        assert!(ends_sentence_punct("Hello.**"));
+        assert!(ends_sentence_punct("Hello.)"));
+        assert!(ends_sentence_punct("See [docs](http://x.com)."));
+        assert!(!ends_sentence_punct("Hello"));
+        assert!(!ends_sentence_punct("Hello,"));
+        assert!(!ends_sentence_punct("*emphasis*"));
+        assert!(!ends_sentence_punct(""));
+        assert!(!ends_sentence_punct("   "));
+        assert!(!ends_sentence_punct("***"));
     }
 
     #[test]

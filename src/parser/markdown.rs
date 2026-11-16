@@ -1,5 +1,7 @@
-use regex::Regex;
+use std::collections::HashMap;
 use std::sync::LazyLock;
+
+use regex::Regex;
 
 use crate::parser::{
     ByteSpan, FormatParser, Line, SpannedRegion, flush_prose_spanned, iter_lines, join_prose_gap,
@@ -1468,54 +1470,160 @@ fn list_item_captures<'a>(
     None
 }
 
-/// True when a same-depth quoted `: ` / `~ ` marker appears after
-/// zero or more compact term lines. Blank, code, or a dropped quote
-/// ends the look-ahead. Extra terms stay titles like unquoted
-/// `flush_prose_as_structure`.
-fn upcoming_dl_marker(lines: &[Line<'_>], start: usize, min_indent: Option<usize>) -> bool {
-    let mut j = start + 1;
-    while j < lines.len() {
-        let t = lines[j].text;
-        if t.trim().is_empty() {
-            return false;
-        }
-        if min_indent.is_some_and(|h| line_indent(t) < h) {
-            return false;
-        }
-        if md_definition_list_marker_len(t).is_some() {
-            return true;
-        }
-        if HEADING_RE.is_match(t) || is_thematic_break(t) || FENCED_CODE_RE.is_match(t.trim_start())
-        {
-            return false;
-        }
-        j += 1;
-    }
-    false
+/// One line in the compact-term look-ahead that decides a definition title.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum CompactTerm {
+    /// `: ` / `~ ` definition marker. The value is the raw line indent.
+    Marker(usize),
+    /// A line the look-ahead can walk through when the indent allows it.
+    Term(usize),
+    /// Blank line, heading, thematic break, or fence. The look-ahead stops.
+    Stop,
 }
 
-fn quoted_upcoming_dl_marker(lines: &[Line<'_>], start: usize, depth: usize) -> bool {
-    let mut j = start + 1;
-    while j < lines.len() {
-        let Some(inner) = strip_quote_markers(lines[j].text, depth) else {
+/// Definition-marker answers for every source line.
+///
+/// Each line is classified once. A term run records where it ends and the
+/// lowest indent inside it, so a later query is a couple of index reads.
+/// Walking the tail again on every line of a blank-free paragraph repeats
+/// the same classification for every earlier line.
+struct DlLookahead {
+    kind: Vec<CompactTerm>,
+    /// First index at or after `i` that is not a [`CompactTerm::Term`], or `len`.
+    run_end: Vec<usize>,
+    /// Lowest indent among terms in `[i, run_end[i])`.
+    suffix_min: Vec<usize>,
+}
+
+impl DlLookahead {
+    fn from_lines(lines: &[Line<'_>]) -> Self {
+        let n = lines.len();
+        let kind: Vec<CompactTerm> = lines
+            .iter()
+            .map(|line| compact_term_kind(line.text))
+            .collect();
+        let mut run_end = vec![n; n];
+        let mut suffix_min = vec![usize::MAX; n];
+        for i in (0..n).rev() {
+            let CompactTerm::Term(indent) = kind[i] else {
+                continue;
+            };
+            let continues = i + 1 < n && matches!(kind[i + 1], CompactTerm::Term(_));
+            run_end[i] = if continues { run_end[i + 1] } else { i + 1 };
+            let rest = if continues {
+                suffix_min[i + 1]
+            } else {
+                usize::MAX
+            };
+            suffix_min[i] = indent.min(rest);
+        }
+        Self {
+            kind,
+            run_end,
+            suffix_min,
+        }
+    }
+
+    /// True when a `: ` / `~ ` marker sits after `start`, before a blank
+    /// line, a heading, a break, a fence, or a line indented under `min_indent`.
+    /// Extra compact terms stay titles, as in `flush_prose_as_structure`.
+    fn upcoming(&self, start: usize, min_indent: Option<usize>) -> bool {
+        let Some(j0) = start.checked_add(1).filter(|j| *j < self.kind.len()) else {
             return false;
         };
-        if inner.trim().is_empty() {
-            return false;
+        let j = match self.kind[j0] {
+            CompactTerm::Term(_) => {
+                if min_indent.is_some_and(|hang| self.suffix_min[j0] < hang) {
+                    return false;
+                }
+                self.run_end[j0]
+            }
+            CompactTerm::Marker(_) | CompactTerm::Stop => j0,
+        };
+        match self.kind.get(j) {
+            Some(CompactTerm::Marker(indent)) => min_indent.is_none_or(|hang| *indent >= hang),
+            _ => false,
         }
-        if md_definition_list_marker_len(inner).is_some() {
-            return true;
-        }
-        if is_indented_code_line(inner)
-            || HEADING_RE.is_match(inner)
-            || is_thematic_break(inner)
-            || FENCED_CODE_RE.is_match(inner.trim_start())
-        {
-            return false;
-        }
-        j += 1;
     }
-    false
+}
+
+fn compact_term_kind(line: &str) -> CompactTerm {
+    let indent = line_indent(line);
+    if line.trim().is_empty() {
+        return CompactTerm::Stop;
+    }
+    if md_definition_list_marker_len(line).is_some() {
+        return CompactTerm::Marker(indent);
+    }
+    if HEADING_RE.is_match(line)
+        || is_thematic_break(line)
+        || FENCED_CODE_RE.is_match(line.trim_start())
+    {
+        return CompactTerm::Stop;
+    }
+    CompactTerm::Term(indent)
+}
+
+/// Quoted definition-marker answers, one boolean vector per quote depth.
+///
+/// A depth is classified once, from the end of the file toward the start.
+/// Later lines at that depth reuse the stored answer.
+#[derive(Default)]
+struct QuotedDlAhead {
+    by_depth: HashMap<usize, Vec<bool>>,
+}
+
+impl QuotedDlAhead {
+    /// True when a same-depth `: ` / `~ ` marker appears after `start`.
+    /// Blank, indented code, a dropped quote, a heading, a break, or a
+    /// fence ends the look-ahead.
+    fn upcoming(&mut self, lines: &[Line<'_>], start: usize, depth: usize) -> bool {
+        let answers = self
+            .by_depth
+            .entry(depth)
+            .or_insert_with(|| quoted_dl_answers(lines, depth));
+        answers.get(start).copied().unwrap_or(false)
+    }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum QuotedScan {
+    Marker,
+    Cont,
+    Stop,
+}
+
+fn quoted_line_scan(lines: &[Line<'_>], index: usize, depth: usize) -> QuotedScan {
+    let Some(inner) = strip_quote_markers(lines[index].text, depth) else {
+        return QuotedScan::Stop;
+    };
+    if inner.trim().is_empty() {
+        return QuotedScan::Stop;
+    }
+    if md_definition_list_marker_len(inner).is_some() {
+        return QuotedScan::Marker;
+    }
+    if is_indented_code_line(inner)
+        || HEADING_RE.is_match(inner)
+        || is_thematic_break(inner)
+        || FENCED_CODE_RE.is_match(inner.trim_start())
+    {
+        return QuotedScan::Stop;
+    }
+    QuotedScan::Cont
+}
+
+fn quoted_dl_answers(lines: &[Line<'_>], depth: usize) -> Vec<bool> {
+    let n = lines.len();
+    let mut answer = vec![false; n];
+    for i in (0..n.saturating_sub(1)).rev() {
+        answer[i] = match quoted_line_scan(lines, i + 1, depth) {
+            QuotedScan::Marker => true,
+            QuotedScan::Stop => false,
+            QuotedScan::Cont => answer[i + 1],
+        };
+    }
+    answer
 }
 
 /// Quoted GFM table (leading pipe optional) at a matching `>` depth.
@@ -2278,6 +2386,11 @@ impl FormatParser for MarkdownParser {
 
         let lines = iter_lines(input);
         let total = lines.len();
+        // One classification answers every definition-list look-ahead.
+        // Doing the walk again on each line of a blank-free paragraph is
+        // quadratic in the number of lines.
+        let dl_ahead = DlLookahead::from_lines(&lines);
+        let mut quoted_dl = QuotedDlAhead::default();
         let mut i = 0;
 
         while i < total {
@@ -3359,7 +3472,7 @@ impl FormatParser for MarkdownParser {
                 // Quoted compact definition list (same rules as unquoted).
                 // Look ahead across extra compact terms, not just i+1,
                 // so `> Alpha` / `> Bravo` / `> : def` keeps both terms.
-                if quoted_upcoming_dl_marker(&lines, i, quote_depth)
+                if quoted_dl.upcoming(&lines, i, quote_depth)
                     && md_definition_list_marker_len(text).is_none()
                     && !text.trim().is_empty()
                     && !is_indented_code_line(text)
@@ -3574,8 +3687,7 @@ impl FormatParser for MarkdownParser {
             // pulldown ENABLE_DEFINITION_LIST: a `: ` marker on the next
             // line turns this paragraph into a definition title. The
             // title stays Structure so interior periods do not split.
-            if upcoming_dl_marker(
-                &lines,
+            if dl_ahead.upcoming(
                 i,
                 if in_definition_list
                     && line_indent(line_text) < 4
@@ -3895,6 +4007,125 @@ impl FormatParser for MarkdownParser {
 mod tests {
     use super::*;
     use crate::parser::Region;
+
+    fn scan_upcoming(lines: &[Line<'_>], start: usize, min_indent: Option<usize>) -> bool {
+        let mut j = start + 1;
+        while j < lines.len() {
+            let t = lines[j].text;
+            if t.trim().is_empty() {
+                return false;
+            }
+            if min_indent.is_some_and(|h| line_indent(t) < h) {
+                return false;
+            }
+            if md_definition_list_marker_len(t).is_some() {
+                return true;
+            }
+            if HEADING_RE.is_match(t)
+                || is_thematic_break(t)
+                || FENCED_CODE_RE.is_match(t.trim_start())
+            {
+                return false;
+            }
+            j += 1;
+        }
+        false
+    }
+
+    fn scan_quoted(lines: &[Line<'_>], start: usize, depth: usize) -> bool {
+        let mut j = start + 1;
+        while j < lines.len() {
+            let Some(inner) = strip_quote_markers(lines[j].text, depth) else {
+                return false;
+            };
+            if inner.trim().is_empty() {
+                return false;
+            }
+            if md_definition_list_marker_len(inner).is_some() {
+                return true;
+            }
+            if is_indented_code_line(inner)
+                || HEADING_RE.is_match(inner)
+                || is_thematic_break(inner)
+                || FENCED_CODE_RE.is_match(inner.trim_start())
+            {
+                return false;
+            }
+            j += 1;
+        }
+        false
+    }
+
+    #[test]
+    fn definition_lookahead_matches_a_direct_scan() {
+        let mut docs = vec![
+            "Alpha\nBravo\n: def\n".to_string(),
+            "Alpha\n\n: def\n".to_string(),
+            "Alpha\n# Head\n: def\n".to_string(),
+            "Alpha\n---\n: def\n".to_string(),
+            "Alpha\n```\n: def\n".to_string(),
+            "Alpha\n~~~\n: def\n".to_string(),
+            "    term\n  low\n    : def\n".to_string(),
+            ": now\n".to_string(),
+            "term\n".to_string(),
+            "\n".to_string(),
+            "> Alpha\n> Bravo\n> : def\n".to_string(),
+            "> Alpha\n\n> : def\n".to_string(),
+            "> Alpha\n>     code\n> : def\n".to_string(),
+            ">\n> : def\n".to_string(),
+            "> Alpha\nBeta\n> : def\n".to_string(),
+            "- item\n  cont\n  : def\n".to_string(),
+            "Para\n2. not one\n: def\n".to_string(),
+            "   : indented marker\n".to_string(),
+            "    : four spaces\n".to_string(),
+            "~~nope\n: def\n".to_string(),
+            ":::\n: def\n".to_string(),
+            "term with spaces   \n: def\n".to_string(),
+            "* * *\n: def\n".to_string(),
+            "foo\n    bar\n: def\n".to_string(),
+            "\t: def\nnext\n".to_string(),
+            ">> Alpha\n>> Bravo\n>> : def\n".to_string(),
+            "> > Alpha\n> > : def\n".to_string(),
+        ];
+        let mut mixed = String::new();
+        for n in 0..48 {
+            match n % 8 {
+                0 => mixed.push_str("plain term line\n"),
+                1 => mixed.push_str("  indented term\n"),
+                2 => mixed.push_str(": marker body\n"),
+                3 => mixed.push('\n'),
+                4 => mixed.push_str("# Title\n"),
+                5 => mixed.push_str("> quoted term\n"),
+                6 => mixed.push_str("```\n"),
+                _ => mixed.push_str("    : deep marker\n"),
+            }
+        }
+        docs.push(mixed);
+        let hangs = [None, Some(0), Some(1), Some(2), Some(3), Some(4), Some(8)];
+        for doc in &docs {
+            let lines = iter_lines(doc);
+            let ahead = DlLookahead::from_lines(&lines);
+            for start in 0..lines.len() {
+                for min in hangs {
+                    assert_eq!(
+                        ahead.upcoming(start, min),
+                        scan_upcoming(&lines, start, min),
+                        "doc {doc:?} start {start} min {min:?}"
+                    );
+                }
+            }
+            for depth in 0..4 {
+                let mut quoted = QuotedDlAhead::default();
+                for start in 0..lines.len() {
+                    assert_eq!(
+                        quoted.upcoming(&lines, start, depth),
+                        scan_quoted(&lines, start, depth),
+                        "quoted doc {doc:?} start {start} depth {depth}"
+                    );
+                }
+            }
+        }
+    }
 
     #[test]
     fn simple_prose() {

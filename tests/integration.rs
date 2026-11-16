@@ -94,6 +94,8 @@ mod md_ol_ten_digit;
 mod md_pandoc_citation;
 #[path = "md_pandoc_line_block.rs"]
 mod md_pandoc_line_block;
+#[path = "md_paragraph_scale.rs"]
+mod md_paragraph_scale;
 #[path = "md_quoted_definition_lists.rs"]
 mod md_quoted_definition_lists;
 #[path = "md_quoted_empty_list_item.rs"]

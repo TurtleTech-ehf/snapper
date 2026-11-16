@@ -36,6 +36,18 @@ Some prose. More prose with *bold. Inside* emphasis.
     });
 }
 
+fn markdown_one_paragraph(c: &mut Criterion) {
+    let sentence = "The quick brown fox jumps over the lazy dog near the riverbank.\n";
+    let input = sentence.repeat(1_000);
+    let cfg = FormatConfig {
+        format: Format::Markdown,
+        ..Default::default()
+    };
+    c.bench_function("reflow_md_one_paragraph_1k", |b| {
+        b.iter(|| format_text(black_box(&input), black_box(&cfg)).unwrap())
+    });
+}
+
 fn idempotency_double_apply(c: &mut Criterion) {
     let input = "First sentence. Second sentence. Third sentence for width.";
     let cfg = FormatConfig::default();
@@ -52,6 +64,7 @@ criterion_group!(
     short_paragraph,
     long_paragraph,
     org_pipeline,
+    markdown_one_paragraph,
     idempotency_double_apply
 );
 criterion_main!(benches);
