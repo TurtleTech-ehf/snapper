@@ -143,6 +143,28 @@ fn plaintext_single_quoted_bang_capital_is_span_safe() {
     );
 }
 
+/// proptest_balanced_wrappers shrinks to `'?!!a'a` (single quotes, empty
+/// prefix, interior `?!!a`, suffix `a`). The closer is glued to a lowercase
+/// letter. `!!` must not break inside that span.
+#[test]
+fn plaintext_quoted_bang_lowercase_closer_is_span_safe() {
+    let input = "'?!!a'a";
+    let out = format_plain(input);
+    assert_eq!(
+        format_plain(&out),
+        out,
+        "idempotence\n in={input:?}\n out={out:?}"
+    );
+    assert!(
+        newlines_respect_delimiter_spans(&out),
+        "span newline\n in={input:?}\n out={out:?}"
+    );
+    assert!(
+        !out.contains("!!\n"),
+        "must not split !! inside quotes\n in={input:?}\n out={out:?}"
+    );
+}
+
 /// Quoted `!!a` is one DelimState span. Splitting `!!` then the letter
 /// parks a newline inside the quotes and fails proptest_balanced_wrappers.
 #[test]

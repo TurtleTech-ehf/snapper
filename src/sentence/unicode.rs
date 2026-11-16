@@ -4170,6 +4170,9 @@ pub struct DelimState {
     /// A ```` with no `''` left to close it is literal, as an unmatched
     /// backtick run is in CommonMark, so it opens no span.
     latex_closers_ahead: Option<i32>,
+    /// A balance probe is running. Ambiguous apostrophes keep the
+    /// historical rule so the probe does not look ahead again.
+    resolving: bool,
 }
 
 impl DelimState {
@@ -4261,7 +4264,7 @@ impl DelimState {
 
             match ch {
                 '"' => self.ascii_double_open = !self.ascii_double_open,
-                '\'' => self.feed_ascii_single(prev, next),
+                '\'' => self.feed_ascii_single(prev, next, &iter),
                 // Curly doubles “ ”
                 '\u{201C}' => self.curly_double_depth += 1,
                 '\u{201D}' => self.curly_double_depth = (self.curly_double_depth - 1).max(0),
@@ -4298,19 +4301,28 @@ impl DelimState {
     /// ASCII `'` is ambiguous (dialogue vs apostrophe). Open only in opener
     /// context; never toggle on in-word apostrophes (`don't`, `it's`).
     ///
-    /// A closer glued to the next capital (`'x!!A'A`, `'Stop'A`) is not an
-    /// apostrophe: the quote is open and the next letter is uppercase.
-    /// Contractions stay open (`'don't'`). A leading `O'` / `D'` / `L'`
+    /// A closer glued to the next letter (`'x!!A'A`, `'?!!a'a`) is not an
+    /// apostrophe. Uppercase is always a closer. A lowercase letter is a
+    /// closer only when that reading finishes outside and keeping the
+    /// apostrophe does not (`'?!!a'a`). Contractions stay open (`'don't'`),
+    /// because both readings finish outside. A leading `O'` / `D'` / `L'`
     /// (`'O'Brien'`) stays an apostrophe too.
-    fn feed_ascii_single(&mut self, prev: Option<char>, next: Option<char>) {
+    fn feed_ascii_single(
+        &mut self,
+        prev: Option<char>,
+        next: Option<char>,
+        rest: &std::iter::Peekable<std::str::Chars<'_>>,
+    ) {
         let prev_alnum = prev.is_some_and(|c| c.is_alphanumeric());
         let next_alnum = next.is_some_and(|c| c.is_alphanumeric());
         // Classic apostrophe: letter/digit on both sides.
         if prev_alnum && next_alnum {
-            if self.ascii_single_open
-                && next.is_some_and(|c| c.is_uppercase())
-                && !is_leading_name_apostrophe(prev, self.penultimate_char)
-            {
+            let name_apostrophe = is_leading_name_apostrophe(prev, self.penultimate_char);
+            let uppercase = next.is_some_and(|c| c.is_uppercase());
+            let lowercase_closer = !uppercase
+                && !self.resolving
+                && self.lowercase_closer_balances(&rest.clone().collect::<String>());
+            if self.ascii_single_open && !name_apostrophe && (uppercase || lowercase_closer) {
                 self.ascii_single_open = false;
             }
             return;
@@ -4332,6 +4344,29 @@ impl DelimState {
         if opener {
             self.ascii_single_open = true;
         }
+    }
+
+    /// True when closing this quote is the reading that finishes outside.
+    ///
+    /// The probe uses the historical apostrophe rule (`resolving`) so it
+    /// cannot call itself. `'?!!a'a` closes; `'don't'` does not.
+    fn lowercase_closer_balances(&self, rest: &str) -> bool {
+        if !self.ascii_single_open {
+            return false;
+        }
+        let mut closed = self.clone();
+        closed.resolving = true;
+        closed.ascii_single_open = false;
+        closed.note_char('\'');
+        closed.feed(rest);
+        if closed.is_inside() {
+            return false;
+        }
+        let mut kept = self.clone();
+        kept.resolving = true;
+        kept.note_char('\'');
+        kept.feed(rest);
+        kept.is_inside()
     }
 }
 
