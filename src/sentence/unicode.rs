@@ -2869,8 +2869,9 @@ fn org_brace_script_predecessor_ok(text: &str, at: usize) -> bool {
 /// character (start of text, whitespace, or `('"{`), the first and last
 /// interior characters are not whitespace, and the closer is the first
 /// matching marker whose next character is a post character (end of text,
-/// whitespace, or the Org post class, which includes a backslash). Inner
-/// copies of the marker are content.
+/// whitespace, or `-.,:!?;'")}[`). A backslash is not a post character
+/// here. The Org display-math opener skip uses its own post class.
+/// Inner copies of the marker are content.
 /// `pandoc -f org` reports those spans as `Code` inlines with class
 /// `verbatim` or bare `Code`.
 ///
@@ -2950,12 +2951,36 @@ fn push_placeholder(out: &mut String, placeholders: &mut Vec<String>, span: &str
 }
 
 pub(crate) fn find_org_paired_span(text: &str, open_at: usize, marker: char) -> Option<usize> {
+    // Sentence splitting and width wrap. No backslash in the post class:
+    // `=a=\` stays open so the following words stay inside the span.
+    find_org_paired_span_post(text, open_at, marker, false)
+}
+
+/// Verbatim span for the Org display-math opener search only.
+///
+/// Emacs Org's post class includes `\`, so `=cmd=\[` ends before `\[`.
+/// The shared sentence and wrap matcher does not use this post class.
+pub(crate) fn find_org_display_paired_span(
+    text: &str,
+    open_at: usize,
+    marker: char,
+) -> Option<usize> {
+    find_org_paired_span_post(text, open_at, marker, true)
+}
+
+fn find_org_paired_span_post(
+    text: &str,
+    open_at: usize,
+    marker: char,
+    display_post: bool,
+) -> Option<usize> {
     // pandoc org reader / org-emphasis-regexp-components defaults.
     // Border (forbidden at the inner edges) is whitespace.
     const PRE: &str = " \t\n('\"{";
-    // Org's post class includes `\`, so `=cmd=\[...\]` ends the verbatim
-    // before the display-math opener.
-    const POST: &str = " \t\n-.,:!?;'\")}\\[";
+    const POST: &str = " \t\n-.,:!?;'\")}[";
+    // Display-math opener skip only. `\` lets `=cmd=\[` close.
+    const DISPLAY_POST: &str = " \t\n-.,:!?;'\")}\\[";
+    let post = if display_post { DISPLAY_POST } else { POST };
 
     if open_at > 0 {
         let prev = text[..open_at].chars().next_back()?;
@@ -2990,7 +3015,7 @@ pub(crate) fn find_org_paired_span(text: &str, open_at: usize, marker: char) -> 
             if !prev.is_whitespace() {
                 let after_close = j + marker.len_utf8();
                 let post_ok =
-                    after_close == text.len() || POST.contains(text[after_close..].chars().next()?);
+                    after_close == text.len() || post.contains(text[after_close..].chars().next()?);
                 if post_ok {
                     return Some(after_close);
                 }
@@ -9627,6 +9652,54 @@ mod tests {
             "keep-break newline must not let Org `=` steal the inner equals, got {placeholders:?}"
         );
         assert_eq!(split(text), vec!["?".to_string(), "=\"`=!a`".to_string()]);
+    }
+
+    #[test]
+    fn backslash_after_verbatim_keeps_parent_sentence_bytes() {
+        use crate::format::Format;
+        use crate::{FormatConfig, format_text};
+
+        // Parent 29950b87. A shared post class that treats `\` as closing
+        // `=` would split the first sentence of each of these.
+        let shared = [
+            (
+                "Set =a=\\ now. Then =b=. Done.\n",
+                "Set =a=\\ now. Then =b=.\nDone.\n",
+            ),
+            (
+                "See =cmd=\\ note. And =ok=. Next.\n",
+                "See =cmd=\\ note. And =ok=.\nNext.\n",
+            ),
+        ];
+        let formats = [
+            Format::Org,
+            Format::Latex,
+            Format::Markdown,
+            Format::Rst,
+            Format::Typst,
+            Format::Plaintext,
+        ];
+        for format in formats {
+            let cfg = FormatConfig {
+                format,
+                ..Default::default()
+            }
+            .without_safety_backstops();
+            for (input, expected) in shared {
+                let out = format_text(input, &cfg).unwrap();
+                assert_eq!(out, expected, "{format:?} got:\n{out}");
+                assert_eq!(format_text(&out, &cfg).unwrap(), out, "{format:?}");
+            }
+            let keep = "Keep =foo=\\[bar= baz. Next.\n";
+            let keep_expected = if format == Format::Latex {
+                "Keep =foo=\n\\[bar= baz. Next.\n"
+            } else {
+                "Keep =foo=\\[bar= baz.\nNext.\n"
+            };
+            let out = format_text(keep, &cfg).unwrap();
+            assert_eq!(out, keep_expected, "{format:?} got:\n{out}");
+            assert_eq!(format_text(&out, &cfg).unwrap(), out, "{format:?}");
+        }
     }
 
     #[test]

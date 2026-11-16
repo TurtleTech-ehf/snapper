@@ -733,7 +733,9 @@ impl OrgParser {
         while i + 1 < bytes.len() {
             if skip_paired && (bytes[i] == b'=' || bytes[i] == b'~') {
                 let marker = bytes[i] as char;
-                if let Some(end) = crate::sentence::unicode::find_org_paired_span(s, i, marker) {
+                if let Some(end) =
+                    crate::sentence::unicode::find_org_display_paired_span(s, i, marker)
+                {
                     if end > i {
                         i = end;
                         continue;
@@ -3241,6 +3243,36 @@ mod tests {
             "the interior = must not pull the fragment into prose, got: {paper_regions:?}"
         );
         assert_eq!(format_text(&paper_out, &cfg).unwrap(), paper_out);
+
+        // Parent 29950b87 keeps this on one line. The closer is hidden
+        // inside `=mc^2.\] in =paper=`, so the sentence after `=paper=.`
+        // never breaks.
+        let see = "See \\[E =mc^2.\\] in =paper=. Next claim.\n";
+        let see_out = format_text(see, &cfg).unwrap();
+        assert_eq!(
+            see_out, "See \\[E =mc^2.\\] in =paper=.\nNext claim.\n",
+            "following sentence must break, got:\n{see_out}"
+        );
+        assert!(
+            !see_out.contains("mc^2.\n"),
+            "must not split inside the fragment, got:\n{see_out}"
+        );
+        assert_eq!(format_text(&see_out, &cfg).unwrap(), see_out);
+
+        // `Result.` sits inside the fragment. Parent keeps a following
+        // sentence on that same line; the closer has to end the fragment
+        // before `=paper=.` can break.
+        let result = "Result is \\[Result. E =mc^2.\\] in =paper=. Next claim.\n";
+        let result_out = format_text(result, &cfg).unwrap();
+        assert_eq!(
+            result_out, "Result is \\[Result. E =mc^2.\\] in =paper=.\nNext claim.\n",
+            "Result. must stay inside \\[...\\], got:\n{result_out}"
+        );
+        assert!(
+            !result_out.contains("Result.\n"),
+            "must not break at the interior period, got:\n{result_out}"
+        );
+        assert_eq!(format_text(&result_out, &cfg).unwrap(), result_out);
     }
 
     #[test]
