@@ -1,8 +1,10 @@
 //! Document format detection and representation.
 //!
 //! The [`Format`] enum identifies the markup language of a document,
-//! enabling format-specific parsing in the pipeline. Format is detected
-//! from file extensions or can be specified explicitly via CLI flags.
+//! enabling format-specific parsing in the pipeline. A caller that has a
+//! path uses the file extension. [`Format::detect`] does that first, then
+//! scores the text when the path is missing or the extension is not a
+//! prose format. The CLI can still name a format explicitly.
 
 use std::path::Path;
 
@@ -50,6 +52,17 @@ impl Format {
     /// Detect format from a bare file extension string (without the dot).
     pub fn from_extension(ext: &str) -> Self {
         Self::recognized_from_extension(ext).unwrap_or(Format::Plaintext)
+    }
+
+    /// Prefer `path` when its extension is a known prose format.
+    /// Otherwise score `text` over the whole document.
+    pub fn detect(path: Option<&Path>, text: &str) -> Self {
+        if let Some(path) = path {
+            if let Some(format) = Self::recognized_from_path(path) {
+                return format;
+            }
+        }
+        crate::detect::score_text(text)
     }
 
     pub fn config_key(self) -> &'static str {

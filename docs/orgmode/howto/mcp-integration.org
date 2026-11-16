@@ -78,12 +78,15 @@ Returns the formatted text.
 :CUSTOM_ID: tool-detect-format
 :END:
 
-Detect document format from text content using heuristics.
+Detect the document format. A recognized extension on =path= wins.
+Otherwise the text is scored over the whole document, outside a
+backtick or ~~~ fence that has a matching closer.
 
 Parameters:
 - =text= (string, required): Text to analyze
+- =path= (string): Optional file path or name
 
-Returns the detected format string.
+Returns one of: org, latex, markdown, rst, typst, plaintext.
 
 ** check_formatting
 :PROPERTIES:

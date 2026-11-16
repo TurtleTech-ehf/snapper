@@ -3,6 +3,8 @@
 //! Exposes formatting tools to MCP clients via the standard MCP protocol
 //! on stdin/stdout.
 
+use std::path::Path;
+
 use rmcp::handler::server::router::tool::ToolRouter;
 use rmcp::handler::server::wrapper::Parameters;
 use rmcp::{Json, ServerHandler, ServiceExt, tool, tool_handler, tool_router};
@@ -54,6 +56,9 @@ pub struct FormatTextParams {
 pub struct DetectFormatParams {
     /// Text to analyze for format detection.
     pub text: String,
+    /// File path or name. A recognized extension wins over `text`.
+    #[serde(default)]
+    pub path: Option<String>,
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -205,13 +210,14 @@ impl SnapperMcpServer {
 
     #[tool(
         name = "detect_format",
-        description = "Detect the document format of text using content heuristics. Returns one of: org, latex, markdown, rst, plaintext."
+        description = "Detect the document format. A recognized path extension wins. Otherwise the whole text is scored outside closed fences. Returns one of: org, latex, markdown, rst, typst, plaintext."
     )]
     fn detect_format(
         &self,
         Parameters(params): Parameters<DetectFormatParams>,
     ) -> Json<DetectFormatResult> {
-        let format = detect_format_heuristic(&params.text);
+        let path = params.path.as_deref().filter(|path| !path.is_empty());
+        let format = Format::detect(path.map(Path::new), &params.text);
         Json(DetectFormatResult {
             format: format_name(format),
         })
@@ -286,43 +292,6 @@ impl SnapperMcpServer {
 impl ServerHandler for SnapperMcpServer {}
 
 // -- Helpers --
-
-/// Heuristic format detection from text content.
-fn detect_format_heuristic(input: &str) -> Format {
-    let lines: Vec<&str> = input.lines().take(20).collect();
-
-    if input.contains("\\begin{")
-        || input.contains("\\section{")
-        || input.contains("\\documentclass")
-    {
-        return Format::Latex;
-    }
-
-    if lines
-        .iter()
-        .any(|l| l.starts_with("#+") || l.starts_with("* "))
-        && (input.contains(":PROPERTIES:") || input.contains(":END:") || input.contains("#+begin_"))
-    {
-        return Format::Org;
-    }
-
-    if lines
-        .iter()
-        .any(|l| l.starts_with("# ") || l.starts_with("## "))
-    {
-        return Format::Markdown;
-    }
-
-    if input.contains(".. ")
-        || lines
-            .iter()
-            .any(|l| l.chars().all(|c| c == '=' || c == '-') && l.len() > 3)
-    {
-        return Format::Rst;
-    }
-
-    Format::Plaintext
-}
 
 fn format_name(f: Format) -> String {
     match f {
@@ -581,5 +550,27 @@ mod tests {
             !broken.would_reformat,
             "already-broken clauses must be clean"
         );
+    }
+
+    #[test]
+    fn detect_format_uses_path_then_text() {
+        let server = SnapperMcpServer::new();
+        let by_path = server.detect_format(Parameters(DetectFormatParams {
+            text: "# Title\n".to_string(),
+            path: Some("paper.typ".to_string()),
+        }));
+        assert_eq!(by_path.0.format, "typst");
+
+        let by_text = server.detect_format(Parameters(DetectFormatParams {
+            text: "#set text(size: 12pt)\n".to_string(),
+            path: None,
+        }));
+        assert_eq!(by_text.0.format, "typst");
+
+        let prose = server.detect_format(Parameters(DetectFormatParams {
+            text: "#import-export is the tag.\n".to_string(),
+            path: None,
+        }));
+        assert_eq!(prose.0.format, "plaintext");
     }
 }

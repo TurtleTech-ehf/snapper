@@ -39,6 +39,7 @@ pub mod check;
 pub mod cli;
 pub mod code_block;
 pub mod config;
+mod detect;
 pub mod diff;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod files;

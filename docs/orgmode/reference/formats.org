@@ -326,7 +326,19 @@ The default path does not call pandoc.
 :PROPERTIES:
 :CUSTOM_ID: typst-detection
 :END:
-Extensions: =.typ=, =.typst=
+Extensions: =.typ=, =.typst=. A path with one of those extensions is Typst
+even when the text looks like another format.
+
+With no path, snapper scores the whole document. Lines inside a closed
+backtick or ~~~ fence are ignored, and a marker is a fence only when a
+matching closer exists. A heading inside a fence is not a heading.
+
+A Typst signal is a statement in the shape Typst 0.15.1 parses: =#let=
+with an opening parenthesis or an equals sign, =#set= with an opening
+parenthesis, =#import= or =#include= with a quoted path, or a =#show=
+rule with a real selector and body.
+=#show notes: bring the figures.= and =#show: tonight= are not signals.
+A hyphenated word such as =#import-export= is one identifier, not a keyword.
 
 ** Plaintext (=--format plaintext=)
 :PROPERTIES:
