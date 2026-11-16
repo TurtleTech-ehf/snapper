@@ -11,8 +11,10 @@
 //! compiler rejects, so those stay plaintext. A bare show body is a name
 //! Typst 0.15.1 compiles there (`#show heading: strong`, not
 //! `#show heading: h`). A show-all body is a content callable
-//! (`#show: strong`) or a set rule. An open parenthesis counts only when
-//! it closes inside the block and the finished statement is valid.
+//! (`#show: strong`) or a set rule. An open group keeps every following
+//! line inside it until the group closes, so a later `#set` under
+//! `#let ieee( bring the figures.` is not its own signal. A finished
+//! right-hand side may use Typst's operators (`1 + 2`, `not false`).
 //! `#show notes: bring the figures.` and `#show: tonight` do not score.
 
 use crate::format::Format;
@@ -362,8 +364,10 @@ fn starts_typst_keyword(line: &str) -> bool {
 }
 
 /// A statement counts when its delimiters close inside the block and the
-/// finished text is valid. `#let ieee(\n body\n) = body` closes. `#let ieee(`
-/// and `#let x = (1` do not, and a later balanced statement still counts.
+/// finished text is valid. `#let ieee(\n body\n) = body` closes. An open
+/// group owns every following line until it closes or the block ends, so
+/// `#set text(size: 12pt)` under `#let ieee( bring the figures.` is inside
+/// that call. An unclosed group through EOF drops the tail.
 fn has_typst(lines: &[&str]) -> bool {
     let mut i = 0;
     while i < lines.len() {
@@ -382,30 +386,23 @@ fn has_typst(lines: &[&str]) -> bool {
             continue;
         }
         let mut j = i + 1;
-        let mut closed = false;
-        while j < lines.len() {
-            let next = lines[j].trim_start();
-            if starts_typst_keyword(next) && delimiter_depth(next) <= 0 {
-                break;
-            }
+        while j < lines.len() && delim.depth > 0 {
             delim.feed("\n");
             delim.feed(lines[j]);
             j += 1;
-            if delim.depth == 0 {
-                closed = true;
-                break;
-            }
-            if delim.depth < 0 {
-                break;
-            }
         }
-        if closed {
+        if delim.depth == 0 {
             let buf = lines[i..j].join("\n");
             if typst_statement(buf.trim_start()) {
                 return true;
             }
+            i = j;
+            continue;
         }
-        i = if j > i + 1 { j } else { i + 1 };
+        if delim.depth > 0 {
+            return false;
+        }
+        i = j;
     }
     false
 }
@@ -486,12 +483,6 @@ impl Delim {
             }
         }
     }
-}
-
-fn delimiter_depth(text: &str) -> i32 {
-    let mut delim = Delim::default();
-    delim.feed(text);
-    delim.depth
 }
 
 /// Index just after a raw span that starts at a backtick.
@@ -742,105 +733,226 @@ fn is_bare_ident(text: &str) -> bool {
 }
 
 /// `true` when `text` is one expression that reaches the end of the line.
+///
+/// Binary and unary operators follow Typst 0.15.1 precedence: `* /`, then
+/// `+ -`, then comparisons, `in`, and `not in`, then `and`, then `or`.
+/// `not`, `+`, and `-` are unary. A trailing word with no operator stays
+/// outside the expression.
 fn expr_consumes(text: &str) -> bool {
     let text = text.trim();
-    if text.is_empty() {
-        return false;
-    }
-    if let Some(end) = numeric_end(text) {
-        return text[end..].trim().is_empty();
-    }
-    if text.starts_with('[') || text.starts_with('{') {
-        return group_consumes(text);
-    }
-    if text.starts_with('"') {
-        return string_end(text).is_some_and(|end| text[end..].trim().is_empty());
-    }
-    if let Some(rest) = keyword_rest(text, "set") {
-        return set_body(rest);
-    }
-    if text.starts_with('(') {
-        let Some(end) = skip_group(text, 0) else {
-            return false;
-        };
-        let after = text[end..].trim_start();
-        if let Some(rhs) = after.strip_prefix("=>") {
-            return expr_consumes(rhs);
-        }
-        return text[end..].trim().is_empty();
-    }
-    let Some(len) = ident_len(text) else {
-        return false;
-    };
-    let after = text[len..].trim_start();
-    if let Some(rhs) = after.strip_prefix("=>") {
-        return expr_consumes(rhs);
-    }
-    if after.starts_with('.') || after.starts_with('(') {
-        return chain_consumes(text);
-    }
-    text[len..].trim().is_empty()
-}
-
-fn set_body(rest: &str) -> bool {
-    let rest = rest.trim_start();
-    let Some(mut idx) = ident_len(rest) else {
-        return false;
-    };
-    loop {
-        if rest[idx..].starts_with('(') {
-            let Some(end) = skip_group(rest, idx) else {
-                return false;
-            };
-            return rest[end..].trim().is_empty();
-        }
-        let dot = skip_ws(rest, idx);
-        if rest[dot..].starts_with('.') {
-            let next = skip_ws(rest, dot + 1);
-            let Some(len) = ident_len(&rest[next..]) else {
-                return false;
-            };
-            idx = next + len;
-            continue;
-        }
-        return false;
-    }
-}
-
-fn group_consumes(text: &str) -> bool {
-    let Some(end) = skip_group(text, 0) else {
+    let Some(end) = expr_prec(text, 0, 0) else {
         return false;
     };
     text[end..].trim().is_empty()
 }
 
-fn chain_consumes(text: &str) -> bool {
-    let Some(mut idx) = ident_len(text) else {
-        return false;
+struct CodeOp {
+    end: usize,
+    prec: u8,
+}
+
+fn expr_prec(text: &str, idx: usize, min_prec: u8) -> Option<usize> {
+    let start = skip_ws(text, idx);
+    if start >= text.len() {
+        return None;
+    }
+    let mut idx = if let Some(op) = unary_op(text, start) {
+        expr_prec(text, op.end, op.prec)?
+    } else {
+        primary(text, start)?
     };
-    let mut saw_suffix = false;
     loop {
-        if text[idx..].starts_with('(') {
-            let Some(end) = skip_group(text, idx) else {
-                return false;
-            };
-            idx = end;
-            saw_suffix = true;
+        let next = skip_ws(text, idx);
+        let Some(op) = binary_op(text, next) else {
+            return Some(idx);
+        };
+        if op.prec < min_prec {
+            return Some(idx);
+        }
+        idx = expr_prec(text, op.end, op.prec + 1)?;
+    }
+}
+
+fn unary_op(text: &str, idx: usize) -> Option<CodeOp> {
+    let rest = text.get(idx..)?;
+    if rest.starts_with('+') || rest.starts_with('-') {
+        return Some(CodeOp {
+            end: idx + 1,
+            prec: 7,
+        });
+    }
+    let (word, len) = word_at(text, idx)?;
+    if word == "not" {
+        return Some(CodeOp {
+            end: idx + len,
+            prec: 4,
+        });
+    }
+    None
+}
+
+fn binary_op(text: &str, idx: usize) -> Option<CodeOp> {
+    let rest = text.get(idx..)?;
+    for (symbol, prec) in [
+        ("==", 4u8),
+        ("!=", 4),
+        ("<=", 4),
+        (">=", 4),
+        ("+", 5),
+        ("-", 5),
+        ("*", 6),
+        ("/", 6),
+        ("<", 4),
+        (">", 4),
+    ] {
+        if rest.starts_with(symbol) {
+            return Some(CodeOp {
+                end: idx + symbol.len(),
+                prec,
+            });
+        }
+    }
+    let (word, len) = word_at(text, idx)?;
+    if word == "not" {
+        let after = skip_ws(text, idx + len);
+        let (next, next_len) = word_at(text, after)?;
+        if next == "in" {
+            return Some(CodeOp {
+                end: after + next_len,
+                prec: 4,
+            });
+        }
+        return None;
+    }
+    let prec = match word {
+        "and" => 3,
+        "or" => 2,
+        "in" => 4,
+        _ => return None,
+    };
+    Some(CodeOp {
+        end: idx + len,
+        prec,
+    })
+}
+
+fn word_at(text: &str, idx: usize) -> Option<(&str, usize)> {
+    let rest = text.get(idx..)?;
+    let len = ident_len(rest)?;
+    Some((&rest[..len], len))
+}
+
+fn primary(text: &str, idx: usize) -> Option<usize> {
+    let idx = skip_ws(text, idx);
+    if idx >= text.len() {
+        return None;
+    }
+    let rest = &text[idx..];
+    if let Some(end) = numeric_end(rest) {
+        return Some(idx + end);
+    }
+    if rest.starts_with('[') {
+        return skip_group(text, idx);
+    }
+    if rest.starts_with('(') || rest.starts_with('{') {
+        let end = code_group_end(text, idx)?;
+        if rest.starts_with('(') {
+            let after = skip_ws(text, end);
+            if text[after..].starts_with("=>") {
+                return expr_prec(text, after + 2, 0);
+            }
+        }
+        return Some(end);
+    }
+    if rest.starts_with('"') {
+        return string_end(rest).map(|end| idx + end);
+    }
+    if let Some((word, len)) = word_at(text, idx) {
+        if word == "set" {
+            return set_end(text, skip_ws(text, idx + len));
+        }
+    }
+    let (name, len) = word_at(text, idx)?;
+    if is_operator_keyword(name) {
+        return None;
+    }
+    if is_literal_keyword(name) {
+        return Some(idx + len);
+    }
+    let mut end = idx + len;
+    let mut extended = false;
+    loop {
+        if text[end..].starts_with('(') {
+            end = code_group_end(text, end)?;
+            extended = true;
             continue;
         }
-        let next = skip_ws(text, idx);
-        if text[next..].starts_with('.') {
-            let after = skip_ws(text, next + 1);
-            let Some(len) = ident_len(&text[after..]) else {
-                return false;
-            };
-            idx = after + len;
-            saw_suffix = true;
+        let dot = skip_ws(text, end);
+        if text[dot..].starts_with('.') {
+            let after = skip_ws(text, dot + 1);
+            let field = ident_len(text.get(after..)?)?;
+            end = after + field;
+            extended = true;
             continue;
         }
         break;
     }
-    saw_suffix && text[idx..].trim().is_empty()
+    if !extended {
+        let after = skip_ws(text, end);
+        if text[after..].starts_with("=>") {
+            return expr_prec(text, after + 2, 0);
+        }
+    }
+    Some(end)
+}
+
+fn is_literal_keyword(name: &str) -> bool {
+    matches!(name, "none" | "auto" | "true" | "false")
+}
+
+fn is_operator_keyword(name: &str) -> bool {
+    matches!(
+        name,
+        "and"
+            | "or"
+            | "not"
+            | "in"
+            | "let"
+            | "show"
+            | "context"
+            | "if"
+            | "else"
+            | "for"
+            | "while"
+            | "break"
+            | "continue"
+            | "return"
+            | "import"
+            | "include"
+            | "as"
+    )
+}
+
+fn set_body(rest: &str) -> bool {
+    let rest = rest.trim_start();
+    set_end(rest, 0).is_some_and(|end| rest[end..].trim().is_empty())
+}
+
+fn set_end(text: &str, idx: usize) -> Option<usize> {
+    let mut idx = idx + ident_len(text.get(idx..)?)?;
+    loop {
+        if text[idx..].starts_with('(') {
+            return code_group_end(text, idx);
+        }
+        let dot = skip_ws(text, idx);
+        if text[dot..].starts_with('.') {
+            let next = skip_ws(text, dot + 1);
+            let len = ident_len(text.get(next..)?)?;
+            idx = next + len;
+            continue;
+        }
+        return None;
+    }
 }
 
 /// End index of a selector, and the bare name when the selector is only an ident.
@@ -967,6 +1079,71 @@ fn string_end(text: &str) -> Option<usize> {
     None
 }
 
+/// End of a code group. A `#` in code is rejected; a `#` inside a content
+/// block, string, or raw span is kept. Typst reports `#set` inside `(...)`
+/// as "the character `#` is not valid in code".
+fn code_group_end(text: &str, open_idx: usize) -> Option<usize> {
+    let bytes = text.as_bytes();
+    let open = *bytes.get(open_idx)?;
+    let close = match open {
+        b'(' => b')',
+        b'{' => b'}',
+        _ => return None,
+    };
+    let mut depth = 0i32;
+    let mut idx = open_idx;
+    let mut string = false;
+    while idx < bytes.len() {
+        let byte = bytes[idx];
+        if string {
+            if byte == b'\\' && idx + 1 < bytes.len() {
+                idx += 2;
+                continue;
+            }
+            if byte == b'"' {
+                string = false;
+            }
+            idx += 1;
+            continue;
+        }
+        if byte == b'`' {
+            idx = raw_end(bytes, idx);
+            continue;
+        }
+        if byte == b'"' {
+            string = true;
+            idx += 1;
+            continue;
+        }
+        if byte == b'[' {
+            idx = skip_group(text, idx)?;
+            continue;
+        }
+        if byte == b'#' {
+            return None;
+        }
+        if byte == open {
+            depth += 1;
+            idx += 1;
+            continue;
+        }
+        if byte == close {
+            depth -= 1;
+            idx += 1;
+            if depth == 0 {
+                return Some(idx);
+            }
+            continue;
+        }
+        if byte == b'(' || byte == b'{' {
+            idx = code_group_end(text, idx)?;
+            continue;
+        }
+        idx += 1;
+    }
+    None
+}
+
 fn skip_group(text: &str, open_idx: usize) -> Option<usize> {
     let bytes = text.as_bytes();
     let open = *bytes.get(open_idx)?;
@@ -1023,19 +1200,39 @@ fn skip_group(text: &str, open_idx: usize) -> Option<usize> {
 /// `1and` is not a number: the bad suffix stays outside the token.
 fn numeric_end(text: &str) -> Option<usize> {
     let bytes = text.as_bytes();
-    if bytes.first().is_none_or(|byte| !byte.is_ascii_digit()) {
+    if bytes.is_empty() {
         return None;
     }
-    let mut idx = 1;
-    while idx < bytes.len() && bytes[idx].is_ascii_digit() {
-        idx += 1;
-    }
-    if idx + 1 < bytes.len() && bytes[idx] == b'.' && bytes[idx + 1].is_ascii_digit() {
-        idx += 2;
+    let mut idx = if bytes[0].is_ascii_digit() {
+        let mut idx = 1;
         while idx < bytes.len() && bytes[idx].is_ascii_digit() {
             idx += 1;
         }
-    }
+        // `2.` is a float. `1.foo` keeps the dot for a field, and `..` is not
+        // a decimal point.
+        if idx < bytes.len() && bytes[idx] == b'.' && !text[idx..].starts_with("..") {
+            let after = idx + 1;
+            let ident_start = text[after..]
+                .chars()
+                .next()
+                .is_some_and(|ch| ch.is_ascii_alphabetic() || ch == '_');
+            if !ident_start {
+                idx = after;
+                while idx < bytes.len() && bytes[idx].is_ascii_digit() {
+                    idx += 1;
+                }
+            }
+        }
+        idx
+    } else if bytes[0] == b'.' && bytes.get(1).is_some_and(|byte| byte.is_ascii_digit()) {
+        let mut idx = 2;
+        while idx < bytes.len() && bytes[idx].is_ascii_digit() {
+            idx += 1;
+        }
+        idx
+    } else {
+        return None;
+    };
     if idx < bytes.len() && matches!(bytes[idx], b'e' | b'E') && !text[idx..].starts_with("em") {
         let mut exp = idx + 1;
         if exp < bytes.len() && matches!(bytes[exp], b'+' | b'-') {
@@ -1468,8 +1665,48 @@ See the sample. Next sentence.
         assert_text("#set text( bring the figures.\n", Format::Plaintext);
         assert_text(
             "#let ieee( bring the figures.\n#set text(size: 12pt)\n",
+            Format::Plaintext,
+        );
+        assert_text("#let x = (1\n#set text(size: 12pt)\n", Format::Plaintext);
+        assert_text(
+            "#set text( bring the figures.\n#let x = 1\n",
+            Format::Plaintext,
+        );
+        assert_text(
+            "#let ieee(\n  body\n) = body\n#set text(size: 12pt)\n",
             Format::Typst,
         );
+        assert_text("#let x = (1\n)\n#set text(size: 12pt)\n", Format::Typst);
+        assert_text(
+            "#set text(size: 12pt)\n#let ieee( bring the figures.\n",
+            Format::Typst,
+        );
+    }
+
+    #[test]
+    fn expr_probe_table_matches_detection() {
+        let table = include_str!("../tests/fixtures/typst-0.15.1-expressions.tsv");
+        for line in table.lines() {
+            if line.is_empty() || !line.contains('\t') || line.starts_with("source\t") {
+                continue;
+            }
+            let mut cols = line.split('\t');
+            let source = cols.next().expect("source").replace("\\n", "\n");
+            let compiles = cols.next().expect("compiles");
+            let detect = cols.next().expect("detect");
+            assert!(
+                compiles == "yes" || compiles == "no",
+                "compiles column {compiles:?}"
+            );
+            let want = if detect == "typst" {
+                Format::Typst
+            } else if detect == "plaintext" {
+                Format::Plaintext
+            } else {
+                panic!("detect column {detect:?}");
+            };
+            assert_text(&source, want);
+        }
     }
 
     #[test]
@@ -1533,6 +1770,11 @@ See the sample. Next sentence.
             ("#let ieee( bring the figures.\n", Format::Plaintext),
             ("#let x = (1\n", Format::Plaintext),
             ("#set text( bring the figures.\n", Format::Plaintext),
+            ("#let x = 1 + 2\n", Format::Typst),
+            ("#let x = not false\n", Format::Typst),
+            ("#let x = 1 not in (2, 3)\n", Format::Typst),
+            ("#let x = 1 +\n", Format::Plaintext),
+            ("#let x = 1 + 2 more\n", Format::Plaintext),
         ];
         for (text, format) in cases {
             assert_text(text, format);

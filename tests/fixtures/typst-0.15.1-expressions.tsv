@@ -1,0 +1,65 @@
+# Typst 0.15.1 (9dfd3a08) expression probes.
+# source uses \n for a newline. compiles is typst compile.
+# detect is the score snapper should give. A balanced #set before
+# an unclosed group still scores; lines inside the group do not.
+source	compiles	detect
+#let x = 1 + 2	yes	typst
+#let x = 1 - 2	yes	typst
+#let x = 1 * 2	yes	typst
+#let x = 1 / 2	yes	typst
+#let x = 1 == 2	yes	typst
+#let x = 1 != 2	yes	typst
+#let x = 1 < 2	yes	typst
+#let x = 1 <= 2	yes	typst
+#let x = 1 > 2	yes	typst
+#let x = 1 >= 2	yes	typst
+#let x = true and false	yes	typst
+#let x = true or false	yes	typst
+#let x = not false	yes	typst
+#let x = not not true	yes	typst
+#let x = 1 in (1, 2)	yes	typst
+#let x = 1 not in (2, 3)	yes	typst
+#let x = -1	yes	typst
+#let x = +1	yes	typst
+#let x = 1 + 2 * 3	yes	typst
+#let x = (1 + 2) * 3	yes	typst
+#let x = -1 + 2	yes	typst
+#let x = 1 + -2	yes	typst
+#let x = 2 * -3	yes	typst
+#let x = 1 - -2	yes	typst
+#let x = 1pt + 2pt	yes	typst
+#let x = 1 * 2 / 3	yes	typst
+#let x = true and false or true	yes	typst
+#let x = not true and false	yes	typst
+#let x = 1 <= 2 and 3 >= 4	yes	typst
+#let x = "a" + "b"	yes	typst
+#let x = [a] + [b]	yes	typst
+#show heading: it => it + 1	yes	typst
+#let x = not(true)	yes	typst
+#let x = 1 in(1, 2)	yes	typst
+#let x = 1 not  in (2,)	yes	typst
+#let x = 1 + 2.	yes	typst
+#let x = .5	yes	typst
+#let x = 1 + .5	yes	typst
+#let x = 1e-2 + 3	yes	typst
+#let x = calc.pow(2, 3)	yes	typst
+#let ieee(\n  body\n) = body	yes	typst
+#let ieee(\n  body\n) = body\n#set text(size: 12pt)	yes	typst
+#let x = (1\n)\n#set text(size: 12pt)	yes	typst
+#let x = 1 +	no	plaintext
+#let x = 1 + 2 more	no	plaintext
+#let x = 1and	no	plaintext
+#let x = 1pt and more prose.	no	plaintext
+#let x = 1 not 2	no	plaintext
+#let (a, b) = (1, 2) and then more prose.	no	plaintext
+#let script-size = 1pt and more prose.	no	plaintext
+#let x = true and false.	no	plaintext
+#let x = f (x)	no	plaintext
+#let x = and	no	plaintext
+#let x = 1.foo	no	plaintext
+#let ieee( bring the figures.\n#set text(size: 12pt)	no	plaintext
+#let x = (1\n#set text(size: 12pt)	no	plaintext
+#set text( bring the figures.\n#let x = 1	no	plaintext
+#let x = (1\n#set text(size: 12pt)\n)	no	plaintext
+#let x = 1 +\n2	no	plaintext
+#set text(size: 12pt)\n#let ieee( bring the figures.	no	typst
