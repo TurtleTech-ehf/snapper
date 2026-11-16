@@ -328,7 +328,9 @@ fn detect_format_heuristic(input: &str) -> Format {
     Format::Plaintext
 }
 
-/// `#let name =`, `#set text(`, `#show heading:` — not `#let me explain`.
+/// `#let name =`, `#let ieee(`, `#set text(`, `#show heading.where(...):`.
+///
+/// A prose mention such as `#let me explain` is not a statement.
 fn typst_statement_line(line: &str) -> bool {
     let t = line.trim_start();
     if let Some(rest) = keyword_rest(t, "#let") {
@@ -336,7 +338,9 @@ fn typst_statement_line(line: &str) -> bool {
         let Some(n) = ident_len(rest) else {
             return false;
         };
-        return rest[n..].trim_start().starts_with('=');
+        let after = rest[n..].trim_start();
+        // Bindings (`script-size = 1pt`) and functions (`ieee(`, `alert(...) =`).
+        return after.starts_with('=') || after.starts_with('(');
     }
     if let Some(rest) = keyword_rest(t, "#set") {
         let rest = rest.trim_start();
@@ -346,17 +350,86 @@ fn typst_statement_line(line: &str) -> bool {
         return rest[n..].trim_start().starts_with('(');
     }
     if let Some(rest) = keyword_rest(t, "#show") {
-        let rest = rest.trim_start();
-        if rest.starts_with(':') {
-            return true;
-        }
-        let Some(n) = ident_len(rest) else {
-            return false;
-        };
-        let after = rest[n..].trim_start();
-        return after.starts_with(':') || after.starts_with('(');
+        return show_rule(rest);
     }
-    t.starts_with("#import ") || t.starts_with("#include ") || t.starts_with("#context ")
+    keyword_rest(t, "#import").is_some()
+        || keyword_rest(t, "#include").is_some()
+        || keyword_rest(t, "#context").is_some()
+}
+
+/// `#show: body` or `#show <selector>: body`, where the selector may be
+/// `heading.where(level: 1)` or `raw`.
+fn show_rule(rest: &str) -> bool {
+    let rest = rest.trim_start();
+    if rest.starts_with(':') {
+        return true;
+    }
+    let Some(n) = ident_len(rest) else {
+        return false;
+    };
+    let bytes = rest.as_bytes();
+    let mut i = n;
+    while i < bytes.len() {
+        if bytes[i] == b'.' {
+            let Some(m) = ident_len(&rest[i + 1..]) else {
+                return false;
+            };
+            i += 1 + m;
+            continue;
+        }
+        if bytes[i] == b'(' {
+            let Some(end) = skip_paren_group(rest, i) else {
+                return false;
+            };
+            i = end;
+            continue;
+        }
+        break;
+    }
+    rest[i..].trim_start().starts_with(':')
+}
+
+/// Index just past the `)` matching the `(` at `open`.
+fn skip_paren_group(text: &str, open: usize) -> Option<usize> {
+    let bytes = text.as_bytes();
+    if bytes.get(open) != Some(&b'(') {
+        return None;
+    }
+    let mut depth = 0i32;
+    let mut i = open;
+    let mut string = false;
+    while i < bytes.len() {
+        if string {
+            if bytes[i] == b'\\' && i + 1 < bytes.len() {
+                i += 2;
+                continue;
+            }
+            if bytes[i] == b'"' {
+                string = false;
+            }
+            i += 1;
+            continue;
+        }
+        match bytes[i] {
+            b'"' => {
+                string = true;
+                i += 1;
+            }
+            b'(' => {
+                depth += 1;
+                i += 1;
+            }
+            b')' => {
+                depth -= 1;
+                i += 1;
+                if depth == 0 {
+                    return Some(i);
+                }
+            }
+            _ => i += 1,
+        }
+    }
+    None
 }
 
 fn keyword_rest<'a>(line: &'a str, keyword: &str) -> Option<&'a str> {
@@ -368,13 +441,33 @@ fn keyword_rest<'a>(line: &'a str, keyword: &str) -> Option<&'a str> {
     }
 }
 
+/// Length of a Typst identifier. A hyphen is part of the name when a
+/// letter or digit follows it, as in `script-size`.
 fn ident_len(text: &str) -> Option<usize> {
-    let n: usize = text
-        .chars()
-        .take_while(|c| c.is_ascii_alphanumeric() || *c == '_')
-        .map(char::len_utf8)
-        .sum();
-    if n == 0 { None } else { Some(n) }
+    let mut chars = text.chars();
+    let first = chars.next()?;
+    if !(first.is_ascii_alphanumeric() || first == '_') {
+        return None;
+    }
+    let mut len = first.len_utf8();
+    while let Some(ch) = text[len..].chars().next() {
+        if ch.is_ascii_alphanumeric() || ch == '_' {
+            len += ch.len_utf8();
+            continue;
+        }
+        if ch == '-' {
+            let after = &text[len + ch.len_utf8()..];
+            let Some(next) = after.chars().next() else {
+                break;
+            };
+            if next.is_ascii_alphanumeric() || next == '_' {
+                len += ch.len_utf8() + next.len_utf8();
+                continue;
+            }
+        }
+        break;
+    }
+    Some(len)
 }
 
 fn format_name(f: Format) -> String {
@@ -682,5 +775,89 @@ mod tests {
             detect_format_heuristic("#show your work in full. Next.\n"),
             Format::Plaintext
         );
+    }
+
+    #[test]
+    fn typst_template_openings_are_typst() {
+        // Short openings in the shape of the MIT-0 typst/templates lib.typ
+        // files. The first code line is what detection sees.
+        let charged_ieee = "\
+// IEEE-style article.
+#let ieee(
+  title: [Paper Title],
+  body
+) = {}
+";
+        let unequivocal_ams = "\
+// Sizes used across the template.
+#let script-size = 7.97224pt
+#let footnote-size = 8.50012pt
+";
+        let appreciated_letter = "\
+// A simple letter.
+#let letter(
+  sender: none,
+  body
+) = {}
+";
+        let wonderous_book = "\
+// A fiction book.
+#let book(
+  title: [Book title],
+  body,
+) = {}
+";
+        for sample in [
+            charged_ieee,
+            unequivocal_ams,
+            appreciated_letter,
+            wonderous_book,
+        ] {
+            assert_eq!(detect_format_heuristic(sample), Format::Typst, "{sample}");
+        }
+        assert_eq!(
+            detect_format_heuristic("#let alert(body, fill: red) = {\n"),
+            Format::Typst
+        );
+        assert_eq!(
+            detect_format_heuristic("#show heading.where(level: 1): it => it\n"),
+            Format::Typst
+        );
+        assert_eq!(
+            detect_format_heuristic("#show: ieee.with(title: [Paper])\n"),
+            Format::Typst
+        );
+        assert_eq!(
+            detect_format_heuristic("#show raw: set text(size: 9pt)\n"),
+            Format::Typst
+        );
+        assert_eq!(
+            detect_format_heuristic("#import \"chapter.typ\": item\n"),
+            Format::Typst
+        );
+        assert_eq!(
+            detect_format_heuristic("#include \"chapter.typ\"\n"),
+            Format::Typst
+        );
+    }
+
+    #[test]
+    fn markdown_prose_that_mentions_let_stays_markdown() {
+        let notes = "\
+# Notes
+
+Call #let ieee( when defining a helper. Next sentence.
+The binding #let script-size = 1pt is just an example.
+";
+        assert_eq!(detect_format_heuristic(notes), Format::Markdown);
+        // A real statement later in the file does not override the heading.
+        let mixed = "\
+# Title
+
+#let ieee(
+  body
+) = {}
+";
+        assert_eq!(detect_format_heuristic(mixed), Format::Markdown);
     }
 }
