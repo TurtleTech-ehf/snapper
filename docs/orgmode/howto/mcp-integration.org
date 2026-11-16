@@ -80,7 +80,7 @@ Returns the formatted text.
 
 Detect the document format. A recognized extension on =path= wins.
 Otherwise the text is scored over the whole document, outside a
-backtick or ~~~ fence that has a matching closer.
+backtick fence that has a matching closer. A ~~~ line is not a fence.
 
 Parameters:
 - =text= (string, required): Text to analyze

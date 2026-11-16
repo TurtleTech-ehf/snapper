@@ -2,13 +2,15 @@
 //!
 //! [`Format::detect`] uses a recognized path extension first. This module
 //! handles the content-only case: every line of the document, with no
-//! 20-line cap, and never a line inside a fence that actually closes.
+//! 20-line cap, and never a line inside a backtick fence that actually closes.
+//! A `~~~` line is not a fence. In Typst `~` is a non-breaking space, so a
+//! `#set` between two `~~~` lines still scores.
 //!
 //! The `typst` crate is not a dependency, so Typst statements are checked
 //! against the Typst 0.15.1 grammar directly. A `#show` rule needs a
-//! selector and a body that grammar accepts, and the body has to be more
-//! than a bare name. `#show notes: bring the figures.` and `#show: tonight`
-//! do not score.
+//! selector and a body that grammar accepts. A bare body may be an element
+//! function (`#show heading: strong`). `#show notes: bring the figures.`
+//! and `#show: tonight` do not score.
 
 use crate::format::Format;
 
@@ -61,6 +63,7 @@ const ELEMENTS: &[&str] = &[
     "footnote-marker",
     "frac",
     "grid",
+    "h",
     "header",
     "heading",
     "hide",
@@ -134,9 +137,13 @@ const ELEMENTS: &[&str] = &[
     "underline",
     "underparen",
     "undershell",
+    "v",
     "vec",
     "vline",
 ];
+
+/// Global modules whose fields are real selectors (`math.equation`).
+const MODULES: &[&str] = &["calc", "html", "math", "pdf", "sys"];
 
 pub(crate) fn score_text(text: &str) -> Format {
     let lines = lines_outside_fences(text);
@@ -144,9 +151,8 @@ pub(crate) fn score_text(text: &str) -> Format {
     let mut org_line = false;
     let mut org_body = false;
     let mut markdown = false;
-    let mut typst = false;
     let mut rst = false;
-    for line in lines {
+    for line in &lines {
         if is_latex_line(line) {
             latex = true;
         }
@@ -162,10 +168,8 @@ pub(crate) fn score_text(text: &str) -> Format {
         if is_rst_line(line) {
             rst = true;
         }
-        if typst_statement(line) {
-            typst = true;
-        }
     }
+    let typst = has_typst(&lines);
     // A positive tally is that format's score. When several formats score,
     // the earlier one wins, which keeps a Markdown heading ahead of a Typst
     // statement and a Typst statement ahead of an RST underline.
@@ -192,34 +196,36 @@ fn is_rst_line(line: &str) -> bool {
     line.contains(".. ") || (line.len() > 3 && line.chars().all(|c| c == '=' || c == '-'))
 }
 
-struct OpenFence {
-    marker: u8,
+struct BacktickFence {
     len: usize,
+    /// A line of only backticks, long enough to close an opener.
+    closer: bool,
 }
 
-/// Lines that are not inside a closed ``` or ~~~ fence.
+/// Lines that are not inside a closed ``` fence.
 ///
-/// The info string is ignored, so ```typst is still a fence. A marker with
-/// no matching closer is ordinary text, and the lines after it are scored.
+/// Pairing is one forward pass: an unmatched opener does not hide the
+/// lines after it, and a `~~~` line is never a fence. The info string is
+/// ignored, so ```typst is still a fence when a closer exists.
 fn lines_outside_fences(text: &str) -> Vec<&str> {
     let lines: Vec<&str> = text.lines().collect();
+    let marks: Vec<Option<BacktickFence>> = lines.iter().copied().map(backtick_fence).collect();
     let mut skip = vec![false; lines.len()];
-    let mut i = 0;
-    while i < lines.len() {
-        if let Some(open) = fence_opens(lines[i]) {
-            if let Some(rel) = lines[i + 1..]
-                .iter()
-                .position(|line| fence_closes(line, &open))
-            {
-                let end = i + 1 + rel;
-                for slot in &mut skip[i..=end] {
+    let mut open: Option<(usize, usize)> = None;
+    for (i, mark) in marks.iter().enumerate() {
+        let Some(mark) = mark else {
+            continue;
+        };
+        if let Some((open_at, open_len)) = open {
+            if mark.closer && mark.len >= open_len {
+                for slot in &mut skip[open_at..=i] {
                     *slot = true;
                 }
-                i = end + 1;
-                continue;
+                open = None;
             }
+            continue;
         }
-        i += 1;
+        open = Some((i, mark.len));
     }
     lines
         .into_iter()
@@ -229,27 +235,24 @@ fn lines_outside_fences(text: &str) -> Vec<&str> {
         .collect()
 }
 
-fn fence_opens(line: &str) -> Option<OpenFence> {
+fn backtick_fence(line: &str) -> Option<BacktickFence> {
     let trimmed = line.trim();
     let bytes = trimmed.as_bytes();
-    let marker = *bytes.first()?;
-    if marker != b'`' && marker != b'~' {
+    if bytes.first() != Some(&b'`') {
         return None;
     }
-    let len = bytes.iter().take_while(|&&b| b == marker).count();
+    let len = bytes.iter().take_while(|&&b| b == b'`').count();
     if len < 3 {
         return None;
     }
     let info = &trimmed[len..];
-    if marker == b'`' && info.contains('`') {
+    if info.contains('`') {
         return None;
     }
-    Some(OpenFence { marker, len })
-}
-
-fn fence_closes(line: &str, open: &OpenFence) -> bool {
-    let bytes = line.trim().as_bytes();
-    bytes.len() >= open.len && bytes.iter().all(|&b| b == open.marker)
+    Some(BacktickFence {
+        len,
+        closer: info.is_empty(),
+    })
 }
 
 /// A column-0 Typst statement. The keyword ends on whitespace, `(`, or `:`.
@@ -269,7 +272,7 @@ fn typst_statement(line: &str) -> bool {
         return quoted_module(rest);
     }
     if let Some(rest) = keyword_rest(line, "#include") {
-        return quoted_module(rest);
+        return module_path(rest, true);
     }
     if let Some(rest) = keyword_rest(line, "#context") {
         return context_expr(rest);
@@ -285,8 +288,83 @@ fn keyword_rest<'a>(line: &'a str, keyword: &str) -> Option<&'a str> {
     }
 }
 
+fn has_typst(lines: &[&str]) -> bool {
+    lines
+        .iter()
+        .enumerate()
+        .any(|(i, line)| typst_statement(line) || multiline_show(lines, i))
+}
+
+/// A show whose body opens a group on this line and closes on a later one.
+/// `#show heading: it => [` ... `]` is one rule.
+fn multiline_show(lines: &[&str], start: usize) -> bool {
+    let line = lines[start].trim_start();
+    let Some(rest) = keyword_rest(line, "#show") else {
+        return false;
+    };
+    if delimiter_depth(rest) <= 0 {
+        return false;
+    }
+    let mut buf = rest.to_string();
+    for line in &lines[start + 1..] {
+        buf.push('\n');
+        buf.push_str(line);
+        let depth = delimiter_depth(&buf);
+        if depth == 0 {
+            return show_rule(&buf);
+        }
+        if depth < 0 {
+            return false;
+        }
+    }
+    false
+}
+
+fn delimiter_depth(text: &str) -> i32 {
+    let bytes = text.as_bytes();
+    let mut depth = 0i32;
+    let mut string = false;
+    let mut idx = 0;
+    while idx < bytes.len() {
+        let byte = bytes[idx];
+        if string {
+            if byte == b'\\' && idx + 1 < bytes.len() {
+                idx += 2;
+                continue;
+            }
+            if byte == b'"' {
+                string = false;
+            }
+            idx += 1;
+            continue;
+        }
+        match byte {
+            b'"' => {
+                string = true;
+                idx += 1;
+            }
+            b'(' | b'[' | b'{' => {
+                depth += 1;
+                idx += 1;
+            }
+            b')' | b']' | b'}' => {
+                depth -= 1;
+                idx += 1;
+            }
+            _ => idx += 1,
+        }
+    }
+    depth
+}
+
 fn let_statement(rest: &str) -> bool {
     let rest = rest.trim_start();
+    if rest.starts_with('(') {
+        let Some(end) = skip_group(rest, 0) else {
+            return false;
+        };
+        return rest[end..].trim_start().starts_with('=');
+    }
     let Some(len) = ident_len(rest) else {
         return false;
     };
@@ -294,29 +372,120 @@ fn let_statement(rest: &str) -> bool {
     after.starts_with('=') || after.starts_with('(')
 }
 
+/// `#set text(...)`. Typst 0.15.1 requires `(` immediately after the name.
 fn set_statement(rest: &str) -> bool {
     let rest = rest.trim_start();
     let Some(mut idx) = ident_len(rest) else {
         return false;
     };
     loop {
-        idx = skip_ws(rest, idx);
-        if rest[idx..].starts_with('.') {
-            let next = skip_ws(rest, idx + 1);
+        if rest[idx..].starts_with('(') {
+            return true;
+        }
+        let dot = skip_ws(rest, idx);
+        if rest[dot..].starts_with('.') {
+            let next = skip_ws(rest, dot + 1);
             let Some(len) = ident_len(&rest[next..]) else {
                 return false;
             };
             idx = next + len;
             continue;
         }
-        return rest[idx..].starts_with('(');
+        return false;
     }
 }
 
 /// `#import "path"` / `#include "path"`. A label (`#include <stdio.h>`) is not
-/// a Typst path, and the quote has to follow whitespace.
+/// a Typst path, and the quote has to follow whitespace. After the string,
+/// import allows the end of the line, `: items`, or `as name`. Include allows
+/// only the end of the line. Trailing prose does not score.
 fn quoted_module(rest: &str) -> bool {
-    rest.trim_start().starts_with('"')
+    module_path(rest, false)
+}
+
+fn module_path(rest: &str, include: bool) -> bool {
+    let rest = rest.trim_start();
+    let Some(end) = string_end(rest) else {
+        return false;
+    };
+    let after = rest[end..].trim_start();
+    if include {
+        return after.is_empty();
+    }
+    import_after_path(after)
+}
+
+fn import_after_path(after: &str) -> bool {
+    if after.is_empty() {
+        return true;
+    }
+    if let Some(rest) = keyword_rest(after, "as") {
+        let rest = rest.trim_start();
+        let Some(len) = ident_len(rest) else {
+            return false;
+        };
+        let rest = rest[len..].trim_start();
+        if rest.is_empty() {
+            return true;
+        }
+        if let Some(items) = rest.strip_prefix(':') {
+            return import_items(items);
+        }
+        return false;
+    }
+    if let Some(items) = after.strip_prefix(':') {
+        return import_items(items);
+    }
+    false
+}
+
+fn import_items(text: &str) -> bool {
+    let text = text.trim_start();
+    if text.starts_with('(') {
+        let Some(end) = skip_group(text, 0) else {
+            return false;
+        };
+        if !text[end..].trim().is_empty() {
+            return false;
+        }
+        let inner = text[1..end - 1].trim();
+        return inner.is_empty() || import_items(inner);
+    }
+    if let Some(rest) = text.strip_prefix('*') {
+        return rest.trim().is_empty();
+    }
+    let mut rest = text;
+    loop {
+        let Some(len) = ident_len(rest) else {
+            return false;
+        };
+        rest = rest[len..].trim_start();
+        while let Some(stripped) = rest.strip_prefix('.') {
+            rest = stripped.trim_start();
+            let Some(len) = ident_len(rest) else {
+                return false;
+            };
+            rest = rest[len..].trim_start();
+        }
+        if let Some(renamed) = keyword_rest(rest, "as") {
+            let renamed = renamed.trim_start();
+            let Some(len) = ident_len(renamed) else {
+                return false;
+            };
+            rest = renamed[len..].trim_start();
+        }
+        if rest.is_empty() {
+            return true;
+        }
+        if let Some(next) = rest.strip_prefix(',') {
+            rest = next.trim_start();
+            if rest.is_empty() {
+                return true;
+            }
+            continue;
+        }
+        return false;
+    }
 }
 
 /// `#context counter(page)` or `#context text.lang`, not `#context opens`.
@@ -334,9 +503,11 @@ fn context_expr(rest: &str) -> bool {
 
 /// `#show: body` or `#show <selector>: body`.
 ///
-/// A bare selector has to be a Typst 0.15.1 element (`heading`, `raw`).
-/// The body has to parse as one expression and must not be only a name,
-/// so `#show: tonight` and `#show notes: bring the figures.` do not score.
+/// A bare selector has to be a Typst 0.15.1 element (`heading`, `h`, `raw`),
+/// and the head of a field selector does too (`heading.where`, not
+/// `notes.where`). `math.equation` is allowed because `math` is a module.
+/// A bare body may be an element function (`strong`). `#show: tonight`
+/// and `#show notes: bring the figures.` do not score.
 fn show_rule(rest: &str) -> bool {
     let rest = rest.trim_start();
     if let Some(body) = rest.strip_prefix(':') {
@@ -358,14 +529,22 @@ fn show_rule(rest: &str) -> bool {
 
 fn show_body(body: &str) -> bool {
     let body = body.trim();
-    if body.is_empty() || is_bare_ident(body) {
+    if body.is_empty() {
         return false;
+    }
+    if is_bare_ident(body) {
+        let len = ident_len(body).unwrap_or(0);
+        return is_element(&body[..len]);
     }
     expr_consumes(body)
 }
 
 fn is_element(name: &str) -> bool {
     ELEMENTS.binary_search(&name).is_ok()
+}
+
+fn is_selector_head(name: &str) -> bool {
+    is_element(name) || MODULES.binary_search(&name).is_ok()
 }
 
 fn is_bare_ident(text: &str) -> bool {
@@ -416,20 +595,20 @@ fn set_body(rest: &str) -> bool {
         return false;
     };
     loop {
-        idx = skip_ws(rest, idx);
-        if rest[idx..].starts_with('.') {
-            let next = skip_ws(rest, idx + 1);
-            let Some(len) = ident_len(&rest[next..]) else {
-                return false;
-            };
-            idx = next + len;
-            continue;
-        }
         if rest[idx..].starts_with('(') {
             let Some(end) = skip_group(rest, idx) else {
                 return false;
             };
             return rest[end..].trim().is_empty();
+        }
+        let dot = skip_ws(rest, idx);
+        if rest[dot..].starts_with('.') {
+            let next = skip_ws(rest, dot + 1);
+            let Some(len) = ident_len(&rest[next..]) else {
+                return false;
+            };
+            idx = next + len;
+            continue;
         }
         return false;
     }
@@ -448,21 +627,21 @@ fn chain_consumes(text: &str) -> bool {
     };
     let mut saw_suffix = false;
     loop {
-        idx = skip_ws(text, idx);
-        if text[idx..].starts_with('.') {
-            let next = skip_ws(text, idx + 1);
-            let Some(len) = ident_len(&text[next..]) else {
-                return false;
-            };
-            idx = next + len;
-            saw_suffix = true;
-            continue;
-        }
         if text[idx..].starts_with('(') {
             let Some(end) = skip_group(text, idx) else {
                 return false;
             };
             idx = end;
+            saw_suffix = true;
+            continue;
+        }
+        let next = skip_ws(text, idx);
+        if text[next..].starts_with('.') {
+            let after = skip_ws(text, next + 1);
+            let Some(len) = ident_len(&text[after..]) else {
+                return false;
+            };
+            idx = after + len;
             saw_suffix = true;
             continue;
         }
@@ -484,6 +663,9 @@ fn parse_selector(text: &str) -> Option<(usize, Option<&str>)> {
     }
     let len = ident_len(text)?;
     let name = &text[..len];
+    if !is_selector_head(name) {
+        return None;
+    }
     let (end, extended) = extend_chain(text, len)?;
     let bare = if extended { None } else { Some(name) };
     Some((end, bare))
@@ -502,8 +684,8 @@ fn extend_chain(text: &str, start: usize) -> Option<(usize, bool)> {
             extended = true;
             continue;
         }
-        if text[next..].starts_with('(') {
-            idx = skip_group(text, next)?;
+        if text[idx..].starts_with('(') {
+            idx = skip_group(text, idx)?;
             extended = true;
             continue;
         }
@@ -637,7 +819,10 @@ mod tests {
     fn element_names_match_typst_0_15() {
         assert!(ELEMENTS.windows(2).all(|pair| pair[0] < pair[1]));
         assert!(is_element("heading"));
+        assert!(is_element("h"));
+        assert!(is_element("v"));
         assert!(is_element("raw"));
+        assert!(is_element("strong"));
         assert!(is_element("text"));
         assert!(!is_element("notes"));
         assert!(!is_element("tonight"));
@@ -781,14 +966,6 @@ Run the program. Then stop.
 ";
         assert_text(c_fence, Format::Plaintext);
 
-        let tilde = "\
-~~~c
-#let ieee(
-~~~
-See the sample. Next sentence.
-";
-        assert_text(tilde, Format::Plaintext);
-
         let typst_fence = "\
 ```typst
 #let ieee(
@@ -910,5 +1087,99 @@ The binding #let script-size = 1pt is just an example.
         assert_text("# Title\n\nHello there.\n", Format::Markdown);
         assert_text("Title\n====\n\nA paragraph. Next.\n", Format::Rst);
         assert_text("#let script-size = 1pt\n====\n", Format::Typst);
+    }
+
+    #[test]
+    fn show_body_may_be_a_bare_element() {
+        assert_text("#show heading: strong\n", Format::Typst);
+        assert_text("#show \"hello\": strong\n", Format::Typst);
+        assert_text("#show: tonight\n", Format::Plaintext);
+    }
+
+    #[test]
+    fn spacing_elements_are_show_selectors() {
+        assert_text("#show h: it => it\n", Format::Typst);
+        assert_text("#show v: it => it\n", Format::Typst);
+    }
+
+    #[test]
+    fn show_content_block_may_span_lines() {
+        let rule = "\
+#show heading: it => [
+  The measured curve.
+]
+";
+        assert_text(rule, Format::Typst);
+    }
+
+    #[test]
+    fn dotted_selector_head_must_be_known() {
+        assert_text("#show notes.where(level: 1): it => it\n", Format::Plaintext);
+        assert_text("#show heading.where(level: 1): it => it\n", Format::Typst);
+        assert_text("#show math.equation: it => it\n", Format::Typst);
+    }
+
+    #[test]
+    fn tilde_lines_do_not_hide_typst() {
+        let between = "\
+~~~
+#set text(size: 12pt)
+~~~
+See the sample.
+";
+        assert_text(between, Format::Typst);
+        let let_between = "\
+~~~c
+#let ieee(
+~~~
+See the sample. Next sentence.
+";
+        assert_text(let_between, Format::Typst);
+    }
+
+    #[test]
+    fn let_destructuring_is_typst() {
+        assert_text("#let (a, b) = (1, 2)\n", Format::Typst);
+    }
+
+    #[test]
+    fn import_and_include_reject_trailing_prose() {
+        assert_text("#import \"chapter.typ\": item\n", Format::Typst);
+        assert_text("#import \"chapter.typ\" as chapter\n", Format::Typst);
+        assert_text("#include \"chapter.typ\"\n", Format::Typst);
+        assert_text(
+            "#import \"chapter.typ\" is how modules load.\n",
+            Format::Plaintext,
+        );
+        assert_text(
+            "#include \"chapter.typ\" is how modules load.\n",
+            Format::Plaintext,
+        );
+        assert_text("#include \"chapter.typ\": item\n", Format::Plaintext);
+        assert_text("#include \"chapter.typ\" as chapter\n", Format::Plaintext);
+    }
+
+    #[test]
+    fn set_argument_list_is_immediate() {
+        assert_text("#set text(size: 12pt)\n", Format::Typst);
+        assert_text("#set text (size: 12pt)\n", Format::Plaintext);
+    }
+
+    #[test]
+    fn unclosed_fences_detect_a_megabyte_quickly() {
+        let line = "```not-a-closer\n";
+        let mut text = String::with_capacity(1024 * 1024 + line.len() + 32);
+        while text.len() < 1024 * 1024 {
+            text.push_str(line);
+        }
+        text.push_str("#set text(size: 12pt)\n");
+        let started = std::time::Instant::now();
+        let format = Format::detect(None, &text);
+        let elapsed = started.elapsed();
+        assert_eq!(format, Format::Typst);
+        assert!(
+            elapsed.as_secs_f64() < 1.0,
+            "1 MiB of unclosed fences took {elapsed:?}"
+        );
     }
 }
