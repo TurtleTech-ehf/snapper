@@ -2948,7 +2948,7 @@ fn push_placeholder(out: &mut String, placeholders: &mut Vec<String>, span: &str
     out.push_str(&format!("\x00PH{idx}\x00"));
 }
 
-fn find_org_paired_span(text: &str, open_at: usize, marker: char) -> Option<usize> {
+pub(crate) fn find_org_paired_span(text: &str, open_at: usize, marker: char) -> Option<usize> {
     // pandoc org reader / org-emphasis-regexp-components defaults.
     // Border (forbidden at the inner edges) is whitespace.
     const PRE: &str = " \t\n('\"{";

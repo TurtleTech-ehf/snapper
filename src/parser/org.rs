@@ -721,10 +721,20 @@ impl OrgParser {
 
     /// org-syntax 5.2 `\[CONTENTS\]`: unescaped `\[` / `\]`.
     /// `\\[2ex]` is `\\` + `[`, not a fragment opener.
+    /// `\[` inside `=verbatim=` or `~code~` belongs to that object.
     fn find_unescaped_display_bracket(s: &str, from: usize, closer: u8) -> Option<usize> {
         let bytes = s.as_bytes();
         let mut i = from;
         while i + 1 < bytes.len() {
+            if bytes[i] == b'=' || bytes[i] == b'~' {
+                let marker = bytes[i] as char;
+                if let Some(end) = crate::sentence::unicode::find_org_paired_span(s, i, marker) {
+                    if end > i {
+                        i = end;
+                        continue;
+                    }
+                }
+            }
             if bytes[i] == b'\\' && bytes[i + 1] == closer && (i == 0 || bytes[i - 1] != b'\\') {
                 return Some(i);
             }
@@ -3132,6 +3142,56 @@ mod tests {
             "\\begin{equation} x = 1 \\end{equation}\n",
             "This must stay prose. Second sentence.\n",
         )
+    }
+
+    #[test]
+    fn verbatim_bracket_on_a_list_continuation_stays_prose() {
+        use crate::format_text;
+
+        // formats.org inline-token bullet: the second sentence holds
+        // `=\[...\]=`. A list continuation used to see that `\[` as display
+        // math, so the sentence break changed the region tree and the
+        // render check left the line unchanged.
+        let input = "- Fragments stay one token. Same-line =\\[...\\]= is Structure\n";
+        let cfg = crate::FormatConfig {
+            format: crate::format::Format::Org,
+            ..Default::default()
+        };
+        let out = format_text(input, &cfg).unwrap();
+        assert_eq!(
+            out, "- Fragments stay one token.\n  Same-line =\\[...\\]= is Structure\n",
+            "verbatim \\[ must reflow inside the item, got:\n{out}"
+        );
+        let regions = OrgParser.parse(&out);
+        assert!(
+            regions
+                .iter()
+                .any(|r| matches!(r, Region::Prose(p) if p.contains("=\\[...\\]="))),
+            "verbatim display brackets stay prose, got: {regions:?}"
+        );
+        assert!(
+            !regions
+                .iter()
+                .any(|r| matches!(r, Region::Structure(s) if s.contains("\\["))),
+            "verbatim \\[ must not become display-math structure, got: {regions:?}"
+        );
+        assert_eq!(format_text(&out, &cfg).unwrap(), out);
+
+        let para = "See =\\[ x = 1. \\]= today. Next claim.\n";
+        let para_out = format_text(para, &cfg).unwrap();
+        assert!(
+            para_out.contains("=\\[ x = 1. \\]="),
+            "paragraph verbatim must stay one token, got:\n{para_out}"
+        );
+        assert!(
+            !para_out.contains("x = 1.\n"),
+            "must not split inside verbatim \\[, got:\n{para_out}"
+        );
+        assert!(
+            para_out.contains("today.\nNext claim."),
+            "sentence after verbatim \\[ must reflow, got:\n{para_out}"
+        );
+        assert_eq!(format_text(&para_out, &cfg).unwrap(), para_out);
     }
 
     #[test]
