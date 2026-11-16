@@ -1452,10 +1452,7 @@ fn suppress_prose_trailing_newline(s: &str) -> bool {
     }
     // Inline code island: single-line `...` (optional trailing space already trimmed).
     let code = t.trim_end_matches(' ');
-    if code.starts_with('`') && code.ends_with('`') && code.len() >= 2 && !code.contains('\n') {
-        return true;
-    }
-    false
+    code.starts_with('`') && code.ends_with('`') && code.len() >= 2 && !code.contains('\n')
 }
 
 #[cfg(test)]
