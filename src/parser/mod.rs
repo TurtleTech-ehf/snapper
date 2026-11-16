@@ -130,16 +130,10 @@ fn pragma_payload(line: &str) -> &str {
     trimmed
         .strip_prefix("# ")
         .or_else(|| trimmed.strip_prefix("% "))
-        .or_else(|| trimmed.strip_prefix("// "))
         .or_else(|| {
             trimmed
                 .strip_prefix("<!-- ")
                 .and_then(|s| s.strip_suffix(" -->"))
-        })
-        .or_else(|| {
-            trimmed
-                .strip_prefix("/* ")
-                .and_then(|s| s.strip_suffix(" */"))
         })
         .unwrap_or(trimmed)
         .trim()
@@ -198,11 +192,64 @@ mod tests {
     }
 
     #[test]
-    fn pragma_typst_comment() {
-        assert_eq!(check_pragma("// snapper:off"), Some(false));
-        assert_eq!(check_pragma("// snapper:on"), Some(true));
-        assert_eq!(check_pragma("/* snapper:off */"), Some(false));
+    fn slash_pragmas_are_not_global() {
+        // Typst recognizes these in its own parser. Other formats must
+        // treat the text as they did before that syntax existed.
+        assert_eq!(check_pragma("// snapper:off"), None);
+        assert_eq!(check_pragma("// snapper:on"), None);
+        assert_eq!(check_pragma("/* snapper:off */"), None);
+        assert_eq!(check_pragma("/* snapper:on */"), None);
         assert_eq!(check_pragma("// a comment"), None);
+    }
+
+    #[test]
+    fn slash_pragma_text_does_not_freeze_markdown_or_latex() {
+        use crate::format::Format;
+        use crate::{FormatConfig, format_text};
+
+        let md = concat!(
+            "Hello world. Goodbye world.\n",
+            "// snapper:off\n",
+            "Keep this. And this.\n",
+            "/* snapper:off */\n",
+            "More here. And there.\n",
+        );
+        let md_cfg = FormatConfig {
+            format: Format::Markdown,
+            ..Default::default()
+        };
+        let md_out = format_text(md, &md_cfg).unwrap();
+        assert!(
+            md_out.contains("Keep this.\nAnd this.\n"),
+            "markdown treated // as a pragma:\n{md_out}"
+        );
+        assert!(
+            md_out.contains("More here.\nAnd there.\n"),
+            "markdown treated the block marker as a pragma:\n{md_out}"
+        );
+
+        let tex = concat!(
+            "\\begin{document}\n",
+            "Hello world. Goodbye world.\n",
+            "// snapper:off\n",
+            "Keep this. And this.\n",
+            "/* snapper:off */\n",
+            "More here. And there.\n",
+            "\\end{document}\n",
+        );
+        let tex_cfg = FormatConfig {
+            format: Format::Latex,
+            ..Default::default()
+        };
+        let tex_out = format_text(tex, &tex_cfg).unwrap();
+        assert!(
+            tex_out.contains("Keep this.\nAnd this.\n"),
+            "latex treated // as a pragma:\n{tex_out}"
+        );
+        assert!(
+            tex_out.contains("More here.\nAnd there.\n"),
+            "latex treated the block marker as a pragma:\n{tex_out}"
+        );
     }
 
     #[test]

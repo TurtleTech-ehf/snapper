@@ -306,23 +306,15 @@ fn detect_format_heuristic(input: &str) -> Format {
         return Format::Org;
     }
 
-    if lines.iter().any(|l| {
-        let t = l.trim_start();
-        t.starts_with("#set ")
-            || t.starts_with("#let ")
-            || t.starts_with("#show ")
-            || t.starts_with("#import ")
-            || t.starts_with("#include ")
-            || t.starts_with("#context ")
-    }) {
-        return Format::Typst;
-    }
-
     if lines
         .iter()
         .any(|l| l.starts_with("# ") || l.starts_with("## "))
     {
         return Format::Markdown;
+    }
+
+    if lines.iter().any(|l| typst_statement_line(l)) {
+        return Format::Typst;
     }
 
     if input.contains(".. ")
@@ -334,6 +326,55 @@ fn detect_format_heuristic(input: &str) -> Format {
     }
 
     Format::Plaintext
+}
+
+/// `#let name =`, `#set text(`, `#show heading:` — not `#let me explain`.
+fn typst_statement_line(line: &str) -> bool {
+    let t = line.trim_start();
+    if let Some(rest) = keyword_rest(t, "#let") {
+        let rest = rest.trim_start();
+        let Some(n) = ident_len(rest) else {
+            return false;
+        };
+        return rest[n..].trim_start().starts_with('=');
+    }
+    if let Some(rest) = keyword_rest(t, "#set") {
+        let rest = rest.trim_start();
+        let Some(n) = ident_len(rest) else {
+            return false;
+        };
+        return rest[n..].trim_start().starts_with('(');
+    }
+    if let Some(rest) = keyword_rest(t, "#show") {
+        let rest = rest.trim_start();
+        if rest.starts_with(':') {
+            return true;
+        }
+        let Some(n) = ident_len(rest) else {
+            return false;
+        };
+        let after = rest[n..].trim_start();
+        return after.starts_with(':') || after.starts_with('(');
+    }
+    t.starts_with("#import ") || t.starts_with("#include ") || t.starts_with("#context ")
+}
+
+fn keyword_rest<'a>(line: &'a str, keyword: &str) -> Option<&'a str> {
+    let rest = line.strip_prefix(keyword)?;
+    if rest.starts_with(|c: char| c.is_ascii_alphanumeric() || c == '_') {
+        None
+    } else {
+        Some(rest)
+    }
+}
+
+fn ident_len(text: &str) -> Option<usize> {
+    let n: usize = text
+        .chars()
+        .take_while(|c| c.is_ascii_alphanumeric() || *c == '_')
+        .map(char::len_utf8)
+        .sum();
+    if n == 0 { None } else { Some(n) }
 }
 
 fn format_name(f: Format) -> String {
@@ -592,6 +633,54 @@ mod tests {
         assert!(
             !broken.would_reformat,
             "already-broken clauses must be clean"
+        );
+    }
+
+    #[test]
+    fn markdown_headings_win_over_loose_hash_words() {
+        assert_eq!(
+            detect_format_heuristic("# Title\n\n#let me explain. Next.\n"),
+            Format::Markdown
+        );
+        assert_eq!(
+            detect_format_heuristic("# Title\n\n#set the table. Next.\n"),
+            Format::Markdown
+        );
+        assert_eq!(
+            detect_format_heuristic("## Notes\n\n#show your work. Next.\n"),
+            Format::Markdown
+        );
+    }
+
+    #[test]
+    fn typst_detection_requires_statement_syntax() {
+        assert_eq!(
+            detect_format_heuristic("#let s = 1\nHello there.\n"),
+            Format::Typst
+        );
+        assert_eq!(
+            detect_format_heuristic("#set text(size: 12pt)\nHello there.\n"),
+            Format::Typst
+        );
+        assert_eq!(
+            detect_format_heuristic("#show heading: it => it\nHello.\n"),
+            Format::Typst
+        );
+        assert_eq!(
+            detect_format_heuristic("#show: doc => doc\nHello.\n"),
+            Format::Typst
+        );
+        assert_eq!(
+            detect_format_heuristic("#let me explain the result. Next.\n"),
+            Format::Plaintext
+        );
+        assert_eq!(
+            detect_format_heuristic("#set the table for dinner. Next.\n"),
+            Format::Plaintext
+        );
+        assert_eq!(
+            detect_format_heuristic("#show your work in full. Next.\n"),
+            Format::Plaintext
         );
     }
 }

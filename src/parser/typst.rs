@@ -209,7 +209,7 @@ impl FormatParser for TypstParser {
                     &line,
                     hang.is_some(),
                 );
-                carry = line_carry(line.text, carry.raw);
+                carry = line_carry(line.text, carry.raw, carry.break_after_raw);
                 i += 1;
                 continue;
             }
@@ -281,7 +281,7 @@ impl FormatParser for TypstParser {
                 continue;
             }
 
-            if let Some(on) = super::check_pragma(line.text) {
+            if let Some(on) = typst_pragma(line.text) {
                 flush_open(
                     input,
                     &mut prose,
@@ -457,7 +457,7 @@ impl FormatParser for TypstParser {
                         marker_len,
                         false,
                     );
-                    carry = line_carry(body, None);
+                    carry = line_carry(body, None, false);
                 }
                 i += 1;
                 continue;
@@ -477,7 +477,7 @@ impl FormatParser for TypstParser {
                         );
                         let spaces = leading_spaces(line.text);
                         let body = line.text[spaces..].trim();
-                        carry = line_carry(body, None);
+                        carry = line_carry(body, None, false);
                         i += 1;
                         continue;
                     }
@@ -496,10 +496,10 @@ impl FormatParser for TypstParser {
                             indent,
                             false,
                         );
-                        carry = line_carry(line.text[indent..].trim(), None);
+                        carry = line_carry(line.text[indent..].trim(), None, false);
                     } else {
                         push_hang_body(&mut prose, &mut prose_span, &mut term, &line, 0, true);
-                        carry = line_carry(line.text.trim(), None);
+                        carry = line_carry(line.text.trim(), None, false);
                     }
                     i += 1;
                     continue;
@@ -534,7 +534,7 @@ impl FormatParser for TypstParser {
                     empty_body: false,
                 });
                 push_hang_body(&mut prose, &mut prose_span, &mut term, &line, indent, false);
-                carry = line_carry(line.text[indent..].trim(), None);
+                carry = line_carry(line.text[indent..].trim(), None, false);
                 i += 1;
                 continue;
             }
@@ -552,7 +552,7 @@ impl FormatParser for TypstParser {
             }
             push_prose_line(&mut prose, &mut prose_span, &line, true, true);
             term = None;
-            carry = line_carry(line.text.trim(), None);
+            carry = line_carry(line.text.trim(), None, false);
             i += 1;
         }
 
@@ -585,7 +585,7 @@ fn sync_raw_carry(depth: &Depth, carry: &mut LineCarry) {
 /// starts there still runs through the following lines.
 fn note_unclosed_markup_raw(line: &str, depth: &mut Depth, carry: &mut LineCarry) {
     if depth.raw.is_none() {
-        depth.raw = line_carry(line, None).raw;
+        depth.raw = line_carry(line, None, false).raw;
     }
     sync_raw_carry(depth, carry);
 }
@@ -673,6 +673,9 @@ struct LineCarry {
     /// This line ends with a line comment or a hash expression. The next
     /// line must stay after that newline.
     hard_break: bool,
+    /// A hash expression opened the raw. The newline after the closer
+    /// still ends that statement.
+    break_after_raw: bool,
 }
 
 fn backtick_run(bytes: &[u8], start: usize) -> usize {
@@ -778,7 +781,12 @@ fn extend_open_raw(
 }
 
 /// How `line` ends, given a raw span already open from the previous line.
-fn line_carry(line: &str, mut raw: Option<usize>) -> LineCarry {
+///
+/// `break_after_raw` is set when a hash expression opened that raw. While
+/// the raw is open the next line is raw text, not a join. When the closer
+/// lands, the statement's terminating newline has to come back, or the
+/// following line is glued on and Typst rejects the statement.
+fn line_carry(line: &str, mut raw: Option<usize>, mut break_after_raw: bool) -> LineCarry {
     let bytes = line.as_bytes();
     let mut i = 0;
     let mut hard = false;
@@ -789,6 +797,10 @@ fn line_carry(line: &str, mut raw: Option<usize>) -> LineCarry {
                 if ticks >= need {
                     i += need;
                     raw = None;
+                    if break_after_raw {
+                        hard = true;
+                    }
+                    break_after_raw = false;
                     continue;
                 }
                 i += ticks.max(1);
@@ -811,6 +823,7 @@ fn line_carry(line: &str, mut raw: Option<usize>) -> LineCarry {
                 return LineCarry {
                     raw: Some(ticks),
                     hard_break: false,
+                    break_after_raw: break_after_raw || hard,
                 };
             }
         }
@@ -824,6 +837,7 @@ fn line_carry(line: &str, mut raw: Option<usize>) -> LineCarry {
             return LineCarry {
                 raw: None,
                 hard_break: hard,
+                break_after_raw: false,
             };
         }
         if bytes[i] == b'/' && bytes.get(i + 1) == Some(&b'/') {
@@ -832,6 +846,7 @@ fn line_carry(line: &str, mut raw: Option<usize>) -> LineCarry {
                 return LineCarry {
                     raw: None,
                     hard_break: true,
+                    break_after_raw: false,
                 };
             }
             i += 2;
@@ -850,6 +865,7 @@ fn line_carry(line: &str, mut raw: Option<usize>) -> LineCarry {
                         return LineCarry {
                             raw: Some(ticks),
                             hard_break: false,
+                            break_after_raw: true,
                         };
                     }
                     i = end;
@@ -859,9 +875,17 @@ fn line_carry(line: &str, mut raw: Option<usize>) -> LineCarry {
         }
         i += line[i..].chars().next().map_or(1, char::len_utf8);
     }
+    if raw.is_some() {
+        return LineCarry {
+            raw,
+            hard_break: false,
+            break_after_raw: break_after_raw || hard,
+        };
+    }
     LineCarry {
         raw: None,
         hard_break: hard,
+        break_after_raw: false,
     }
 }
 
@@ -871,7 +895,7 @@ fn line_carry(line: &str, mut raw: Option<usize>) -> LineCarry {
 /// continue a code statement. A later sentence of the same paragraph has to
 /// stay on this line: a break there would not join back.
 pub(crate) fn typst_line_owns_its_newline(line: &str) -> bool {
-    line_carry(line.trim(), None).hard_break
+    line_carry(line.trim(), None, false).hard_break
 }
 
 /// Tick count of a raw that `text` does not close. Strings hide backticks.
@@ -956,6 +980,30 @@ fn leading_spaces(line: &str) -> usize {
 
 fn is_line_comment(line: &str) -> bool {
     line.trim_start().starts_with("//")
+}
+
+/// `//` and `/* */` pragmas belong to Typst. Other formats keep the
+/// markers they had: `# `, `% `, and `<!-- -->`.
+fn typst_comment_payload(line: &str) -> Option<&str> {
+    let trimmed = line.trim();
+    if let Some(rest) = trimmed.strip_prefix("//") {
+        return Some(rest.trim());
+    }
+    trimmed
+        .strip_prefix("/*")
+        .and_then(|s| s.trim_end().strip_suffix("*/"))
+        .map(str::trim)
+}
+
+fn typst_pragma(line: &str) -> Option<bool> {
+    if let Some(flag) = super::check_pragma(line) {
+        return Some(flag);
+    }
+    match typst_comment_payload(line)? {
+        "snapper:off" => Some(false),
+        "snapper:on" => Some(true),
+        _ => None,
+    }
 }
 
 fn is_heading_line(line: &str) -> bool {
@@ -1520,6 +1568,19 @@ mod tests {
     }
 
     #[test]
+    fn block_pragma_freezes_typst_only() {
+        let input = concat!(
+            "/* snapper:off */\n",
+            "Keep this. And this.\n",
+            "/* snapper:on */\n",
+            "Split this. And this.\n",
+        );
+        let out = format_typst(input);
+        assert!(out.contains("Keep this. And this.\n"), "{out}");
+        assert!(out.contains("Split this.\nAnd this.\n"), "{out}");
+    }
+
+    #[test]
     fn block_comment_is_structure() {
         let input = "/*\nKeep both. Sentences here.\n*/\nAfter the note. Next one.\n";
         let out = format_typst(input);
@@ -1857,6 +1918,40 @@ mod tests {
             "\n",
             "After the figure.\n",
             "Another sentence.\n",
+        );
+        assert_raw_on_code_line(input, expected, raw);
+    }
+
+    #[test]
+    fn mid_line_let_raw_keeps_the_statement_newline() {
+        let raw = "`Dr. Smith arrived.\nHe left early.`";
+        let input = concat!(
+            "Done. #let s = `Dr. Smith arrived.\n",
+            "He left early.`\n",
+            "The next claim follows. Again.\n",
+        );
+        let expected = concat!(
+            "Done. #let s = `Dr. Smith arrived.\n",
+            "He left early.`\n",
+            "The next claim follows.\n",
+            "Again.\n",
+        );
+        assert_raw_on_code_line(input, expected, raw);
+    }
+
+    #[test]
+    fn mid_line_let_raw_with_tail_keeps_the_statement_newline() {
+        let raw = "`Dr. Smith arrived.\nHe left early.`";
+        let input = concat!(
+            "Done. #let s = `Dr. Smith arrived.\n",
+            "He left early.` + \" tail\"\n",
+            "The next claim follows. Again.\n",
+        );
+        let expected = concat!(
+            "Done. #let s = `Dr. Smith arrived.\n",
+            "He left early.` + \" tail\"\n",
+            "The next claim follows.\n",
+            "Again.\n",
         );
         assert_raw_on_code_line(input, expected, raw);
     }
