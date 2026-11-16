@@ -160,49 +160,55 @@ mod tests {
         }
     }
 
+    fn temp_pair(
+        left: &str,
+        right: &str,
+    ) -> (tempfile::TempDir, std::path::PathBuf, std::path::PathBuf) {
+        let dir = tempfile::tempdir().unwrap();
+        let old = dir.path().join("old.txt");
+        let new = dir.path().join("new.txt");
+        std::fs::write(&old, left).unwrap();
+        std::fs::write(&new, right).unwrap();
+        (dir, old, new)
+    }
+
     #[test]
     fn identical_files_produce_empty_diff() {
-        let tmp1 = std::env::temp_dir().join("sdiff_same_a.txt");
-        let tmp2 = std::env::temp_dir().join("sdiff_same_b.txt");
-        std::fs::write(&tmp1, "Hello world. This is a test.\n").unwrap();
-        std::fs::write(&tmp2, "Hello world. This is a test.\n").unwrap();
+        let (_dir, tmp1, tmp2) = temp_pair(
+            "Hello world. This is a test.\n",
+            "Hello world. This is a test.\n",
+        );
         let result = sentence_diff(&tmp1, &tmp2, Some(Format::Plaintext), false).unwrap();
         assert!(result.is_empty());
-        std::fs::remove_file(&tmp1).ok();
-        std::fs::remove_file(&tmp2).ok();
     }
 
     #[test]
     fn changed_sentence_shows_diff() {
-        let tmp1 = std::env::temp_dir().join("sdiff_change_a.txt");
-        let tmp2 = std::env::temp_dir().join("sdiff_change_b.txt");
-        std::fs::write(&tmp1, "Hello world. This is old. Goodbye.\n").unwrap();
-        std::fs::write(&tmp2, "Hello world. This is new. Goodbye.\n").unwrap();
+        let (_dir, tmp1, tmp2) = temp_pair(
+            "Hello world. This is old. Goodbye.\n",
+            "Hello world. This is new. Goodbye.\n",
+        );
         let result = sentence_diff(&tmp1, &tmp2, Some(Format::Plaintext), false).unwrap();
         assert!(result.contains("-This is old."));
         assert!(result.contains("+This is new."));
-        std::fs::remove_file(&tmp1).ok();
-        std::fs::remove_file(&tmp2).ok();
     }
 
     #[test]
     fn reflow_produces_no_diff() {
-        let tmp1 = std::env::temp_dir().join("sdiff_reflow_a.txt");
-        let tmp2 = std::env::temp_dir().join("sdiff_reflow_b.txt");
-        std::fs::write(&tmp1, "Hello world. This is a test. Another sentence.\n").unwrap();
-        std::fs::write(&tmp2, "Hello world.\nThis is a test.\nAnother sentence.\n").unwrap();
+        let (_dir, tmp1, tmp2) = temp_pair(
+            "Hello world. This is a test. Another sentence.\n",
+            "Hello world.\nThis is a test.\nAnother sentence.\n",
+        );
         let result = sentence_diff(&tmp1, &tmp2, Some(Format::Plaintext), false).unwrap();
         assert!(result.is_empty(), "reflow should not produce a diff");
-        std::fs::remove_file(&tmp1).ok();
-        std::fs::remove_file(&tmp2).ok();
     }
 
     #[test]
     fn colored_sentence_diff_contains_ansi() {
-        let tmp1 = std::env::temp_dir().join("sdiff_color_a.txt");
-        let tmp2 = std::env::temp_dir().join("sdiff_color_b.txt");
-        std::fs::write(&tmp1, "Hello world. This is old. Goodbye.\n").unwrap();
-        std::fs::write(&tmp2, "Hello world. This is new. Goodbye.\n").unwrap();
+        let (_dir, tmp1, tmp2) = temp_pair(
+            "Hello world. This is old. Goodbye.\n",
+            "Hello world. This is new. Goodbye.\n",
+        );
         let colored = sentence_diff(&tmp1, &tmp2, Some(Format::Plaintext), true).unwrap();
         let plain = sentence_diff(&tmp1, &tmp2, Some(Format::Plaintext), false).unwrap();
         assert!(
@@ -215,7 +221,5 @@ mod tests {
         );
         assert!(colored.contains("\x1b[31m-This is old.\x1b[0m"));
         assert!(colored.contains("\x1b[32m+This is new.\x1b[0m"));
-        std::fs::remove_file(&tmp1).ok();
-        std::fs::remove_file(&tmp2).ok();
     }
 }
