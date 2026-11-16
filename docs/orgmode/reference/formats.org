@@ -335,10 +335,10 @@ closer exists. A ~~~ line is not a fence, because ~ is a non-breaking
 space in Typst. A heading inside a backtick fence is not a heading.
 
 A Typst signal is a statement Typst 0.15.1 accepts to the end of that
-statement. A =#let= counts when its right-hand side is a finished
-expression, a dotted selector names a real element, and a show-all body
-is a content callable or a set rule. =#show: h= and
-=#let (me) = explain the figures.= are not signals.
+statement. A =#let= or =#set= counts when its parentheses close and the
+right-hand side is finished. A dotted selector names a real element, and
+a show body is a name that compiles in that position. =#show: h=,
+=#show heading: h=, and =#let ieee( bring the figures.= are not signals.
 A hyphenated word such as =#import-export= is one identifier, not a keyword.
 
 ** Plaintext (=--format plaintext=)

@@ -8,9 +8,11 @@
 //!
 //! A line counts only when Typst 0.15.1 would accept that construct.
 //! A syntax tree still accepts `#show: h` and `math.foo`, which the
-//! compiler rejects, so those stay plaintext. A bare show body may be an
-//! element function after a selector (`#show heading: strong`). A show-all
-//! body has to be a content callable (`#show: strong`) or a set rule.
+//! compiler rejects, so those stay plaintext. A bare show body is a name
+//! Typst 0.15.1 compiles there (`#show heading: strong`, not
+//! `#show heading: h`). A show-all body is a content callable
+//! (`#show: strong`) or a set rule. An open parenthesis counts only when
+//! it closes inside the block and the finished statement is valid.
 //! `#show notes: bring the figures.` and `#show: tonight` do not score.
 
 use crate::format::Format;
@@ -104,6 +106,54 @@ const SHOW_ALL: &[&str] = &[
     "lower",
     "metadata",
     "move",
+    "overline",
+    "pad",
+    "page",
+    "par",
+    "place",
+    "quote",
+    "rect",
+    "repeat",
+    "rotate",
+    "scale",
+    "skew",
+    "smallcaps",
+    "square",
+    "stack",
+    "strike",
+    "strong",
+    "sub",
+    "super",
+    "table",
+    "text",
+    "title",
+    "underline",
+    "upper",
+];
+
+/// Bare names that compile as `#show heading: <name>` when a heading exists.
+///
+/// `heading` itself is a show-all callable, and applying it to `heading`
+/// exceeds the show-rule depth. `h` and `line` are selectors, not bodies.
+const SELECTOR_BODIES: &[&str] = &[
+    "align",
+    "block",
+    "box",
+    "circle",
+    "columns",
+    "ellipse",
+    "emph",
+    "enum",
+    "figure",
+    "footnote",
+    "grid",
+    "hide",
+    "highlight",
+    "list",
+    "lower",
+    "metadata",
+    "move",
+    "overline",
     "pad",
     "page",
     "par",
@@ -223,35 +273,29 @@ struct BacktickFence {
 
 /// Lines that are not inside a closed ``` fence.
 ///
-/// Pairing is one forward pass: an unmatched opener does not hide the
-/// lines after it, and a `~~~` line is never a fence. The info string is
-/// ignored, so ```typst is still a fence when a closer exists.
+/// One forward pass and one buffer. A closer drops the opener and its
+/// interior with `truncate`, so an unmatched opener does not rescan the
+/// tail. A `~~~` line is never a fence. The info string is ignored, so
+/// ```typst is still a fence when a closer exists.
 fn lines_outside_fences(text: &str) -> Vec<&str> {
-    let lines: Vec<&str> = text.lines().collect();
-    let marks: Vec<Option<BacktickFence>> = lines.iter().copied().map(backtick_fence).collect();
-    let mut skip = vec![false; lines.len()];
+    let mut kept = Vec::new();
+    // Index of the unmatched opener in `kept`, and its backtick length.
     let mut open: Option<(usize, usize)> = None;
-    for (i, mark) in marks.iter().enumerate() {
-        let Some(mark) = mark else {
-            continue;
-        };
-        if let Some((open_at, open_len)) = open {
-            if mark.closer && mark.len >= open_len {
-                for slot in &mut skip[open_at..=i] {
-                    *slot = true;
+    for line in text.lines() {
+        if let Some(mark) = backtick_fence(line) {
+            if let Some((at, len)) = open {
+                if mark.closer && mark.len >= len {
+                    kept.truncate(at);
+                    open = None;
+                    continue;
                 }
-                open = None;
+            } else {
+                open = Some((kept.len(), mark.len));
             }
-            continue;
         }
-        open = Some((i, mark.len));
+        kept.push(line);
     }
-    lines
-        .into_iter()
-        .enumerate()
-        .filter(|(idx, _)| !skip[*idx])
-        .map(|(_, line)| line)
-        .collect()
+    kept
 }
 
 fn backtick_fence(line: &str) -> Option<BacktickFence> {
@@ -307,74 +351,147 @@ fn keyword_rest<'a>(line: &'a str, keyword: &str) -> Option<&'a str> {
     }
 }
 
-fn has_typst(lines: &[&str]) -> bool {
-    lines
-        .iter()
-        .enumerate()
-        .any(|(i, line)| typst_statement(line) || multiline_show(lines, i))
+fn starts_typst_keyword(line: &str) -> bool {
+    let line = line.trim_start();
+    keyword_rest(line, "#let").is_some()
+        || keyword_rest(line, "#set").is_some()
+        || keyword_rest(line, "#show").is_some()
+        || keyword_rest(line, "#import").is_some()
+        || keyword_rest(line, "#include").is_some()
+        || keyword_rest(line, "#context").is_some()
 }
 
-/// A show whose body opens a group on this line and closes on a later one.
-/// `#show heading: it => [` ... `]` is one rule.
-fn multiline_show(lines: &[&str], start: usize) -> bool {
-    let line = lines[start].trim_start();
-    let Some(rest) = keyword_rest(line, "#show") else {
-        return false;
-    };
-    if delimiter_depth(rest) <= 0 {
-        return false;
-    }
-    let mut buf = rest.to_string();
-    for line in &lines[start + 1..] {
-        buf.push('\n');
-        buf.push_str(line);
-        let depth = delimiter_depth(&buf);
-        if depth == 0 {
-            return show_rule(&buf);
+/// A statement counts when its delimiters close inside the block and the
+/// finished text is valid. `#let ieee(\n body\n) = body` closes. `#let ieee(`
+/// and `#let x = (1` do not, and a later balanced statement still counts.
+fn has_typst(lines: &[&str]) -> bool {
+    let mut i = 0;
+    while i < lines.len() {
+        let line = lines[i].trim_start();
+        if !starts_typst_keyword(line) {
+            i += 1;
+            continue;
         }
-        if depth < 0 {
-            return false;
+        let mut delim = Delim::default();
+        delim.feed(lines[i]);
+        if delim.depth <= 0 {
+            if typst_statement(line) {
+                return true;
+            }
+            i += 1;
+            continue;
         }
+        let mut j = i + 1;
+        let mut closed = false;
+        while j < lines.len() {
+            let next = lines[j].trim_start();
+            if starts_typst_keyword(next) && delimiter_depth(next) <= 0 {
+                break;
+            }
+            delim.feed("\n");
+            delim.feed(lines[j]);
+            j += 1;
+            if delim.depth == 0 {
+                closed = true;
+                break;
+            }
+            if delim.depth < 0 {
+                break;
+            }
+        }
+        if closed {
+            let buf = lines[i..j].join("\n");
+            if typst_statement(buf.trim_start()) {
+                return true;
+            }
+        }
+        i = if j > i + 1 { j } else { i + 1 };
     }
     false
 }
 
-fn delimiter_depth(text: &str) -> i32 {
-    let bytes = text.as_bytes();
-    let mut depth = 0i32;
-    let mut string = false;
-    let mut idx = 0;
-    while idx < bytes.len() {
-        let byte = bytes[idx];
-        if string {
-            if byte == b'\\' && idx + 1 < bytes.len() {
-                idx += 2;
+/// Paren, bracket, and brace depth, skipping strings and raw spans.
+///
+/// `feed` continues across lines, so an unclosed call is one pass over the
+/// block instead of a rescan of the growing text.
+#[derive(Default)]
+struct Delim {
+    depth: i32,
+    string: bool,
+    escape: bool,
+    raw_need: usize,
+    raw_have: usize,
+}
+
+impl Delim {
+    fn feed(&mut self, text: &str) {
+        let bytes = text.as_bytes();
+        let mut idx = 0;
+        while idx < bytes.len() {
+            let byte = bytes[idx];
+            if self.raw_need != 0 {
+                if byte == b'`' {
+                    self.raw_have += 1;
+                    if self.raw_have == self.raw_need {
+                        self.raw_need = 0;
+                        self.raw_have = 0;
+                    }
+                } else {
+                    self.raw_have = 0;
+                }
+                idx += 1;
                 continue;
             }
-            if byte == b'"' {
-                string = false;
-            }
-            idx += 1;
-            continue;
-        }
-        match byte {
-            b'"' => {
-                string = true;
+            if self.string {
+                if self.escape {
+                    self.escape = false;
+                    idx += 1;
+                    continue;
+                }
+                if byte == b'\\' {
+                    self.escape = true;
+                    idx += 1;
+                    continue;
+                }
+                if byte == b'"' {
+                    self.string = false;
+                }
                 idx += 1;
+                continue;
             }
-            b'`' => idx = raw_end(bytes, idx),
-            b'(' | b'[' | b'{' => {
-                depth += 1;
-                idx += 1;
+            match byte {
+                b'"' => {
+                    self.string = true;
+                    idx += 1;
+                }
+                b'`' => {
+                    let start = idx;
+                    while idx < bytes.len() && bytes[idx] == b'`' {
+                        idx += 1;
+                    }
+                    let ticks = idx - start;
+                    if ticks != 2 {
+                        self.raw_need = ticks;
+                    }
+                }
+                b'(' | b'[' | b'{' => {
+                    self.depth += 1;
+                    idx += 1;
+                }
+                b')' | b']' | b'}' => {
+                    self.depth -= 1;
+                    idx += 1;
+                }
+                _ => idx += 1,
             }
-            b')' | b']' | b'}' => {
-                depth -= 1;
-                idx += 1;
-            }
-            _ => idx += 1,
         }
     }
-    depth
+}
+
+fn delimiter_depth(text: &str) -> i32 {
+    let mut delim = Delim::default();
+    delim.feed(text);
+    delim.depth
 }
 
 /// Index just after a raw span that starts at a backtick.
@@ -423,7 +540,7 @@ fn let_statement(rest: &str) -> bool {
     let after = &rest[len..];
     if after.starts_with('(') {
         let Some(end) = skip_group(rest, len) else {
-            return true;
+            return false;
         };
         let Some(rhs) = rest[end..].trim_start().strip_prefix('=') else {
             return false;
@@ -436,41 +553,16 @@ fn let_statement(rest: &str) -> bool {
     expr_ends_statement(rhs)
 }
 
-/// The right-hand side finishes the statement, or a delimiter is still open
-/// so the statement continues on the next line. Trailing prose does not.
+/// The right-hand side is one expression that ends the statement.
 fn expr_ends_statement(rhs: &str) -> bool {
     let rhs = rhs.trim();
-    if rhs.is_empty() {
-        return false;
-    }
-    expr_consumes(rhs) || delimiter_depth(rhs) > 0
+    !rhs.is_empty() && expr_consumes(rhs)
 }
 
-/// `#set text(...)`. Typst 0.15.1 requires `(` immediately after the name,
-/// and the argument list has to finish the line unless it is still open.
+/// `#set text(...)`. Typst 0.15.1 requires `(` immediately after the name.
+/// The argument list has to close; an unclosed `(` is not evidence.
 fn set_statement(rest: &str) -> bool {
-    let rest = rest.trim_start();
-    if set_body(rest) {
-        return true;
-    }
-    let Some(mut idx) = ident_len(rest) else {
-        return false;
-    };
-    loop {
-        if rest[idx..].starts_with('(') {
-            return skip_group(rest, idx).is_none();
-        }
-        let dot = skip_ws(rest, idx);
-        if rest[dot..].starts_with('.') {
-            let next = skip_ws(rest, dot + 1);
-            let Some(len) = ident_len(&rest[next..]) else {
-                return false;
-            };
-            idx = next + len;
-            continue;
-        }
-        return false;
-    }
+    set_body(rest.trim_start())
 }
 
 /// `#import "path"` / `#include "path"`. A label (`#include <stdio.h>`) is not
@@ -583,10 +675,10 @@ fn context_expr(rest: &str) -> bool {
 ///
 /// A bare selector is a global element (`heading`, `h`). A field selector's
 /// head is that element, or an element of `math` or `pdf` (`math.equation`,
-/// not `math.foo` or `calc.pow`). After a selector, a bare body may be an
-/// element function (`#show heading: strong`, `#show heading: h`). A show-all
-/// body is a content callable or a set rule (`#show: strong`), not `h`,
-/// `line`, or `bibliography`. `#show: tonight` does not score.
+/// not `math.foo` or `calc.pow`). A bare body has to be a name that compiles
+/// there (`#show heading: strong`, not `#show heading: h` or `#show heading: line`).
+/// A show-all body is a content callable or a set rule (`#show: strong`).
+/// `#show: tonight` does not score.
 fn show_rule(rest: &str) -> bool {
     let rest = rest.trim_start();
     if let Some(body) = rest.strip_prefix(':') {
@@ -619,7 +711,7 @@ fn show_body(body: &str, show_all: bool) -> bool {
         if show_all {
             return is_show_all(name);
         }
-        return is_global_selector(name);
+        return is_selector_body(name);
     }
     expr_consumes(body)
 }
@@ -630,6 +722,10 @@ fn is_global_selector(name: &str) -> bool {
 
 fn is_show_all(name: &str) -> bool {
     SHOW_ALL.binary_search(&name).is_ok()
+}
+
+fn is_selector_body(name: &str) -> bool {
+    SELECTOR_BODIES.binary_search(&name).is_ok()
 }
 
 fn module_selector(module: &str, elem: &str) -> bool {
@@ -1122,7 +1218,8 @@ mod tests {
         ] {
             assert_text(sample, Format::Typst);
         }
-        assert_text("#let alert(body, fill: red) = {\n", Format::Typst);
+        assert_text("#let alert(body, fill: red) = {\n", Format::Plaintext);
+        assert_text("#let alert(body, fill: red) = {}\n", Format::Typst);
         assert_text("#let s = 1\nHello there.\n", Format::Typst);
         assert_text("#set text(size: 12pt)\nHello there.\n", Format::Typst);
         assert_text("#show heading.where(level: 1): it => it\n", Format::Typst);
@@ -1350,12 +1447,61 @@ See the sample.
 ~~~
 See the sample. Next sentence.
 ";
-        assert_text(let_between, Format::Typst);
+        assert_text(let_between, Format::Plaintext);
     }
 
     #[test]
     fn let_destructuring_is_typst() {
         assert_text("#let (a, b) = (1, 2)\n", Format::Typst);
+    }
+
+    #[test]
+    fn an_open_call_counts_only_when_it_closes() {
+        let closed = "\
+#let ieee(
+  body
+) = body
+";
+        assert_text(closed, Format::Typst);
+        assert_text("#let ieee( bring the figures.\n", Format::Plaintext);
+        assert_text("#let x = (1\n", Format::Plaintext);
+        assert_text("#set text( bring the figures.\n", Format::Plaintext);
+        assert_text(
+            "#let ieee( bring the figures.\n#set text(size: 12pt)\n",
+            Format::Typst,
+        );
+    }
+
+    #[test]
+    fn show_body_probe_table_matches_detection() {
+        let table = include_str!("../tests/fixtures/typst-0.15.1-show-bodies.tsv");
+        for line in table.lines() {
+            if line.is_empty() || line.starts_with('#') || line.starts_with("name\t") {
+                continue;
+            }
+            let mut cols = line.split('\t');
+            let name = cols.next().expect("name");
+            let show_all = cols.next().expect("show-all") == "yes";
+            let selector_body = cols.next().expect("selector body") == "yes";
+            assert_eq!(is_show_all(name), show_all, "show-all list {name}");
+            assert_eq!(
+                is_selector_body(name),
+                selector_body,
+                "selector-body list {name}"
+            );
+            let show_all_src = format!("#show: {name}\n");
+            let selector_src = format!("#show heading: {name}\n");
+            assert_eq!(
+                Format::detect(None, &show_all_src) == Format::Typst,
+                show_all,
+                "{show_all_src:?}"
+            );
+            assert_eq!(
+                Format::detect(None, &selector_src) == Format::Typst,
+                selector_body,
+                "{selector_src:?}"
+            );
+        }
     }
 
     #[test]
@@ -1382,8 +1528,11 @@ See the sample. Next sentence.
             ("#show calc.pow: it => it\n", Format::Plaintext),
             ("#show math.equation: it => it\n", Format::Typst),
             ("#show heading.where(level: 1): it => it\n", Format::Typst),
-            ("#show heading: h\n", Format::Typst),
-            ("#show heading: line\n", Format::Typst),
+            ("#show heading: h\n", Format::Plaintext),
+            ("#show heading: line\n", Format::Plaintext),
+            ("#let ieee( bring the figures.\n", Format::Plaintext),
+            ("#let x = (1\n", Format::Plaintext),
+            ("#set text( bring the figures.\n", Format::Plaintext),
         ];
         for (text, format) in cases {
             assert_text(text, format);
@@ -1433,11 +1582,43 @@ See the sample. Next sentence.
         text.push_str("#set text(size: 12pt)\n");
         let started = std::time::Instant::now();
         let format = Format::detect(None, &text);
-        let elapsed = started.elapsed();
+        let one = started.elapsed();
         assert_eq!(format, Format::Typst);
         assert!(
+            one.as_secs_f64() < 1.0,
+            "1 MiB of unclosed fences took {one:?}"
+        );
+
+        let mut larger = String::with_capacity(8 * 1024 * 1024 + line.len());
+        while larger.len() < 8 * 1024 * 1024 {
+            larger.push_str(line);
+        }
+        larger.push_str("#set text(size: 12pt)\n");
+        let started = std::time::Instant::now();
+        let format = Format::detect(None, &larger);
+        let eight = started.elapsed();
+        assert_eq!(format, Format::Typst);
+        assert!(
+            eight.as_secs_f64() < 2.0
+                && eight.as_secs_f64() < one.as_secs_f64().mul_add(20.0, 0.25),
+            "8 MiB took {eight:?} after 1 MiB took {one:?}"
+        );
+    }
+
+    #[test]
+    fn an_unclosed_let_stays_linear() {
+        let mut text = String::from("#let ieee(\n");
+        let line = "bring the figures.\n";
+        while text.len() < 1024 * 1024 {
+            text.push_str(line);
+        }
+        let started = std::time::Instant::now();
+        let format = Format::detect(None, &text);
+        let elapsed = started.elapsed();
+        assert_eq!(format, Format::Plaintext);
+        assert!(
             elapsed.as_secs_f64() < 1.0,
-            "1 MiB of unclosed fences took {elapsed:?}"
+            "1 MiB after an unclosed let took {elapsed:?}"
         );
     }
 }

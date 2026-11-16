@@ -1,0 +1,67 @@
+# Typst 0.15.1 (9dfd3a08) show-body probes.
+# show_all: compile `#show: <name>` followed by `Hello`.
+# selector_body: compile `#show heading: <name>` followed by `= Title`.
+# yes means typst compile exited 0. An empty file is not enough:
+# `#show heading: h` alone compiles, and fails once a heading is shown.
+name	show_all	selector_body
+align	yes	yes
+bibliography	no	no
+block	yes	yes
+box	yes	yes
+circle	yes	yes
+cite	no	no
+colbreak	no	no
+columns	yes	yes
+curve	no	no
+divider	no	no
+document	no	no
+ellipse	yes	yes
+emph	yes	yes
+enum	yes	yes
+figure	yes	yes
+footnote	yes	yes
+grid	yes	yes
+h	no	no
+heading	yes	no
+hide	yes	yes
+highlight	yes	yes
+image	no	no
+line	no	no
+linebreak	no	no
+link	no	no
+list	yes	yes
+metadata	yes	yes
+move	yes	yes
+outline	no	no
+overline	yes	yes
+pad	yes	yes
+page	yes	yes
+pagebreak	no	no
+par	yes	yes
+parbreak	no	no
+place	yes	yes
+polygon	no	no
+quote	yes	yes
+raw	no	no
+rect	yes	yes
+ref	no	no
+repeat	yes	yes
+rotate	yes	yes
+scale	yes	yes
+skew	yes	yes
+smallcaps	yes	yes
+smartquote	no	no
+square	yes	yes
+stack	yes	yes
+strike	yes	yes
+strong	yes	yes
+sub	yes	yes
+super	yes	yes
+table	yes	yes
+terms	no	no
+text	yes	yes
+title	yes	yes
+underline	yes	yes
+v	no	no
+upper	yes	yes
+lower	yes	yes
