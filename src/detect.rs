@@ -6,144 +6,163 @@
 //! A `~~~` line is not a fence. In Typst `~` is a non-breaking space, so a
 //! `#set` between two `~~~` lines still scores.
 //!
-//! The `typst` crate is not a dependency, so Typst statements are checked
-//! against the Typst 0.15.1 grammar directly. A `#show` rule needs a
-//! selector and a body that grammar accepts. A bare body may be an element
-//! function (`#show heading: strong`). `#show notes: bring the figures.`
-//! and `#show: tonight` do not score.
+//! A line counts only when Typst 0.15.1 would accept that construct.
+//! A syntax tree still accepts `#show: h` and `math.foo`, which the
+//! compiler rejects, so those stay plaintext. A bare show body may be an
+//! element function after a selector (`#show heading: strong`). A show-all
+//! body has to be a content callable (`#show: strong`) or a set rule.
+//! `#show notes: bring the figures.` and `#show: tonight` do not score.
 
 use crate::format::Format;
 
-/// Element names exposed by Typst 0.15.1.
+/// Global element functions Typst 0.15.1 accepts as a show selector.
 ///
-/// Each name is the `#[elem]` `name`, or the kebab-case of the struct with
-/// the `Elem` suffix removed. A bare `#show` selector has to be one of these.
-const ELEMENTS: &[&str] = &[
-    "accent",
+/// `counter-display` and math-only names such as `equation` are not in the
+/// global scope. `h` and `v` are.
+const GLOBAL_SELECTORS: &[&str] = &[
     "align",
-    "align-point",
-    "artifact",
-    "asset",
-    "attach",
     "bibliography",
-    "binom",
     "block",
     "box",
-    "cancel",
-    "caption",
-    "cases",
-    "cell",
     "circle",
     "cite",
-    "cite-group",
-    "class",
-    "close",
     "colbreak",
     "columns",
-    "context",
-    "counter-display",
-    "counter-update",
-    "csl-indent",
-    "csl-light",
-    "cubic",
     "curve",
-    "direct-link",
     "divider",
     "document",
     "ellipse",
     "emph",
-    "entry",
     "enum",
-    "equation",
     "figure",
-    "flush",
-    "footer",
     "footnote",
-    "footnote-container",
-    "footnote-marker",
-    "frac",
     "grid",
     "h",
-    "header",
     "heading",
     "hide",
     "highlight",
-    "hline",
     "image",
-    "inline",
-    "item",
-    "layout",
-    "limits",
     "line",
     "linebreak",
     "link",
-    "link-marker",
     "list",
-    "lr",
-    "mat",
     "metadata",
-    "mid",
     "move",
-    "op",
     "outline",
-    "overbrace",
-    "overbracket",
     "overline",
-    "overparen",
-    "overshell",
     "pad",
     "page",
     "pagebreak",
     "par",
-    "par-line-marker",
     "parbreak",
-    "pdf-marker-tag",
     "place",
     "polygon",
-    "primes",
-    "quad",
     "quote",
     "raw",
     "rect",
     "ref",
     "repeat",
-    "root",
     "rotate",
     "scale",
-    "scripts",
-    "sequence",
     "skew",
     "smallcaps",
     "smartquote",
-    "space",
     "square",
     "stack",
-    "state-update",
-    "stretch",
     "strike",
     "strong",
-    "styled",
     "sub",
     "super",
-    "symbol",
     "table",
-    "tag",
-    "target",
     "terms",
     "text",
     "title",
+    "underline",
+    "v",
+];
+
+/// Bare names that compile as a show-all rule (`#show: strong`).
+///
+/// Spacing and constructors such as `h`, `v`, `line`, and `bibliography`
+/// are elements, but Typst 0.15.1 rejects them as a show-all body.
+const SHOW_ALL: &[&str] = &[
+    "align",
+    "block",
+    "box",
+    "circle",
+    "columns",
+    "ellipse",
+    "emph",
+    "enum",
+    "figure",
+    "footnote",
+    "grid",
+    "heading",
+    "hide",
+    "highlight",
+    "list",
+    "lower",
+    "metadata",
+    "move",
+    "pad",
+    "page",
+    "par",
+    "place",
+    "quote",
+    "rect",
+    "repeat",
+    "rotate",
+    "scale",
+    "skew",
+    "smallcaps",
+    "square",
+    "stack",
+    "strike",
+    "strong",
+    "sub",
+    "super",
+    "table",
+    "text",
+    "title",
+    "underline",
+    "upper",
+];
+
+/// Elements of the `math` module. `math.foo` and `math.abs` are not selectors.
+const MATH_SELECTORS: &[&str] = &[
+    "accent",
+    "attach",
+    "binom",
+    "cancel",
+    "cases",
+    "class",
+    "equation",
+    "frac",
+    "limits",
+    "lr",
+    "mat",
+    "mid",
+    "op",
+    "overbrace",
+    "overbracket",
+    "overline",
+    "overparen",
+    "overshell",
+    "primes",
+    "root",
+    "scripts",
+    "stretch",
+    "text",
     "underbrace",
     "underbracket",
     "underline",
     "underparen",
     "undershell",
-    "v",
     "vec",
-    "vline",
 ];
 
-/// Global modules whose fields are real selectors (`math.equation`).
-const MODULES: &[&str] = &["calc", "html", "math", "pdf", "sys"];
+/// Elements of the `pdf` module. `calc`, `html`, and `sys` export none.
+const PDF_SELECTORS: &[&str] = &["artifact", "attach"];
 
 pub(crate) fn score_text(text: &str) -> Format {
     let lines = lines_outside_fences(text);
@@ -343,6 +362,7 @@ fn delimiter_depth(text: &str) -> i32 {
                 string = true;
                 idx += 1;
             }
+            b'`' => idx = raw_end(bytes, idx),
             b'(' | b'[' | b'{' => {
                 depth += 1;
                 idx += 1;
@@ -357,30 +377,88 @@ fn delimiter_depth(text: &str) -> i32 {
     depth
 }
 
+/// Index just after a raw span that starts at a backtick.
+///
+/// Two backticks are an empty raw. A longer run ends at the same run, and
+/// an unclosed run consumes the rest, so `` `]` `` does not change depth.
+fn raw_end(bytes: &[u8], idx: usize) -> usize {
+    let mut ticks = 0;
+    let mut i = idx;
+    while i < bytes.len() && bytes[i] == b'`' {
+        ticks += 1;
+        i += 1;
+    }
+    if ticks == 2 {
+        return i;
+    }
+    let mut found = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'`' {
+            found += 1;
+            if found == ticks {
+                return i + 1;
+            }
+        } else {
+            found = 0;
+        }
+        i += 1;
+    }
+    bytes.len()
+}
+
 fn let_statement(rest: &str) -> bool {
     let rest = rest.trim_start();
     if rest.starts_with('(') {
         let Some(end) = skip_group(rest, 0) else {
             return false;
         };
-        return rest[end..].trim_start().starts_with('=');
+        let Some(rhs) = rest[end..].trim_start().strip_prefix('=') else {
+            return false;
+        };
+        return expr_ends_statement(rhs);
     }
     let Some(len) = ident_len(rest) else {
         return false;
     };
-    let after = rest[len..].trim_start();
-    after.starts_with('=') || after.starts_with('(')
+    let after = &rest[len..];
+    if after.starts_with('(') {
+        let Some(end) = skip_group(rest, len) else {
+            return true;
+        };
+        let Some(rhs) = rest[end..].trim_start().strip_prefix('=') else {
+            return false;
+        };
+        return expr_ends_statement(rhs);
+    }
+    let Some(rhs) = after.trim_start().strip_prefix('=') else {
+        return false;
+    };
+    expr_ends_statement(rhs)
 }
 
-/// `#set text(...)`. Typst 0.15.1 requires `(` immediately after the name.
+/// The right-hand side finishes the statement, or a delimiter is still open
+/// so the statement continues on the next line. Trailing prose does not.
+fn expr_ends_statement(rhs: &str) -> bool {
+    let rhs = rhs.trim();
+    if rhs.is_empty() {
+        return false;
+    }
+    expr_consumes(rhs) || delimiter_depth(rhs) > 0
+}
+
+/// `#set text(...)`. Typst 0.15.1 requires `(` immediately after the name,
+/// and the argument list has to finish the line unless it is still open.
 fn set_statement(rest: &str) -> bool {
     let rest = rest.trim_start();
+    if set_body(rest) {
+        return true;
+    }
     let Some(mut idx) = ident_len(rest) else {
         return false;
     };
     loop {
         if rest[idx..].starts_with('(') {
-            return true;
+            return skip_group(rest, idx).is_none();
         }
         let dot = skip_ws(rest, idx);
         if rest[dot..].starts_with('.') {
@@ -503,48 +581,64 @@ fn context_expr(rest: &str) -> bool {
 
 /// `#show: body` or `#show <selector>: body`.
 ///
-/// A bare selector has to be a Typst 0.15.1 element (`heading`, `h`, `raw`),
-/// and the head of a field selector does too (`heading.where`, not
-/// `notes.where`). `math.equation` is allowed because `math` is a module.
-/// A bare body may be an element function (`strong`). `#show: tonight`
-/// and `#show notes: bring the figures.` do not score.
+/// A bare selector is a global element (`heading`, `h`). A field selector's
+/// head is that element, or an element of `math` or `pdf` (`math.equation`,
+/// not `math.foo` or `calc.pow`). After a selector, a bare body may be an
+/// element function (`#show heading: strong`, `#show heading: h`). A show-all
+/// body is a content callable or a set rule (`#show: strong`), not `h`,
+/// `line`, or `bibliography`. `#show: tonight` does not score.
 fn show_rule(rest: &str) -> bool {
     let rest = rest.trim_start();
     if let Some(body) = rest.strip_prefix(':') {
-        return show_body(body);
+        return show_body(body, true);
     }
     let Some((end, bare)) = parse_selector(rest) else {
         return false;
     };
     if let Some(name) = bare {
-        if !is_element(name) {
+        if !is_global_selector(name) {
             return false;
         }
     }
     let Some(body) = rest[end..].trim_start().strip_prefix(':') else {
         return false;
     };
-    show_body(body)
+    show_body(body, false)
 }
 
-fn show_body(body: &str) -> bool {
+fn show_body(body: &str, show_all: bool) -> bool {
     let body = body.trim();
     if body.is_empty() {
         return false;
     }
     if is_bare_ident(body) {
-        let len = ident_len(body).unwrap_or(0);
-        return is_element(&body[..len]);
+        let Some(len) = ident_len(body) else {
+            return false;
+        };
+        let name = &body[..len];
+        if show_all {
+            return is_show_all(name);
+        }
+        return is_global_selector(name);
     }
     expr_consumes(body)
 }
 
-fn is_element(name: &str) -> bool {
-    ELEMENTS.binary_search(&name).is_ok()
+fn is_global_selector(name: &str) -> bool {
+    GLOBAL_SELECTORS.binary_search(&name).is_ok()
 }
 
-fn is_selector_head(name: &str) -> bool {
-    is_element(name) || MODULES.binary_search(&name).is_ok()
+fn is_show_all(name: &str) -> bool {
+    SHOW_ALL.binary_search(&name).is_ok()
+}
+
+fn module_selector(module: &str, elem: &str) -> bool {
+    let list = match module {
+        "math" => MATH_SELECTORS,
+        "pdf" => PDF_SELECTORS,
+        _ => return false,
+    };
+    list.binary_search(&elem).is_ok()
 }
 
 fn is_bare_ident(text: &str) -> bool {
@@ -556,6 +650,9 @@ fn expr_consumes(text: &str) -> bool {
     let text = text.trim();
     if text.is_empty() {
         return false;
+    }
+    if let Some(end) = numeric_end(text) {
+        return text[end..].trim().is_empty();
     }
     if text.starts_with('[') || text.starts_with('{') {
         return group_consumes(text);
@@ -663,12 +760,63 @@ fn parse_selector(text: &str) -> Option<(usize, Option<&str>)> {
     }
     let len = ident_len(text)?;
     let name = &text[..len];
-    if !is_selector_head(name) {
+    if is_global_selector(name) {
+        let end = selector_methods(text, len)?;
+        let bare = if end == skip_ws(text, len) {
+            Some(name)
+        } else {
+            None
+        };
+        return Some((end, bare));
+    }
+    if name == "math" || name == "pdf" {
+        let end = module_element(text, len)?;
+        let end = selector_methods(text, end)?;
+        return Some((end, None));
+    }
+    None
+}
+
+/// `.where(...)`, then `.or(...)` / `.and(...)` on that selector.
+fn selector_methods(text: &str, start: usize) -> Option<usize> {
+    let mut idx = start;
+    let mut saw_where = false;
+    loop {
+        let next = skip_ws(text, idx);
+        if !text[next..].starts_with('.') {
+            return Some(next);
+        }
+        let after = skip_ws(text, next + 1);
+        let len = ident_len(&text[after..])?;
+        let method = &text[after..after + len];
+        let call = after + len;
+        if !text[call..].starts_with('(') {
+            return None;
+        }
+        let allowed = method == "where" || (saw_where && (method == "or" || method == "and"));
+        if !allowed {
+            return None;
+        }
+        if method == "where" {
+            saw_where = true;
+        }
+        idx = skip_group(text, call)?;
+    }
+}
+
+fn module_element(text: &str, start: usize) -> Option<usize> {
+    let module = &text[..start];
+    let dot = skip_ws(text, start);
+    if !text[dot..].starts_with('.') {
         return None;
     }
-    let (end, extended) = extend_chain(text, len)?;
-    let bare = if extended { None } else { Some(name) };
-    Some((end, bare))
+    let after = skip_ws(text, dot + 1);
+    let len = ident_len(&text[after..])?;
+    let elem = &text[after..after + len];
+    if !module_selector(module, elem) {
+        return None;
+    }
+    Some(after + len)
 }
 
 /// Index just before the colon, and whether a field or call was consumed.
@@ -753,6 +901,10 @@ fn skip_group(text: &str, open_idx: usize) -> Option<usize> {
             idx += 1;
             continue;
         }
+        if byte == b'`' {
+            idx = raw_end(bytes, idx);
+            continue;
+        }
         if byte == open {
             depth += 1;
             idx += 1;
@@ -767,6 +919,60 @@ fn skip_group(text: &str, open_idx: usize) -> Option<usize> {
             continue;
         }
         idx += 1;
+    }
+    None
+}
+
+/// End of a Typst number, including a real unit suffix (`pt`, `em`, `%`).
+/// `1and` is not a number: the bad suffix stays outside the token.
+fn numeric_end(text: &str) -> Option<usize> {
+    let bytes = text.as_bytes();
+    if bytes.first().is_none_or(|byte| !byte.is_ascii_digit()) {
+        return None;
+    }
+    let mut idx = 1;
+    while idx < bytes.len() && bytes[idx].is_ascii_digit() {
+        idx += 1;
+    }
+    if idx + 1 < bytes.len() && bytes[idx] == b'.' && bytes[idx + 1].is_ascii_digit() {
+        idx += 2;
+        while idx < bytes.len() && bytes[idx].is_ascii_digit() {
+            idx += 1;
+        }
+    }
+    if idx < bytes.len() && matches!(bytes[idx], b'e' | b'E') && !text[idx..].starts_with("em") {
+        let mut exp = idx + 1;
+        if exp < bytes.len() && matches!(bytes[exp], b'+' | b'-') {
+            exp += 1;
+        }
+        if exp >= bytes.len() || !bytes[exp].is_ascii_digit() {
+            return None;
+        }
+        exp += 1;
+        while exp < bytes.len() && bytes[exp].is_ascii_digit() {
+            exp += 1;
+        }
+        idx = exp;
+    }
+    if let Some(unit) = unit_len(&text[idx..]) {
+        idx += unit;
+    }
+    Some(idx)
+}
+
+fn unit_len(text: &str) -> Option<usize> {
+    const UNITS: &[&str] = &["pt", "mm", "cm", "in", "deg", "rad", "em", "fr", "%"];
+    for unit in UNITS {
+        let Some(rest) = text.strip_prefix(unit) else {
+            continue;
+        };
+        let boundary = rest
+            .chars()
+            .next()
+            .is_none_or(|ch| !ch.is_ascii_alphanumeric());
+        if boundary {
+            return Some(unit.len());
+        }
     }
     None
 }
@@ -817,16 +1023,26 @@ mod tests {
 
     #[test]
     fn element_names_match_typst_0_15() {
-        assert!(ELEMENTS.windows(2).all(|pair| pair[0] < pair[1]));
-        assert!(is_element("heading"));
-        assert!(is_element("h"));
-        assert!(is_element("v"));
-        assert!(is_element("raw"));
-        assert!(is_element("strong"));
-        assert!(is_element("text"));
-        assert!(!is_element("notes"));
-        assert!(!is_element("tonight"));
-        assert!(!is_element("ieee"));
+        assert!(GLOBAL_SELECTORS.windows(2).all(|pair| pair[0] < pair[1]));
+        assert!(SHOW_ALL.windows(2).all(|pair| pair[0] < pair[1]));
+        assert!(MATH_SELECTORS.windows(2).all(|pair| pair[0] < pair[1]));
+        assert!(is_global_selector("heading"));
+        assert!(is_global_selector("h"));
+        assert!(is_global_selector("v"));
+        assert!(is_global_selector("strong"));
+        assert!(!is_global_selector("counter-display"));
+        assert!(!is_global_selector("equation"));
+        assert!(!is_global_selector("notes"));
+        assert!(is_show_all("strong"));
+        assert!(is_show_all("emph"));
+        assert!(!is_show_all("h"));
+        assert!(!is_show_all("v"));
+        assert!(!is_show_all("bibliography"));
+        assert!(!is_show_all("line"));
+        assert!(module_selector("math", "equation"));
+        assert!(!module_selector("math", "foo"));
+        assert!(!module_selector("math", "abs"));
+        assert!(!module_selector("calc", "pow"));
     }
 
     #[test]
@@ -1140,6 +1356,48 @@ See the sample. Next sentence.
     #[test]
     fn let_destructuring_is_typst() {
         assert_text("#let (a, b) = (1, 2)\n", Format::Typst);
+    }
+
+    #[test]
+    fn evidence_matches_what_typst_compiles() {
+        let cases = [
+            ("#let (a, b) = (1, 2)\n", Format::Typst),
+            ("#let (me) = explain the figures.\n", Format::Plaintext),
+            (
+                "#let (a, b) = (1, 2) and then more prose.\n",
+                Format::Plaintext,
+            ),
+            (
+                "#let script-size = 1pt and more prose.\n",
+                Format::Plaintext,
+            ),
+            ("#show: strong\n", Format::Typst),
+            ("#show: emph\n", Format::Typst),
+            ("#show: h\n", Format::Plaintext),
+            ("#show: v\n", Format::Plaintext),
+            ("#show: bibliography\n", Format::Plaintext),
+            ("#show: line\n", Format::Plaintext),
+            ("#show: counter-display\n", Format::Plaintext),
+            ("#show math.foo: it => it\n", Format::Plaintext),
+            ("#show calc.pow: it => it\n", Format::Plaintext),
+            ("#show math.equation: it => it\n", Format::Typst),
+            ("#show heading.where(level: 1): it => it\n", Format::Typst),
+            ("#show heading: h\n", Format::Typst),
+            ("#show heading: line\n", Format::Typst),
+        ];
+        for (text, format) in cases {
+            assert_text(text, format);
+        }
+    }
+
+    #[test]
+    fn show_raw_bracket_does_not_close_the_block() {
+        let rule = "\
+#show heading: it => [
+`]`
+]
+";
+        assert_text(rule, Format::Typst);
     }
 
     #[test]

@@ -334,11 +334,11 @@ backtick fence are ignored, and a marker is a fence only when a matching
 closer exists. A ~~~ line is not a fence, because ~ is a non-breaking
 space in Typst. A heading inside a backtick fence is not a heading.
 
-A Typst signal is a statement in the shape Typst 0.15.1 parses: =#let=
-with an opening parenthesis or an equals sign, =#set= with an opening
-parenthesis, =#import= or =#include= with a quoted path, or a =#show=
-rule with a real selector and body.
-=#show notes: bring the figures.= and =#show: tonight= are not signals.
+A Typst signal is a statement Typst 0.15.1 accepts to the end of that
+statement. A =#let= counts when its right-hand side is a finished
+expression, a dotted selector names a real element, and a show-all body
+is a content callable or a set rule. =#show: h= and
+=#let (me) = explain the figures.= are not signals.
 A hyphenated word such as =#import-export= is one identifier, not a keyword.
 
 ** Plaintext (=--format plaintext=)
