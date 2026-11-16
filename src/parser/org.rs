@@ -721,12 +721,17 @@ impl OrgParser {
 
     /// org-syntax 5.2 `\[CONTENTS\]`: unescaped `\[` / `\]`.
     /// `\\[2ex]` is `\\` + `[`, not a fragment opener.
-    /// `\[` inside `=verbatim=` or `~code~` belongs to that object.
+    ///
+    /// The opener search skips `=verbatim=` and `~code~`. The closer
+    /// search does not: Emacs Org runs `search-forward` for `\]` once
+    /// `\[` has matched, so a marker that opens inside the fragment and
+    /// closes after `\]` must not hide that closer.
     fn find_unescaped_display_bracket(s: &str, from: usize, closer: u8) -> Option<usize> {
         let bytes = s.as_bytes();
         let mut i = from;
+        let skip_paired = closer == b'[';
         while i + 1 < bytes.len() {
-            if bytes[i] == b'=' || bytes[i] == b'~' {
+            if skip_paired && (bytes[i] == b'=' || bytes[i] == b'~') {
                 let marker = bytes[i] as char;
                 if let Some(end) = crate::sentence::unicode::find_org_paired_span(s, i, marker) {
                     if end > i {
@@ -3142,6 +3147,100 @@ mod tests {
             "\\begin{equation} x = 1 \\end{equation}\n",
             "This must stay prose. Second sentence.\n",
         )
+    }
+
+    #[test]
+    fn display_closer_is_not_hidden_by_a_paired_marker() {
+        use crate::format_text;
+
+        // Backstops off: these assert the formatter's own bytes.
+        let cfg = org_cfg();
+
+        // (a) `=` opens inside the fragment and the closer sits after `\]`.
+        let multi = "\\[\nx =1\\] then =y=.\n";
+        let multi_out = format_text(multi, &cfg).unwrap();
+        assert_eq!(
+            multi_out, multi,
+            "multi-line \\[ must not join into prose, got:\n{multi_out}"
+        );
+        assert!(
+            !multi_out.contains("\\[ x =1\\]"),
+            "must not fuse the opener onto the next line, got:\n{multi_out}"
+        );
+        let multi_regions = OrgParser.parse(multi);
+        assert!(
+            multi_regions
+                .iter()
+                .any(|r| matches!(r, Region::Structure(s) if s.contains("x =1\\]"))),
+            "\\] after an interior = must close the fragment, got: {multi_regions:?}"
+        );
+        assert!(
+            !multi_regions
+                .iter()
+                .any(|r| matches!(r, Region::Prose(p) if p.contains("\\["))),
+            "the fragment must not be prose, got: {multi_regions:?}"
+        );
+        assert_eq!(format_text(&multi_out, &cfg).unwrap(), multi_out);
+
+        // (b) The same fragment on a list continuation keeps its hang.
+        let hung = "- Note.\n  \\[\n  x =1\\] then =y=.\n";
+        let hung_out = format_text(hung, &cfg).unwrap();
+        assert_eq!(hung_out, hung, "two-space hang must stay, got:\n{hung_out}");
+        assert!(
+            hung_out.contains("  \\[\n  x =1\\]"),
+            "continuation indent must survive, got:\n{hung_out}"
+        );
+        assert_eq!(format_text(&hung_out, &cfg).unwrap(), hung_out);
+
+        // (c) `\` is a post character, so `=cmd=` ends and `\[` keeps its break.
+        let cmd = "=cmd=\\[x = 1.\\] and =ok=\n";
+        let cmd_out = format_text(cmd, &cfg).unwrap();
+        assert_eq!(
+            cmd_out, "=cmd=\n\\[x = 1.\\] and =ok=\n",
+            "break before \\[ must stay, got:\n{cmd_out}"
+        );
+        let cmd_regions = OrgParser.parse(cmd);
+        assert!(
+            cmd_regions
+                .iter()
+                .any(|r| matches!(r, Region::Prose(p) if p == "=cmd=")),
+            "=cmd= must end before the fragment, got: {cmd_regions:?}"
+        );
+        assert!(
+            cmd_regions
+                .iter()
+                .any(|r| matches!(r, Region::Structure(s) if s == "\\[x = 1.\\]")),
+            "\\[x = 1.\\] must be its own structure, got: {cmd_regions:?}"
+        );
+        assert_eq!(format_text(&cmd_out, &cfg).unwrap(), cmd_out);
+
+        // A `=` inside `\[...\]` does not hide the closer or split on the period.
+        let paper = "\\[E =mc^2.\\] in =paper=\n";
+        let paper_out = format_text(paper, &cfg).unwrap();
+        assert_eq!(
+            paper_out, paper,
+            "period inside \\[ must not split, got:\n{paper_out}"
+        );
+        let paper_regions = OrgParser.parse(paper);
+        assert!(
+            paper_regions
+                .iter()
+                .any(|r| matches!(r, Region::Structure(s) if s.contains("E =mc^2."))),
+            "\\[E =mc^2.\\] must be structure, got: {paper_regions:?}"
+        );
+        assert!(
+            paper_regions
+                .iter()
+                .any(|r| matches!(r, Region::Prose(p) if p.contains("=paper="))),
+            "=paper= stays after the fragment, got: {paper_regions:?}"
+        );
+        assert!(
+            !paper_regions
+                .iter()
+                .any(|r| matches!(r, Region::Prose(p) if p.contains("mc^2"))),
+            "the interior = must not pull the fragment into prose, got: {paper_regions:?}"
+        );
+        assert_eq!(format_text(&paper_out, &cfg).unwrap(), paper_out);
     }
 
     #[test]

@@ -2869,7 +2869,8 @@ fn org_brace_script_predecessor_ok(text: &str, at: usize) -> bool {
 /// character (start of text, whitespace, or `('"{`), the first and last
 /// interior characters are not whitespace, and the closer is the first
 /// matching marker whose next character is a post character (end of text,
-/// whitespace, or `-.,:!?;'")}[`). Inner copies of the marker are content.
+/// whitespace, or the Org post class, which includes a backslash). Inner
+/// copies of the marker are content.
 /// `pandoc -f org` reports those spans as `Code` inlines with class
 /// `verbatim` or bare `Code`.
 ///
@@ -2952,7 +2953,9 @@ pub(crate) fn find_org_paired_span(text: &str, open_at: usize, marker: char) -> 
     // pandoc org reader / org-emphasis-regexp-components defaults.
     // Border (forbidden at the inner edges) is whitespace.
     const PRE: &str = " \t\n('\"{";
-    const POST: &str = " \t\n-.,:!?;'\")}[";
+    // Org's post class includes `\`, so `=cmd=\[...\]` ends the verbatim
+    // before the display-math opener.
+    const POST: &str = " \t\n-.,:!?;'\")}\\[";
 
     if open_at > 0 {
         let prev = text[..open_at].chars().next_back()?;
