@@ -2,6 +2,9 @@
 # source uses \n for a newline. compiles is typst compile.
 # detect is the score snapper should give. A balanced #set before
 # an unclosed group still scores; lines inside the group do not.
+# Delimiters and # count outside strings and comments. An unclosed
+# string or raw span owns the following lines. An unclosed block
+# comment does too; a finished expression before it still scores.
 source	compiles	detect
 #let x = 1 + 2	yes	typst
 #let x = 1 - 2	yes	typst
@@ -63,3 +66,19 @@ source	compiles	detect
 #let x = (1\n#set text(size: 12pt)\n)	no	plaintext
 #let x = 1 +\n2	no	plaintext
 #set text(size: 12pt)\n#let ieee( bring the figures.	no	typst
+#let x = 1 // (\n#set text(size: 12pt)	yes	typst
+#let ieee(\n  // )\n  body\n) = body	yes	typst
+#let ieee(\n  // (\n  body\n) = body	yes	typst
+#let x = 1 /* ( */\n#set text(size: 12pt)	yes	typst
+#let x = 1 /* /* ( */ */\n#set text(size: 12pt)	yes	typst
+#let x = 1 /* /* */ ( */\n#set text(size: 12pt)	yes	typst
+#let x = "say \"hi\""	yes	typst
+#let x = ("say \"hi\"")	yes	typst
+#let x = "hello )"	yes	typst
+#let x = ("hello )")	yes	typst
+#set enum(numbering: "1)a)i)")	yes	typst
+#let x = {\n  // https://github.com/typst/templates/pull/73#discussion_r2112947947\n  1\n}	yes	typst
+#let x = "hello (\n#set text(size: 12pt)	no	plaintext
+#let x = /*\n#set text(size: 12pt)	no	plaintext
+#let x = 1 /* (\n#set text(size: 12pt)	yes	typst
+#let x = `hello\n#set text(size: 12pt)	no	plaintext

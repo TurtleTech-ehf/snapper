@@ -11,11 +11,16 @@
 //! compiler rejects, so those stay plaintext. A bare show body is a name
 //! Typst 0.15.1 compiles there (`#show heading: strong`, not
 //! `#show heading: h`). A show-all body is a content callable
-//! (`#show: strong`) or a set rule. An open group keeps every following
-//! line inside it until the group closes, so a later `#set` under
-//! `#let ieee( bring the figures.` is not its own signal. A finished
-//! right-hand side may use Typst's operators (`1 + 2`, `not false`).
-//! `#show notes: bring the figures.` and `#show: tonight` do not score.
+//! (`#show: strong`) or a set rule. One code-mode scan tracks strings,
+//! line comments, nested block comments, raw spans, and brackets.
+//! Delimiters and `#` count outside strings and comments. An open group
+//! or an unclosed string keeps every following line inside that span, so
+//! a later `#set` under `#let x = "hello (` is not its own signal. An
+//! unclosed block comment keeps those lines as well, and the opening
+//! statement still counts when the expression in front of the comment is
+//! already complete. A finished right-hand side may use Typst's operators
+//! (`1 + 2`, `not false`). `#show notes: bring the figures.` and
+//! `#show: tonight` do not score.
 
 use crate::format::Format;
 
@@ -363,11 +368,14 @@ fn starts_typst_keyword(line: &str) -> bool {
         || keyword_rest(line, "#context").is_some()
 }
 
-/// A statement counts when its delimiters close inside the block and the
-/// finished text is valid. `#let ieee(\n body\n) = body` closes. An open
-/// group owns every following line until it closes or the block ends, so
-/// `#set text(size: 12pt)` under `#let ieee( bring the figures.` is inside
-/// that call. An unclosed group through EOF drops the tail.
+/// A statement counts when its code scan closes and the finished text is
+/// valid. `#let ieee(\n body\n) = body` closes. An open group, an unclosed
+/// string, or an unclosed block comment owns every following line until
+/// that span ends, so `#set text(size: 12pt)` under `#let x = "hello (` is
+/// inside the string. A group or string that is still open at the end of
+/// the block drops the tail. A block comment may run to the end of the
+/// file; the opening statement still counts when its expression was
+/// already complete.
 fn has_typst(lines: &[&str]) -> bool {
     let mut i = 0;
     while i < lines.len() {
@@ -376,30 +384,31 @@ fn has_typst(lines: &[&str]) -> bool {
             i += 1;
             continue;
         }
-        let mut delim = Delim::default();
-        delim.feed(lines[i]);
-        if delim.depth <= 0 {
-            if typst_statement(line) {
+        let mut scan = CodeScan::default();
+        scan.feed(lines[i]);
+        if !scan.owns_next() {
+            if scan.finished_span() && typst_statement(line) {
                 return true;
             }
             i += 1;
             continue;
         }
         let mut j = i + 1;
-        while j < lines.len() && delim.depth > 0 {
-            delim.feed("\n");
-            delim.feed(lines[j]);
+        while j < lines.len() && scan.owns_next() {
+            scan.feed("\n");
+            scan.feed(lines[j]);
             j += 1;
         }
-        if delim.depth == 0 {
-            let buf = lines[i..j].join("\n");
-            if typst_statement(buf.trim_start()) {
-                return true;
-            }
-            i = j;
-            continue;
+        let buf = lines[i..j].join("\n");
+        if scan.group_still_open() {
+            return false;
         }
-        if delim.depth > 0 {
+        if typst_statement(buf.trim_start()) {
+            return true;
+        }
+        // The comment swallowed the rest of this statement. Lines inside
+        // it are not their own evidence.
+        if scan.block_comment > 0 {
             return false;
         }
         i = j;
@@ -407,111 +416,209 @@ fn has_typst(lines: &[&str]) -> bool {
     false
 }
 
-/// Paren, bracket, and brace depth, skipping strings and raw spans.
+/// Code-mode scan shared by statement grouping and group matching.
 ///
-/// `feed` continues across lines, so an unclosed call is one pass over the
-/// block instead of a rescan of the growing text.
+/// Strings (with `\"` escapes), line comments, nested block comments, and
+/// raw spans hide delimiters and `#`. Parentheses and braces count in
+/// code. Content brackets count on their own, so a `)` inside markup is
+/// text. `feed` continues across lines in one pass.
 #[derive(Default)]
-struct Delim {
-    depth: i32,
+struct CodeScan {
+    code: i32,
+    content: i32,
     string: bool,
     escape: bool,
+    line_comment: bool,
+    block_comment: usize,
     raw_need: usize,
     raw_have: usize,
+    code_hash: bool,
+    extra_close: bool,
 }
 
-impl Delim {
+impl CodeScan {
     fn feed(&mut self, text: &str) {
         let bytes = text.as_bytes();
         let mut idx = 0;
         while idx < bytes.len() {
-            let byte = bytes[idx];
-            if self.raw_need != 0 {
-                if byte == b'`' {
-                    self.raw_have += 1;
-                    if self.raw_have == self.raw_need {
-                        self.raw_need = 0;
-                        self.raw_have = 0;
-                    }
-                } else {
-                    self.raw_have = 0;
-                }
-                idx += 1;
-                continue;
-            }
-            if self.string {
-                if self.escape {
-                    self.escape = false;
-                    idx += 1;
-                    continue;
-                }
-                if byte == b'\\' {
-                    self.escape = true;
-                    idx += 1;
-                    continue;
-                }
-                if byte == b'"' {
-                    self.string = false;
-                }
-                idx += 1;
-                continue;
-            }
-            match byte {
-                b'"' => {
-                    self.string = true;
-                    idx += 1;
-                }
-                b'`' => {
-                    let start = idx;
-                    while idx < bytes.len() && bytes[idx] == b'`' {
-                        idx += 1;
-                    }
-                    let ticks = idx - start;
-                    if ticks != 2 {
-                        self.raw_need = ticks;
-                    }
-                }
-                b'(' | b'[' | b'{' => {
-                    self.depth += 1;
-                    idx += 1;
-                }
-                b')' | b']' | b'}' => {
-                    self.depth -= 1;
-                    idx += 1;
-                }
-                _ => idx += 1,
-            }
+            idx = self.step(bytes, idx);
         }
+    }
+
+    /// The next line is still inside this span.
+    fn owns_next(&self) -> bool {
+        if self.extra_close {
+            return false;
+        }
+        self.code > 0
+            || self.content > 0
+            || self.string
+            || self.block_comment > 0
+            || self.raw_need != 0
+    }
+
+    /// Brackets, the string, or a raw span are still open. A block comment
+    /// is trivia Typst accepts through the end of the file, so it does not
+    /// by itself keep the statement unfinished.
+    fn group_still_open(&self) -> bool {
+        !self.extra_close
+            && (self.code > 0 || self.content > 0 || self.string || self.raw_need != 0)
+    }
+
+    fn finished_span(&self) -> bool {
+        !self.extra_close
+            && self.code == 0
+            && self.content == 0
+            && !self.string
+            && self.block_comment == 0
+            && self.raw_need == 0
+    }
+
+    fn step(&mut self, bytes: &[u8], idx: usize) -> usize {
+        if idx >= bytes.len() {
+            return idx;
+        }
+        let byte = bytes[idx];
+        if self.raw_need != 0 {
+            return self.step_raw(byte, idx);
+        }
+        if self.string {
+            return self.step_string(byte, idx);
+        }
+        if self.line_comment {
+            if byte == b'\n' {
+                self.line_comment = false;
+            }
+            return idx + 1;
+        }
+        if self.block_comment > 0 {
+            return self.step_block_comment(bytes, byte, idx);
+        }
+        if byte == b'/' && bytes.get(idx + 1) == Some(&b'/') {
+            self.line_comment = true;
+            return idx + 2;
+        }
+        if byte == b'/' && bytes.get(idx + 1) == Some(&b'*') {
+            self.block_comment = 1;
+            return idx + 2;
+        }
+        if byte == b'"' {
+            self.string = true;
+            return idx + 1;
+        }
+        if byte == b'`' {
+            return self.step_raw_open(bytes, idx);
+        }
+        if self.content > 0 {
+            if byte == b'[' {
+                self.content += 1;
+            } else if byte == b']' {
+                self.content -= 1;
+            }
+            return idx + 1;
+        }
+        self.step_code(byte, idx)
+    }
+
+    fn step_raw(&mut self, byte: u8, idx: usize) -> usize {
+        if byte == b'`' {
+            self.raw_have += 1;
+            if self.raw_have == self.raw_need {
+                self.raw_need = 0;
+                self.raw_have = 0;
+            }
+        } else {
+            self.raw_have = 0;
+        }
+        idx + 1
+    }
+
+    fn step_string(&mut self, byte: u8, idx: usize) -> usize {
+        if self.escape {
+            self.escape = false;
+            return idx + 1;
+        }
+        if byte == b'\\' {
+            self.escape = true;
+            return idx + 1;
+        }
+        if byte == b'"' {
+            self.string = false;
+        }
+        idx + 1
+    }
+
+    fn step_block_comment(&mut self, bytes: &[u8], byte: u8, idx: usize) -> usize {
+        if byte == b'/' && bytes.get(idx + 1) == Some(&b'*') {
+            self.block_comment += 1;
+            return idx + 2;
+        }
+        if byte == b'*' && bytes.get(idx + 1) == Some(&b'/') {
+            self.block_comment -= 1;
+            return idx + 2;
+        }
+        idx + 1
+    }
+
+    fn step_raw_open(&mut self, bytes: &[u8], idx: usize) -> usize {
+        let mut end = idx + 1;
+        while end < bytes.len() && bytes[end] == b'`' {
+            end += 1;
+        }
+        let ticks = end - idx;
+        // Two backticks are an empty raw. A longer run ends at the same
+        // run, and an unclosed run consumes the rest, so `` `]` `` does
+        // not change depth.
+        if ticks != 2 {
+            self.raw_need = ticks;
+            self.raw_have = 0;
+        }
+        end
+    }
+
+    fn step_code(&mut self, byte: u8, idx: usize) -> usize {
+        if byte == b'#' {
+            self.code_hash = true;
+            return idx + 1;
+        }
+        match byte {
+            b'(' | b'{' => self.code += 1,
+            b'[' => self.content += 1,
+            b')' | b'}' => {
+                self.code -= 1;
+                if self.code < 0 {
+                    self.extra_close = true;
+                }
+            }
+            b']' => self.extra_close = true,
+            _ => {}
+        }
+        idx + 1
     }
 }
 
-/// Index just after a raw span that starts at a backtick.
+/// End of the group that opens at `open_idx`.
 ///
-/// Two backticks are an empty raw. A longer run ends at the same run, and
-/// an unclosed run consumes the rest, so `` `]` `` does not change depth.
-fn raw_end(bytes: &[u8], idx: usize) -> usize {
-    let mut ticks = 0;
-    let mut i = idx;
-    while i < bytes.len() && bytes[i] == b'`' {
-        ticks += 1;
-        i += 1;
-    }
-    if ticks == 2 {
-        return i;
-    }
-    let mut found = 0;
-    while i < bytes.len() {
-        if bytes[i] == b'`' {
-            found += 1;
-            if found == ticks {
-                return i + 1;
-            }
-        } else {
-            found = 0;
+/// `reject_hash` is for code groups: a `#` in code rejects the group, and
+/// a `#` inside a comment, string, raw span, or content block does not.
+fn group_end(text: &str, open_idx: usize, reject_hash: bool) -> Option<usize> {
+    let bytes = text.as_bytes();
+    let mut scan = CodeScan::default();
+    let mut idx = open_idx;
+    loop {
+        if idx >= bytes.len() {
+            return None;
         }
-        i += 1;
+        idx = scan.step(bytes, idx);
+        if scan.extra_close || (reject_hash && scan.code_hash) {
+            return None;
+        }
+        let balanced = scan.code == 0 && scan.content == 0;
+        let hidden = scan.string || scan.block_comment > 0 || scan.raw_need != 0;
+        if balanced && !hidden {
+            return Some(idx);
+        }
     }
-    bytes.len()
 }
 
 fn let_statement(rest: &str) -> bool {
@@ -743,7 +850,7 @@ fn expr_consumes(text: &str) -> bool {
     let Some(end) = expr_prec(text, 0, 0) else {
         return false;
     };
-    text[end..].trim().is_empty()
+    skip_ws(text, end) == text.len()
 }
 
 struct CodeOp {
@@ -935,7 +1042,7 @@ fn is_operator_keyword(name: &str) -> bool {
 
 fn set_body(rest: &str) -> bool {
     let rest = rest.trim_start();
-    set_end(rest, 0).is_some_and(|end| rest[end..].trim().is_empty())
+    set_end(rest, 0).is_some_and(|end| skip_ws(rest, end) == rest.len())
 }
 
 fn set_end(text: &str, idx: usize) -> Option<usize> {
@@ -1065,135 +1172,29 @@ fn string_end(text: &str) -> Option<usize> {
     if bytes.first() != Some(&b'"') {
         return None;
     }
-    let mut idx = 1;
-    while idx < bytes.len() {
-        if bytes[idx] == b'\\' {
-            idx += 2;
-            continue;
-        }
-        if bytes[idx] == b'"' {
-            return Some(idx + 1);
-        }
-        idx += 1;
+    let mut scan = CodeScan::default();
+    let mut idx = 0;
+    while idx < bytes.len() && (idx == 0 || scan.string) {
+        idx = scan.step(bytes, idx);
     }
-    None
+    if scan.string { None } else { Some(idx) }
 }
 
 /// End of a code group. A `#` in code is rejected; a `#` inside a content
-/// block, string, or raw span is kept. Typst reports `#set` inside `(...)`
-/// as "the character `#` is not valid in code".
+/// block, string, raw span, or comment is kept. Typst reports `#set`
+/// inside `(...)` as "the character `#` is not valid in code".
 fn code_group_end(text: &str, open_idx: usize) -> Option<usize> {
-    let bytes = text.as_bytes();
-    let open = *bytes.get(open_idx)?;
-    let close = match open {
-        b'(' => b')',
-        b'{' => b'}',
-        _ => return None,
-    };
-    let mut depth = 0i32;
-    let mut idx = open_idx;
-    let mut string = false;
-    while idx < bytes.len() {
-        let byte = bytes[idx];
-        if string {
-            if byte == b'\\' && idx + 1 < bytes.len() {
-                idx += 2;
-                continue;
-            }
-            if byte == b'"' {
-                string = false;
-            }
-            idx += 1;
-            continue;
-        }
-        if byte == b'`' {
-            idx = raw_end(bytes, idx);
-            continue;
-        }
-        if byte == b'"' {
-            string = true;
-            idx += 1;
-            continue;
-        }
-        if byte == b'[' {
-            idx = skip_group(text, idx)?;
-            continue;
-        }
-        if byte == b'#' {
-            return None;
-        }
-        if byte == open {
-            depth += 1;
-            idx += 1;
-            continue;
-        }
-        if byte == close {
-            depth -= 1;
-            idx += 1;
-            if depth == 0 {
-                return Some(idx);
-            }
-            continue;
-        }
-        if byte == b'(' || byte == b'{' {
-            idx = code_group_end(text, idx)?;
-            continue;
-        }
-        idx += 1;
+    match text.as_bytes().get(open_idx).copied() {
+        Some(b'(' | b'{') => group_end(text, open_idx, true),
+        _ => None,
     }
-    None
 }
 
 fn skip_group(text: &str, open_idx: usize) -> Option<usize> {
-    let bytes = text.as_bytes();
-    let open = *bytes.get(open_idx)?;
-    let close = match open {
-        b'(' => b')',
-        b'[' => b']',
-        b'{' => b'}',
-        _ => return None,
-    };
-    let mut depth = 0i32;
-    let mut idx = open_idx;
-    let mut string = false;
-    while idx < bytes.len() {
-        let byte = bytes[idx];
-        if string {
-            if byte == b'\\' && idx + 1 < bytes.len() {
-                idx += 2;
-                continue;
-            }
-            if byte == b'"' {
-                string = false;
-            }
-            idx += 1;
-            continue;
-        }
-        if byte == b'"' {
-            string = true;
-            idx += 1;
-            continue;
-        }
-        if byte == b'`' {
-            idx = raw_end(bytes, idx);
-            continue;
-        }
-        if byte == open {
-            depth += 1;
-            idx += 1;
-            continue;
-        }
-        if byte == close {
-            depth -= 1;
-            idx += 1;
-            if depth == 0 {
-                return Some(idx);
-            }
-            continue;
-        }
-        idx += 1;
+    match text.as_bytes().get(open_idx).copied() {
+        Some(b'(' | b'[' | b'{') => group_end(text, open_idx, false),
+        _ => None,
     }
-    None
 }
 
 /// End of a Typst number, including a real unit suffix (`pt`, `em`, `%`).
@@ -1271,9 +1272,32 @@ fn unit_len(text: &str) -> Option<usize> {
 }
 
 fn skip_ws(text: &str, idx: usize) -> usize {
-    text[idx..]
-        .find(|c: char| !c.is_whitespace())
-        .map_or(text.len(), |offset| idx + offset)
+    let bytes = text.as_bytes();
+    let mut scan = CodeScan::default();
+    let mut i = idx;
+    while i < bytes.len() {
+        if scan.line_comment || scan.block_comment > 0 {
+            let next = scan.step(bytes, i);
+            if next == i {
+                break;
+            }
+            i = next;
+            continue;
+        }
+        let Some(ch) = text[i..].chars().next() else {
+            break;
+        };
+        if ch.is_whitespace() {
+            i += ch.len_utf8();
+            continue;
+        }
+        if bytes[i] == b'/' && matches!(bytes.get(i + 1), Some(&b'/') | Some(&b'*')) {
+            i = scan.step(bytes, i);
+            continue;
+        }
+        break;
+    }
+    i
 }
 
 /// Length of a Typst identifier. A hyphen is part of the name when a
@@ -1680,6 +1704,20 @@ See the sample. Next sentence.
         assert_text(
             "#set text(size: 12pt)\n#let ieee( bring the figures.\n",
             Format::Typst,
+        );
+    }
+
+    #[test]
+    fn charged_ieee_lib_scores_from_content_without_a_typ_extension() {
+        // MIT-0 @preview/charged-ieee:0.1.4 lib.typ. A // comment in the
+        // caption block carries a URL fragment `#discussion_r...`. The
+        // path has no extension, so the `.typ` suffix cannot decide.
+        let src = include_str!("../tests/fixtures/charged-ieee-lib.typ");
+        assert!(src.contains("#discussion_r2112947947"));
+        assert_eq!(Format::detect(None, src), Format::Typst);
+        assert_eq!(
+            Format::detect(Some(Path::new("charged-ieee/lib")), src),
+            Format::Typst
         );
     }
 
