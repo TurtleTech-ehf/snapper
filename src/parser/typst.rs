@@ -184,8 +184,23 @@ impl FormatParser for TypstParser {
         while i < lines.len() {
             let line = lines[i];
 
-            // A raw span stays one piece, including the newline and any
-            // indentation inside it. The next line is not a heading or a list.
+            // A raw that opened on a code or structure line is still open.
+            // `Depth::feed` stored the backtick count, and the code-line
+            // paths used to drop it. The following lines are inside that
+            // raw, so they stay source bytes: a sentence break would change
+            // the Typst text, including a ``` closer that must not become
+            // a fence.
+            if depth.raw.is_some() && prose.is_empty() {
+                depth.feed(line.text);
+                regions.push(SpannedRegion::structure(input, line.span()));
+                sync_raw_carry(&depth, &mut carry);
+                i += 1;
+                continue;
+            }
+
+            // A raw span that opened in prose stays one piece, including
+            // the newline and any indentation inside it. The next line is
+            // not a heading or a list.
             if carry.raw.is_some() {
                 extend_open_raw(
                     &mut prose,
@@ -228,6 +243,7 @@ impl FormatParser for TypstParser {
                     &mut regions,
                 );
                 depth.feed(line.text);
+                sync_raw_carry(&depth, &mut carry);
                 regions.push(SpannedRegion::structure(input, line.span()));
                 i += 1;
                 continue;
@@ -259,6 +275,7 @@ impl FormatParser for TypstParser {
                     &mut regions,
                 );
                 depth.feed(line.text);
+                sync_raw_carry(&depth, &mut carry);
                 regions.push(SpannedRegion::structure(input, line.span()));
                 i += 1;
                 continue;
@@ -305,6 +322,7 @@ impl FormatParser for TypstParser {
                     &mut regions,
                 );
                 depth.feed(line.text);
+                sync_raw_carry(&depth, &mut carry);
                 regions.push(SpannedRegion::structure(input, line.span()));
                 i += 1;
                 continue;
@@ -365,6 +383,7 @@ impl FormatParser for TypstParser {
                     &mut carry,
                     &mut regions,
                 );
+                note_unclosed_markup_raw(line.text, &mut depth, &mut carry);
                 regions.push(SpannedRegion::structure(input, line.span()));
                 i += 1;
                 continue;
@@ -381,6 +400,7 @@ impl FormatParser for TypstParser {
                     &mut regions,
                 );
                 depth.feed(line.text);
+                sync_raw_carry(&depth, &mut carry);
                 regions.push(SpannedRegion::structure(input, line.span()));
                 i += 1;
                 continue;
@@ -397,6 +417,7 @@ impl FormatParser for TypstParser {
                     &mut regions,
                 );
                 depth.feed(line.text);
+                sync_raw_carry(&depth, &mut carry);
                 regions.push(SpannedRegion::structure(input, line.span()));
                 i += 1;
                 continue;
@@ -546,6 +567,27 @@ impl FormatParser for TypstParser {
         );
         regions
     }
+}
+
+/// Keep `carry` aligned with a raw that `depth` left open.
+///
+/// Code and structure lines are emitted whole, then the next line is
+/// classified from scratch. Without this, the backtick count dies with
+/// the line and the raw's next line is prose.
+fn sync_raw_carry(depth: &Depth, carry: &mut LineCarry) {
+    carry.raw = depth.raw;
+    if depth.raw.is_some() {
+        carry.hard_break = false;
+    }
+}
+
+/// A heading is structure, so `Depth::feed` does not see it. A raw that
+/// starts there still runs through the following lines.
+fn note_unclosed_markup_raw(line: &str, depth: &mut Depth, carry: &mut LineCarry) {
+    if depth.raw.is_none() {
+        depth.raw = line_carry(line, None).raw;
+    }
+    sync_raw_carry(depth, carry);
 }
 
 fn flush_open(
@@ -1713,6 +1755,110 @@ mod tests {
         let odd_out = format_text(odd, &cfg).unwrap();
         assert_eq!(odd_out, odd);
         assert!(oracle::matches(Format::Typst, odd, &odd_out), "{odd_out}");
+    }
+
+    fn assert_raw_on_code_line(input: &str, expected: &str, raw: &str) {
+        let cfg = FormatConfig {
+            format: Format::Typst,
+            ..Default::default()
+        }
+        .without_safety_backstops();
+        let out = format_text(input, &cfg).unwrap();
+        assert_eq!(out, expected, "{out}");
+        assert!(out.contains(raw), "raw bytes changed:\n{out}");
+        assert_eq!(format_text(&out, &cfg).unwrap(), out, "not idempotent");
+        assert!(oracle::matches(Format::Typst, input, &out), "{out}");
+        assert_typst_same(input, &out);
+    }
+
+    #[test]
+    fn let_single_backtick_raw_stays_byte_identical() {
+        let raw = "`Dr. Smith arrived.\nHe left early. He came back later.`";
+        let input = concat!(
+            "#let s = `Dr. Smith arrived.\n",
+            "He left early. He came back later.`\n",
+            "#s\n",
+            "\n",
+            "After the raw. Another sentence.\n",
+        );
+        let expected = concat!(
+            "#let s = `Dr. Smith arrived.\n",
+            "He left early. He came back later.`\n",
+            "#s\n",
+            "\n",
+            "After the raw.\n",
+            "Another sentence.\n",
+        );
+        assert_raw_on_code_line(input, expected, raw);
+    }
+
+    #[test]
+    fn let_block_raw_stays_byte_identical() {
+        let raw = "```\nDr. Smith arrived.\nHe left early. He came back later.\n```";
+        let input = concat!(
+            "#let s = ```\n",
+            "Dr. Smith arrived.\n",
+            "He left early. He came back later.\n",
+            "```\n",
+            "#s\n",
+            "\n",
+            "After the raw. Another sentence.\n",
+        );
+        let expected = concat!(
+            "#let s = ```\n",
+            "Dr. Smith arrived.\n",
+            "He left early. He came back later.\n",
+            "```\n",
+            "#s\n",
+            "\n",
+            "After the raw.\n",
+            "Another sentence.\n",
+        );
+        assert_raw_on_code_line(input, expected, raw);
+    }
+
+    #[test]
+    fn emph_raw_stays_byte_identical() {
+        let raw = "`Dr. Smith arrived.\nHe left early. He came back later.`";
+        let input = concat!(
+            "#emph[`Dr. Smith arrived.\n",
+            "He left early. He came back later.`]\n",
+            "\n",
+            "After the call. Another sentence.\n",
+        );
+        let expected = concat!(
+            "#emph[`Dr. Smith arrived.\n",
+            "He left early. He came back later.`]\n",
+            "\n",
+            "After the call.\n",
+            "Another sentence.\n",
+        );
+        assert_raw_on_code_line(input, expected, raw);
+    }
+
+    #[test]
+    fn figure_caption_raw_stays_byte_identical() {
+        let raw = "`Dr. Smith arrived.\n  He left early. He came back later.`";
+        let input = concat!(
+            "#figure(\n",
+            "  rect[Diagram],\n",
+            "  caption: [`Dr. Smith arrived.\n",
+            "  He left early. He came back later.`],\n",
+            ")\n",
+            "\n",
+            "After the figure. Another sentence.\n",
+        );
+        let expected = concat!(
+            "#figure(\n",
+            "  rect[Diagram],\n",
+            "  caption: [`Dr. Smith arrived.\n",
+            "  He left early. He came back later.`],\n",
+            ")\n",
+            "\n",
+            "After the figure.\n",
+            "Another sentence.\n",
+        );
+        assert_raw_on_code_line(input, expected, raw);
     }
 
     /// Compile `input` and `output` with Typst 0.15.1 when that binary is on
