@@ -313,7 +313,12 @@ fn detect_format_heuristic(input: &str) -> Format {
         return Format::Markdown;
     }
 
-    if lines.iter().any(|l| typst_statement_line(l)) {
+    // A heading-less file needs one strong statement outside a fence.
+    // Hyphenated words and fenced lines are not statements.
+    if lines_outside_fences(&lines)
+        .iter()
+        .any(|l| typst_statement_line(l))
+    {
         return Format::Typst;
     }
 
@@ -328,9 +333,11 @@ fn detect_format_heuristic(input: &str) -> Format {
     Format::Plaintext
 }
 
-/// `#let name =`, `#let ieee(`, `#set text(`, `#show heading.where(...):`.
+/// `#let name =`, `#let ieee(`, `#set text(`, `#show heading.where(...):`,
+/// or `#import "file.typ"`.
 ///
-/// A prose mention such as `#let me explain` is not a statement.
+/// The keyword has to end on a real boundary. `#import-export` is one
+/// identifier, and `#include <stdio.h>` is not a Typst include.
 fn typst_statement_line(line: &str) -> bool {
     let t = line.trim_start();
     if let Some(rest) = keyword_rest(t, "#let") {
@@ -352,9 +359,93 @@ fn typst_statement_line(line: &str) -> bool {
     if let Some(rest) = keyword_rest(t, "#show") {
         return show_rule(rest);
     }
-    keyword_rest(t, "#import").is_some()
-        || keyword_rest(t, "#include").is_some()
-        || keyword_rest(t, "#context").is_some()
+    if quoted_module_line(t) {
+        return true;
+    }
+    context_expr(t)
+}
+
+/// `#import "path"` / `#include "path"`, with whitespace then a quote.
+fn quoted_module_line(line: &str) -> bool {
+    let rest = if let Some(rest) = line.strip_prefix("#import") {
+        rest
+    } else if let Some(rest) = line.strip_prefix("#include") {
+        rest
+    } else {
+        return false;
+    };
+    let Some(rest) = rest.strip_prefix(|c: char| c.is_whitespace()) else {
+        return false;
+    };
+    rest.trim_start().starts_with('"')
+}
+
+/// `#context { ... }` or `#context counter(page)`, not `#context opens`.
+fn context_expr(line: &str) -> bool {
+    let Some(rest) = keyword_rest(line, "#context") else {
+        return false;
+    };
+    let rest = rest.trim_start();
+    if rest.starts_with(['(', '[', '{']) {
+        return true;
+    }
+    let Some(n) = ident_len(rest) else {
+        return false;
+    };
+    let after = rest[n..].trim_start();
+    after.starts_with('(') || after.starts_with('.')
+}
+
+struct OpenFence {
+    marker: u8,
+    len: usize,
+}
+
+/// Lines from `lines` that are not inside a ``` or ~~~ fence.
+///
+/// The info string is ignored, so ```typst is still a fence. A `#let` or
+/// `#show` on a fenced line does not decide the file.
+fn lines_outside_fences<'a>(lines: &[&'a str]) -> Vec<&'a str> {
+    let mut out = Vec::new();
+    let mut open: Option<OpenFence> = None;
+    for line in lines {
+        if let Some(fence) = &open {
+            if fence_closes(line, fence) {
+                open = None;
+            }
+            continue;
+        }
+        if let Some(fence) = fence_opens(line) {
+            open = Some(fence);
+            continue;
+        }
+        out.push(*line);
+    }
+    out
+}
+
+fn fence_opens(line: &str) -> Option<OpenFence> {
+    let t = line.trim();
+    let bytes = t.as_bytes();
+    let marker = *bytes.first()?;
+    if marker != b'`' && marker != b'~' {
+        return None;
+    }
+    let len = bytes.iter().take_while(|&&b| b == marker).count();
+    if len < 3 {
+        return None;
+    }
+    let info = t[len..].trim_end();
+    if marker == b'`' && info.contains('`') {
+        return None;
+    }
+    Some(OpenFence { marker, len })
+}
+
+fn fence_closes(line: &str, open: &OpenFence) -> bool {
+    let t = line.trim();
+    let bytes = t.as_bytes();
+    bytes.len() >= open.len && bytes.iter().all(|&b| b == open.marker)
 }
 
 /// `#show: body` or `#show <selector>: body`, where the selector may be
@@ -432,12 +523,14 @@ fn skip_paren_group(text: &str, open: usize) -> Option<usize> {
     None
 }
 
+/// Rest of `line` after `keyword`, when the next character is a Typst
+/// boundary: whitespace, `(`, or `:`. A hyphen continues the identifier
+/// (`#import-export`, `#context-menu`), so it is not a boundary.
 fn keyword_rest<'a>(line: &'a str, keyword: &str) -> Option<&'a str> {
     let rest = line.strip_prefix(keyword)?;
-    if rest.starts_with(|c: char| c.is_ascii_alphanumeric() || c == '_') {
-        None
-    } else {
-        Some(rest)
+    match rest.chars().next() {
+        Some(c) if c.is_whitespace() || c == '(' || c == ':' => Some(rest),
+        _ => None,
     }
 }
 
@@ -859,5 +952,77 @@ The binding #let script-size = 1pt is just an example.
 ) = {}
 ";
         assert_eq!(detect_format_heuristic(mixed), Format::Markdown);
+    }
+
+    #[test]
+    fn hyphenated_hash_words_are_not_typst() {
+        assert_eq!(
+            detect_format_heuristic("#import-export is the tag. More follows.\n"),
+            Format::Plaintext
+        );
+        assert_eq!(
+            detect_format_heuristic("#context-menu opens on right click.\n"),
+            Format::Plaintext
+        );
+        assert_eq!(
+            detect_format_heuristic("#include <stdio.h>\nint main;\n"),
+            Format::Plaintext
+        );
+        assert_eq!(
+            detect_format_heuristic("#include<stdio.h>\nint main;\n"),
+            Format::Plaintext
+        );
+        assert_eq!(
+            detect_format_heuristic("#context opens on right click. Next.\n"),
+            Format::Plaintext
+        );
+    }
+
+    #[test]
+    fn fenced_code_does_not_decide_typst() {
+        let c_fence = "\
+```c
+#include <stdio.h>
+#include<stdio.h>
+int main(void) { return 0; }
+```
+Run the program. Then stop.
+";
+        assert_eq!(detect_format_heuristic(c_fence), Format::Plaintext);
+
+        let tilde = "\
+~~~c
+#let ieee(
+~~~
+See the sample. Next sentence.
+";
+        assert_eq!(detect_format_heuristic(tilde), Format::Plaintext);
+
+        let typst_fence = "\
+```typst
+#let ieee(
+#show heading.where(level: 1): it => it
+#show notes: it => it
+```
+See the sample. Next sentence.
+";
+        assert_eq!(detect_format_heuristic(typst_fence), Format::Plaintext);
+
+        let show_fence = "\
+```
+#show notes: it => it
+```
+Hello world. This stays prose.
+";
+        assert_eq!(detect_format_heuristic(show_fence), Format::Plaintext);
+
+        // A real statement outside the fence still counts.
+        let outside = "\
+```c
+#include <stdio.h>
+```
+#let script-size = 7.97224pt
+";
+        assert_eq!(detect_format_heuristic(outside), Format::Typst);
     }
 }
