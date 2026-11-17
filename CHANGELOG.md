@@ -7,6 +7,8 @@ All notable changes to this project will be documented in this file. See [conven
 - (**cli** / **check**) `--changed` limits check, diff, and reflow to paragraphs that contain a line added or modified since a git ref
 - (**config**) `[[path]]` rules set width, breaks, abbreviations, format, and ignore for the first matching glob
 - (**asciidoc**) native reflow for `.adoc`, `.asciidoc`, and `.asc`, including lists, admonitions, and example interiors
+#### Bug Fixes
+- (**cli** / **check**) `--changed` diffs the merge base, literal pathspecs, and keeps CRLF
 
 - - -
 ## v0.11.10 - 2026-10-11

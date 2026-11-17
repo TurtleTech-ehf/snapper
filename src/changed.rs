@@ -1,11 +1,14 @@
 //! Diff-aware `--changed`: reflow and check only paragraphs that contain
 //! a line git considers added or modified.
 //!
-//! The comparison is `git diff -U0 <ref>` against the work tree, plus
-//! untracked files. A paragraph is a run of non-blank lines. Editing one
-//! line of a paragraph reflows that paragraph, because a sentence break
-//! moves the lines around it. Paragraphs with no added or modified line
-//! stay byte for byte.
+//! The comparison is `git diff -U0` against the merge base of `<ref>` and
+//! `HEAD` (so `<ref>` itself is `HEAD` when the flag is omitted). Diffs
+//! pass `--no-ext-diff` and `:(literal)` pathspecs, and a rename is diffed
+//! from both sides so the new path is not reported as a brand-new file.
+//! A paragraph is a run of non-blank lines. Editing one line of a
+//! paragraph reflows that paragraph, because a sentence break moves the
+//! lines around it. Paragraphs with no added or modified line stay byte
+//! for byte, including their newline style.
 
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
@@ -111,20 +114,23 @@ pub fn reflow_touch(input: &str, config: &FormatConfig, touch: &Touch) -> Result
 pub fn changed_prose_files(base: &str) -> Result<Vec<PathBuf>> {
     validate_ref(base)?;
     let top = toplevel(&std::env::current_dir().context("failed to read the working directory")?)?;
+    let base = comparison_base(&top, base)?;
     let mut names = BTreeSet::new();
     let diff = git(
         &top,
-        &[
+        [
             "diff",
             "-z",
             "--name-only",
             "--diff-filter=ACMR",
             "--find-renames",
-            base,
+            "--no-ext-diff",
+            "--no-color",
+            &base,
         ],
     )?;
     names.extend(null_split(&diff));
-    let untracked = git(&top, &["ls-files", "-z", "--others", "--exclude-standard"])?;
+    let untracked = git(&top, ["ls-files", "-z", "--others", "--exclude-standard"])?;
     names.extend(null_split(&untracked));
     let mut paths = Vec::new();
     for name in names {
@@ -148,25 +154,38 @@ pub fn touch_for_path(base: &str, path: &Path) -> Result<Touch> {
     let top = toplevel(start)?;
     let rel = repo_relative(&abs, &top)?;
     let rel_s = rel.to_string_lossy().replace('\\', "/");
-    let diff = git(
+    let base = comparison_base(&top, base)?;
+    let raw = git(
         &top,
-        &[
+        [
             "diff",
-            "-U0",
-            "--no-color",
+            "--raw",
+            "-z",
             "--find-renames",
-            base,
-            "--",
-            &rel_s,
+            "--no-ext-diff",
+            "--no-color",
+            &base,
         ],
     )?;
+    let specs = pathspecs_for(&parse_raw_z(&raw), &rel_s);
+    let mut args = vec![
+        "diff".to_string(),
+        "-U0".to_string(),
+        "--no-color".to_string(),
+        "--no-ext-diff".to_string(),
+        "--find-renames".to_string(),
+        base.clone(),
+        "--".to_string(),
+    ];
+    args.extend(specs);
+    let diff = git(&top, args)?;
     if diff_has_file(&diff) {
         if diff.contains("Binary files") && !diff.contains("@@") {
             return Ok(Touch::All);
         }
         return Ok(Touch::Lines(added_lines(&diff)));
     }
-    if exists_at_ref(&top, base, &rel_s)? {
+    if exists_at_ref(&top, &base, &rel_s)? {
         Ok(Touch::Lines(Vec::new()))
     } else {
         Ok(Touch::All)
@@ -204,7 +223,7 @@ fn validate_ref(base: &str) -> Result<()> {
 }
 
 fn toplevel(start: &Path) -> Result<PathBuf> {
-    let stdout = git(start, &["rev-parse", "--show-toplevel"]).with_context(|| {
+    let stdout = git(start, ["rev-parse", "--show-toplevel"]).with_context(|| {
         format!(
             "not a git repository (needed for --changed; looked from {})",
             start.display()
@@ -230,16 +249,102 @@ fn exists_at_ref(top: &Path, base: &str, rel: &str) -> Result<bool> {
     Ok(output.status.success())
 }
 
-fn git(dir: &Path, args: &[&str]) -> Result<String> {
+/// Commit `git diff` should use: the merge base of `requested` and `HEAD`.
+///
+/// `merge-base HEAD HEAD` is `HEAD`, so the default ref still diffs the
+/// work tree against the current commit. A branch that has not touched a
+/// file does not inherit commits that landed only on the other ref.
+fn comparison_base(top: &Path, requested: &str) -> Result<String> {
+    let stdout = git(top, ["merge-base", requested, "HEAD"])?;
+    let base = stdout.trim();
+    if base.is_empty() || base.chars().any(|c| c.is_whitespace() || c == '\0') {
+        bail!("git merge-base {requested} HEAD returned no commit");
+    }
+    Ok(base.to_string())
+}
+
+struct RawChange {
+    old: String,
+    new: String,
+}
+
+/// `git diff --raw -z` records. A rename or copy is `meta\0old\0new\0`.
+/// Every other status is `meta\0path\0`.
+fn parse_raw_z(data: &str) -> Vec<RawChange> {
+    let parts: Vec<&str> = data.split('\0').collect();
+    let mut index = 0;
+    let mut out = Vec::new();
+    while index < parts.len() {
+        let meta = parts[index];
+        if meta.is_empty() {
+            index += 1;
+            continue;
+        }
+        if !meta.starts_with(':') {
+            break;
+        }
+        let status = meta.split_whitespace().next_back().unwrap_or("");
+        let code = status.chars().next().unwrap_or('?');
+        if code == 'R' || code == 'C' {
+            if index + 2 >= parts.len() {
+                break;
+            }
+            out.push(RawChange {
+                old: parts[index + 1].to_string(),
+                new: parts[index + 2].to_string(),
+            });
+            index += 3;
+        } else if index + 1 < parts.len() {
+            let path = parts[index + 1].to_string();
+            out.push(RawChange {
+                old: path.clone(),
+                new: path,
+            });
+            index += 2;
+        } else {
+            break;
+        }
+    }
+    out
+}
+
+/// Pathspecs for `rel`. A rename is diffed from both names: the new path
+/// alone is a new file, so every line looks added.
+fn pathspecs_for(changes: &[RawChange], rel: &str) -> Vec<String> {
+    if let Some(change) = changes
+        .iter()
+        .find(|change| change.new == rel || change.old == rel)
+    {
+        if change.old != change.new {
+            return vec![literal_pathspec(&change.old), literal_pathspec(&change.new)];
+        }
+    }
+    vec![literal_pathspec(rel)]
+}
+
+/// `note[1].md` is a character class to git unless the pathspec is literal.
+fn literal_pathspec(path: &str) -> String {
+    format!(":(literal){path}")
+}
+
+fn git<I, S>(dir: &Path, args: I) -> Result<String>
+where
+    I: IntoIterator<Item = S>,
+    S: AsRef<str>,
+{
+    let stored: Vec<String> = args
+        .into_iter()
+        .map(|arg| arg.as_ref().to_string())
+        .collect();
     let output = Command::new("git")
         .arg("-C")
         .arg(dir)
-        .args(args)
+        .args(&stored)
         .output()
-        .with_context(|| format!("failed to run git {}", args.join(" ")))?;
+        .with_context(|| format!("failed to run git {}", stored.join(" ")))?;
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
-        bail!("git {} failed: {}", args.join(" "), stderr.trim());
+        bail!("git {} failed: {}", stored.join(" "), stderr.trim());
     }
     Ok(String::from_utf8_lossy(&output.stdout).into_owned())
 }
@@ -338,6 +443,43 @@ index 111..222 100644
         assert_eq!(
             fixed,
             "Old fused sentence.\nStill old.\n\nFresh sentence.\n"
+        );
+    }
+
+    #[test]
+    fn reflow_touch_keeps_crlf_on_a_partial_edit() {
+        let input = "Old fused sentence. Still old.\r\n\r\nFresh sentence. Now fused.\r\n";
+        let config = crate::FormatConfig {
+            format: Format::Markdown,
+            ..Default::default()
+        };
+        let fixed = reflow_touch(input, &config, &Touch::Lines(vec![3])).unwrap();
+        assert_eq!(
+            fixed,
+            "Old fused sentence. Still old.\r\n\r\nFresh sentence.\r\nNow fused.\r\n"
+        );
+    }
+
+    #[test]
+    fn raw_diff_pairs_a_rename_and_keeps_a_modify() {
+        let data =
+            ":100644 100644 aaa bbb R100\0old.md\0new.md\0:100644 100644 ccc ddd M\0note[1].md\0";
+        let changes = parse_raw_z(data);
+        assert_eq!(changes.len(), 2);
+        assert_eq!(changes[0].old, "old.md");
+        assert_eq!(changes[0].new, "new.md");
+        assert_eq!(changes[1].old, "note[1].md");
+        let specs = pathspecs_for(&changes, "new.md");
+        assert_eq!(
+            specs,
+            vec![
+                ":(literal)old.md".to_string(),
+                ":(literal)new.md".to_string()
+            ]
+        );
+        assert_eq!(
+            pathspecs_for(&changes, "note[1].md"),
+            vec![":(literal)note[1].md".to_string()]
         );
     }
 }

@@ -125,6 +125,8 @@ With no file arguments, checks stdin (JSON/SARIF on stdout, same exit codes).
 
 Limit =--check=, =--diff=, and reflow to paragraphs that contain a line added or modified since a git ref.
 The ref comes from =--changed-from= and defaults to =HEAD=.
+The comparison uses the merge base of that ref and HEAD.
+A commit that exists only on the ref is not a local edit.
 With no file arguments, the paths come from =git diff= and from untracked prose files.
 A file that does not exist at the ref is checked in full.
 A paragraph with no added or modified line is left as it is, including a paragraph that would fail a whole-file check.

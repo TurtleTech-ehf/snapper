@@ -35,6 +35,12 @@ fn init_repo(dir: &Path) {
         "git init: {}",
         String::from_utf8_lossy(&init.stderr)
     );
+    let crlf = git(dir, &["config", "core.autocrlf", "false"]);
+    assert!(
+        crlf.status.success(),
+        "git config: {}",
+        String::from_utf8_lossy(&crlf.stderr)
+    );
 }
 
 fn commit_all(dir: &Path, message: &str) {
@@ -197,5 +203,161 @@ fn a_ref_git_cannot_resolve_is_an_error() {
     assert!(
         stderr.contains("error:"),
         "expected a git error, got {stderr}"
+    );
+}
+
+#[test]
+fn a_rename_does_not_reflow_the_untouched_paragraph() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    init_repo(root);
+    fs::write(
+        root.join("old.md"),
+        "Old fused sentence. Still old.\n\nFresh sentence.\n",
+    )
+    .unwrap();
+    commit_all(root, "base");
+    let moved = git(root, &["mv", "old.md", "new.md"]);
+    assert!(
+        moved.status.success(),
+        "git mv: {}",
+        String::from_utf8_lossy(&moved.stderr)
+    );
+    let pure = run(root, &["--check", "--changed", "new.md"]);
+    assert!(
+        pure.status.success(),
+        "a pure rename is not a new file: {}",
+        String::from_utf8_lossy(&pure.stderr)
+    );
+
+    fs::write(
+        root.join("new.md"),
+        "Old fused sentence. Still old.\n\nFresh sentence. Now fused.\n",
+    )
+    .unwrap();
+    let write = run(root, &["--in-place", "--changed", "new.md"]);
+    assert!(
+        write.status.success(),
+        "{}",
+        String::from_utf8_lossy(&write.stderr)
+    );
+    assert_eq!(
+        fs::read_to_string(root.join("new.md")).unwrap(),
+        "Old fused sentence. Still old.\n\nFresh sentence.\nNow fused.\n"
+    );
+}
+
+#[test]
+fn changed_from_uses_the_merge_base() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    init_repo(root);
+    fs::write(root.join("notes.md"), "Fused sentence. Still fused.\n").unwrap();
+    commit_all(root, "base");
+    let branch = git(root, &["checkout", "-b", "feature"]);
+    assert!(
+        branch.status.success(),
+        "{}",
+        String::from_utf8_lossy(&branch.stderr)
+    );
+    let back = git(root, &["checkout", "main"]);
+    assert!(
+        back.status.success(),
+        "{}",
+        String::from_utf8_lossy(&back.stderr)
+    );
+    fs::write(root.join("notes.md"), "Split sentence.\nStill split.\n").unwrap();
+    commit_all(root, "split");
+    let feature = git(root, &["checkout", "feature"]);
+    assert!(
+        feature.status.success(),
+        "{}",
+        String::from_utf8_lossy(&feature.stderr)
+    );
+
+    let check = run(
+        root,
+        &["--check", "--changed", "--changed-from", "main", "notes.md"],
+    );
+    assert!(
+        check.status.success(),
+        "the branch did not edit notes.md: {}",
+        String::from_utf8_lossy(&check.stderr)
+    );
+}
+
+#[test]
+fn in_place_changed_keeps_crlf() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    init_repo(root);
+    let paper = root.join("paper.md");
+    fs::write(
+        &paper,
+        "Old fused sentence. Still old.\r\n\r\nFresh sentence.\r\n",
+    )
+    .unwrap();
+    commit_all(root, "base");
+    fs::write(
+        &paper,
+        "Old fused sentence. Still old.\r\n\r\nFresh sentence. Now fused.\r\n",
+    )
+    .unwrap();
+    let write = run(root, &["--in-place", "--changed", "paper.md"]);
+    assert!(
+        write.status.success(),
+        "{}",
+        String::from_utf8_lossy(&write.stderr)
+    );
+    assert_eq!(
+        fs::read_to_string(&paper).unwrap(),
+        "Old fused sentence. Still old.\r\n\r\nFresh sentence.\r\nNow fused.\r\n"
+    );
+}
+
+#[test]
+fn a_bracket_name_does_not_take_another_files_hunk() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    init_repo(root);
+    fs::write(
+        root.join("note[1].md"),
+        "Line one is fine.\n\nTwo sentences. On one line.\n",
+    )
+    .unwrap();
+    fs::write(root.join("note1.md"), "Hello.\n\nWorld.\n").unwrap();
+    commit_all(root, "base");
+    fs::write(root.join("note1.md"), "Hello.\n\nWorld changed.\n").unwrap();
+
+    let check = run(root, &["--check", "--changed", "note[1].md"]);
+    assert!(
+        check.status.success(),
+        "note[1].md was not edited: {}",
+        String::from_utf8_lossy(&check.stderr)
+    );
+}
+
+#[test]
+fn an_external_diff_driver_does_not_hide_the_edit() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    init_repo(root);
+    fs::write(root.join(".gitattributes"), "*.md diff=nodiff\n").unwrap();
+    let cfg = git(root, &["config", "diff.nodiff.command", "true"]);
+    assert!(
+        cfg.status.success(),
+        "git config: {}",
+        String::from_utf8_lossy(&cfg.stderr)
+    );
+    fs::write(root.join("paper.md"), "Already fine.\n").unwrap();
+    commit_all(root, "base");
+    fs::write(root.join("paper.md"), "Already fine. Now fused.\n").unwrap();
+
+    let check = run(root, &["--check", "--changed", "paper.md"]);
+    assert_eq!(
+        check.status.code(),
+        Some(1),
+        "the fused edit must still fail: {}",
+        String::from_utf8_lossy(&check.stderr)
     );
 }

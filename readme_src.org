@@ -107,6 +107,7 @@ snapper --check --changed
 snapper --check --changed --changed-from origin/main
 #+end_src
 With no file arguments, =--changed= reads =git diff= and untracked prose files.
+The ref is compared through its merge base with HEAD.
 An edit inside a paragraph reflows that paragraph.
 A paragraph nobody has touched is left as it is.
 Limit line width (wrap long sentences at word boundaries):
@@ -169,7 +170,7 @@ Configuration guide (org source in-tree): =docs/orgmode/howto/mcp-integration.or
 | Markdown  | =.md=, =.markdown=     | Front matter, HTML; fenced blocks comment reflow when configured |
 | RST       | =.rst=                 | Directives, literals; =.. code-block::= comment reflow         |
 | Typst     | =.typ=                 | Headings, math, raw fences; =#set= / =#let= stay code; list bodies reflow |
-| AsciiDoc  | =.adoc=, =.asciidoc=, =.asc= | Headings, attributes, listings, and macros stay; list bodies and example interiors reflow |
+| AsciiDoc  | =.adoc=, =.asciidoc= | Headings, attributes, listings, and macros stay; list bodies and example interiors reflow |
 | Plaintext | =.txt=                 | (none; all text treated as prose). Unknown extensions are refused unless =--format= is set |
 ** Pre-commit hook
 :PROPERTIES:

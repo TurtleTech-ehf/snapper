@@ -57,7 +57,7 @@ Semantic line break formatter
   Default value: `auto`
 * `--check` — Exit with code 1 if any file would change
 * `--changed` — Limit `--check`, `--diff`, and reflow to paragraphs that contain a line added or modified since the `--changed-from` ref. With no file arguments, the paths come from `git diff` and untracked prose files. A file missing at the base ref is checked in full. Untouched paragraphs stay as they are
-* `--changed-from <REV>` — Git ref `--changed` compares against. Defaults to `HEAD`. Ignored unless `--changed` is set
+* `--changed-from <REV>` — Git ref `--changed` compares against. Defaults to `HEAD`. The diff uses the merge base of this ref and `HEAD`. Ignored unless `--changed` is set
 
   Default value: `HEAD`
 * `--strict-long` — Treat advisory `long` diagnostics as `--check` failures

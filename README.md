@@ -143,6 +143,7 @@ Limit that check to paragraphs that contain a line added or modified since a git
     snapper --check --changed --changed-from origin/main
 
 With no file arguments, `--changed` reads `git diff` and untracked prose files.
+The ref is compared through its merge base with HEAD.
 An edit inside a paragraph reflows that paragraph.
 A paragraph nobody has touched is left as it is.
 
@@ -251,7 +252,7 @@ Configuration guide (org source in-tree): `docs/orgmode/howto/mcp-integration.or
 
 <tr>
 <td class="org-left">AsciiDoc</td>
-<td class="org-left"><code>.adoc</code>, <code>.asciidoc</code>, <code>.asc</code></td>
+<td class="org-left"><code>.adoc</code>, <code>.asciidoc</code></td>
 <td class="org-left">Headings, attributes, listings, and macros stay; list bodies and example interiors reflow</td>
 </tr>
 

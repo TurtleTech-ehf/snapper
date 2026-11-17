@@ -151,6 +151,9 @@ pub struct Cli {
     pub changed: bool,
 
     /// Git ref `--changed` compares against. Defaults to `HEAD`.
+    ///
+    /// The diff is taken against the merge base of this ref and `HEAD`,
+    /// so a commit that exists only on the ref is not a local edit.
     /// Ignored unless `--changed` is set.
     #[arg(long, value_name = "REV", default_value = "HEAD")]
     pub changed_from: String,

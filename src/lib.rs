@@ -600,6 +600,12 @@ pub fn format_range(
         }
     }
 
+    // `lines()` drops `\r`. Put CRLF back the way `format_text` does, or a
+    // partial `--in-place --changed` rewrite converts the file to LF.
+    if input.contains("\r\n") {
+        result = result.replace('\n', "\r\n");
+    }
+
     Ok(result)
 }
 
