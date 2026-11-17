@@ -103,3 +103,140 @@ ignore = true
         "expected a format error, got {stderr}"
     );
 }
+
+#[test]
+fn a_relative_path_matches_from_the_config_root() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    fs::write(
+        root.join(".snapperrc.toml"),
+        "[[path]]\nglob = \"docs/**/*.md\"\nmax_width = 20\n",
+    )
+    .unwrap();
+    fs::create_dir_all(root.join("docs")).unwrap();
+    let sentence = "This sentence is definitely wider than twenty characters.\n";
+    fs::write(root.join("docs/note.md"), sentence).unwrap();
+
+    let output = snapper()
+        .current_dir(root.join("docs"))
+        .args(["--native", "note.md"])
+        .output()
+        .expect("failed to run snapper");
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let text = String::from_utf8(output.stdout).unwrap();
+    assert!(
+        text.lines().count() > 1,
+        "docs/note.md must wrap when named from that directory, got {text:?}"
+    );
+}
+
+#[test]
+fn a_broken_config_is_an_error() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    fs::write(root.join(".snapperrc.toml"), "[[path]]\nglob = [\n").unwrap();
+    fs::write(root.join("note.md"), "One sentence.\n").unwrap();
+    let output = run(root, &["note.md"]);
+    assert!(
+        !output.status.success(),
+        "invalid TOML must fail the command"
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.to_lowercase().contains("toml") || stderr.contains("snapperrc"),
+        "expected a config error, got {stderr}"
+    );
+}
+
+#[test]
+fn an_unsupported_glob_warns_without_failing() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    fs::write(
+        root.join(".snapperrc.toml"),
+        "[[path]]\nglob = \"docs/{a,b}/*.md\"\nmax_width = 40\n",
+    )
+    .unwrap();
+    fs::create_dir_all(root.join("docs/a")).unwrap();
+    fs::write(root.join("docs/a/note.md"), "One sentence.\n").unwrap();
+    let output = run(root, &["--native", "docs/a/note.md"]);
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("not fully supported"),
+        "expected a glob warning, got {stderr}"
+    );
+}
+
+#[test]
+fn stdin_filepath_honors_ignore() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    fs::write(
+        root.join(".snapperrc.toml"),
+        "[[path]]\nglob = \"skip/*.md\"\nignore = true\n",
+    )
+    .unwrap();
+    let input = "Two sentences. Here.\n";
+    let mut child = snapper()
+        .current_dir(root)
+        .args(["--check", "--stdin-filepath", "skip/a.md"])
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .expect("failed to spawn snapper");
+    {
+        use std::io::Write;
+        child
+            .stdin
+            .as_mut()
+            .unwrap()
+            .write_all(input.as_bytes())
+            .unwrap();
+    }
+    let check = child.wait_with_output().unwrap();
+    assert!(
+        check.status.success(),
+        "an ignored stdin path must pass --check: {}",
+        String::from_utf8_lossy(&check.stderr)
+    );
+    let stderr = String::from_utf8_lossy(&check.stderr);
+    assert!(
+        !stderr.contains("would reformat"),
+        "ignore must not report the file: {stderr}"
+    );
+
+    let mut child = snapper()
+        .current_dir(root)
+        .args(["--native", "--stdin-filepath", "skip/a.md"])
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .expect("failed to spawn snapper");
+    {
+        use std::io::Write;
+        child
+            .stdin
+            .as_mut()
+            .unwrap()
+            .write_all(input.as_bytes())
+            .unwrap();
+    }
+    let passed = child.wait_with_output().unwrap();
+    assert!(
+        passed.status.success(),
+        "{}",
+        String::from_utf8_lossy(&passed.stderr)
+    );
+    assert_eq!(String::from_utf8(passed.stdout).unwrap(), input);
+}

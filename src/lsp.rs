@@ -69,6 +69,9 @@ impl SnapperLsp {
     }
 
     fn format_document(&self, uri: &Url) -> Option<Vec<TextEdit>> {
+        if self.path_is_ignored(uri) {
+            return None;
+        }
         // Returns None if lock is poisoned (graceful degradation)
         let docs = self.documents.lock().ok()?;
         let (text, format) = docs.get(uri)?;
@@ -78,6 +81,9 @@ impl SnapperLsp {
     }
 
     fn compute_diagnostics(&self, uri: &Url) -> Vec<Diagnostic> {
+        if self.path_is_ignored(uri) {
+            return vec![];
+        }
         let docs = self.documents.lock().expect("document store poisoned");
         let Some((text, format)) = docs.get(uri) else {
             return vec![];
@@ -117,6 +123,14 @@ impl SnapperLsp {
                 }
             })
             .collect()
+    }
+
+    fn path_is_ignored(&self, uri: &Url) -> bool {
+        let Ok(path) = uri.to_file_path() else {
+            return false;
+        };
+        let project = self.project_config.lock().expect("config lock poisoned");
+        project.file_skipped(&path)
     }
 }
 
@@ -1701,5 +1715,37 @@ mod tests {
         assert_eq!(reproduced, "One.\nTwo.\n");
         assert_eq!(reproduced_again, "One.\nTwo.\n");
         assert_eq!(trailing_newlines(&reproduced_again), 1);
+    }
+
+    #[test]
+    fn an_ignored_path_has_no_diagnostics_or_edits() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join(".snapperrc.toml"),
+            "[[path]]\nglob = \"skip/*.md\"\nignore = true\n",
+        )
+        .unwrap();
+        let file = dir.path().join("skip/bad.md");
+        std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+        let text = "Two sentences. Here.\n";
+        std::fs::write(&file, text).unwrap();
+        let uri = Url::from_file_path(&file).unwrap();
+        let (service, _socket) = LspService::new(SnapperLsp::new);
+        let server = service.inner();
+        *server.root_path.lock().expect("root lock") = Some(dir.path().to_path_buf());
+        server.reload_config();
+        server
+            .documents
+            .lock()
+            .expect("docs lock")
+            .insert(uri.clone(), (text.to_string(), Format::Markdown));
+        assert!(
+            server.compute_diagnostics(&uri).is_empty(),
+            "an ignored path must not report diagnostics"
+        );
+        assert!(
+            server.format_document(&uri).is_none(),
+            "an ignored path must not produce a format edit"
+        );
     }
 }

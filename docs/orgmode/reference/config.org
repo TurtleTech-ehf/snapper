@@ -363,9 +363,13 @@ Add an ordered =[[path]]= array to override settings for files that match a glob
 The first matching rule wins.
 Later rules are not consulted.
 Globs are relative to the directory that holds =.snapperrc.toml=.
+A relative path is joined to the working directory and then made relative to that directory.
+A path outside the config directory does not match.
 A pattern with no slash also matches the file name, so =*.md= covers =docs/a.md=.
 =**= crosses directories.
 =*= and =?= stay inside one directory.
+Character classes, braces, escapes, and a =**= that is not its own segment are not matched as written.
+Snapper warns about those patterns when the config is loaded.
 
 #+begin_src toml
 [[path]]
@@ -384,9 +388,10 @@ ignore = true
 #+end_src
 
 Keys that the matching rule leaves unset fall through to the per-format section and then the top-level keys.
-=format= is one of =org=, =latex=, =markdown=, =rst=, =typst=, or =plaintext=.
+=format= is one of =org=, =latex=, =markdown=, =rst=, =typst=, =asciidoc=, or =plaintext=.
 It applies when the command line did not pass =--format=.
 =ignore = true= skips the file during =--check= and =--in-place=, the same way the top-level =ignore= list does.
+The same skip leaves stdin unchanged when =--stdin-filepath= matches, and the language server reports no diagnostics and makes no edits.
 The language server reads the same width, break, abbreviation, and threshold keys.
 It applies them to the buffer path.
 =--stdin-filepath= is the path those rules see when the text arrives on stdin.

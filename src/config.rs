@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 
 use anyhow::Result;
 #[cfg(any(feature = "cli", feature = "watch"))]
@@ -224,6 +224,7 @@ impl ProjectConfig {
                     .join(parent)
             }
         });
+        warn_unsupported_path_globs(&config);
         Ok(config)
     }
 
@@ -311,6 +312,22 @@ impl ProjectConfig {
         self.matching_rule(path).is_some_and(|rule| rule.ignore)
     }
 
+    /// True when a path rule or the top-level `ignore` list skips `path`.
+    pub fn file_skipped(&self, path: &Path) -> bool {
+        if self.path_ignored(path) {
+            return true;
+        }
+        #[cfg(any(feature = "cli", feature = "watch"))]
+        {
+            self.is_ignored(path)
+        }
+        #[cfg(not(any(feature = "cli", feature = "watch")))]
+        {
+            let _ = path;
+            false
+        }
+    }
+
     /// `max_width` from the first matching path rule, else the format value.
     pub fn max_width_for_path(&self, format: &str, path: Option<&Path>) -> Option<usize> {
         if let Some(path) = path {
@@ -370,9 +387,13 @@ impl ProjectConfig {
             }
         };
         if let Some(root) = &self.root {
-            if let Ok(rel) = path.strip_prefix(root) {
-                push(rel);
+            // The config directory is the only base. A cwd-relative guess
+            // matches the wrong file, and a path outside the tree matches none.
+            let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+            if let Some(rel) = path_relative_to_config(root, &cwd, path) {
+                push(Path::new(&rel));
             }
+            return out;
         }
         if let Ok(cwd) = std::env::current_dir() {
             if let Ok(rel) = path.strip_prefix(&cwd) {
@@ -422,6 +443,75 @@ impl ProjectConfig {
             })
         })
     }
+}
+
+/// Path of `path` relative to `root`, after joining a relative `path` onto `cwd`.
+///
+/// `.` and `..` are collapsed without reading the filesystem. `None` means
+/// `path` is `root` itself or lives outside it.
+pub(crate) fn path_relative_to_config(root: &Path, cwd: &Path, path: &Path) -> Option<String> {
+    let absolute = if path.is_absolute() {
+        normalize_lex(path)
+    } else {
+        normalize_lex(&cwd.join(path))
+    };
+    let root = if root.is_absolute() {
+        normalize_lex(root)
+    } else {
+        normalize_lex(&cwd.join(root))
+    };
+    let rel = absolute.strip_prefix(&root).ok()?;
+    if rel.as_os_str().is_empty() {
+        return None;
+    }
+    let text = rel.to_string_lossy().replace('\\', "/");
+    let text = text.trim_start_matches("./").to_string();
+    if text.is_empty() { None } else { Some(text) }
+}
+
+fn normalize_lex(path: &Path) -> PathBuf {
+    let mut out = PathBuf::new();
+    for comp in path.components() {
+        match comp {
+            Component::CurDir => {}
+            Component::ParentDir => {
+                if !out.pop() && !out.has_root() {
+                    out.push("..");
+                }
+            }
+            other => out.push(other.as_os_str()),
+        }
+    }
+    out
+}
+
+fn warn_unsupported_path_globs(config: &ProjectConfig) {
+    for rule in &config.paths {
+        for pattern in rule.patterns() {
+            if let Some(reason) = unsupported_glob_reason(pattern) {
+                eprintln!(
+                    "snapper: [[path]] glob {pattern:?} is not fully supported ({reason}); the rule may not match the files you expect"
+                );
+            }
+        }
+    }
+}
+
+/// `[[path]]` globs understand `*`, `?`, and `**` as its own segment.
+/// Anything else is reported once, from [`ProjectConfig::load`].
+pub(crate) fn unsupported_glob_reason(pattern: &str) -> Option<&'static str> {
+    if pattern
+        .chars()
+        .any(|c| matches!(c, '[' | ']' | '{' | '}' | '\\'))
+    {
+        return Some("character classes, braces, and escapes are not matched");
+    }
+    for segment in pattern.split('/') {
+        if segment.contains("**") && segment != "**" {
+            return Some("`**` must be its own path segment");
+        }
+    }
+    None
 }
 
 /// `pattern` against `path`, both using `/`.
@@ -733,5 +823,60 @@ ignore = true
         let other = Path::new("notes/a.md");
         assert_eq!(config.max_width_for_path("markdown", Some(other)), Some(80));
         assert!(!config.clause_breaks_for_path(Some(other)));
+    }
+
+    #[test]
+    fn a_rooted_rule_ignores_a_path_outside_the_config_tree() {
+        let mut config = ProjectConfig::parse(
+            r#"
+[[path]]
+glob = "*.md"
+ignore = true
+"#,
+        )
+        .unwrap();
+        config.root = Some(PathBuf::from("/work/repo"));
+        assert!(
+            !config.path_ignored(Path::new("/other/docs/note.md")),
+            "a file outside the config root must not match"
+        );
+        assert!(
+            !config.path_ignored(Path::new("docs/note.md")),
+            "a cwd-relative guess must not match a rooted rule"
+        );
+    }
+
+    #[test]
+    fn path_relative_to_config_joins_the_working_directory() {
+        let rel = path_relative_to_config(
+            Path::new("/work/repo"),
+            Path::new("/work/repo/docs"),
+            Path::new("note.md"),
+        );
+        assert_eq!(rel.as_deref(), Some("docs/note.md"));
+        let parent = path_relative_to_config(
+            Path::new("/work/repo"),
+            Path::new("/work/repo/docs"),
+            Path::new("../notes/a.md"),
+        );
+        assert_eq!(parent.as_deref(), Some("notes/a.md"));
+        assert_eq!(
+            path_relative_to_config(
+                Path::new("/work/repo"),
+                Path::new("/work/repo"),
+                Path::new("/other/note.md"),
+            ),
+            None
+        );
+    }
+
+    #[test]
+    fn unsupported_globs_are_named_once() {
+        assert!(unsupported_glob_reason("docs/**/*.md").is_none());
+        assert!(unsupported_glob_reason("*.md").is_none());
+        assert!(unsupported_glob_reason("docs/{a,b}/*.md").is_some());
+        assert!(unsupported_glob_reason("docs/[abc]/*.md").is_some());
+        assert!(unsupported_glob_reason("**.md").is_some());
+        assert!(unsupported_glob_reason(r"docs/\*.md").is_some());
     }
 }

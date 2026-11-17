@@ -135,7 +135,8 @@ fn run() -> Result<()> {
         }
     }
 
-    let project_config = ProjectConfig::resolve(cli.config.as_deref()).unwrap_or_default();
+    let project_config =
+        ProjectConfig::resolve(cli.config.as_deref()).context("failed to load .snapperrc.toml")?;
 
     if cli.files.is_empty() && !cli.changed {
         // Read from stdin
@@ -143,6 +144,21 @@ fn run() -> Result<()> {
         io::stdin()
             .read_to_string(&mut input)
             .context("failed to read stdin")?;
+
+        if let Some(path) = cli.stdin_filepath.as_deref() {
+            if project_config.file_skipped(path) {
+                if cli.check || cli.diff {
+                    return Ok(());
+                }
+                if let Some(ref out) = cli.output {
+                    fs::write(out, &input)
+                        .with_context(|| format!("failed to write {}", out.display()))?;
+                } else {
+                    print!("{input}");
+                }
+                return Ok(());
+            }
+        }
 
         // Format detection: --format > --stdin-filepath > plaintext
         let format = resolve_format(
@@ -553,8 +569,7 @@ fn resolve_format(
 }
 
 fn should_skip_path(path: &Path, cli: &Cli, project_config: &ProjectConfig) -> bool {
-    (cli.check || cli.in_place)
-        && (project_config.is_ignored(path) || project_config.path_ignored(path))
+    (cli.check || cli.in_place) && project_config.file_skipped(path)
 }
 
 /// Resolve max_width: CLI flag > project config > editorconfig > 0 (unlimited).
