@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::fs;
 use std::io::{self, IsTerminal, Read};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process;
 use std::sync::Arc;
 
@@ -137,7 +137,7 @@ fn run() -> Result<()> {
 
     let project_config = ProjectConfig::resolve(cli.config.as_deref()).unwrap_or_default();
 
-    if cli.files.is_empty() {
+    if cli.files.is_empty() && !cli.changed {
         // Read from stdin
         let mut input = String::new();
         io::stdin()
@@ -218,13 +218,27 @@ fn run() -> Result<()> {
         // Process files in parallel whenever there is more than one path.
         // Splitters are built once per distinct config key (format/lang/neural/…)
         // so multi-file and --neural do not reload models per path.
-        let use_parallel = cli.files.len() > 1;
+        let discovered = if cli.files.is_empty() {
+            let found = snapper_fmt::changed::changed_prose_files(&cli.changed_from)?;
+            if found.is_empty() {
+                eprintln!("No prose files changed.");
+                return Ok(());
+            }
+            found
+        } else {
+            Vec::new()
+        };
+        let file_args: &[PathBuf] = if cli.files.is_empty() {
+            &discovered
+        } else {
+            &cli.files
+        };
+        let use_parallel = file_args.len() > 1;
         let mut splitter_cache: HashMap<SplitterKey, Arc<dyn SentenceSplitter>> = HashMap::new();
 
-        let paths: Vec<&Path> = cli
-            .files
+        let paths: Vec<&Path> = file_args
             .iter()
-            .map(Path::new)
+            .map(PathBuf::as_path)
             .filter(|path| !should_skip_path(path, &cli, &project_config))
             .collect();
 
@@ -244,7 +258,7 @@ fn run() -> Result<()> {
         }
         let cache = Arc::new(splitter_cache);
 
-        let results: Vec<(String, String, String)> = if use_parallel {
+        let results: Vec<FileOutcome> = if use_parallel {
             paths
                 .par_iter()
                 .map(|path| process_file(path, &cli, &project_config, &cache))
@@ -261,7 +275,10 @@ fn run() -> Result<()> {
         let mut check_results: Vec<CheckResult> = Vec::new();
 
         let color = resolve_color(cli.color, false);
-        for (path_str, input, output) in &results {
+        for outcome in &results {
+            let path_str = &outcome.path;
+            let input = &outcome.input;
+            let output = &outcome.output;
             if cli.diff {
                 if output != input {
                     snapper_fmt::diff::print_diff(path_str, input, output, color);
@@ -283,6 +300,7 @@ fn run() -> Result<()> {
                     resolve_long_threshold(config.max_width, project_config.long_threshold);
                 let diagnostics =
                     collect_diagnostics(input, format, splitter.as_ref(), threshold, Some(&config));
+                let diagnostics = filter_scope(diagnostics, outcome.scope.as_deref());
                 let would = output != input;
                 let long_fail =
                     cli.strict_long && diagnostics.iter().any(|d| d.kind == DiagnosticKind::Long);
@@ -370,13 +388,35 @@ impl SplitterKey {
     }
 }
 
-/// Process a single file: read, format, return (path, input, output).
+/// One formatted file. `scope` is `None` when every line counts, or the
+/// 1-indexed lines of paragraphs `--changed` is allowed to report.
+struct FileOutcome {
+    path: String,
+    input: String,
+    output: String,
+    scope: Option<Vec<usize>>,
+}
+
+fn filter_scope(
+    diagnostics: Vec<snapper_fmt::check::LineDiagnostic>,
+    scope: Option<&[usize]>,
+) -> Vec<snapper_fmt::check::LineDiagnostic> {
+    let Some(scope) = scope else {
+        return diagnostics;
+    };
+    diagnostics
+        .into_iter()
+        .filter(|d| scope.binary_search(&d.line).is_ok())
+        .collect()
+}
+
+/// Process a single file: read, format, return the path and both texts.
 fn process_file(
     path: &Path,
     cli: &Cli,
     project_config: &ProjectConfig,
     splitter_cache: &HashMap<SplitterKey, Arc<dyn SentenceSplitter>>,
-) -> Result<(String, String, String)> {
+) -> Result<FileOutcome> {
     let path_str = path.display().to_string();
     let input =
         fs::read_to_string(path).with_context(|| format!("failed to read {}", path.display()))?;
@@ -388,6 +428,18 @@ fn process_file(
         .get(&key)
         .ok_or_else(|| anyhow::anyhow!("splitter cache miss for {path_str}"))?;
 
+    if cli.changed {
+        let touch = snapper_fmt::changed::touch_for_path(&cli.changed_from, path)?;
+        let scope = snapper_fmt::changed::diagnostic_lines(&input, &touch);
+        let output = snapper_fmt::changed::reflow_touch(&input, &config, &touch)?;
+        return Ok(FileOutcome {
+            path: path_str,
+            input,
+            output,
+            scope,
+        });
+    }
+
     let output = if let Some(ref range_str) = cli.range {
         let (start, end) =
             parse_range(range_str).context("invalid range format, expected START:END")?;
@@ -398,7 +450,12 @@ fn process_file(
         format_text_with_splitter(&input, &config, splitter.as_ref())?
     };
 
-    Ok((path_str, input, output))
+    Ok(FileOutcome {
+        path: path_str,
+        input,
+        output,
+        scope: None,
+    })
 }
 
 fn build_format_config(

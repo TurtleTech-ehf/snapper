@@ -101,6 +101,14 @@ Check formatting without modifying (for CI):
 #+begin_src bash
 snapper --check paper.org paper.tex notes.md
 #+end_src
+Limit that check to paragraphs that contain a line added or modified since a git ref (default HEAD):
+#+begin_src bash
+snapper --check --changed
+snapper --check --changed --changed-from origin/main
+#+end_src
+With no file arguments, =--changed= reads =git diff= and untracked prose files.
+An edit inside a paragraph reflows that paragraph.
+A paragraph nobody has touched is left as it is.
 Limit line width (wrap long sentences at word boundaries):
 #+begin_src bash
 snapper --max-width 80 paper.org

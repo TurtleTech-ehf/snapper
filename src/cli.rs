@@ -138,6 +138,21 @@ pub struct Cli {
     #[arg(long)]
     pub check: bool,
 
+    /// Limit `--check`, `--diff`, and reflow to paragraphs that contain a
+    /// line added or modified since the `--changed-from` ref.
+    ///
+    /// With no file arguments, the paths come from `git diff` and from
+    /// untracked prose files. A file that does not exist at the base ref
+    /// is checked in full. Paragraphs with no added or modified line stay
+    /// as they are, including ones that would fail a whole-file check.
+    #[arg(long, conflicts_with = "range")]
+    pub changed: bool,
+
+    /// Git ref `--changed` compares against. Defaults to `HEAD`.
+    /// Ignored unless `--changed` is set.
+    #[arg(long, value_name = "REV", default_value = "HEAD")]
+    pub changed_from: String,
+
     /// Show a unified diff of what would change.
     #[arg(long)]
     pub diff: bool,

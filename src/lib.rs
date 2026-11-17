@@ -34,6 +34,8 @@
 //! ```
 
 pub mod abbreviations;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod changed;
 pub mod check;
 #[cfg(feature = "cli")]
 pub mod cli;

@@ -4,6 +4,8 @@
 //! binary links the library once. `pandoc_parity_speed` keeps its own
 //! process because it sets the pandoc cache variables other tests read.
 
+#[path = "changed_mode.rs"]
+mod changed_mode;
 #[path = "check_line_diagnostics.rs"]
 mod check_line_diagnostics;
 #[path = "cli_integration.rs"]

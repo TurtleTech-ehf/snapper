@@ -2,6 +2,11 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 - - -
+## Unreleased
+#### Features
+- (**cli** / **check**) `--changed` limits check, diff, and reflow to paragraphs that contain a line added or modified since a git ref
+
+- - -
 ## v0.11.10 - 2026-10-11
 #### Bug Fixes
 - (**sentence**) keep journal title abbreviations inside the sentence - (4904216) - *HaoZeke*

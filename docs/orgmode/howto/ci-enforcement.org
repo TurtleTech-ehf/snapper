@@ -74,6 +74,14 @@ For structured output:
 :CUSTOM_ID: preview-changes
 :END:
 
+Use =--changed= when a repository already contains paragraphs that are not one sentence per line.
+The check then reports only paragraphs that contain a line added or modified since the base ref:
+
+#+begin_src yaml
+- name: Check new prose
+  run: snapper --check --changed --changed-from origin/main
+#+end_src
+
 Use =--diff= to show what would change:
 
 #+begin_src yaml
