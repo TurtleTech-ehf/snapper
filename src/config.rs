@@ -1,14 +1,14 @@
 use std::collections::HashMap;
 use std::path::{Component, Path, PathBuf};
 
-use anyhow::Result;
+use anyhow::{Result, bail};
 #[cfg(any(feature = "cli", feature = "watch"))]
 use glob::Pattern;
 use serde::Deserialize;
 
 /// Per-format overrides in .snapperrc.toml.
 #[derive(Debug, Default, Deserialize)]
-#[serde(default)]
+#[serde(default, deny_unknown_fields)]
 pub struct FormatOverrides {
     pub extra_abbreviations: Vec<String>,
     pub max_width: Option<usize>,
@@ -73,7 +73,7 @@ pub struct FormatOverrides {
 /// - `escape`: character that escapes the next one inside a string. Defaults
 ///   to a backslash.
 #[derive(Debug, Default, Clone, Deserialize, PartialEq, Eq)]
-#[serde(default)]
+#[serde(default, deny_unknown_fields)]
 pub struct CodeLang {
     pub line_comment: Option<String>,
     pub block_comment: Option<[String; 2]>,
@@ -107,7 +107,7 @@ impl CodeLang {
 /// every key it sets. Later rules are not consulted. A pattern with no `/`
 /// also matches the file name, so `*.md` covers `docs/a.md`.
 #[derive(Debug, Default, Clone, Deserialize, PartialEq, Eq)]
-#[serde(default)]
+#[serde(default, deny_unknown_fields)]
 pub struct PathRule {
     /// One glob, relative to the directory that holds the config file.
     pub glob: Option<String>,
@@ -136,7 +136,7 @@ impl PathRule {
 
 /// Per-project configuration loaded from `.snapperrc.toml`.
 #[derive(Debug, Default, Deserialize)]
-#[serde(default)]
+#[serde(default, deny_unknown_fields)]
 pub struct ProjectConfig {
     /// Additional abbreviations that should not trigger sentence breaks.
     pub extra_abbreviations: Vec<String>,
@@ -230,6 +230,15 @@ impl ProjectConfig {
 
     fn parse(toml_str: &str) -> Result<Self> {
         let config: ProjectConfig = toml::from_str(toml_str)?;
+        for (index, rule) in config.paths.iter().enumerate() {
+            let has_glob = rule.patterns().any(|pattern| !pattern.trim().is_empty());
+            if !has_glob {
+                bail!(
+                    "[[path]] rule {} has no glob (set `glob` or `globs` to a non-empty pattern)",
+                    index + 1
+                );
+            }
+        }
         Ok(config)
     }
 
@@ -460,6 +469,10 @@ pub(crate) fn path_relative_to_config(root: &Path, cwd: &Path, path: &Path) -> O
     } else {
         normalize_lex(&cwd.join(root))
     };
+    // A symlink and its target are the same file. Compare the canonical
+    // paths when they exist so an absolute path through a link still matches.
+    let absolute = canonicalize_existing(&absolute);
+    let root = canonicalize_existing(&root);
     let rel = absolute.strip_prefix(&root).ok()?;
     if rel.as_os_str().is_empty() {
         return None;
@@ -467,6 +480,31 @@ pub(crate) fn path_relative_to_config(root: &Path, cwd: &Path, path: &Path) -> O
     let text = rel.to_string_lossy().replace('\\', "/");
     let text = text.trim_start_matches("./").to_string();
     if text.is_empty() { None } else { Some(text) }
+}
+
+fn canonicalize_existing(path: &Path) -> PathBuf {
+    if let Ok(canonical) = path.canonicalize() {
+        return canonical;
+    }
+    let mut cur = path.to_path_buf();
+    let mut tail = Vec::new();
+    while !cur.as_os_str().is_empty() && !cur.exists() {
+        let Some(name) = cur.file_name().map(|name| name.to_os_string()) else {
+            break;
+        };
+        tail.push(name);
+        if !cur.pop() {
+            break;
+        }
+    }
+    if let Ok(canonical) = cur.canonicalize() {
+        let mut out = canonical;
+        for name in tail.into_iter().rev() {
+            out.push(name);
+        }
+        return out;
+    }
+    path.to_path_buf()
 }
 
 fn normalize_lex(path: &Path) -> PathBuf {
@@ -514,19 +552,41 @@ pub(crate) fn unsupported_glob_reason(pattern: &str) -> Option<&'static str> {
     None
 }
 
+/// Drop a repeated `./` prefix. A trailing `/` means the directory and
+/// everything under it (`docs/` matches `docs/a.md` and `docs/sub/a.md`).
+fn normalize_glob(pattern: &str) -> String {
+    let mut pattern = pattern.trim();
+    while let Some(rest) = pattern.strip_prefix("./") {
+        pattern = rest;
+    }
+    let pattern = pattern.trim_start_matches('/');
+    if pattern.len() > 1 && pattern.ends_with('/') {
+        format!("{}/**", pattern.trim_end_matches('/'))
+    } else {
+        pattern.to_string()
+    }
+}
+
 /// `pattern` against `path`, both using `/`.
 ///
 /// `**` matches across directories. `*` and `?` stay inside one directory.
 /// A pattern with no `/` also matches the final path segment.
+/// True when `pattern` matches `path` the way a `[[path]]` glob does.
+///
+/// MCP and WASM use this so an ignore rule is the same match the CLI uses.
+pub fn path_rule_matches(pattern: &str, path: &str) -> bool {
+    path_glob_match(pattern, path)
+}
+
 fn path_glob_match(pattern: &str, path: &str) -> bool {
-    let pattern = pattern.trim_start_matches('/');
+    let pattern = normalize_glob(pattern);
     let path = path.trim_start_matches("./");
-    if glob_parts(pattern, path) {
+    if glob_parts(&pattern, path) {
         return true;
     }
     if !pattern.contains('/') {
         if let Some(name) = path.rsplit('/').next() {
-            return glob_parts(pattern, name);
+            return glob_parts(&pattern, name);
         }
     }
     false
@@ -575,6 +635,56 @@ fn seg_match(pattern: &str, segment: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_typo_names_the_unknown_field() {
+        let err = ProjectConfig::parse("max_wdith = 10\n").unwrap_err();
+        let text = err.to_string();
+        assert!(
+            text.contains("max_wdith"),
+            "the error must name the typo, got {text}"
+        );
+        let err = ProjectConfig::parse("[[path]]\nmax_wdith = 10\n").unwrap_err();
+        let text = err.to_string();
+        assert!(
+            text.contains("max_wdith"),
+            "a path-rule typo must be named, got {text}"
+        );
+    }
+
+    #[test]
+    fn a_path_rule_needs_a_glob() {
+        for toml in ["[[path]]\nignore = true\n", "[[path]]\nglob = \"\"\n"] {
+            let err = ProjectConfig::parse(toml).unwrap_err();
+            let text = err.to_string();
+            assert!(
+                text.contains("glob"),
+                "missing or empty glob must be an error, got {text} for {toml:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn globs_drop_a_leading_dot_slash_and_a_trailing_slash() {
+        assert!(path_glob_match("./docs/*.md", "docs/a.md"));
+        assert!(path_glob_match("docs/", "docs/a.md"));
+        assert!(path_glob_match("docs/", "docs/sub/a.md"));
+        assert!(path_glob_match("docs/**/*.md", "docs/sub/a.md"));
+    }
+
+    #[test]
+    fn a_symlink_resolves_to_the_config_root() {
+        let dir = tempfile::tempdir().unwrap();
+        let real = dir.path().join("real");
+        std::fs::create_dir_all(real.join("docs")).unwrap();
+        std::fs::write(real.join("docs/note.md"), "x").unwrap();
+        let link = dir.path().join("link");
+        std::os::unix::fs::symlink(&real, &link).unwrap();
+        let via_link = path_relative_to_config(&real, dir.path(), &link.join("docs/note.md"));
+        assert_eq!(via_link.as_deref(), Some("docs/note.md"));
+        let via_real = path_relative_to_config(&link, dir.path(), &real.join("docs/note.md"));
+        assert_eq!(via_real.as_deref(), Some("docs/note.md"));
+    }
 
     #[test]
     fn parse_empty_config() {
@@ -771,12 +881,14 @@ verbatim_commands = ["Verb"]
     }
 
     #[test]
-    fn latex_other_regex_key_is_ignored() {
-        // latexindent's `other:` regex matching is not supported.
-        let config = ProjectConfig::parse("[latex]\nother = \".*code\"\n").unwrap();
-        assert!(config.latex_verbatim_envs().is_empty());
-        assert!(config.latex_structure_envs().is_empty());
-        assert!(config.latex_verbatim_commands().is_empty());
+    fn latex_other_regex_key_is_rejected() {
+        // latexindent's `other:` regex matching is not a snapper key.
+        let err = ProjectConfig::parse("[latex]\nother = \".*code\"\n").unwrap_err();
+        let text = err.to_string();
+        assert!(
+            text.contains("other"),
+            "an unknown latex key must be named, got {text}"
+        );
     }
 
     #[test]

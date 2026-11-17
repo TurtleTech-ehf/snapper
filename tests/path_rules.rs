@@ -240,3 +240,67 @@ fn stdin_filepath_honors_ignore() {
     );
     assert_eq!(String::from_utf8(passed.stdout).unwrap(), input);
 }
+
+#[test]
+fn an_unknown_config_key_is_rejected() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    fs::write(root.join(".snapperrc.toml"), "max_wdith = 10\n").unwrap();
+    fs::write(root.join("note.md"), "Already fine.\n").unwrap();
+    let out = run(root, &["--check", "note.md"]);
+    assert_eq!(out.status.code(), Some(1));
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        stderr.contains("max_wdith"),
+        "the typo must be named, got {stderr}"
+    );
+}
+
+#[test]
+fn a_path_rule_without_a_glob_is_rejected() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    fs::write(root.join(".snapperrc.toml"), "[[path]]\nignore = true\n").unwrap();
+    fs::write(root.join("note.md"), "Already fine.\n").unwrap();
+    let out = run(root, &["--check", "note.md"]);
+    assert_eq!(out.status.code(), Some(1));
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        stderr.contains("glob"),
+        "a missing glob must be an error, got {stderr}"
+    );
+}
+
+#[test]
+fn a_dot_slash_glob_and_a_directory_glob_match() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    fs::write(
+        root.join(".snapperrc.toml"),
+        "[[path]]\nglob = \"./docs/*.md\"\nmax_width = 20\n\n[[path]]\nglob = \"notes/\"\nignore = true\n",
+    )
+    .unwrap();
+    fs::create_dir_all(root.join("docs")).unwrap();
+    fs::create_dir_all(root.join("notes")).unwrap();
+    let sentence = "This sentence is definitely wider than twenty characters.\n";
+    fs::write(root.join("docs/a.md"), sentence).unwrap();
+    fs::write(root.join("notes/a.md"), "Two sentences. Here.\n").unwrap();
+
+    let wrapped = run(root, &["--native", "docs/a.md"]);
+    assert!(
+        wrapped.status.success(),
+        "{}",
+        String::from_utf8_lossy(&wrapped.stderr)
+    );
+    let text = String::from_utf8(wrapped.stdout).unwrap();
+    assert!(
+        text.lines().count() > 1,
+        "./docs/*.md must match docs/a.md, got {text:?}"
+    );
+    let skipped = run(root, &["--check", "notes/a.md"]);
+    assert!(
+        skipped.status.success(),
+        "docs-style trailing slash must ignore notes/, got {}",
+        String::from_utf8_lossy(&skipped.stderr)
+    );
+}
