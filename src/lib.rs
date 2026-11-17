@@ -547,72 +547,163 @@ fn format_once(
 
 /// Format only lines within a range (1-indexed, inclusive).
 /// Lines outside the range pass through unchanged.
+///
+/// Each source line keeps the ending it had (`\n`, `\r\n`, `\r`, or none).
+/// A file that mixes LF and CRLF is not rewritten to one style. New sentence
+/// breaks inside a line use that line's ending.
 pub fn format_range(
     input: &str,
     config: &FormatConfig,
     start: usize,
     end: usize,
 ) -> Result<String> {
-    let lines: Vec<&str> = input.lines().collect();
+    let lines = split_keep_endings(input);
     let total = lines.len();
 
-    // Clamp range
     let start = start.max(1);
     let end = end.min(total);
 
-    if start > total {
+    if start > total || start > end {
         return Ok(input.to_string());
     }
 
-    // Extract the range as a contiguous block
-    let range_text = lines[start - 1..end].join("\n");
-    let formatted = format_text(&range_text, config)?;
-
-    // Reassemble: before + formatted + after
     let mut result = String::new();
-    for (i, line) in lines.iter().enumerate() {
-        let line_num = i + 1;
-        if line_num < start {
-            result.push_str(line);
-            result.push('\n');
-        }
+    for (text, ending) in &lines[..start - 1] {
+        result.push_str(text);
+        result.push_str(ending);
     }
+
+    let range = &lines[start - 1..end];
+    let range_text = range
+        .iter()
+        .map(|(text, _)| *text)
+        .collect::<Vec<_>>()
+        .join("\n");
+    let formatted = format_text(&range_text, config)?;
+    let endings: Vec<&str> = range.iter().map(|(_, ending)| *ending).collect();
+    let formatted = apply_range_endings(&formatted, &endings);
+    let formatted_ends = formatted.ends_with('\n');
     result.push_str(&formatted);
-    if !formatted.ends_with('\n') && end < total {
-        result.push('\n');
-    }
-    for (i, line) in lines.iter().enumerate() {
-        let line_num = i + 1;
-        if line_num > end {
-            result.push_str(line);
-            if line_num < total {
-                result.push('\n');
-            }
+
+    if end < total && !formatted_ends {
+        let sep = endings.last().copied().unwrap_or("\n");
+        if sep.is_empty() {
+            result.push('\n');
+        } else {
+            result.push_str(sep);
         }
     }
-
-    // Preserve original trailing newline convention
-    if input.ends_with('\n') && !result.ends_with('\n') {
-        result.push('\n');
-    } else if !input.ends_with('\n') {
-        while result.ends_with('\n') {
-            result.pop();
-        }
+    for (text, ending) in &lines[end..] {
+        result.push_str(text);
+        result.push_str(ending);
     }
 
-    // `lines()` drops `\r`. Put CRLF back the way `format_text` does, or a
-    // partial `--in-place --changed` rewrite converts the file to LF.
-    if input.contains("\r\n") {
-        result = result.replace('\n', "\r\n");
+    if end == total {
+        let last = endings.last().copied().unwrap_or("");
+        if !last.is_empty() && !result.ends_with('\n') {
+            result.push_str(last);
+        }
     }
 
     Ok(result)
+}
+
+/// `(text, ending)` pairs. `ending` is `\n`, `\r\n`, `\r`, or empty at EOF.
+fn split_keep_endings(input: &str) -> Vec<(&str, &str)> {
+    let bytes = input.as_bytes();
+    let mut out = Vec::new();
+    let mut start = 0usize;
+    let mut i = 0usize;
+    while i < bytes.len() {
+        if bytes[i] == b'\n' {
+            out.push((&input[start..i], &input[i..i + 1]));
+            i += 1;
+            start = i;
+        } else if bytes[i] == b'\r' {
+            let end = if i + 1 < bytes.len() && bytes[i + 1] == b'\n' {
+                i + 2
+            } else {
+                i + 1
+            };
+            out.push((&input[start..i], &input[i..end]));
+            i = end;
+            start = i;
+        } else {
+            i += 1;
+        }
+    }
+    if start < input.len() {
+        out.push((&input[start..], ""));
+    }
+    out
+}
+
+/// Put each formatted newline back in the ending of the source line it came from.
+///
+/// When every source line in the range shares one ending, that ending is used
+/// for the new sentence breaks too. A mixed range assigns endings in order.
+/// A line that splits into more sentences than the range had keeps the ending
+/// of the source line it continues.
+fn apply_range_endings(formatted: &str, endings: &[&str]) -> String {
+    if endings.is_empty() {
+        return formatted.to_string();
+    }
+    let uniform = endings.iter().all(|ending| *ending == endings[0]);
+    if uniform {
+        return match endings[0] {
+            "\r\n" => formatted.replace('\n', "\r\n"),
+            "\r" => formatted.replace('\n', "\r"),
+            _ => formatted.to_string(),
+        };
+    }
+    let parts: Vec<&str> = formatted.split('\n').collect();
+    let mut out = String::new();
+    let mut src = 0usize;
+    for (index, part) in parts.iter().enumerate() {
+        out.push_str(part);
+        if index + 1 == parts.len() {
+            break;
+        }
+        let ending = if src < endings.len() {
+            let ending = endings[src];
+            src += 1;
+            ending
+        } else {
+            endings[endings.len() - 1]
+        };
+        if ending.is_empty() {
+            out.push('\n');
+        } else {
+            out.push_str(ending);
+        }
+    }
+    out
 }
 
 #[cfg(test)]
 mod region_fallback_tests {
     use super::*;
     use crate::format::Format;
+
+    #[test]
+    fn format_range_keeps_each_lines_ending() {
+        let cfg = FormatConfig {
+            format: Format::Plaintext,
+            ..Default::default()
+        };
+        let mixed = "Already fine.\nOther fine.\r\n";
+        let kept = format_range(mixed, &cfg, 1, 1).unwrap();
+        assert_eq!(
+            kept, mixed,
+            "an untouched LF line must stay LF when a later line is CRLF"
+        );
+        let input = "Two sentences. Here.\r\n\r\nLeave this.\n";
+        let out = format_range(input, &cfg, 1, 1).unwrap();
+        assert_eq!(
+            out, "Two sentences.\r\nHere.\r\n\r\nLeave this.\n",
+            "the reflowed line keeps CRLF and the untouched line keeps LF"
+        );
+    }
 
     #[test]
     fn rejected_paragraph_does_not_revert_the_file() {
