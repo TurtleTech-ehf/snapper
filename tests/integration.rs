@@ -122,6 +122,8 @@ mod md_spanning_lrd_title;
 mod md_unclosed_double_backtick;
 #[path = "md_yaml_front_matter.rs"]
 mod md_yaml_front_matter;
+#[path = "msrv.rs"]
+mod msrv;
 #[path = "org_angle_links.rs"]
 mod org_angle_links;
 #[path = "org_brace_subscript.rs"]

@@ -8,6 +8,12 @@ All notable changes to this project will be documented in this file. See [conven
 - (**config**) `[[path]]` rules set width, breaks, abbreviations, format, and ignore for the first matching glob
 - (**asciidoc**) native reflow for `.adoc` and `.asciidoc`, including lists, admonitions, and example interiors
 #### Bug Fixes
+- (**cli** / **check**) a ranged reflow keeps the ending of a line that splits into several sentences, including a mix of LF and CRLF
+- (**cli** / **check**) `--changed` rejects a file outside this repository or in a different git repository
+- (**lsp**) `.asc` stays unformatted when the language id is plaintext
+- (**wasm**) the package accepts `path` and `ignore`, and `detectFormat` is null for `.asc`
+- (**mcp**) a malformed `.snapperrc.toml` is an error instead of being ignored
+- (**build**) the MSRV is 1.88, matching darling 0.23, and CI installs that toolchain
 - (**cli** / **check**) `--changed` diffs the merge base, literal pathspecs, and keeps CRLF
 - (**cli** / **check**) `--changed` keeps each line's ending, checks a paragraph that only lost a line, accepts a repository with no commits, and prints repo-relative paths
 - (**config**) `[[path]]` globs match from the config file, a broken config is an error, and ignore covers stdin and the language server
