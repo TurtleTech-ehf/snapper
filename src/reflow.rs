@@ -1013,11 +1013,6 @@ fn md_same_line_ol_opener(text: &str) -> bool {
         && bytes.get(i + 1).is_some_and(|b| !b.is_ascii_whitespace())
 }
 
-/// Keep a Typst block opener on the sentence before it.
-///
-/// A later sentence that begins with `=`, `- `, `#`, or `//` is reread as
-/// a heading, list item, code line, or comment. The first sentence of the
-/// paragraph is left alone.
 /// Keep an AsciiDoc block opener on the sentence before it.
 ///
 /// A later sentence that begins with a heading, list, admonition, or
@@ -1040,6 +1035,11 @@ fn glue_adoc_attached_lines(sentences: &mut Vec<String>) {
     }
 }
 
+/// Keep a Typst block opener on the sentence before it.
+///
+/// A later sentence that begins with `=`, `- `, `#`, or `//` is reread as
+/// a heading, list item, code line, or comment. The first sentence of the
+/// paragraph is left alone.
 fn glue_typst_attached_lines(sentences: &mut Vec<String>) {
     let mut i = 1usize;
     while i < sentences.len() {
@@ -1517,7 +1517,7 @@ fn is_hard_break_structure(s: &str) -> bool {
 fn is_asciidoc_hard_break(s: &str) -> bool {
     let body = s.strip_suffix('\n').unwrap_or(s);
     let body = body.strip_suffix('\r').unwrap_or(body);
-    body == " +"
+    body == " +" || body == "\t+"
 }
 
 fn suppress_prose_trailing_newline(s: &str) -> bool {
@@ -1552,6 +1552,25 @@ mod tests {
         let regions = vec![Region::Prose(input.to_string())];
         let config = ReflowConfig::default();
         reflow(&regions, &UnicodeSentenceSplitter::new(), &config)
+    }
+
+    #[test]
+    fn the_typst_doc_comment_is_not_attached_to_asciidoc() {
+        let src = include_str!("reflow.rs");
+        let adoc = src
+            .find("fn glue_adoc_attached_lines")
+            .expect("asciidoc glue");
+        let before = &src[..adoc];
+        let block_start = before.rfind("\n\n").map(|i| i + 2).unwrap_or(0);
+        let comment = before[block_start..].trim();
+        assert!(
+            !comment.contains("Typst"),
+            "the Typst rustdoc is attached to the AsciiDoc function:\n{comment}"
+        );
+        assert!(
+            comment.contains("AsciiDoc"),
+            "the AsciiDoc function should document itself, got {comment}"
+        );
     }
 
     #[test]

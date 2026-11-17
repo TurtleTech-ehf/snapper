@@ -256,7 +256,7 @@ impl FormatParser for AsciiDocParser {
                 } else if !line.text.trim().is_empty() {
                     pending_source = None;
                 }
-                pending_para = paragraph_style(line.text);
+                pending_para = paragraph_style(line.text) || hardbreaks_attr(line.text);
                 regions.push(SpannedRegion::structure(input, line.span()));
                 literal = false;
                 i += 1;
@@ -534,7 +534,14 @@ fn open_block(
 
 fn kind_of(line: &str, delim: Delim, pending_source: &mut Option<Option<String>>) -> OpenKind {
     match delim {
-        Delim::Example | Delim::Sidebar | Delim::Quote | Delim::Open => OpenKind::Prose,
+        Delim::Example | Delim::Sidebar | Delim::Quote => OpenKind::Prose,
+        Delim::Open => {
+            if pending_source.take().is_some() {
+                OpenKind::Frozen
+            } else {
+                OpenKind::Prose
+            }
+        }
         Delim::Passthrough | Delim::Comment | Delim::Table => OpenKind::Frozen,
         Delim::Listing | Delim::Literal | Delim::Fence => {
             if let Some(lang) = pending_source.take() {
@@ -732,7 +739,7 @@ fn plus_continuation(line: &str) -> bool {
 /// Byte index of the ` +` hard break, when the line has text before it.
 fn hard_break_at(text: &str) -> Option<usize> {
     let end = text.trim_end();
-    let head = end.strip_suffix(" +")?;
+    let head = end.strip_suffix(" +").or_else(|| end.strip_suffix("\t+"))?;
     if head.trim().is_empty() {
         None
     } else {
@@ -855,6 +862,21 @@ fn anchor_line(line: &str) -> bool {
         return false;
     };
     !inner.is_empty() && !inner.contains('[')
+}
+
+/// `[%hardbreaks]` and `[hardbreaks]` keep the following paragraph's lines.
+fn hardbreaks_attr(line: &str) -> bool {
+    let t = line.trim();
+    let Some(inner) = t.strip_prefix('[').and_then(|rest| rest.strip_suffix(']')) else {
+        return false;
+    };
+    if t.starts_with("[[") || inner.contains('[') {
+        return false;
+    }
+    inner.split(',').any(|part| {
+        let name = part.trim().trim_start_matches('%');
+        name == "hardbreaks"
+    })
 }
 
 fn attr_list(line: &str) -> bool {
@@ -1188,6 +1210,54 @@ mod tests {
         );
         assert_eq!(adoc_list_marker_len("1. Item"), Some("1. ".len()));
         assert_eq!(adoc_list_marker_len("12. Item"), Some("12. ".len()));
+    }
+
+    #[test]
+    fn hardbreaks_attribute_does_not_add_a_break() {
+        let input = "[%hardbreaks]\nKeep this. Together.\n";
+        assert_eq!(format_adoc(input), input);
+    }
+
+    #[test]
+    fn source_on_an_open_block_does_not_reflow() {
+        let input = "[source]\n--\nKeep this. Together.\n--\n";
+        assert_eq!(format_adoc(input), input);
+    }
+
+    #[test]
+    fn a_tab_hard_break_stays_on_the_line() {
+        let input = "Keep this. Together.\t+\nNext line. Second sentence.\n";
+        let out = format_adoc(input);
+        assert!(
+            out.contains("Together.\t+\n"),
+            "the tab hard break must stay attached, got {out:?}"
+        );
+        assert!(out.contains("Next line.\nSecond sentence.\n"), "{out:?}");
+    }
+
+    #[test]
+    fn lowercase_starts_does_not_split_inside_a_link() {
+        use crate::sentence::SentenceSplitter;
+        let splitter = crate::sentence::unicode::UnicodeSentenceSplitter::new()
+            .with_format(Format::AsciiDoc)
+            .with_lowercase_starts(true);
+        let sample = "See link:https://example.com[a. b] now.";
+        assert_eq!(
+            splitter.split(sample),
+            vec![sample.to_string()],
+            "a period inside the link text must not open a sentence"
+        );
+        let cfg = FormatConfig {
+            format: Format::AsciiDoc,
+            lowercase_starts: true,
+            ..Default::default()
+        };
+        let input = "See link:https://example.com[a. b] now. Next sentence.\n";
+        let out = format_text(input, &cfg).unwrap();
+        assert_eq!(
+            out, "See link:https://example.com[a. b] now.\nNext sentence.\n",
+            "the break belongs after the macro, got {out:?}"
+        );
     }
 
     #[test]
