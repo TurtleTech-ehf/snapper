@@ -581,7 +581,8 @@ pub fn format_range(
         .join("\n");
     let formatted = format_text(&range_text, config)?;
     let endings: Vec<&str> = range.iter().map(|(_, ending)| *ending).collect();
-    let formatted = apply_range_endings(&formatted, &endings);
+    let expanded = endings_for_split_lines(range, &formatted, config);
+    let formatted = apply_range_endings(&formatted, &expanded);
     let formatted_ends = formatted.ends_with('\n');
     result.push_str(&formatted);
 
@@ -638,12 +639,75 @@ fn split_keep_endings(input: &str) -> Vec<(&str, &str)> {
     out
 }
 
-/// Put each formatted newline back in the ending of the source line it came from.
+/// How many lines `format_text` emits, ignoring a trailing break.
+fn output_line_count(formatted: &str) -> usize {
+    let trimmed = formatted.trim_end_matches(['\n', '\r']);
+    if trimmed.is_empty() {
+        1
+    } else {
+        trimmed.lines().count().max(1)
+    }
+}
+
+fn formatted_line_count(text: &str, config: &FormatConfig) -> usize {
+    if text.is_empty() {
+        return 1;
+    }
+    match format_text(text, config) {
+        Ok(formatted) => output_line_count(&formatted),
+        Err(_) => 1,
+    }
+}
+
+/// One ending per formatted line.
 ///
-/// When every source line in the range shares one ending, that ending is used
-/// for the new sentence breaks too. A mixed range assigns endings in order.
-/// A line that splits into more sentences than the range had keeps the ending
-/// of the source line it continues.
+/// A source line that splits into several sentences is repeated, so each new
+/// line keeps the ending of the line it came from. When the joined reflow
+/// disagrees with the per-line counts, the extra breaks stay with the line
+/// that split instead of borrowing the next line's ending.
+fn endings_for_split_lines<'a>(
+    range: &[(&'a str, &'a str)],
+    formatted: &str,
+    config: &FormatConfig,
+) -> Vec<&'a str> {
+    if range.is_empty() {
+        return Vec::new();
+    }
+    let output_lines = output_line_count(formatted);
+    let mut counts: Vec<usize> = range
+        .iter()
+        .map(|(text, _)| formatted_line_count(text, config))
+        .collect();
+    let sum: usize = counts.iter().sum();
+    if output_lines > sum {
+        let extra = output_lines - sum;
+        let idx = counts
+            .iter()
+            .rposition(|count| *count > 1)
+            .unwrap_or(counts.len() - 1);
+        counts[idx] += extra;
+    } else if output_lines < sum {
+        let mut drop_n = sum - output_lines;
+        for count in counts.iter_mut().rev() {
+            if drop_n == 0 {
+                break;
+            }
+            let drop = count.saturating_sub(1).min(drop_n);
+            *count -= drop;
+            drop_n -= drop;
+        }
+    }
+    let mut expanded = Vec::with_capacity(output_lines);
+    for (&count, (_, ending)) in counts.iter().zip(range.iter()) {
+        expanded.extend(std::iter::repeat_n(*ending, count));
+    }
+    expanded
+}
+
+/// Put each formatted newline back in the ending of the output line it closes.
+///
+/// `endings` has one entry per formatted line, already expanded so a split
+/// line repeats its own ending. A uniform range is rewritten in one pass.
 fn apply_range_endings(formatted: &str, endings: &[&str]) -> String {
     if endings.is_empty() {
         return formatted.to_string();
@@ -702,6 +766,34 @@ mod region_fallback_tests {
         assert_eq!(
             out, "Two sentences.\r\nHere.\r\n\r\nLeave this.\n",
             "the reflowed line keeps CRLF and the untouched line keeps LF"
+        );
+    }
+
+    #[test]
+    fn a_crlf_line_that_splits_keeps_crlf_on_every_new_line() {
+        let cfg = FormatConfig {
+            format: Format::Plaintext,
+            ..Default::default()
+        };
+        let input = "One. Two. Three.\r\nAlready fine.\n";
+        let out = format_range(input, &cfg, 1, 2).unwrap();
+        assert_eq!(
+            out, "One.\r\nTwo.\r\nThree.\r\nAlready fine.\n",
+            "each sentence split out of the CRLF line must keep CRLF"
+        );
+    }
+
+    #[test]
+    fn a_split_in_the_middle_of_a_mixed_range_keeps_that_lines_ending() {
+        let cfg = FormatConfig {
+            format: Format::Plaintext,
+            ..Default::default()
+        };
+        let input = "Keep.\nOne. Two.\r\nTail.\n";
+        let out = format_range(input, &cfg, 1, 3).unwrap();
+        assert_eq!(
+            out, "Keep.\nOne.\r\nTwo.\r\nTail.\n",
+            "the extra sentence must keep the CRLF of the line it was split from"
         );
     }
 
