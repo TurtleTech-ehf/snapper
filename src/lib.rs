@@ -17,6 +17,7 @@
 //! - **RST**: directives and literals preserved; admonition/figure/topic/sidebar/container/parsed-literal/epigraph/highlights/pull-quote/compound bodies reflow; `.. code-block::` is a code region
 //! - **Plaintext**: everything treated as prose
 //! - **Typst**: headings, code calls, raw blocks, and math preserved; markup paragraphs and list bodies reflow
+//! - **AsciiDoc**: headings, attributes, listings, and macros preserved; paragraphs, list bodies, and example interiors reflow
 //!
 //! ## Library usage
 //!
@@ -475,6 +476,9 @@ fn pandoc_input_format(config: &FormatConfig) -> &str {
         // so `--use-pandoc --format typst` asks pandoc for typst instead
         // of silently rereading the file as markdown.
         Format::Typst => "typst",
+        // Pandoc's name for AsciiDoc. Native `.adoc` files do not use it
+        // unless `--use-pandoc` is set.
+        Format::AsciiDoc => "asciidoc",
     }
 }
 

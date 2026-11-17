@@ -40,7 +40,7 @@ Add to =.pre-commit-config.yaml=:
     - id: snapper
 #+end_src
 
-This runs =snapper --in-place= on changed files matching =.org=, =.tex=/=.latex=, =.md=/=.markdown=, =.rst=, =.typ=/=.typst=, and =.txt= (extension match; pre-commit identify has no =org= type).
+This runs =snapper --in-place= on changed files matching =.org=, =.tex=/=.latex=, =.md=/=.markdown=, =.rst=, =.typ=/=.typst=, =.adoc=/=.asciidoc=/=.asc=, and =.txt= (extension match; pre-commit identify has no =org= type).
 Requires a Rust toolchain to build the hook from this repo.
 
 * Manual GitHub Actions

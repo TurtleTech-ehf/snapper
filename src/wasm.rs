@@ -18,6 +18,7 @@ pub enum WasmFormat {
     Rst,
     Plaintext,
     Typst,
+    AsciiDoc,
 }
 
 impl From<WasmFormat> for Format {
@@ -29,6 +30,7 @@ impl From<WasmFormat> for Format {
             WasmFormat::Rst => Format::Rst,
             WasmFormat::Plaintext => Format::Plaintext,
             WasmFormat::Typst => Format::Typst,
+            WasmFormat::AsciiDoc => Format::AsciiDoc,
         }
     }
 }
@@ -42,6 +44,7 @@ impl From<Format> for WasmFormat {
             Format::Rst => WasmFormat::Rst,
             Format::Plaintext => WasmFormat::Plaintext,
             Format::Typst => WasmFormat::Typst,
+            Format::AsciiDoc => WasmFormat::AsciiDoc,
         }
     }
 }

@@ -34,7 +34,7 @@ describe('snapper', function()
       assert.is_true(defaults.autostart)
       assert.is_false(defaults.format_on_save)
       assert.is_true(defaults.conform_integration)
-      assert.are.same({ "org", "tex", "markdown", "rst", "typst" }, defaults.filetypes)
+      assert.are.same({ "org", "tex", "markdown", "rst", "typst", "asciidoc" }, defaults.filetypes)
     end)
 
     it('should merge user config with defaults', function()

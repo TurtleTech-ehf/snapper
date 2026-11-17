@@ -76,3 +76,4 @@ jobs:
           ./target/debug/snapper --native --check --format markdown examples/paper.md
           ./target/debug/snapper --native --check --format latex examples/paper.tex
           ./target/debug/snapper --native --check --format typst examples/paper.typ
+          ./target/debug/snapper --native --check --format asciidoc examples/notes.adoc

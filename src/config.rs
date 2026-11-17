@@ -117,7 +117,7 @@ pub struct PathRule {
     pub clause_breaks: Option<bool>,
     pub lowercase_starts: Option<bool>,
     pub extra_abbreviations: Vec<String>,
-    /// Format name (`org`, `latex`, `markdown`, `rst`, `typst`, `plaintext`).
+    /// Format name (`org`, `latex`, `markdown`, `rst`, `typst`, `asciidoc`, `plaintext`).
     /// Used when the CLI did not pass `--format`.
     pub format: Option<String>,
     /// Skip the file during `--check` and `--in-place`, same as `ignore`.
@@ -171,6 +171,7 @@ pub struct ProjectConfig {
     pub rst: Option<FormatOverrides>,
     pub plaintext: Option<FormatOverrides>,
     pub typst: Option<FormatOverrides>,
+    pub asciidoc: Option<FormatOverrides>,
 
     /// Ordered path rules. The first match wins. See [`PathRule`].
     #[serde(default, rename = "path")]
@@ -252,6 +253,7 @@ impl ProjectConfig {
             "rst" => self.rst.as_ref(),
             "plaintext" => self.plaintext.as_ref(),
             "typst" => self.typst.as_ref(),
+            "asciidoc" => self.asciidoc.as_ref(),
             _ => None,
         };
         if let Some(ov) = overrides {
@@ -269,6 +271,7 @@ impl ProjectConfig {
             "rst" => self.rst.as_ref(),
             "plaintext" => self.plaintext.as_ref(),
             "typst" => self.typst.as_ref(),
+            "asciidoc" => self.asciidoc.as_ref(),
             _ => None,
         };
         overrides.and_then(|ov| ov.max_width).or(self.max_width)
@@ -285,6 +288,7 @@ impl ProjectConfig {
             "rst" => self.rst.as_ref(),
             "plaintext" => self.plaintext.as_ref(),
             "typst" => self.typst.as_ref(),
+            "asciidoc" => self.asciidoc.as_ref(),
             _ => None,
         };
         overrides

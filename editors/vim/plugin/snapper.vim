@@ -21,6 +21,7 @@ augroup snapper
   autocmd FileType markdown setlocal formatprg=snapper\ --native\ --format\ markdown
   autocmd FileType rst setlocal formatprg=snapper\ --native\ --format\ rst
   autocmd FileType typst setlocal formatprg=snapper\ --native\ --format\ typst
+  autocmd FileType asciidoc setlocal formatprg=snapper\ --native\ --format\ asciidoc
   autocmd FileType plaintex setlocal formatprg=snapper\ --native\ --format\ latex
   autocmd FileType text setlocal formatprg=snapper\ --native\ --format\ plaintext
 augroup END

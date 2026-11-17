@@ -124,10 +124,10 @@ Useful for poetry, aligned text, or ASCII art.
 :CUSTOM_ID: formats
 :END:
 
-Org-mode, LaTeX, Markdown, reStructuredText, Typst, and plaintext.
-Format auto-detects from the file extension (=.org=, =.tex=, =.md=, =.rst=, =.typ=, =.txt=).
+Org-mode, LaTeX, Markdown, reStructuredText, Typst, AsciiDoc, and plaintext.
+Format auto-detects from the file extension (=.org=, =.tex=, =.md=, =.rst=, =.typ=, =.adoc=, =.txt=).
 Unknown extensions (=.rs=, =.py=, no extension) are refused so source files are not treated as prose.
-Override with =--format rst= (or =org=, =latex=, =markdown=, =typst=, =plaintext=).
+Override with =--format rst= (or =org=, =latex=, =markdown=, =typst=, =asciidoc=, =plaintext=).
 
 * How do I compare versions at the sentence level?
 :PROPERTIES:

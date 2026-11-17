@@ -41,7 +41,7 @@ lazy.nvim:
     dependencies = {
       "stevearc/conform.nvim",  -- optional
     },
-    ft = { "org", "tex", "markdown", "rst", "typst" },
+    ft = { "org", "tex", "markdown", "rst", "typst", "asciidoc" },
     config = function()
       vim.opt.runtimepath:append(
         vim.fn.stdpath("data") .. "/lazy/snapper/editors/nvim"
@@ -82,7 +82,7 @@ To configure snapper, call the setup function with options:
       timeout_ms = 1000,
       async = false,
     },
-    filetypes = { "org", "tex", "markdown", "rst", "typst" },
+    filetypes = { "org", "tex", "markdown", "rst", "typst", "asciidoc" },
     keymaps = {
       format = "<leader>sf",     -- Format buffer
       format_range = "<leader>sF", -- Format selection
