@@ -573,10 +573,19 @@ fn whole_document_edit(text: &str, formatted: String) -> Option<Vec<TextEdit>> {
 
 /// The same decision the CLI makes in `recognized_from_path`.
 ///
-/// A known language id still wins. A path whose extension is not a prose
-/// format, including `.asc`, is `None` so the buffer is left alone instead
-/// of being rewritten as plaintext.
+/// `.asc` is OpenPGP armor. That refusal wins over the language id, including
+/// `plaintext`, so an editor that labels the buffer plaintext cannot reflow it.
+/// A known language id still wins for every other path. A path whose extension
+/// is not a prose format is `None` so the buffer is left alone.
 fn detect_format_from_uri(uri: &Url, language_id: &str) -> Option<Format> {
+    if let Ok(path) = uri.to_file_path()
+        && path
+            .extension()
+            .and_then(|ext| ext.to_str())
+            .is_some_and(|ext| ext.eq_ignore_ascii_case("asc"))
+    {
+        return None;
+    }
     match language_id {
         "org" => return Some(Format::Org),
         "latex" | "tex" => return Some(Format::Latex),
@@ -1768,6 +1777,44 @@ mod tests {
         assert!(
             server.compute_diagnostics(&uri).is_empty(),
             "pgp armor must not produce plaintext diagnostics"
+        );
+    }
+
+    #[tokio::test]
+    async fn plaintext_language_id_does_not_override_asc() {
+        let (service, _socket) = LspService::new(SnapperLsp::new);
+        let server = service.inner();
+        let uri = Url::parse("file:///tmp/note.asc").expect("uri");
+        let text = "-----BEGIN PGP MESSAGE-----\nKeep this. Together.\n-----END PGP MESSAGE-----\n";
+        server
+            .did_open(DidOpenTextDocumentParams {
+                text_document: TextDocumentItem::new(
+                    uri.clone(),
+                    "plaintext".to_string(),
+                    1,
+                    text.to_string(),
+                ),
+            })
+            .await;
+        let edits = server
+            .formatting(DocumentFormattingParams {
+                text_document: TextDocumentIdentifier::new(uri.clone()),
+                options: FormattingOptions {
+                    tab_size: 2,
+                    insert_spaces: true,
+                    ..FormattingOptions::default()
+                },
+                work_done_progress_params: WorkDoneProgressParams::default(),
+            })
+            .await
+            .expect("formatting");
+        assert!(
+            edits.is_none(),
+            "language id plaintext must not rewrite .asc, got {edits:?}"
+        );
+        assert!(
+            server.compute_diagnostics(&uri).is_empty(),
+            "language id plaintext must not diagnose .asc"
         );
     }
 
