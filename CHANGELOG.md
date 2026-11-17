@@ -9,8 +9,11 @@ All notable changes to this project will be documented in this file. See [conven
 - (**asciidoc**) native reflow for `.adoc` and `.asciidoc`, including lists, admonitions, and example interiors
 #### Bug Fixes
 - (**cli** / **check**) `--changed` diffs the merge base, literal pathspecs, and keeps CRLF
+- (**cli** / **check**) `--changed` keeps each line's ending, checks a paragraph that only lost a line, accepts a repository with no commits, and prints repo-relative paths
 - (**config**) `[[path]]` globs match from the config file, a broken config is an error, and ignore covers stdin and the language server
+- (**config**) unknown keys and a `[[path]]` rule with no glob are errors; `./` and a trailing `/` are normalized; symlinks match; MCP and WASM use the same ignore matcher
 - (**asciidoc**) keep `+` continuations, hard breaks, styled paragraphs, numbered lists, and exact listing closers; `.asc` is not AsciiDoc
+- (**asciidoc**) `[%hardbreaks]`, `[source]` on an open block, a tab hard break, and `link:…[a. b]` stay intact; `.asc` is not plaintext in the language server or WASM
 
 - - -
 ## v0.11.10 - 2026-10-11

@@ -295,7 +295,7 @@ fn run() -> Result<()> {
 
         let color = resolve_color(cli.color, false);
         for outcome in &results {
-            let path_str = &outcome.path;
+            let path_str = &outcome.display;
             let input = &outcome.input;
             let output = &outcome.output;
             if cli.diff {
@@ -304,7 +304,7 @@ fn run() -> Result<()> {
                     any_changed = true;
                 }
             } else if cli.check {
-                let path = Path::new(path_str);
+                let path = outcome.path.as_path();
                 let format = resolve_format(
                     cli.format.map(Format::from_arg),
                     Some(path),
@@ -354,8 +354,8 @@ fn run() -> Result<()> {
                 }
             } else if cli.in_place {
                 if output != input {
-                    fs::write(path_str, output)
-                        .with_context(|| format!("failed to write {path_str}"))?;
+                    fs::write(&outcome.path, output)
+                        .with_context(|| format!("failed to write {}", outcome.path.display()))?;
                 }
             } else if let Some(ref out_path) = cli.output {
                 fs::write(out_path, output)
@@ -412,7 +412,10 @@ impl SplitterKey {
 /// One formatted file. `scope` is `None` when every line counts, or the
 /// 1-indexed lines of paragraphs `--changed` is allowed to report.
 struct FileOutcome {
-    path: String,
+    /// Path used for reading and `--in-place` writes.
+    path: PathBuf,
+    /// Repository-relative path shown in check, diff, and JSON output.
+    display: String,
     input: String,
     output: String,
     scope: Option<Vec<usize>>,
@@ -438,7 +441,7 @@ fn process_file(
     project_config: &ProjectConfig,
     splitter_cache: &HashMap<SplitterKey, Arc<dyn SentenceSplitter>>,
 ) -> Result<FileOutcome> {
-    let path_str = path.display().to_string();
+    let path_str = repo_relative_display(path);
     let input =
         fs::read_to_string(path).with_context(|| format!("failed to read {}", path.display()))?;
 
@@ -454,7 +457,8 @@ fn process_file(
         let scope = snapper_fmt::changed::diagnostic_lines(&input, &touch);
         let output = snapper_fmt::changed::reflow_touch(&input, &config, &touch)?;
         return Ok(FileOutcome {
-            path: path_str,
+            path: path.to_path_buf(),
+            display: path_str,
             input,
             output,
             scope,
@@ -472,11 +476,52 @@ fn process_file(
     };
 
     Ok(FileOutcome {
-        path: path_str,
+        path: path.to_path_buf(),
+        display: path_str,
         input,
         output,
         scope: None,
     })
+}
+
+/// Path printed for a file. Inside a git checkout this is relative to the
+/// repository root, so a run from a subdirectory does not print an absolute path.
+fn repo_relative_display(path: &Path) -> String {
+    let abs = std::path::absolute(path).unwrap_or_else(|_| path.to_path_buf());
+    let start = abs.parent().unwrap_or(Path::new("."));
+    let top = process::Command::new("git")
+        .arg("-C")
+        .arg(start)
+        .args(["rev-parse", "--show-toplevel"])
+        .output()
+        .ok()
+        .filter(|output| output.status.success())
+        .and_then(|output| String::from_utf8(output.stdout).ok())
+        .and_then(|stdout| {
+            stdout
+                .lines()
+                .next()
+                .map(str::trim)
+                .filter(|line| !line.is_empty())
+                .map(PathBuf::from)
+        });
+    if let Some(top) = top {
+        if let Ok(rel) = abs.strip_prefix(&top) {
+            let text = rel.to_string_lossy().replace('\\', "/");
+            if !text.is_empty() {
+                return text;
+            }
+        }
+        if let (Ok(abs_c), Ok(top_c)) = (abs.canonicalize(), top.canonicalize()) {
+            if let Ok(rel) = abs_c.strip_prefix(&top_c) {
+                let text = rel.to_string_lossy().replace('\\', "/");
+                if !text.is_empty() {
+                    return text;
+                }
+            }
+        }
+    }
+    path.display().to_string()
 }
 
 fn build_format_config(

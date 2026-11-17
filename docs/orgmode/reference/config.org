@@ -195,7 +195,8 @@ Per-format =lowercase_starts= overrides the top-level value.
 
 The following keys are meaningful under =[latex]= only.
 Missing keys (or empty arrays) keep the built-in lists; present entries are added to those lists.
-There is no regex =other:= key (latexindent's pattern-based extra matching is not supported).
+A regex =other:= key is rejected.
+Latexindent's pattern-based extra matching is not supported, and the error names the unknown field.
 
 ** verbatim_envs (latex)
 :PROPERTIES:
@@ -365,7 +366,13 @@ Later rules are not consulted.
 Globs are relative to the directory that holds =.snapperrc.toml=.
 A relative path is joined to the working directory and then made relative to that directory.
 A path outside the config directory does not match.
+Both the file and the config directory are canonicalized, so a symlink to the tree still matches.
 A pattern with no slash also matches the file name, so =*.md= covers =docs/a.md=.
+A leading =./= is ignored, and a trailing slash means the directory and everything under it.
+=docs/= matches =docs/a.md= and =docs/sub/a.md=.
+Every =[[path]]= rule needs a non-empty =glob= or =globs= entry.
+A missing or empty pattern is an error and the run exits 1.
+An unknown key, such as =max_wdith=, is also an error and the message names the field.
 =**= crosses directories.
 =*= and =?= stay inside one directory.
 Character classes, braces, escapes, and a =**= that is not its own segment are not matched as written.
@@ -392,6 +399,9 @@ Keys that the matching rule leaves unset fall through to the per-format section 
 It applies when the command line did not pass =--format=.
 =ignore = true= skips the file during =--check= and =--in-place=, the same way the top-level =ignore= list does.
 The same skip leaves stdin unchanged when =--stdin-filepath= matches, and the language server reports no diagnostics and makes no edits.
+The MCP =format_text= and =check_formatting= tools do the same when their =path= is set.
+The WASM API does the same when =set_path= and =add_ignore= name a match.
+Both use the =[[path]]= matcher.
 The language server reads the same width, break, abbreviation, and threshold keys.
 It applies them to the buffer path.
 =--stdin-filepath= is the path those rules see when the text arrives on stdin.

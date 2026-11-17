@@ -31,12 +31,21 @@ pub enum Touch {
 /// 1-indexed inclusive line numbers added on the new side of a unified diff.
 ///
 /// Counts come from `@@ -old +new @@` headers. A missing count means one
-/// line. A new-side count of zero is a deletion and contributes nothing.
+/// line. A new-side count of zero is a deletion. The paragraph that now
+/// borders that hole is still touched, so a deletion-only edit is not skipped.
 pub fn added_lines(diff: &str) -> Vec<usize> {
     let mut lines = BTreeSet::new();
     for header in diff.lines().filter_map(hunk_header) {
         let (start, count) = header;
         if count == 0 {
+            if start == 0 {
+                lines.insert(1);
+            } else {
+                lines.insert(start);
+                if start > 1 {
+                    lines.insert(start - 1);
+                }
+            }
             continue;
         }
         for line in start..start.saturating_add(count) {
@@ -255,12 +264,39 @@ fn exists_at_ref(top: &Path, base: &str, rel: &str) -> Result<bool> {
 /// work tree against the current commit. A branch that has not touched a
 /// file does not inherit commits that landed only on the other ref.
 fn comparison_base(top: &Path, requested: &str) -> Result<String> {
+    if !head_exists(top) {
+        if requested != "HEAD" {
+            bail!("--changed-from {requested} needs a commit, and this repository has no HEAD yet");
+        }
+        return empty_tree(top);
+    }
     let stdout = git(top, ["merge-base", requested, "HEAD"])?;
     let base = stdout.trim();
     if base.is_empty() || base.chars().any(|c| c.is_whitespace() || c == '\0') {
         bail!("git merge-base {requested} HEAD returned no commit");
     }
     Ok(base.to_string())
+}
+
+fn head_exists(top: &Path) -> bool {
+    Command::new("git")
+        .arg("-C")
+        .arg(top)
+        .args(["rev-parse", "--verify", "--quiet", "HEAD"])
+        .output()
+        .map(|output| output.status.success())
+        .unwrap_or(false)
+}
+
+/// The empty tree. `git diff` against it lists every tracked path, and an
+/// unborn `HEAD` still has untracked prose to check.
+fn empty_tree(top: &Path) -> Result<String> {
+    let stdout = git(top, ["hash-object", "-t", "tree", "/dev/null"])?;
+    let hash = stdout.trim();
+    if hash.is_empty() {
+        bail!("git hash-object did not return the empty tree");
+    }
+    Ok(hash.to_string())
 }
 
 struct RawChange {
@@ -392,7 +428,15 @@ index 111..222 100644
 @@ -20,1 +22,0 @@
 @@ -30 +30 @@
 ";
-        assert_eq!(added_lines(diff), vec![1, 2, 3, 12, 13, 30]);
+        assert_eq!(added_lines(diff), vec![1, 2, 3, 12, 13, 21, 22, 30]);
+    }
+
+    #[test]
+    fn a_deletion_hunk_touches_the_bordering_line() {
+        let diff = "@@ -4 +3,0 @@ Fused sentence. Still fused.\n-Trailing line.\n";
+        assert_eq!(added_lines(diff), vec![2, 3]);
+        let at_start = "@@ -1 +0,0 @@\n-Intro line.\n";
+        assert_eq!(added_lines(at_start), vec![1]);
     }
 
     #[test]

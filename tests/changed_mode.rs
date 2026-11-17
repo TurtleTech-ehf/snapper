@@ -361,3 +361,80 @@ fn an_external_diff_driver_does_not_hide_the_edit() {
         String::from_utf8_lossy(&check.stderr)
     );
 }
+
+#[test]
+fn deleting_a_line_still_checks_the_paragraph() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    init_repo(root);
+    fs::write(
+        root.join("paper.md"),
+        "Old fused sentence. Still old.\n\nFused sentence. Still fused.\nTrailing line.\n",
+    )
+    .unwrap();
+    commit_all(root, "base");
+    fs::write(
+        root.join("paper.md"),
+        "Old fused sentence. Still old.\n\nFused sentence. Still fused.\n",
+    )
+    .unwrap();
+    let check = run(root, &["--check", "--changed", "--color", "never"]);
+    assert_eq!(
+        check.status.code(),
+        Some(1),
+        "a deletion-only hunk must still check the paragraph: {}",
+        String::from_utf8_lossy(&check.stderr)
+    );
+    let stderr = String::from_utf8_lossy(&check.stderr);
+    assert!(
+        stderr.contains("Fused sentence"),
+        "the paragraph that lost a line must be reported: {stderr}"
+    );
+    assert!(
+        !stderr.contains("Old fused"),
+        "the untouched paragraph must stay quiet: {stderr}"
+    );
+}
+
+#[test]
+fn an_unborn_head_still_checks_untracked_prose() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    init_repo(root);
+    fs::write(root.join("notes.md"), "Two sentences. Here.\n").unwrap();
+    let check = run(root, &["--check", "--changed", "--color", "never"]);
+    assert_eq!(
+        check.status.code(),
+        Some(1),
+        "untracked prose in a repo with no commits must fail --check: {}",
+        String::from_utf8_lossy(&check.stderr)
+    );
+    let stderr = String::from_utf8_lossy(&check.stderr);
+    assert!(
+        stderr.contains("would reformat"),
+        "the file must be checked, not rejected by merge-base: {stderr}"
+    );
+    assert!(
+        !stderr.contains("merge-base") && !stderr.contains("Not a valid object name"),
+        "{stderr}"
+    );
+}
+
+#[test]
+fn changed_paths_are_printed_relative_to_the_repo() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    init_repo(root);
+    fs::create_dir_all(root.join("docs")).unwrap();
+    fs::write(root.join("docs/notes.md"), "Two sentences. Here.\n").unwrap();
+    let check = run(root, &["--check", "--changed", "--color", "never"]);
+    let stderr = String::from_utf8_lossy(&check.stderr);
+    assert!(
+        stderr.contains("docs/notes.md"),
+        "the path must be repo-relative, got {stderr}"
+    );
+    assert!(
+        !stderr.contains(root.to_str().unwrap()),
+        "the path must not be absolute, got {stderr}"
+    );
+}

@@ -128,8 +128,12 @@ The ref comes from =--changed-from= and defaults to =HEAD=.
 The comparison uses the merge base of that ref and HEAD.
 A commit that exists only on the ref is not a local edit.
 With no file arguments, the paths come from =git diff= and from untracked prose files.
+Those paths are printed relative to the repository root.
 A file that does not exist at the ref is checked in full.
 A paragraph with no added or modified line is left as it is, including a paragraph that would fail a whole-file check.
+Deleting a line still checks the paragraph that bordered the deletion.
+A repository with no commits yet is compared with the empty tree, so untracked prose is still checked.
+Each line keeps the ending it had, so a mix of LF and CRLF is not rewritten to one style.
 =--changed= cannot be combined with =--range=.
 Stdin has no git path, so pass files.
 
