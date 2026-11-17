@@ -425,8 +425,16 @@ fn changed_paths_are_printed_relative_to_the_repo() {
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path();
     init_repo(root);
+    fs::write(root.join("README.md"), "Fine.\n").unwrap();
+    commit_all(root, "base");
     fs::create_dir_all(root.join("docs")).unwrap();
     fs::write(root.join("docs/notes.md"), "Two sentences. Here.\n").unwrap();
+    let head = git(root, &["rev-parse", "--verify", "HEAD"]);
+    assert!(
+        head.status.success(),
+        "this test must have a commit, so a broken unborn-HEAD path cannot hide the path assertion: {}",
+        String::from_utf8_lossy(&head.stderr)
+    );
     let check = run(root, &["--check", "--changed", "--color", "never"]);
     let stderr = String::from_utf8_lossy(&check.stderr);
     assert!(
@@ -436,5 +444,112 @@ fn changed_paths_are_printed_relative_to_the_repo() {
     assert!(
         !stderr.contains(root.to_str().unwrap()),
         "the path must not be absolute, got {stderr}"
+    );
+}
+
+#[test]
+fn changed_rejects_a_file_from_another_repository() {
+    let dir = tempfile::tempdir().unwrap();
+    let here = dir.path().join("here");
+    let there = dir.path().join("there");
+    fs::create_dir_all(&here).unwrap();
+    fs::create_dir_all(&there).unwrap();
+    init_repo(&here);
+    init_repo(&there);
+    fs::write(here.join("README.md"), "Fine.\n").unwrap();
+    commit_all(&here, "base");
+    fs::write(there.join("note.md"), "Fine.\n").unwrap();
+    commit_all(&there, "base");
+    fs::write(there.join("note.md"), "Two sentences. Here.\n").unwrap();
+    let foreign = there.join("note.md");
+    let check = run(
+        &here,
+        &[
+            "--check",
+            "--changed",
+            "--color",
+            "never",
+            foreign.to_str().unwrap(),
+        ],
+    );
+    let stderr = String::from_utf8_lossy(&check.stderr);
+    assert!(
+        !check.status.success(),
+        "a file from another repository must be rejected: {stderr}"
+    );
+    assert!(
+        stderr.contains("different git repository"),
+        "the error must say the file is in a different repository, got {stderr}"
+    );
+    assert!(
+        !stderr.contains("would reformat"),
+        "the other repository's prose must not be checked, got {stderr}"
+    );
+}
+
+#[test]
+fn changed_checks_a_path_with_spaces() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    init_repo(root);
+    fs::write(root.join("README.md"), "Fine.\n").unwrap();
+    commit_all(root, "base");
+    fs::write(root.join("my notes.md"), "Two sentences. Here.\n").unwrap();
+    let check = run(
+        root,
+        &["--check", "--changed", "--color", "never", "my notes.md"],
+    );
+    let stderr = String::from_utf8_lossy(&check.stderr);
+    assert_eq!(
+        check.status.code(),
+        Some(1),
+        "a changed file whose name has a space must be checked: {stderr}"
+    );
+    assert!(
+        stderr.contains("my notes.md"),
+        "the spaced path must be printed whole, got {stderr}"
+    );
+    assert!(
+        stderr.contains("would reformat"),
+        "the spaced path must reach the check, got {stderr}"
+    );
+}
+
+#[test]
+fn changed_rejects_a_path_outside_the_repository() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().join("repo");
+    let outside = dir.path().join("loose notes.md");
+    fs::create_dir_all(&root).unwrap();
+    init_repo(&root);
+    fs::write(root.join("README.md"), "Fine.\n").unwrap();
+    commit_all(&root, "base");
+    fs::write(&outside, "Two sentences. Here.\n").unwrap();
+    let check = run(
+        &root,
+        &[
+            "--check",
+            "--changed",
+            "--color",
+            "never",
+            outside.to_str().unwrap(),
+        ],
+    );
+    let stderr = String::from_utf8_lossy(&check.stderr);
+    assert!(
+        !check.status.success(),
+        "a path outside the repository must be rejected: {stderr}"
+    );
+    assert!(
+        stderr.contains("outside the git repository"),
+        "the error must say the path is outside the repository, got {stderr}"
+    );
+    assert!(
+        stderr.contains("loose notes.md"),
+        "the error must include the path, spaces and all, got {stderr}"
+    );
+    assert!(
+        !stderr.contains("would reformat"),
+        "prose outside the repository must not be checked, got {stderr}"
     );
 }

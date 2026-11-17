@@ -155,12 +155,36 @@ pub fn changed_prose_files(base: &str) -> Result<Vec<PathBuf>> {
 }
 
 /// Lines of `path` that `--changed` may rewrite, compared with `base`.
+///
+/// The file has to live in the repository that contains the current directory.
+/// A path in another git checkout, or a path that is not in a checkout at all,
+/// is an error. The file's own toplevel is not enough: that would format a
+/// foreign repository as if it had been requested here.
 pub fn touch_for_path(base: &str, path: &Path) -> Result<Touch> {
     validate_ref(base)?;
     let abs = std::path::absolute(path)
         .with_context(|| format!("failed to resolve {}", path.display()))?;
-    let start = abs.parent().unwrap_or(Path::new("."));
-    let top = toplevel(start)?;
+    let cwd = std::env::current_dir().context("failed to read the current directory")?;
+    let cwd_top = toplevel(&cwd)?;
+    let file_start = abs.parent().unwrap_or(Path::new("."));
+    let top = match toplevel(file_start) {
+        Ok(top) if same_directory(&top, &cwd_top) => top,
+        Ok(top) => {
+            bail!(
+                "{} is in a different git repository ({}); --changed only accepts files in {}",
+                path.display(),
+                top.display(),
+                cwd_top.display()
+            );
+        }
+        Err(_) => {
+            bail!(
+                "{} is outside the git repository {}",
+                path.display(),
+                cwd_top.display()
+            );
+        }
+    };
     let rel = repo_relative(&abs, &top)?;
     let rel_s = rel.to_string_lossy().replace('\\', "/");
     let base = comparison_base(&top, base)?;
@@ -199,6 +223,12 @@ pub fn touch_for_path(base: &str, path: &Path) -> Result<Touch> {
     } else {
         Ok(Touch::All)
     }
+}
+
+fn same_directory(left: &Path, right: &Path) -> bool {
+    let left = left.canonicalize().unwrap_or_else(|_| left.to_path_buf());
+    let right = right.canonicalize().unwrap_or_else(|_| right.to_path_buf());
+    left == right
 }
 
 fn repo_relative(path: &Path, top: &Path) -> Result<PathBuf> {
