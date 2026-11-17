@@ -163,7 +163,10 @@ fn run() -> Result<()> {
 
         if cli.check {
             let splitter = build_splitter(&config).context("failed to build sentence splitter")?;
-            let threshold = resolve_long_threshold(config.max_width, project_config.long_threshold);
+            let threshold = resolve_long_threshold(
+                config.max_width,
+                project_config.long_threshold_for_path(cli.stdin_filepath.as_deref()),
+            );
             let diagnostics =
                 collect_diagnostics(&input, format, splitter.as_ref(), threshold, Some(&config));
             let would = output != input;
@@ -296,8 +299,10 @@ fn run() -> Result<()> {
                 let splitter = cache
                     .get(&key)
                     .ok_or_else(|| anyhow::anyhow!("splitter cache miss for {path_str}"))?;
-                let threshold =
-                    resolve_long_threshold(config.max_width, project_config.long_threshold);
+                let threshold = resolve_long_threshold(
+                    config.max_width,
+                    project_config.long_threshold_for_path(Some(path)),
+                );
                 let diagnostics =
                     collect_diagnostics(input, format, splitter.as_ref(), threshold, Some(&config));
                 let diagnostics = filter_scope(diagnostics, outcome.scope.as_deref());
@@ -467,7 +472,7 @@ fn build_format_config(
     let format_key = format.config_key();
     let max_width = resolve_max_width(
         cli.max_width,
-        project_config.max_width_for_format(format_key),
+        project_config.max_width_for_path(format_key, file_path),
         file_path,
     );
     let neural_lang = cli
@@ -476,10 +481,11 @@ fn build_format_config(
         .or_else(|| project_config.lang.clone())
         .unwrap_or_else(|| "en".to_string());
 
-    // CLI --clause-breaks wins when set; otherwise project config (default false).
-    let clause_breaks = cli.clause_breaks || project_config.clause_breaks.unwrap_or(false);
+    // CLI --clause-breaks wins when set; otherwise a path rule, then the
+    // top-level key (default false).
+    let clause_breaks = cli.clause_breaks || project_config.clause_breaks_for_path(file_path);
     let lowercase_starts =
-        cli.lowercase_starts || project_config.lowercase_starts_for_format(format_key);
+        cli.lowercase_starts || project_config.lowercase_starts_for_path(format_key, file_path);
 
     FormatConfig {
         format,
@@ -487,7 +493,7 @@ fn build_format_config(
         use_neural: cli.neural,
         neural_lang,
         neural_model_path: cli.model_path.clone(),
-        extra_abbreviations: project_config.abbreviations_for_format(format_key),
+        extra_abbreviations: project_config.abbreviations_for_path(format_key, file_path),
         latex_verbatim_envs: project_config.latex_verbatim_envs(),
         latex_structure_envs: project_config.latex_structure_envs(),
         latex_verbatim_commands: project_config.latex_verbatim_commands(),
@@ -515,6 +521,17 @@ fn resolve_format(
     }
 
     if let Some(path) = path {
+        if let Some(name) = project_config
+            .matching_rule(path)
+            .and_then(|rule| rule.format.as_deref())
+        {
+            return Format::from_config_key(name).with_context(|| {
+                format!(
+                    "{}: unknown format {name:?} in a [[path]] rule",
+                    path.display()
+                )
+            });
+        }
         if let Some(detected) = Format::recognized_from_path(path) {
             return Ok(detected);
         }
@@ -536,7 +553,8 @@ fn resolve_format(
 }
 
 fn should_skip_path(path: &Path, cli: &Cli, project_config: &ProjectConfig) -> bool {
-    (cli.check || cli.in_place) && project_config.is_ignored(path)
+    (cli.check || cli.in_place)
+        && (project_config.is_ignored(path) || project_config.path_ignored(path))
 }
 
 /// Resolve max_width: CLI flag > project config > editorconfig > 0 (unlimited).

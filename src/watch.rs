@@ -117,32 +117,46 @@ fn format_file_in_place(
     project_config: &ProjectConfig,
     use_pandoc: bool,
 ) -> Result<bool> {
-    if project_config.is_ignored(path) {
+    if project_config.is_ignored(path) || project_config.path_ignored(path) {
         return Ok(false);
     }
 
     let input = std::fs::read_to_string(path)
         .with_context(|| format!("failed to read {}", path.display()))?;
 
-    let format = match format_override.or_else(|| Format::recognized_from_path(path)) {
-        Some(f) => f,
-        None => return Ok(false),
+    let format = if let Some(format) = format_override {
+        format
+    } else if let Some(name) = project_config
+        .matching_rule(path)
+        .and_then(|rule| rule.format.as_deref())
+    {
+        match Format::from_config_key(name) {
+            Some(format) => format,
+            None => return Ok(false),
+        }
+    } else {
+        match Format::recognized_from_path(path) {
+            Some(format) => format,
+            None => return Ok(false),
+        }
     };
     let format_key = format.config_key();
 
     let config = FormatConfig {
         format,
-        max_width: project_config.max_width_for_format(format_key).unwrap_or(0),
+        max_width: project_config
+            .max_width_for_path(format_key, Some(path))
+            .unwrap_or(0),
         neural_lang: project_config
             .lang
             .clone()
             .unwrap_or_else(|| "en".to_string()),
-        extra_abbreviations: project_config.abbreviations_for_format(format_key),
+        extra_abbreviations: project_config.abbreviations_for_path(format_key, Some(path)),
         latex_verbatim_envs: project_config.latex_verbatim_envs(),
         latex_structure_envs: project_config.latex_structure_envs(),
         latex_verbatim_commands: project_config.latex_verbatim_commands(),
-        clause_breaks: project_config.clause_breaks.unwrap_or(false),
-        lowercase_starts: project_config.lowercase_starts_for_format(format_key),
+        clause_breaks: project_config.clause_breaks_for_path(Some(path)),
+        lowercase_starts: project_config.lowercase_starts_for_path(format_key, Some(path)),
         use_pandoc,
         ..Default::default()
     };

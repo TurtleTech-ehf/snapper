@@ -196,6 +196,8 @@ mod org_wrap_created_link;
 mod org_wrap_file_token;
 #[path = "pandoc_ast_backend.rs"]
 mod pandoc_ast_backend;
+#[path = "path_rules.rs"]
+mod path_rules;
 #[path = "rst_abbrev_list_continuation.rs"]
 mod rst_abbrev_list_continuation;
 #[path = "rst_anonymous_targets.rs"]

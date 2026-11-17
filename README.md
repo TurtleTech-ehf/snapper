@@ -378,6 +378,13 @@ Drop a `.snapperrc.toml` in your project root:
     verbatim_commands = ["Verb"]
 
 Missing `[latex]` keys keep the built-in minted/lstlisting/verbatim/comment/Piton, equation/figure, and verb/lstinline/spverb/Verb/piton lists.
+An ordered `[[path]]` rule overrides those values for files that match its glob.
+The first match wins.
+
+    [[path]]
+    glob = "docs/**/*.md"
+    max_width = 72
+
 `snapper` walks up from the current directory to find it.
 
 

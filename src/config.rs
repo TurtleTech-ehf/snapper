@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use anyhow::Result;
 #[cfg(any(feature = "cli", feature = "watch"))]
@@ -101,6 +101,39 @@ impl CodeLang {
     }
 }
 
+/// One `[[path]]` rule in `.snapperrc.toml`.
+///
+/// Rules are ordered. The first rule whose glob matches the file supplies
+/// every key it sets. Later rules are not consulted. A pattern with no `/`
+/// also matches the file name, so `*.md` covers `docs/a.md`.
+#[derive(Debug, Default, Clone, Deserialize, PartialEq, Eq)]
+#[serde(default)]
+pub struct PathRule {
+    /// One glob, relative to the directory that holds the config file.
+    pub glob: Option<String>,
+    /// More globs for the same overrides.
+    pub globs: Vec<String>,
+    pub max_width: Option<usize>,
+    pub clause_breaks: Option<bool>,
+    pub lowercase_starts: Option<bool>,
+    pub extra_abbreviations: Vec<String>,
+    /// Format name (`org`, `latex`, `markdown`, `rst`, `typst`, `plaintext`).
+    /// Used when the CLI did not pass `--format`.
+    pub format: Option<String>,
+    /// Skip the file during `--check` and `--in-place`, same as `ignore`.
+    pub ignore: bool,
+    pub long_threshold: Option<usize>,
+}
+
+impl PathRule {
+    fn patterns(&self) -> impl Iterator<Item = &str> {
+        self.glob
+            .as_deref()
+            .into_iter()
+            .chain(self.globs.iter().map(String::as_str))
+    }
+}
+
 /// Per-project configuration loaded from `.snapperrc.toml`.
 #[derive(Debug, Default, Deserialize)]
 #[serde(default)]
@@ -139,6 +172,15 @@ pub struct ProjectConfig {
     pub plaintext: Option<FormatOverrides>,
     pub typst: Option<FormatOverrides>,
 
+    /// Ordered path rules. The first match wins. See [`PathRule`].
+    #[serde(default, rename = "path")]
+    pub paths: Vec<PathRule>,
+
+    /// Directory that held the config file. Set by [`ProjectConfig::load`].
+    /// Glob matching is relative to this directory. Not read from TOML.
+    #[serde(skip)]
+    pub root: Option<PathBuf>,
+
     /// Per-language code-block reflow and formatter configuration.
     /// Key is the language identifier as it appears on the code fence
     /// (e.g. `rust`, `python`, `toml`). Missing languages mean the code
@@ -164,9 +206,24 @@ impl ProjectConfig {
     }
 
     /// Load config from a specific path.
+    ///
+    /// `root` becomes the config file's directory so `[[path]]` globs resolve
+    /// against that tree rather than whatever the process later uses as cwd.
     pub fn load(path: &Path) -> Result<Self> {
         let contents = std::fs::read_to_string(path)?;
-        Self::parse(&contents)
+        let mut config = Self::parse(&contents)?;
+        config.root = path.parent().map(|parent| {
+            if parent.as_os_str().is_empty() {
+                std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."))
+            } else if parent.is_absolute() {
+                parent.to_path_buf()
+            } else {
+                std::env::current_dir()
+                    .unwrap_or_else(|_| PathBuf::from("."))
+                    .join(parent)
+            }
+        });
+        Ok(config)
     }
 
     fn parse(toml_str: &str) -> Result<Self> {
@@ -236,6 +293,92 @@ impl ProjectConfig {
             .unwrap_or(false)
     }
 
+    /// First `[[path]]` rule that matches `path`, if any.
+    pub fn matching_rule(&self, path: &Path) -> Option<&PathRule> {
+        let candidates = self.relative_candidates(path);
+        self.paths.iter().find(|rule| {
+            rule.patterns()
+                .any(|pattern| candidates.iter().any(|cand| path_glob_match(pattern, cand)))
+        })
+    }
+
+    /// True when a matching path rule sets `ignore`.
+    pub fn path_ignored(&self, path: &Path) -> bool {
+        self.matching_rule(path).is_some_and(|rule| rule.ignore)
+    }
+
+    /// `max_width` from the first matching path rule, else the format value.
+    pub fn max_width_for_path(&self, format: &str, path: Option<&Path>) -> Option<usize> {
+        if let Some(path) = path {
+            if let Some(width) = self.matching_rule(path).and_then(|rule| rule.max_width) {
+                return Some(width);
+            }
+        }
+        self.max_width_for_format(format)
+    }
+
+    /// `clause_breaks` from the first matching path rule, else the top-level key.
+    pub fn clause_breaks_for_path(&self, path: Option<&Path>) -> bool {
+        path.and_then(|candidate| self.matching_rule(candidate))
+            .and_then(|rule| rule.clause_breaks)
+            .or(self.clause_breaks)
+            .unwrap_or(false)
+    }
+
+    /// Path rule, then per-format, then the top-level key. Missing stays false.
+    pub fn lowercase_starts_for_path(&self, format: &str, path: Option<&Path>) -> bool {
+        if let Some(path) = path {
+            if let Some(value) = self
+                .matching_rule(path)
+                .and_then(|rule| rule.lowercase_starts)
+            {
+                return value;
+            }
+        }
+        self.lowercase_starts_for_format(format)
+    }
+
+    /// Top-level and per-format abbreviations, plus extras from a matching rule.
+    pub fn abbreviations_for_path(&self, format: &str, path: Option<&Path>) -> Vec<String> {
+        let mut abbrevs = self.abbreviations_for_format(format);
+        if let Some(path) = path {
+            if let Some(rule) = self.matching_rule(path) {
+                abbrevs.extend(rule.extra_abbreviations.iter().cloned());
+            }
+        }
+        abbrevs
+    }
+
+    /// Path rule threshold, else the top-level `long_threshold`.
+    pub fn long_threshold_for_path(&self, path: Option<&Path>) -> Option<usize> {
+        path.and_then(|candidate| self.matching_rule(candidate))
+            .and_then(|rule| rule.long_threshold)
+            .or(self.long_threshold)
+    }
+
+    fn relative_candidates(&self, path: &Path) -> Vec<String> {
+        let mut out = Vec::new();
+        let mut push = |rel: &Path| {
+            let text = rel.to_string_lossy().replace('\\', "/");
+            let text = text.trim_start_matches("./").to_string();
+            if !text.is_empty() && !out.iter().any(|existing| existing == &text) {
+                out.push(text);
+            }
+        };
+        if let Some(root) = &self.root {
+            if let Ok(rel) = path.strip_prefix(root) {
+                push(rel);
+            }
+        }
+        if let Ok(cwd) = std::env::current_dir() {
+            if let Ok(rel) = path.strip_prefix(&cwd) {
+                push(rel);
+            }
+        }
+        push(path);
+        out
+    }
+
     /// Extra `[latex].verbatim_envs` names. Empty when the key is missing.
     pub fn latex_verbatim_envs(&self) -> Vec<String> {
         self.latex
@@ -275,6 +418,64 @@ impl ProjectConfig {
             })
         })
     }
+}
+
+/// `pattern` against `path`, both using `/`.
+///
+/// `**` matches across directories. `*` and `?` stay inside one directory.
+/// A pattern with no `/` also matches the final path segment.
+fn path_glob_match(pattern: &str, path: &str) -> bool {
+    let pattern = pattern.trim_start_matches('/');
+    let path = path.trim_start_matches("./");
+    if glob_parts(pattern, path) {
+        return true;
+    }
+    if !pattern.contains('/') {
+        if let Some(name) = path.rsplit('/').next() {
+            return glob_parts(pattern, name);
+        }
+    }
+    false
+}
+
+fn glob_parts(pattern: &str, path: &str) -> bool {
+    let pat: Vec<&str> = pattern.split('/').filter(|s| !s.is_empty()).collect();
+    let segs: Vec<&str> = path.split('/').filter(|s| !s.is_empty()).collect();
+    match_parts(&pat, &segs)
+}
+
+fn match_parts(pat: &[&str], segs: &[&str]) -> bool {
+    if pat.is_empty() {
+        return segs.is_empty();
+    }
+    if pat[0] == "**" {
+        if match_parts(&pat[1..], segs) {
+            return true;
+        }
+        return !segs.is_empty() && match_parts(pat, &segs[1..]);
+    }
+    !segs.is_empty() && seg_match(pat[0], segs[0]) && match_parts(&pat[1..], &segs[1..])
+}
+
+fn seg_match(pattern: &str, segment: &str) -> bool {
+    fn rec(pat: &[char], text: &[char]) -> bool {
+        if pat.is_empty() {
+            return text.is_empty();
+        }
+        if pat[0] == '*' {
+            if rec(&pat[1..], text) {
+                return true;
+            }
+            return !text.is_empty() && rec(pat, &text[1..]);
+        }
+        if text.is_empty() {
+            return false;
+        }
+        (pat[0] == '?' || pat[0] == text[0]) && rec(&pat[1..], &text[1..])
+    }
+    let pat: Vec<char> = pattern.chars().collect();
+    let text: Vec<char> = segment.chars().collect();
+    rec(&pat, &text)
 }
 
 #[cfg(test)]
@@ -482,5 +683,51 @@ verbatim_commands = ["Verb"]
         assert!(config.latex_verbatim_envs().is_empty());
         assert!(config.latex_structure_envs().is_empty());
         assert!(config.latex_verbatim_commands().is_empty());
+    }
+
+    #[test]
+    fn path_globs_match_directories_and_bare_names() {
+        assert!(path_glob_match("docs/**/*.md", "docs/a/b.md"));
+        assert!(path_glob_match("docs/**/*.md", "docs/b.md"));
+        assert!(!path_glob_match("docs/**/*.md", "docs/a/b.org"));
+        assert!(path_glob_match("*.md", "docs/a.md"));
+        assert!(path_glob_match("notes/?.txt", "notes/a.txt"));
+        assert!(!path_glob_match("notes/?.txt", "notes/ab.txt"));
+    }
+
+    #[test]
+    fn the_first_matching_path_rule_wins() {
+        let config = ProjectConfig::parse(
+            r#"
+max_width = 80
+extra_abbreviations = ["Global"]
+clause_breaks = false
+
+[[path]]
+glob = "docs/**"
+max_width = 40
+clause_breaks = true
+extra_abbreviations = ["RFC"]
+
+[[path]]
+globs = ["docs/special.md"]
+max_width = 0
+ignore = true
+"#,
+        )
+        .unwrap();
+        let special = Path::new("docs/special.md");
+        assert_eq!(
+            config.max_width_for_path("markdown", Some(special)),
+            Some(40)
+        );
+        assert!(config.clause_breaks_for_path(Some(special)));
+        assert!(!config.path_ignored(special));
+        let abbrevs = config.abbreviations_for_path("markdown", Some(special));
+        assert!(abbrevs.contains(&"Global".to_string()));
+        assert!(abbrevs.contains(&"RFC".to_string()));
+        let other = Path::new("notes/a.md");
+        assert_eq!(config.max_width_for_path("markdown", Some(other)), Some(80));
+        assert!(!config.clause_breaks_for_path(Some(other)));
     }
 }

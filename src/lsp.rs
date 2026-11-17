@@ -38,8 +38,10 @@ impl SnapperLsp {
         *self.project_config.lock().expect("config lock poisoned") = config;
     }
 
-    fn make_config(&self, format: Format) -> FormatConfig {
+    fn make_config(&self, format: Format, uri: &Url) -> FormatConfig {
         let project = self.project_config.lock().expect("config lock poisoned");
+        let path = uri.to_file_path().ok();
+        let path_ref = path.as_deref();
         let format_str = match format {
             Format::Org => "org",
             Format::Latex => "latex",
@@ -50,13 +52,15 @@ impl SnapperLsp {
         };
         FormatConfig {
             format,
-            max_width: project.max_width_for_format(format_str).unwrap_or(0),
-            extra_abbreviations: project.abbreviations_for_format(format_str),
+            max_width: project
+                .max_width_for_path(format_str, path_ref)
+                .unwrap_or(0),
+            extra_abbreviations: project.abbreviations_for_path(format_str, path_ref),
             latex_verbatim_envs: project.latex_verbatim_envs(),
             latex_structure_envs: project.latex_structure_envs(),
             latex_verbatim_commands: project.latex_verbatim_commands(),
-            clause_breaks: project.clause_breaks.unwrap_or(false),
-            lowercase_starts: project.lowercase_starts_for_format(format_str),
+            clause_breaks: project.clause_breaks_for_path(path_ref),
+            lowercase_starts: project.lowercase_starts_for_path(format_str, path_ref),
             // VS Code / Helix LSP stay native even if the CLI default flips.
             use_pandoc: false,
             ..Default::default()
@@ -67,7 +71,7 @@ impl SnapperLsp {
         // Returns None if lock is poisoned (graceful degradation)
         let docs = self.documents.lock().ok()?;
         let (text, format) = docs.get(uri)?;
-        let config = self.make_config(*format);
+        let config = self.make_config(*format, uri);
         let formatted = format_text(text, &config).ok()?;
         whole_document_edit(text, formatted)
     }
@@ -77,13 +81,17 @@ impl SnapperLsp {
         let Some((text, format)) = docs.get(uri) else {
             return vec![];
         };
-        let config = self.make_config(*format);
+        let config = self.make_config(*format, uri);
         let Ok(splitter) = build_splitter(&config) else {
             return vec![];
         };
         let threshold = {
             let project = self.project_config.lock().expect("config lock poisoned");
-            resolve_long_threshold(config.max_width, project.long_threshold)
+            let path = uri.to_file_path().ok();
+            resolve_long_threshold(
+                config.max_width,
+                project.long_threshold_for_path(path.as_deref()),
+            )
         };
 
         collect_diagnostics(text, *format, splitter.as_ref(), threshold, Some(&config))
@@ -252,7 +260,7 @@ impl LanguageServer for SnapperLsp {
             return Ok(None);
         };
 
-        let config = self.make_config(*format);
+        let config = self.make_config(*format, uri);
         // A range that already covers the whole buffer, final break
         // included, is the same edit as format document. Slicing through
         // `lines` drops that break and the replacement can put it back.
@@ -333,7 +341,7 @@ impl LanguageServer for SnapperLsp {
             });
         };
 
-        let config = self.make_config(*format);
+        let config = self.make_config(*format, uri);
 
         for diag in &snapper_diags {
             let lines: Vec<&str> = text.lines().collect();
@@ -395,7 +403,7 @@ impl LanguageServer for SnapperLsp {
             return Ok(None);
         };
 
-        let config = self.make_config(*format);
+        let config = self.make_config(*format, uri);
         let width_display = if config.max_width == 0 {
             "unlimited".to_string()
         } else {
@@ -445,7 +453,7 @@ impl LanguageServer for SnapperLsp {
         };
 
         let line = text.lines().nth(pos.line as usize).unwrap_or("");
-        let config = self.make_config(*format);
+        let config = self.make_config(*format, uri);
         let formatted = format_text(line, &config).unwrap_or_default();
 
         // Show hover preview only if the line actually needs formatting

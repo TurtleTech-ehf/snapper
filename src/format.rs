@@ -65,6 +65,22 @@ impl Format {
         crate::detect::score_text(text)
     }
 
+    /// Format name as it appears in `.snapperrc.toml` (`org`, `latex`, …).
+    ///
+    /// Extension aliases (`md`, `tex`, `typ`, `txt`) are accepted. An unknown
+    /// name is `None` so a typo in a path rule can be reported.
+    pub fn from_config_key(name: &str) -> Option<Self> {
+        match name {
+            "org" => Some(Format::Org),
+            "latex" | "tex" => Some(Format::Latex),
+            "markdown" | "md" => Some(Format::Markdown),
+            "rst" | "rest" => Some(Format::Rst),
+            "plaintext" | "text" | "txt" => Some(Format::Plaintext),
+            "typst" | "typ" => Some(Format::Typst),
+            _ => None,
+        }
+    }
+
     pub fn config_key(self) -> &'static str {
         match self {
             Format::Org => "org",

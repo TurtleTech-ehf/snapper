@@ -88,6 +88,13 @@ max_width = 0
 # Advisory long-line threshold when max_width is 0 (default 120)
 # long_threshold = 120
 
+# First matching [[path]] rule wins. Globs are relative to this file.
+# A pattern with no slash also matches the file name.
+# [[path]]
+# glob = "docs/**/*.md"
+# max_width = 72
+# clause_breaks = true
+
 # Per-language code-block reflow and formatter delegation.
 # Each language entry may set any combination of:
 #   line_comment   -- marker for single-line comments
