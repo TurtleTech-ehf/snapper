@@ -105,19 +105,25 @@ fn parse_format(s: &str) -> Format {
 }
 
 /// Load `.snapperrc.toml` from `path`'s directory and apply the CLI skip.
-fn path_is_ignored(path: Option<&str>) -> bool {
+///
+/// A missing file is not an error. A file that does not parse is: swallowing
+/// it would format the buffer with the defaults and hide the typo.
+fn path_is_ignored(path: Option<&str>) -> Result<bool, rmcp::ErrorData> {
     let Some(path) = path.filter(|path| !path.is_empty()) else {
-        return false;
+        return Ok(false);
     };
     let path = Path::new(path);
     let start = path
         .parent()
         .filter(|parent| !parent.as_os_str().is_empty())
         .unwrap_or(Path::new("."));
-    let Ok(config) = crate::config::ProjectConfig::find_and_load(start) else {
-        return false;
-    };
-    config.file_skipped(path)
+    match crate::config::ProjectConfig::find_and_load(start) {
+        Ok(config) => Ok(config.file_skipped(path)),
+        Err(err) => Err(rmcp::ErrorData::invalid_params(
+            format!("failed to load .snapperrc.toml: {err:#}"),
+            None,
+        )),
+    }
 }
 
 fn make_config(
@@ -209,7 +215,7 @@ impl SnapperMcpServer {
         &self,
         Parameters(params): Parameters<FormatTextParams>,
     ) -> Result<Json<FormatTextResult>, rmcp::ErrorData> {
-        if path_is_ignored(params.path.as_deref()) {
+        if path_is_ignored(params.path.as_deref())? {
             return Ok(Json(FormatTextResult {
                 formatted: params.text,
             }));
@@ -258,14 +264,14 @@ impl SnapperMcpServer {
     fn check_formatting(
         &self,
         Parameters(params): Parameters<CheckFormattingParams>,
-    ) -> Json<CheckFormattingResult> {
-        if path_is_ignored(params.path.as_deref()) {
-            return Json(CheckFormattingResult {
+    ) -> Result<Json<CheckFormattingResult>, rmcp::ErrorData> {
+        if path_is_ignored(params.path.as_deref())? {
+            return Ok(Json(CheckFormattingResult {
                 violations: vec![],
                 passed: true,
                 would_reformat: false,
                 diagnostics: vec![],
-            });
+            }));
         }
         let format = parse_format(&params.format);
         let config = make_config(
@@ -298,12 +304,12 @@ impl SnapperMcpServer {
                 excerpt: d.excerpt,
             })
             .collect();
-        Json(CheckFormattingResult {
+        Ok(Json(CheckFormattingResult {
             violations,
             passed: !would,
             would_reformat: would,
             diagnostics: dto,
-        })
+        }))
     }
 
     #[tool(
@@ -395,6 +401,7 @@ mod tests {
                 lowercase_starts: false,
                 path: None,
             }))
+            .expect("check_formatting")
             .0
     }
 
@@ -521,10 +528,45 @@ mod tests {
                 lowercase_starts: false,
                 path: Some(path.display().to_string()),
             }))
+            .expect("check_formatting")
             .0;
         assert!(checked.passed);
         assert!(!checked.would_reformat);
         assert!(checked.diagnostics.is_empty());
+    }
+
+    #[test]
+    fn format_text_reports_a_malformed_project_config() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join(".snapperrc.toml"), "max_wdith = 72\n").unwrap();
+        let path = dir.path().join("a.md");
+        let mut params = plaintext("Two sentences. Here.\n");
+        params.path = Some(path.display().to_string());
+        let result = SnapperMcpServer::new().format_text(Parameters(params));
+        let err = result.err().unwrap_or_else(|| {
+            panic!("a malformed .snapperrc.toml must be an error, not a reformatted document")
+        });
+        let msg = err.message.to_string();
+        assert!(
+            msg.contains("max_wdith") || msg.contains("unknown field"),
+            "the error must name the bad key, got {msg}"
+        );
+        let checked = SnapperMcpServer::new().check_formatting(Parameters(CheckFormattingParams {
+            text: "Two sentences. Here.\n".to_string(),
+            format: "plaintext".to_string(),
+            max_width: 0,
+            clause_breaks: false,
+            lowercase_starts: false,
+            path: Some(path.display().to_string()),
+        }));
+        let checked_err = checked
+            .err()
+            .unwrap_or_else(|| panic!("check_formatting must surface a malformed .snapperrc.toml"));
+        let checked_msg = checked_err.message.to_string();
+        assert!(
+            checked_msg.contains("max_wdith") || checked_msg.contains("unknown field"),
+            "the check error must name the bad key, got {checked_msg}"
+        );
     }
 
     #[test]
