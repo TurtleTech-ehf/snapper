@@ -50,6 +50,10 @@ pub struct FormatTextParams {
     /// Optional 1-indexed inclusive line range. Same meaning as CLI `--range`.
     #[serde(default)]
     pub range: Option<LineRange>,
+    /// File path. When set, `.snapperrc.toml` ignore rules skip the file
+    /// the same way the CLI does, and the text is returned unchanged.
+    #[serde(default)]
+    pub path: Option<String>,
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -81,6 +85,9 @@ pub struct CheckFormattingParams {
     /// (same as CLI `--lowercase-starts`; default false).
     #[serde(default)]
     pub lowercase_starts: bool,
+    /// File path. An ignored path passes the check without diagnostics.
+    #[serde(default)]
+    pub path: Option<String>,
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -95,6 +102,22 @@ fn default_format() -> String {
 
 fn parse_format(s: &str) -> Format {
     Format::from_extension(s)
+}
+
+/// Load `.snapperrc.toml` from `path`'s directory and apply the CLI skip.
+fn path_is_ignored(path: Option<&str>) -> bool {
+    let Some(path) = path.filter(|path| !path.is_empty()) else {
+        return false;
+    };
+    let path = Path::new(path);
+    let start = path
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+        .unwrap_or(Path::new("."));
+    let Ok(config) = crate::config::ProjectConfig::find_and_load(start) else {
+        return false;
+    };
+    config.file_skipped(path)
 }
 
 fn make_config(
@@ -186,6 +209,11 @@ impl SnapperMcpServer {
         &self,
         Parameters(params): Parameters<FormatTextParams>,
     ) -> Result<Json<FormatTextResult>, rmcp::ErrorData> {
+        if path_is_ignored(params.path.as_deref()) {
+            return Ok(Json(FormatTextResult {
+                formatted: params.text,
+            }));
+        }
         let format = parse_format(&params.format);
         let config = make_config(
             format,
@@ -231,6 +259,14 @@ impl SnapperMcpServer {
         &self,
         Parameters(params): Parameters<CheckFormattingParams>,
     ) -> Json<CheckFormattingResult> {
+        if path_is_ignored(params.path.as_deref()) {
+            return Json(CheckFormattingResult {
+                violations: vec![],
+                passed: true,
+                would_reformat: false,
+                diagnostics: vec![],
+            });
+        }
         let format = parse_format(&params.format);
         let config = make_config(
             format,
@@ -340,6 +376,7 @@ mod tests {
             clause_breaks: false,
             lowercase_starts: false,
             range: None,
+            path: None,
         }
     }
 
@@ -356,6 +393,7 @@ mod tests {
                 max_width: 0,
                 clause_breaks,
                 lowercase_starts: false,
+                path: None,
             }))
             .0
     }
@@ -456,6 +494,37 @@ mod tests {
         params.lowercase_starts = true;
         let out = format(params);
         assert_eq!(out, "There are two.\nsetup-python moved to PyPy 8.0.0.");
+    }
+
+    #[test]
+    fn format_text_leaves_an_ignored_path_unchanged() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        std::fs::write(
+            root.join(".snapperrc.toml"),
+            "[[path]]\nglob = \"skip/*.md\"\nignore = true\n",
+        )
+        .unwrap();
+        std::fs::create_dir_all(root.join("skip")).unwrap();
+        let path = root.join("skip/a.md");
+        let input = "Two sentences. Here.\n";
+        let mut params = plaintext(input);
+        params.path = Some(path.display().to_string());
+        let out = format(params);
+        assert_eq!(out, input, "an ignored path must not be reformatted");
+        let checked = SnapperMcpServer::new()
+            .check_formatting(Parameters(CheckFormattingParams {
+                text: input.to_string(),
+                format: "plaintext".to_string(),
+                max_width: 0,
+                clause_breaks: false,
+                lowercase_starts: false,
+                path: Some(path.display().to_string()),
+            }))
+            .0;
+        assert!(checked.passed);
+        assert!(!checked.would_reformat);
+        assert!(checked.diagnostics.is_empty());
     }
 
     #[test]

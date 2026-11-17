@@ -202,7 +202,14 @@ impl LanguageServer for SnapperLsp {
     async fn did_open(&self, params: DidOpenTextDocumentParams) {
         let uri = params.text_document.uri.clone();
         let text = params.text_document.text.clone();
-        let format = detect_format_from_uri(&uri, &params.text_document.language_id);
+        let Some(format) = detect_format_from_uri(&uri, &params.text_document.language_id) else {
+            self.documents
+                .lock()
+                .expect("document store poisoned")
+                .remove(&uri);
+            self.client.publish_diagnostics(uri, vec![], None).await;
+            return;
+        };
 
         self.documents
             .lock()
@@ -220,7 +227,10 @@ impl LanguageServer for SnapperLsp {
         if let Some(change) = params.content_changes.into_iter().last() {
             let format = {
                 let docs = self.documents.lock().expect("document store poisoned");
-                docs.get(&uri).map_or(Format::Plaintext, |(_, f)| *f)
+                let Some((_, format)) = docs.get(&uri) else {
+                    return;
+                };
+                *format
             };
             self.documents
                 .lock()
@@ -561,22 +571,28 @@ fn whole_document_edit(text: &str, formatted: String) -> Option<Vec<TextEdit>> {
     }
 }
 
-fn detect_format_from_uri(uri: &Url, language_id: &str) -> Format {
+/// The same decision the CLI makes in `recognized_from_path`.
+///
+/// A known language id still wins. A path whose extension is not a prose
+/// format, including `.asc`, is `None` so the buffer is left alone instead
+/// of being rewritten as plaintext.
+fn detect_format_from_uri(uri: &Url, language_id: &str) -> Option<Format> {
     match language_id {
-        "org" => return Format::Org,
-        "latex" | "tex" => return Format::Latex,
-        "markdown" => return Format::Markdown,
-        "plaintext" => return Format::Plaintext,
-        "restructuredtext" => return Format::Rst,
-        "typst" => return Format::Typst,
-        "asciidoc" | "asciidoctor" => return Format::AsciiDoc,
+        "org" => return Some(Format::Org),
+        "latex" | "tex" => return Some(Format::Latex),
+        "markdown" => return Some(Format::Markdown),
+        "plaintext" => return Some(Format::Plaintext),
+        "restructuredtext" => return Some(Format::Rst),
+        "typst" => return Some(Format::Typst),
+        "asciidoc" | "asciidoctor" => return Some(Format::AsciiDoc),
         _ => {}
     }
     if let Ok(path) = uri.to_file_path() {
-        Format::recognized_from_path(&path).unwrap_or(Format::Plaintext)
-    } else {
-        Format::Plaintext
+        if path.extension().is_some() {
+            return Format::recognized_from_path(&path);
+        }
     }
+    Some(Format::Plaintext)
 }
 
 /// Run the LSP server on stdin/stdout.
@@ -1715,6 +1731,44 @@ mod tests {
         assert_eq!(reproduced, "One.\nTwo.\n");
         assert_eq!(reproduced_again, "One.\nTwo.\n");
         assert_eq!(trailing_newlines(&reproduced_again), 1);
+    }
+
+    #[tokio::test]
+    async fn asc_armor_is_not_rewritten_as_plaintext() {
+        let (service, _socket) = LspService::new(SnapperLsp::new);
+        let server = service.inner();
+        let uri = Url::parse("file:///tmp/note.asc").expect("uri");
+        let text = "-----BEGIN PGP MESSAGE-----\nKeep this. Together.\n-----END PGP MESSAGE-----\n";
+        server
+            .did_open(DidOpenTextDocumentParams {
+                text_document: TextDocumentItem::new(
+                    uri.clone(),
+                    String::new(),
+                    1,
+                    text.to_string(),
+                ),
+            })
+            .await;
+        let edits = server
+            .formatting(DocumentFormattingParams {
+                text_document: TextDocumentIdentifier::new(uri.clone()),
+                options: FormattingOptions {
+                    tab_size: 2,
+                    insert_spaces: true,
+                    ..FormattingOptions::default()
+                },
+                work_done_progress_params: WorkDoneProgressParams::default(),
+            })
+            .await
+            .expect("formatting");
+        assert!(
+            edits.is_none(),
+            ".asc must not be rewritten as plaintext, got {edits:?}"
+        );
+        assert!(
+            server.compute_diagnostics(&uri).is_empty(),
+            "pgp armor must not produce plaintext diagnostics"
+        );
     }
 
     #[test]
