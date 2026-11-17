@@ -6,10 +6,11 @@ All notable changes to this project will be documented in this file. See [conven
 #### Features
 - (**cli** / **check**) `--changed` limits check, diff, and reflow to paragraphs that contain a line added or modified since a git ref
 - (**config**) `[[path]]` rules set width, breaks, abbreviations, format, and ignore for the first matching glob
-- (**asciidoc**) native reflow for `.adoc`, `.asciidoc`, and `.asc`, including lists, admonitions, and example interiors
+- (**asciidoc**) native reflow for `.adoc` and `.asciidoc`, including lists, admonitions, and example interiors
 #### Bug Fixes
 - (**cli** / **check**) `--changed` diffs the merge base, literal pathspecs, and keeps CRLF
 - (**config**) `[[path]]` globs match from the config file, a broken config is an error, and ignore covers stdin and the language server
+- (**asciidoc**) keep `+` continuations, hard breaks, styled paragraphs, numbered lists, and exact listing closers; `.asc` is not AsciiDoc
 
 - - -
 ## v0.11.10 - 2026-10-11

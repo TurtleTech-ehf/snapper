@@ -60,6 +60,7 @@ struct OpenBlock {
     start_index: usize,
 }
 
+#[derive(Clone, Copy)]
 struct Hang {
     width: usize,
     empty_body: bool,
@@ -75,6 +76,7 @@ impl FormatParser for AsciiDocParser {
         let mut hang: Option<Hang> = None;
         let mut stack: Vec<OpenBlock> = Vec::new();
         let mut pending_source: Option<Option<String>> = None;
+        let mut pending_para = false;
         let mut pragma_off = false;
         let mut literal = false;
         let mut i = 0;
@@ -118,6 +120,7 @@ impl FormatParser for AsciiDocParser {
                     &mut hang,
                     &mut regions,
                 );
+                pending_para = false;
                 regions.push(SpannedRegion::blank(input, line.span()));
                 literal = false;
                 i += 1;
@@ -162,6 +165,20 @@ impl FormatParser for AsciiDocParser {
                 literal = false;
             }
 
+            if prose.is_empty()
+                && !pending_para
+                && i + 1 < lines.len()
+                && is_setext_title(line.text)
+                && is_setext_underline(lines[i + 1].text)
+                && !closes_open(lines[i + 1].text, &stack)
+            {
+                regions.push(SpannedRegion::structure(input, line.span()));
+                regions.push(SpannedRegion::structure(input, lines[i + 1].span()));
+                pending_source = None;
+                i += 2;
+                continue;
+            }
+
             if let Some(delim) = delimiter(line.text) {
                 flush_item(
                     input,
@@ -171,6 +188,7 @@ impl FormatParser for AsciiDocParser {
                     &mut hang,
                     &mut regions,
                 );
+                pending_para = false;
                 open_block(
                     input,
                     &line,
@@ -182,6 +200,45 @@ impl FormatParser for AsciiDocParser {
                 );
                 literal = false;
                 i += 1;
+                continue;
+            }
+
+            if plus_continuation(line.text) {
+                flush_item(
+                    input,
+                    &mut prose,
+                    &mut prose_span,
+                    &mut term,
+                    &mut hang,
+                    &mut regions,
+                );
+                regions.push(SpannedRegion::structure(input, line.span()));
+                i += 1;
+                continue;
+            }
+
+            if pending_para && !is_structure_line(line.text) {
+                pending_para = false;
+                pending_source = None;
+                flush_item(
+                    input,
+                    &mut prose,
+                    &mut prose_span,
+                    &mut term,
+                    &mut hang,
+                    &mut regions,
+                );
+                while i < lines.len() {
+                    let body = lines[i];
+                    if body.text.trim().is_empty()
+                        || delimiter(body.text).is_some()
+                        || plus_continuation(body.text)
+                    {
+                        break;
+                    }
+                    regions.push(SpannedRegion::structure(input, body.span()));
+                    i += 1;
+                }
                 continue;
             }
 
@@ -199,12 +256,14 @@ impl FormatParser for AsciiDocParser {
                 } else if !line.text.trim().is_empty() {
                     pending_source = None;
                 }
+                pending_para = paragraph_style(line.text);
                 regions.push(SpannedRegion::structure(input, line.span()));
                 literal = false;
                 i += 1;
                 continue;
             }
             pending_source = None;
+            pending_para = false;
 
             if let Some(marker_len) = item_marker_len(line.text) {
                 flush_item(
@@ -217,6 +276,24 @@ impl FormatParser for AsciiDocParser {
                 );
                 let marker = ByteSpan::new(line.start, line.start + marker_len);
                 regions.push(SpannedRegion::structure(input, marker));
+                if let Some(at) = hard_break_at(line.text) {
+                    if at >= marker_len {
+                        push_prose_until(&mut prose, &mut prose_span, &line, marker_len, at, false);
+                        flush_prose_spanned(&mut prose, &mut prose_span, &mut regions);
+                        regions.push(SpannedRegion::structure(
+                            input,
+                            ByteSpan::new(line.start + at, line.end),
+                        ));
+                        hang = Some(Hang {
+                            width: marker_len,
+                            empty_body: line.text[marker_len..at].trim().is_empty(),
+                        });
+                        term = None;
+                        literal = false;
+                        i += 1;
+                        continue;
+                    }
+                }
                 let body = line.text[marker_len..].trim();
                 if body.is_empty() {
                     if !line.terminator_span().is_empty() {
@@ -245,9 +322,39 @@ impl FormatParser for AsciiDocParser {
                 continue;
             }
 
-            if let Some(active) = hang.as_ref() {
+            if let Some(active) = hang {
                 let indent = leading_ws(line.text);
                 if indent >= active.width && indent < line.text.len() {
+                    if let Some(at) = hard_break_at(line.text) {
+                        if at >= indent {
+                            if active.empty_body {
+                                let marker = ByteSpan::new(line.start, line.start + indent);
+                                regions.push(SpannedRegion::structure(input, marker));
+                                hang = Some(Hang {
+                                    width: indent,
+                                    empty_body: false,
+                                });
+                                push_prose_until(
+                                    &mut prose,
+                                    &mut prose_span,
+                                    &line,
+                                    indent,
+                                    at,
+                                    false,
+                                );
+                            } else {
+                                push_prose_until(&mut prose, &mut prose_span, &line, 0, at, true);
+                            }
+                            flush_prose_spanned(&mut prose, &mut prose_span, &mut regions);
+                            regions.push(SpannedRegion::structure(
+                                input,
+                                ByteSpan::new(line.start + at, line.end),
+                            ));
+                            term = None;
+                            i += 1;
+                            continue;
+                        }
+                    }
                     if active.empty_body {
                         let marker = ByteSpan::new(line.start, line.start + indent);
                         regions.push(SpannedRegion::structure(input, marker));
@@ -291,6 +398,19 @@ impl FormatParser for AsciiDocParser {
                 );
                 regions.push(SpannedRegion::structure(input, line.span()));
                 literal = true;
+                i += 1;
+                continue;
+            }
+
+            if let Some(at) = hard_break_at(line.text) {
+                let join = !prose.is_empty();
+                push_prose_until(&mut prose, &mut prose_span, &line, 0, at, join);
+                flush_prose_spanned(&mut prose, &mut prose_span, &mut regions);
+                regions.push(SpannedRegion::structure(
+                    input,
+                    ByteSpan::new(line.start + at, line.end),
+                ));
+                term = None;
                 i += 1;
                 continue;
             }
@@ -359,6 +479,33 @@ fn push_hang_body(
         }
     }
     *term = Some(line.terminator_span());
+}
+
+/// Prose covering `line.text[from..until]`, without the hard-break suffix.
+fn push_prose_until(
+    prose: &mut ProseBuf,
+    prose_span: &mut Option<ByteSpan>,
+    line: &Line<'_>,
+    from: usize,
+    until: usize,
+    join: bool,
+) {
+    let piece = line.text.get(from..until).unwrap_or("");
+    let trimmed = piece.trim();
+    if trimmed.is_empty() {
+        return;
+    }
+    if !prose.is_empty() && join {
+        join_prose_gap(prose);
+    }
+    prose.push_str(trimmed);
+    let local = piece.find(trimmed).unwrap_or(0);
+    let start = line.start + from + local;
+    let end = start + trimmed.len();
+    match prose_span {
+        None => *prose_span = Some(ByteSpan::new(start, end)),
+        Some(span) => span.end = end,
+    }
 }
 
 fn open_block(
@@ -452,7 +599,7 @@ fn closes(line: &str, style: &Style) -> bool {
     let t = line.trim();
     match style {
         Style::Exact(expected) => t == *expected,
-        Style::Run { ch, min } => t.chars().count() >= *min && t.chars().all(|c| c == *ch),
+        Style::Run { ch, min } => t.chars().count() == *min && t.chars().all(|c| c == *ch),
         Style::Backtick { min } => t.chars().count() >= *min && t.chars().all(|c| c == '`'),
         Style::Table => is_table_delim(t),
     }
@@ -576,6 +723,61 @@ fn source_lang(line: &str) -> Option<Option<String>> {
         .filter(|part| !part.is_empty() && !part.contains('='))
         .map(str::to_string);
     Some(lang)
+}
+
+fn plus_continuation(line: &str) -> bool {
+    line.trim() == "+"
+}
+
+/// Byte index of the ` +` hard break, when the line has text before it.
+fn hard_break_at(text: &str) -> Option<usize> {
+    let end = text.trim_end();
+    let head = end.strip_suffix(" +")?;
+    if head.trim().is_empty() {
+        None
+    } else {
+        Some(head.len())
+    }
+}
+
+fn closes_open(line: &str, stack: &[OpenBlock]) -> bool {
+    stack.last().is_some_and(|top| closes(line, &top.style))
+}
+
+fn is_setext_underline(text: &str) -> bool {
+    let t = text.trim();
+    if t.chars().count() < 2 {
+        return false;
+    }
+    let mut chars = t.chars();
+    let Some(ch) = chars.next() else {
+        return false;
+    };
+    (ch == '=' || ch == '-') && chars.all(|c| c == ch)
+}
+
+fn is_setext_title(text: &str) -> bool {
+    let t = text.trim();
+    if t.is_empty() || text.starts_with([' ', '\t']) {
+        return false;
+    }
+    if delimiter(text).is_some() || is_structure_line(text) || item_marker_len(text).is_some() {
+        return false;
+    }
+    !plus_continuation(text)
+}
+
+/// `[listing]`, `[literal]`, `[source]`, and `[verse]` freeze the next paragraph.
+fn paragraph_style(line: &str) -> bool {
+    let t = line.trim();
+    let Some(inner) = t.strip_prefix('[').and_then(|rest| rest.strip_suffix(']')) else {
+        return false;
+    };
+    if t.starts_with("[[") || inner.contains('[') {
+        return false;
+    }
+    let name = inner.split(',').next().unwrap_or("").trim();
+    matches!(name, "listing" | "literal" | "source" | "verse")
 }
 
 fn is_structure_line(line: &str) -> bool {
@@ -702,6 +904,7 @@ pub(crate) fn adoc_list_marker_len(line: &str) -> Option<usize> {
     let indent = leading_ws(line);
     let rest = &line[indent..];
     let body = checklist_len(rest)
+        .or_else(|| numbered_len(rest))
         .or_else(|| bullet_len(rest))
         .or_else(|| callout_len(rest))
         .or_else(|| dlist_len(rest))?;
@@ -749,6 +952,21 @@ fn checklist_len(rest: &str) -> Option<usize> {
         Some(bullet + 1 + box_len + 1)
     } else if after_box.is_empty() {
         Some(bullet + 1 + box_len)
+    } else {
+        None
+    }
+}
+
+fn numbered_len(rest: &str) -> Option<usize> {
+    let digits = rest.chars().take_while(|c| c.is_ascii_digit()).count();
+    if digits == 0 {
+        return None;
+    }
+    let after = rest[digits..].strip_prefix('.')?;
+    if after.starts_with([' ', '\t']) {
+        Some(digits + 2)
+    } else if after.is_empty() {
+        Some(digits + 1)
     } else {
         None
     }
@@ -968,6 +1186,68 @@ mod tests {
             adoc_admonition_marker_len("WARNING: Careful"),
             Some("WARNING: ".len())
         );
+        assert_eq!(adoc_list_marker_len("1. Item"), Some("1. ".len()));
+        assert_eq!(adoc_list_marker_len("12. Item"), Some("12. ".len()));
+    }
+
+    #[test]
+    fn plus_continuations_and_hard_breaks_stay() {
+        let cont = "* item\n+\nThis is a continuation. It is a new paragraph.\n";
+        let out = format_adoc(cont);
+        assert!(out.contains("\n+\nThis is a continuation.\n"), "{out}");
+        assert!(!out.contains("+ This"), "{out}");
+        assert!(out.contains("It is a new paragraph.\n"), "{out}");
+
+        let hard = "Keep this. Together. +\nNext line. Second sentence.\n";
+        let out = format_adoc(hard);
+        assert!(out.contains("Together. +\n"), "{out}");
+        assert!(out.contains("Next line.\nSecond sentence.\n"), "{out}");
+    }
+
+    #[test]
+    fn styled_paragraphs_stay_frozen() {
+        for style in ["listing", "literal", "source", "verse"] {
+            let input =
+                format!("[{style}]\nKeep this. Together.\n\nNormal paragraph. Second sentence.\n");
+            let out = format_adoc(&input);
+            assert!(
+                out.contains(&format!("[{style}]\nKeep this. Together.\n")),
+                "{style}: {out}"
+            );
+            assert!(
+                out.contains("Normal paragraph.\nSecond sentence.\n"),
+                "{style}: {out}"
+            );
+        }
+    }
+
+    #[test]
+    fn numbered_lists_hang() {
+        let out = format_adoc("1. The baseline is slower. It uses more memory.\n");
+        assert_eq!(out, "1. The baseline is slower.\n   It uses more memory.\n");
+        let wider = format_adoc("12. The baseline is slower. It uses more memory.\n");
+        assert_eq!(
+            wider,
+            "12. The baseline is slower.\n    It uses more memory.\n"
+        );
+    }
+
+    #[test]
+    fn a_longer_run_does_not_close_a_listing() {
+        let input =
+            "----\nA sentence. Another sentence.\n------\nstill inside. Still one line.\n----\n";
+        assert_eq!(format_adoc(input), input);
+    }
+
+    #[test]
+    fn a_two_line_heading_does_not_open_a_block() {
+        let input = "Document Title\n----\n\nA sentence. Another sentence.\n";
+        let out = format_adoc(input);
+        assert!(out.starts_with("Document Title\n----\n"), "{out}");
+        assert!(out.contains("A sentence.\nAnother sentence.\n"), "{out}");
+
+        let listing = "Title\n----\n\n----\nKeep this. Together.\n----\n";
+        assert_eq!(format_adoc(listing), listing);
     }
 
     #[test]

@@ -66,6 +66,31 @@ fn adoc_check_fails_on_a_fused_paragraph_and_passes_after() {
 }
 
 #[test]
+fn asc_armor_is_not_a_prose_file() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("note.asc");
+    fs::write(
+        &path,
+        "-----BEGIN PGP MESSAGE-----\nKeep this. Together.\n-----END PGP MESSAGE-----\n",
+    )
+    .unwrap();
+    let output = snapper()
+        .arg(&path)
+        .output()
+        .expect("failed to run snapper");
+    assert!(
+        !output.status.success(),
+        "a .asc file must be refused, got stdout {}",
+        String::from_utf8_lossy(&output.stdout)
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("not a prose format"),
+        "expected a format error, got {stderr}"
+    );
+}
+
+#[test]
 fn adoc_listing_is_left_alone() {
     let input = "----\nKeep this. Together.\n----\n";
     let output = pipe(input, &["--format", "asciidoc"]);

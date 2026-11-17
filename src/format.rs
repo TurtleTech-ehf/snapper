@@ -31,7 +31,9 @@ impl Format {
             "rst" | "rest" => Some(Format::Rst),
             "txt" | "text" => Some(Format::Plaintext),
             "typ" | "typst" => Some(Format::Typst),
-            "adoc" | "asciidoc" | "asc" => Some(Format::AsciiDoc),
+            // `.asc` is OpenPGP armor. Treating it as AsciiDoc turns the
+            // `-----BEGIN` line into a listing and eats the message.
+            "adoc" | "asciidoc" => Some(Format::AsciiDoc),
             _ => None,
         }
     }
@@ -158,10 +160,7 @@ mod tests {
             Format::recognized_from_extension("asciidoc"),
             Some(Format::AsciiDoc)
         );
-        assert_eq!(
-            Format::recognized_from_extension("asc"),
-            Some(Format::AsciiDoc)
-        );
+        assert_eq!(Format::recognized_from_extension("asc"), None);
     }
 
     #[test]

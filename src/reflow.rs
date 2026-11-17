@@ -1500,6 +1500,9 @@ fn is_hard_break_structure(s: &str) -> bool {
     if crate::parser::org::is_org_line_break_structure(s) {
         return true;
     }
+    if is_asciidoc_hard_break(s) {
+        return true;
+    }
     let Some(body) = s.strip_suffix('\n') else {
         return false;
     };
@@ -1507,6 +1510,14 @@ fn is_hard_break_structure(s: &str) -> bool {
         return true;
     }
     body.len() >= 2 && body.bytes().all(|b| b == b' ')
+}
+
+/// AsciiDoc keeps a trailing ` +` on the line. The prose rewrite must not
+/// insert a newline in front of that structure.
+fn is_asciidoc_hard_break(s: &str) -> bool {
+    let body = s.strip_suffix('\n').unwrap_or(s);
+    let body = body.strip_suffix('\r').unwrap_or(body);
+    body == " +"
 }
 
 fn suppress_prose_trailing_newline(s: &str) -> bool {

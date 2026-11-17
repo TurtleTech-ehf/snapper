@@ -44,7 +44,7 @@ fn detect_formats(dir: &Path) -> Vec<&'static str> {
     if check("typ") || check("typst") {
         formats.push("typst");
     }
-    if check("adoc") || check("asciidoc") || check("asc") {
+    if check("adoc") || check("asciidoc") {
         formats.push("asciidoc");
     }
     formats
@@ -190,7 +190,7 @@ fi
 git diff --cached --name-only --diff-filter=ACM -z |
 while IFS= read -r -d '' f || [ -n "$f" ]; do
   case "$f" in
-    *.org|*.tex|*.latex|*.md|*.markdown|*.rst|*.typ|*.typst|*.adoc|*.asciidoc|*.asc|*.txt)
+    *.org|*.tex|*.latex|*.md|*.markdown|*.rst|*.typ|*.typst|*.adoc|*.asciidoc|*.txt)
       "$SNAPPER" --native --in-place -- "$f"
       git -c filter.snapper.clean=cat add -- "$f"
       ;;
@@ -447,7 +447,7 @@ mod tests {
         assert!(hook.contains("--in-place"));
         assert!(hook.contains("filter.snapper.clean=cat"));
         assert!(hook.contains(
-            "*.org|*.tex|*.latex|*.md|*.markdown|*.rst|*.typ|*.typst|*.adoc|*.asciidoc|*.asc|*.txt"
+            "*.org|*.tex|*.latex|*.md|*.markdown|*.rst|*.typ|*.typst|*.adoc|*.asciidoc|*.txt"
         ));
     }
 }
