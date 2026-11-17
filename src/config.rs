@@ -672,6 +672,7 @@ mod tests {
         assert!(path_glob_match("docs/**/*.md", "docs/sub/a.md"));
     }
 
+    #[cfg(unix)]
     #[test]
     fn a_symlink_resolves_to_the_config_root() {
         let dir = tempfile::tempdir().unwrap();
@@ -684,6 +685,20 @@ mod tests {
         assert_eq!(via_link.as_deref(), Some("docs/note.md"));
         let via_real = path_relative_to_config(&link, dir.path(), &real.join("docs/note.md"));
         assert_eq!(via_real.as_deref(), Some("docs/note.md"));
+    }
+
+    #[test]
+    fn symlink_config_test_is_unix_only() {
+        let src = include_str!("config.rs");
+        let marker = "fn a_symlink_resolves_to_the_config_root";
+        let at = src.find(marker).expect("symlink test");
+        let before = &src[..at];
+        let attr = before.rfind("#[cfg(unix)]").unwrap_or(0);
+        let last_fn = before.rfind("\n    fn ").unwrap_or(0);
+        assert!(
+            attr > last_fn,
+            "a_symlink_resolves_to_the_config_root calls std::os::unix::fs::symlink and must be #[cfg(unix)] so Windows can compile the tests"
+        );
     }
 
     #[test]
