@@ -17,4 +17,8 @@ export interface FormatOptions {
   lang?: string;
   /** Extra project-specific abbreviations. */
   extraAbbreviations?: string[];
+  /** Path the ignore globs are matched against. */
+  path?: string;
+  /** Globs that leave the text unchanged, same as a CLI ignore rule. */
+  ignore?: string[];
 }

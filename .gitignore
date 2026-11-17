@@ -31,6 +31,7 @@ editors/vscode/node_modules/
 editors/vscode/out/
 *.vsix
 packages/snapper-wasm/pkg/
+packages/snapper-wasm/dist-test/
 editors/word/dist/
 editors/word/node_modules/
 packages/snapper-wasm/node_modules/
