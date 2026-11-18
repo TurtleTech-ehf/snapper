@@ -659,6 +659,105 @@ fn formatted_line_count(text: &str, config: &FormatConfig) -> usize {
     }
 }
 
+/// How many formatted lines each source line becomes.
+///
+/// One pass. Plain text uses one `format_text` of the range, with a
+/// private-use mark between lines. Markdown that joins a blockquote, list,
+/// or heading (including a lazy continuation) cannot use that mark, so
+/// those ranges count each source line on its own. The two counts are not
+/// both computed: a second pass was 3.6x to 6.3x slower than one
+/// `format_text` of the same prose.
+fn line_counts(range: &[(&str, &str)], config: &FormatConfig) -> Vec<usize> {
+    if config.format == Format::Markdown && markdown_range_joins(range) {
+        return per_line_counts(range, config);
+    }
+    batched_line_counts(range, config).unwrap_or_else(|| per_line_counts(range, config))
+}
+
+fn per_line_counts(range: &[(&str, &str)], config: &FormatConfig) -> Vec<usize> {
+    range
+        .iter()
+        .map(|(text, _)| formatted_line_count(text, config))
+        .collect()
+}
+
+/// A Markdown range whose lines the parser can join.
+///
+/// A later line with no marker is still a lazy continuation of a quote or
+/// list earlier in the range, so one container is enough to skip the batch.
+fn markdown_range_joins(range: &[(&str, &str)]) -> bool {
+    range.iter().any(|(text, _)| markdown_container_line(text))
+}
+
+fn markdown_container_line(text: &str) -> bool {
+    let trimmed = text.trim_start();
+    let bytes = trimmed.as_bytes();
+    if bytes.is_empty() {
+        return false;
+    }
+    if bytes[0] == b'>' || bytes[0] == b'#' {
+        return true;
+    }
+    if bytes.len() >= 2 && matches!(bytes[0], b'-' | b'*' | b'+') && bytes[1].is_ascii_whitespace()
+    {
+        return true;
+    }
+    let mut digits = 0usize;
+    while digits < bytes.len() && bytes[digits].is_ascii_digit() {
+        digits += 1;
+        if digits > 9 {
+            return false;
+        }
+    }
+    digits > 0
+        && digits + 1 < bytes.len()
+        && matches!(bytes[digits], b'.' | b')')
+        && bytes[digits + 1].is_ascii_whitespace()
+}
+
+fn batched_line_counts(range: &[(&str, &str)], config: &FormatConfig) -> Option<Vec<usize>> {
+    if range.is_empty() {
+        return Some(Vec::new());
+    }
+    if range.len() == 1 {
+        return Some(vec![formatted_line_count(range[0].0, config)]);
+    }
+    const MARK: &str = "\u{E000}";
+    if range.iter().any(|(text, _)| text.contains(MARK)) {
+        return None;
+    }
+    let mut doc = String::new();
+    for (index, (text, _)) in range.iter().enumerate() {
+        if index > 0 {
+            doc.push('\n');
+            doc.push_str(MARK);
+            doc.push('\n');
+        }
+        doc.push_str(text);
+    }
+    let formatted = format_text(&doc, config).ok()?;
+    if formatted.matches(MARK).count() != range.len() - 1 {
+        return None;
+    }
+    let parts: Vec<&str> = formatted.split(MARK).collect();
+    if parts.len() != range.len() {
+        return None;
+    }
+    Some(
+        parts
+            .iter()
+            .map(|part| {
+                let trimmed = part.trim_matches(['\n', '\r']);
+                if trimmed.is_empty() {
+                    1
+                } else {
+                    output_line_count(trimmed)
+                }
+            })
+            .collect(),
+    )
+}
+
 /// One ending per formatted line.
 ///
 /// A source line that splits into several sentences is repeated, so each new
@@ -673,11 +772,15 @@ fn endings_for_split_lines<'a>(
     if range.is_empty() {
         return Vec::new();
     }
+    // Every source line already shares an ending, so the formatted text is
+    // reused as-is. `apply_range_endings` rewrites a uniform ending in one
+    // pass and does not need a per-line count.
+    let first = range[0].1;
+    if range.iter().all(|(_, ending)| *ending == first) {
+        return vec![first];
+    }
     let output_lines = output_line_count(formatted);
-    let mut counts: Vec<usize> = range
-        .iter()
-        .map(|(text, _)| formatted_line_count(text, config))
-        .collect();
+    let mut counts = line_counts(range, config);
     let sum: usize = counts.iter().sum();
     if output_lines > sum {
         let extra = output_lines - sum;
@@ -766,6 +869,295 @@ mod region_fallback_tests {
         assert_eq!(
             out, "Two sentences.\r\nHere.\r\n\r\nLeave this.\n",
             "the reflowed line keeps CRLF and the untouched line keeps LF"
+        );
+    }
+
+    fn md_cfg() -> FormatConfig {
+        FormatConfig {
+            format: Format::Markdown,
+            ..Default::default()
+        }
+    }
+
+    /// `format_range`, but line counts always come from formatting each
+    /// source line on its own. Markdown joins blockquotes, lists, and lazy
+    /// continuations across a batch mark, so this is the reference the
+    /// batched counts have to match.
+    fn format_range_per_line(
+        input: &str,
+        config: &FormatConfig,
+        start: usize,
+        end: usize,
+    ) -> Result<String> {
+        let lines = split_keep_endings(input);
+        let total = lines.len();
+        let start = start.max(1);
+        let end = end.min(total);
+        if start > total || start > end {
+            return Ok(input.to_string());
+        }
+        let mut result = String::new();
+        for (text, ending) in &lines[..start - 1] {
+            result.push_str(text);
+            result.push_str(ending);
+        }
+        let range = &lines[start - 1..end];
+        let range_text = range
+            .iter()
+            .map(|(text, _)| *text)
+            .collect::<Vec<_>>()
+            .join("\n");
+        let formatted = format_text(&range_text, config)?;
+        let endings: Vec<&str> = range.iter().map(|(_, ending)| *ending).collect();
+        let expanded = endings_per_line(range, &formatted, config);
+        let formatted = apply_range_endings(&formatted, &expanded);
+        let formatted_ends = formatted.ends_with('\n');
+        result.push_str(&formatted);
+        if end < total && !formatted_ends {
+            let sep = endings.last().copied().unwrap_or("\n");
+            if sep.is_empty() {
+                result.push('\n');
+            } else {
+                result.push_str(sep);
+            }
+        }
+        for (text, ending) in &lines[end..] {
+            result.push_str(text);
+            result.push_str(ending);
+        }
+        if end == total {
+            let last = endings.last().copied().unwrap_or("");
+            if !last.is_empty() && !result.ends_with('\n') {
+                result.push_str(last);
+            }
+        }
+        Ok(result)
+    }
+
+    fn endings_per_line<'a>(
+        range: &[(&'a str, &'a str)],
+        formatted: &str,
+        config: &FormatConfig,
+    ) -> Vec<&'a str> {
+        if range.is_empty() {
+            return Vec::new();
+        }
+        let output_lines = output_line_count(formatted);
+        let mut counts: Vec<usize> = range
+            .iter()
+            .map(|(text, _)| formatted_line_count(text, config))
+            .collect();
+        let sum: usize = counts.iter().sum();
+        if output_lines > sum {
+            let extra = output_lines - sum;
+            let idx = counts
+                .iter()
+                .rposition(|count| *count > 1)
+                .unwrap_or(counts.len() - 1);
+            counts[idx] += extra;
+        } else if output_lines < sum {
+            let mut drop_n = sum - output_lines;
+            for count in counts.iter_mut().rev() {
+                if drop_n == 0 {
+                    break;
+                }
+                let drop = count.saturating_sub(1).min(drop_n);
+                *count -= drop;
+                drop_n -= drop;
+            }
+        }
+        let mut expanded = Vec::with_capacity(output_lines);
+        for (&count, (_, ending)) in counts.iter().zip(range.iter()) {
+            expanded.extend(std::iter::repeat_n(*ending, count));
+        }
+        expanded
+    }
+
+    fn assert_markdown_matches_per_line(input: &str) {
+        let cfg = md_cfg();
+        let n = split_keep_endings(input).len();
+        let out = format_range(input, &cfg, 1, n).unwrap();
+        let expected = format_range_per_line(input, &cfg, 1, n).unwrap();
+        assert_eq!(out, expected, "input {input:?}");
+    }
+
+    #[test]
+    fn markdown_heading_keeps_its_lf_beside_a_blockquote() {
+        let input = "> Quote one. Quote two.\r# Heading\nOne. Two.\r";
+        assert_markdown_matches_per_line(input);
+        let out = format_range(input, &md_cfg(), 1, 3).unwrap();
+        assert!(
+            out.contains("# Heading\n"),
+            "a heading's LF must not become CR, got {out:?}"
+        );
+        assert!(
+            !out.contains("# Heading\r"),
+            "a heading must not take a neighboring CR, got {out:?}"
+        );
+    }
+
+    #[test]
+    fn markdown_blockquote_split_keeps_its_own_ending() {
+        let input = "> Quote one. Quote two.\r\nSentence without a break\r1. First. Second.\n";
+        assert_markdown_matches_per_line(input);
+    }
+
+    #[test]
+    fn markdown_list_split_keeps_its_own_ending() {
+        let input = "1. First. Second.\n- Item one. Item two.\r\n> Quote one. Quote two.\r\n";
+        assert_markdown_matches_per_line(input);
+    }
+
+    #[test]
+    fn markdown_lazy_continuation_keeps_its_own_ending() {
+        let input = "> Quote starts.\nlazy continuation. Second sentence.\r\n";
+        assert_markdown_matches_per_line(input);
+    }
+
+    #[test]
+    fn markdown_endings_match_per_line_counts_on_random_input() {
+        let snippets = [
+            "One. Two.",
+            "Already fine.",
+            "# Heading",
+            "## Sub heading",
+            "> Quote one. Quote two.",
+            "> Fine.",
+            "- Item one. Item two.",
+            "- Fine.",
+            "1. First. Second.",
+            "lazy continuation. Second sentence.",
+            "",
+            "> ",
+            "Sentence without a break",
+            "Mr. Smith went home. Then he left.",
+        ];
+        let endings = ["\n", "\r\n", "\r"];
+        let mut state = 0xC0FFEE_u64;
+        let mut next = || {
+            state = state.wrapping_mul(6364136223846793005).wrapping_add(1);
+            state
+        };
+        let mut diffs = 0usize;
+        let mut cr_bad = 0usize;
+        let mut plain_diffs = 0usize;
+        let mut shown = 0usize;
+        for _ in 0..400 {
+            let n = 2 + (next() as usize % 5);
+            let mut input = String::new();
+            for i in 0..n {
+                input.push_str(snippets[next() as usize % snippets.len()]);
+                if i + 1 == n && next() % 5 == 0 {
+                    continue;
+                }
+                input.push_str(endings[next() as usize % endings.len()]);
+            }
+            let plain = next() % 4 == 0;
+            let cfg = if plain {
+                FormatConfig {
+                    format: Format::Plaintext,
+                    ..Default::default()
+                }
+            } else {
+                md_cfg()
+            };
+            let lines = split_keep_endings(&input);
+            let out = format_range(&input, &cfg, 1, lines.len()).unwrap();
+            let expected = format_range_per_line(&input, &cfg, 1, lines.len()).unwrap();
+            if out != expected {
+                diffs += 1;
+                if plain {
+                    plain_diffs += 1;
+                }
+                if out.matches('\r').count() != expected.matches('\r').count() {
+                    cr_bad += 1;
+                }
+                if shown < 5 {
+                    shown += 1;
+                    eprintln!("IN  {input:?}\nOUT {out:?}\nEXP {expected:?}");
+                }
+            }
+        }
+        assert_eq!(
+            diffs, 0,
+            "{diffs} of 400 random documents disagreed with per-line counts ({cr_bad} lost or doubled a CR, {plain_diffs} plaintext)"
+        );
+    }
+
+    /// Release timing for Markdown range formatting.
+    ///
+    /// `format_text` is one parse. `format_range` of the same prose has to
+    /// stay in that neighborhood. The ignored test is the release measurement
+    /// at 500, 1000, 2000 and 4000 lines.
+    #[test]
+    #[ignore = "release timing; run with cargo test --release -- --ignored"]
+    fn markdown_range_scale_stays_near_one_format_pass() {
+        let cfg = md_cfg();
+        let mut ratio_2000 = 0.0;
+        for n in [500usize, 1000, 2000, 4000] {
+            let mut doc = String::new();
+            for i in 0..n {
+                doc.push_str(&format!(
+                    "Sentence {i} stands here today. Another follows it immediately.\n"
+                ));
+            }
+            let lines = split_keep_endings(&doc).len();
+            let start_line = (lines / 4).max(1);
+            let end_line = (lines * 3 / 4).max(start_line);
+            let slice = split_keep_endings(&doc)[start_line - 1..end_line]
+                .iter()
+                .map(|(text, ending)| format!("{text}{ending}"))
+                .collect::<String>();
+            let mut whole = Vec::new();
+            let mut ranged = Vec::new();
+            let mut once_whole = Vec::new();
+            let mut once_range = Vec::new();
+            let runs = 5;
+            for i in 0..runs + 1 {
+                let start = std::time::Instant::now();
+                let out = format_range(&doc, &cfg, 1, lines).unwrap();
+                let whole_s = start.elapsed().as_secs_f64();
+                std::hint::black_box(&out);
+                let start = std::time::Instant::now();
+                let out = format_text(&doc, &cfg).unwrap();
+                let once_whole_s = start.elapsed().as_secs_f64();
+                std::hint::black_box(&out);
+                let start = std::time::Instant::now();
+                let out = format_range(&doc, &cfg, start_line, end_line).unwrap();
+                let range_s = start.elapsed().as_secs_f64();
+                std::hint::black_box(&out);
+                let start = std::time::Instant::now();
+                let out = format_text(&slice, &cfg).unwrap();
+                let once_range_s = start.elapsed().as_secs_f64();
+                std::hint::black_box(&out);
+                if i == 0 {
+                    continue;
+                }
+                whole.push(whole_s);
+                once_whole.push(once_whole_s);
+                ranged.push(range_s);
+                once_range.push(once_range_s);
+            }
+            let med = |samples: &mut Vec<f64>| {
+                samples.sort_by(|a, b| a.partial_cmp(b).unwrap());
+                samples[samples.len() / 2]
+            };
+            let whole_m = med(&mut whole);
+            let once_m = med(&mut once_whole);
+            let range_m = med(&mut ranged);
+            let once_range_m = med(&mut once_range);
+            let ratio = whole_m / once_m;
+            eprintln!(
+                "n={n} whole_median={whole_m:.6}s one_pass_median={once_m:.6}s whole/one={ratio:.2} range_median={range_m:.6}s range_one_pass={once_range_m:.6}s range/one={:.2} whole={whole:?}",
+                range_m / once_range_m
+            );
+            if n == 2000 {
+                ratio_2000 = ratio;
+            }
+        }
+        assert!(
+            ratio_2000 < 2.0,
+            "a 2000-line Markdown range must stay within 2x of one format pass, got {ratio_2000:.2}x"
         );
     }
 
