@@ -11,6 +11,8 @@ All notable changes to this project will be documented in this file. See [conven
 - (**cli** / **check**) `--changed` creates its replacement with a private name and the file's permission bits, and does not follow a symlink planted at the temporary path
 - (**cli** / **check**) a hard-linked file is left unchanged and the command exits non-zero; `--break-hardlinks` replaces that path only, and the other names keep the previous text
 - (**cli** / **check**) a replacement is synced before rename, permissions and owner are set on the file descriptor, and a path that changes between stat and open is left unwritten
+- (**cli** / **check**) a Unix replacement opens the parent directory once and creates, writes, and renames the temporary file through that descriptor; it protects races on the target's own name and its parent directory entry, and does not defend against an attacker who controls an ancestor above that parent
+- (**cli** / **check**) a hard-link count that cannot be read is refused unless `--break-hardlinks` is set; Windows still replaces by path and is best-effort
 - (**cli** / **check**) `--in-place` uses that same writer without `--changed`
 - (**cli** / **check**) a path `--changed` cannot resolve is a resolve error, not an outside-repository warning
 - (**cli** / **check**) `--changed` skips a symlink whose target is outside the repository, still checks the other files, and replaces the resolved file so a swapped link is not followed

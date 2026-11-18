@@ -40,7 +40,7 @@ Semantic line break formatter
 * `--stdin-filepath <STDIN_FILEPATH>` — Assume this filename when reading stdin (for format auto-detection)
 * `-o`, `--output <OUTPUT>` — Output file (stdout if omitted)
 * `-i`, `--in-place` — Modify files in place
-* `--break-hardlinks` — Replace one name of a hard-linked file, instead of refusing it. Without this flag, `--in-place` leaves a hard-linked file unchanged and exits non-zero. The error names that file. With this flag, the new text is synced to a temporary file in the same directory and renamed onto this path. The other names keep the previous text
+* `--break-hardlinks` — Replace one name of a hard-linked file, instead of refusing it. Without this flag, `--in-place` leaves a hard-linked file unchanged and exits non-zero. The error names that file. With this flag, the new text is synced to a temporary file in the same directory and renamed onto this path. The other names keep the previous text. On Unix the parent directory is opened once and the replacement uses that directory descriptor. Snapper protects against races on the target's own name and its parent directory entry. It does not defend against an attacker who controls ancestor directories above the parent. On Windows the replacement is best-effort and does not hold the parent directory open. A hard-link count that cannot be read is refused unless this flag is set
 * `-w`, `--max-width <MAX_WIDTH>` — Maximum line width (0 = unlimited)
 
   Default value: `0`

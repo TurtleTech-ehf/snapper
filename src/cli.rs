@@ -77,7 +77,14 @@ pub struct Cli {
     /// and exits non-zero. The error names that file.
     /// With this flag, the new text is synced to a temporary file in the
     /// same directory and renamed onto this path. The other names keep
-    /// the previous text.
+    /// the previous text. On Unix the parent directory is opened once and
+    /// the replacement uses that directory descriptor. Snapper protects
+    /// against races on the target's own name and its parent directory
+    /// entry. It does not defend against an attacker who controls ancestor
+    /// directories above the parent. On Windows the replacement is
+    /// best-effort and does not hold the parent directory open. A
+    /// hard-link count that cannot be read is refused unless this flag is
+    /// set.
     #[arg(long)]
     pub break_hardlinks: bool,
 

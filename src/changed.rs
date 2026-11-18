@@ -328,6 +328,16 @@ pub struct HardLinked {
     pub links: u64,
 }
 
+/// The hard-link count could not be read, and the write was refused.
+#[derive(Debug, thiserror::Error)]
+#[error(
+    "{path} could not be checked for hard links; refusing to rewrite it. Pass --break-hardlinks to replace this path anyway"
+)]
+pub struct HardLinkUnverified {
+    /// The path that was left untouched.
+    pub path: PathBuf,
+}
+
 /// `path` was not the same inode when it was opened as when it was statted.
 #[derive(Debug, thiserror::Error)]
 #[error("{path} changed between stat and open; refusing to write")]
@@ -344,29 +354,40 @@ fn write_replacing(dest: &Path, contents: &str) -> Result<()> {
 
 /// Replace `dest` with `contents`.
 ///
-/// The new file is created with `OpenOptions::create_new` (so a symlink at
-/// the temporary path is not followed) and an unpredictable name in `dest`'s
-/// directory. Its mode is the original permission bits with setuid, setgid,
-/// and sticky removed, from the moment of creation.
+/// On Unix the parent directory is opened once, with `O_DIRECTORY` and
+/// `O_NOFOLLOW` on its last component, and every later step uses that
+/// directory descriptor: `openat` of the target, the temporary file, and
+/// `renameat`. Snapper protects against races on the target's own name and
+/// its parent directory entry. It does not defend against an attacker who
+/// controls ancestor directories above the parent.
+///
+/// The temporary file is created with `O_CREAT|O_EXCL|O_NOFOLLOW`. Its
+/// create mode is the kept permission bits masked to `0600`, so a `0400`
+/// original is not briefly created as `0600`. `fchmod` and `fchown` then
+/// run on that descriptor. Setuid, setgid, and sticky are not copied.
 ///
 /// A regular file with more than one hard link is not rewritten in place.
 /// [`HardlinkPolicy::Refuse`] returns [`HardLinked`] and does not create a
 /// temporary file. [`HardlinkPolicy::Break`] renames the new inode onto this
-/// path, so the other names keep the previous inode.
+/// path, so the other names keep the previous inode. A link count that
+/// cannot be read is the same refusal ([`HardLinkUnverified`]), unless the
+/// policy is [`HardlinkPolicy::Break`].
 ///
-/// A regular file is opened with `O_NOFOLLOW` after `lstat`, and the opened
-/// inode's device and inode number must match that `lstat`. A mismatch, or
-/// an open that fails because the path became a symlink, refuses the write
-/// before any temporary file is created. Permission and owner changes use
-/// that replacement's file descriptor, never the path.
+/// A regular file is opened with `O_NOFOLLOW` relative to the parent, and
+/// the opened inode's device and inode number must match the earlier
+/// `lstat`. The parent descriptor is checked the same way against the
+/// `lstat` of the parent path. A mismatch, or an open that fails because
+/// the last component became a symlink, refuses the write before any
+/// temporary file is created.
 ///
-/// A symlink at `dest` is not followed: `rename` replaces the directory
+/// A symlink at `dest` is not followed: `renameat` replaces the directory
 /// entry. Its replacement mode is the resolved target's permission bits.
 ///
-/// The new bytes are synced before `rename`. On Unix the parent directory
-/// is synced after the rename. Windows cannot open a directory without
-/// `FILE_FLAG_BACKUP_SEMANTICS`, so the directory sync is skipped there and
-/// a successful rename is not reported as a failure.
+/// The new bytes are synced before `renameat`, and the parent descriptor is
+/// synced after it. Windows cannot open a directory without
+/// `FILE_FLAG_BACKUP_SEMANTICS` and has no directory descriptor here, so
+/// that path is best-effort: a private temporary file is renamed by path,
+/// and a successful rename is not reported as a failure.
 fn write_with_policy(dest: &Path, contents: &str, policy: HardlinkPolicy) -> Result<()> {
     let meta = match std::fs::symlink_metadata(dest) {
         Ok(meta) => Some(meta),
@@ -376,61 +397,16 @@ fn write_with_policy(dest: &Path, contents: &str, policy: HardlinkPolicy) -> Res
         }
     };
     if let Some(meta) = meta.as_ref() {
-        if is_hard_linked_file(dest, meta) && policy == HardlinkPolicy::Refuse {
-            return Err(HardLinked {
-                path: dest.to_path_buf(),
-                links: link_count_of(dest, meta),
-            }
-            .into());
-        }
+        ensure_hard_links(dest, meta, policy)?;
     }
-    #[cfg(unix)]
-    if let Some(meta) = meta.as_ref() {
-        if meta.file_type().is_file() {
-            verify_same_inode(dest, meta)?;
-        }
-    }
-    let parent = dest
-        .parent()
-        .filter(|parent| !parent.as_os_str().is_empty());
-    let parent = parent.unwrap_or(Path::new("."));
-    #[cfg(unix)]
-    let mode = meta
-        .as_ref()
-        .map(|meta| replacement_mode(dest, meta))
-        .unwrap_or(0o600);
-    #[cfg(not(unix))]
-    let mode = 0o600;
-    let mut tmp = private_temp(parent, mode)?;
-    write_all_checked(tmp.as_file_mut(), contents.as_bytes())
-        .with_context(|| format!("failed to write {}", tmp.path().display()))?;
     #[cfg(unix)]
     {
-        use std::os::unix::fs::PermissionsExt;
-        tmp.as_file()
-            .set_permissions(std::fs::Permissions::from_mode(mode))
-            .with_context(|| format!("failed to keep mode {mode:o} on {}", dest.display()))?;
-        if let Some(meta) = meta.as_ref() {
-            if !meta.file_type().is_symlink() {
-                restore_owner(tmp.as_file(), dest, meta)?;
-            }
-        }
+        write_unix(dest, contents, meta.as_ref())
     }
     #[cfg(not(unix))]
-    if let Some(meta) = meta.as_ref() {
-        if !meta.file_type().is_symlink() {
-            tmp.as_file()
-                .set_permissions(meta.permissions())
-                .with_context(|| format!("failed to keep permissions on {}", dest.display()))?;
-        }
+    {
+        write_best_effort(dest, contents, meta.as_ref())
     }
-    sync_file(tmp.as_file()).with_context(|| format!("failed to sync {}", tmp.path().display()))?;
-    tmp.persist(dest).map_err(|err| {
-        anyhow::Error::from(err.error).context(format!("failed to replace {}", dest.display()))
-    })?;
-    #[cfg(unix)]
-    sync_parent(parent)?;
-    Ok(())
 }
 
 /// Replace `path` without the `--changed` repository check.
@@ -465,16 +441,39 @@ fn kept_mode(meta: &std::fs::Metadata) -> u32 {
     meta.permissions().mode() & 0o777
 }
 
-fn private_temp(parent: &Path, mode: u32) -> Result<tempfile::NamedTempFile> {
+/// Best-effort replacement for targets without a directory descriptor.
+///
+/// Windows cannot hold the parent open without `FILE_FLAG_BACKUP_SEMANTICS`,
+/// so the temporary file, the rename, and the destination are path
+/// operations. This does not close the races the Unix directory descriptor
+/// closes. A successful rename is not reported as a failure.
+#[cfg(not(unix))]
+fn write_best_effort(dest: &Path, contents: &str, meta: Option<&std::fs::Metadata>) -> Result<()> {
+    let parent = dest
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty());
+    let parent = parent.unwrap_or(Path::new("."));
+    let mut tmp = private_temp(parent)?;
+    write_all_checked(tmp.as_file_mut(), contents.as_bytes())
+        .with_context(|| format!("failed to write {}", tmp.path().display()))?;
+    if let Some(meta) = meta {
+        if !meta.file_type().is_symlink() {
+            tmp.as_file()
+                .set_permissions(meta.permissions())
+                .with_context(|| format!("failed to keep permissions on {}", dest.display()))?;
+        }
+    }
+    sync_file(tmp.as_file()).with_context(|| format!("failed to sync {}", tmp.path().display()))?;
+    tmp.persist(dest).map_err(|err| {
+        anyhow::Error::from(err.error).context(format!("failed to replace {}", dest.display()))
+    })?;
+    Ok(())
+}
+
+#[cfg(not(unix))]
+fn private_temp(parent: &Path) -> Result<tempfile::NamedTempFile> {
     let mut builder = tempfile::Builder::new();
     builder.prefix(".snapper-").suffix(".tmp").rand_bytes(16);
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        builder.permissions(std::fs::Permissions::from_mode(mode));
-    }
-    #[cfg(not(unix))]
-    let _ = mode;
     builder
         .tempfile_in(parent)
         .with_context(|| format!("failed to create a temporary file in {}", parent.display()))
@@ -486,35 +485,25 @@ fn sync_file(file: &std::fs::File) -> std::io::Result<()> {
     file.sync_all()
 }
 
-/// Sync the directory that holds the renamed file.
-///
-/// Unix can `fsync` a directory opened with `File::open`. Windows needs
-/// `FILE_FLAG_BACKUP_SEMANTICS`, and opening the directory after a
-/// successful rename would report failure for a write that already landed.
-/// Callers skip this function on non-Unix targets.
-#[cfg(unix)]
-fn sync_parent(parent: &Path) -> Result<()> {
-    let dir = std::fs::File::open(parent)
-        .with_context(|| format!("failed to open {}", parent.display()))?;
-    sync_file(&dir).with_context(|| format!("failed to sync {}", parent.display()))?;
-    Ok(())
-}
-
 #[cfg(test)]
 thread_local! {
     static SYNC_COUNT: std::cell::Cell<u32> = const { std::cell::Cell::new(0) };
     static WRITE_FAULT: std::cell::Cell<Option<usize>> = const { std::cell::Cell::new(None) };
+    static LINK_QUERY_FAIL: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
 }
 
 #[cfg(all(test, unix))]
 thread_local! {
-    static REFUSE_NOFOLLOW: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
     static CHOWN_FAULT: std::cell::Cell<u8> = const { std::cell::Cell::new(0) };
     static OWNER_WARNINGS: std::cell::RefCell<Vec<String>> =
         const { std::cell::RefCell::new(Vec::new()) };
     static CHOWN_CALLS: std::cell::RefCell<Vec<(Option<u32>, Option<u32>)>> =
         const { std::cell::RefCell::new(Vec::new()) };
-    static SWAP_TO_SYMLINK: std::cell::RefCell<Option<(PathBuf, PathBuf)>> =
+    static BEFORE_PARENT_OPEN: std::cell::RefCell<Option<Box<dyn FnOnce()>>> =
+        const { std::cell::RefCell::new(None) };
+    static BEFORE_TARGET_OPEN: std::cell::RefCell<Option<Box<dyn FnOnce()>>> =
+        const { std::cell::RefCell::new(None) };
+    static FIXED_TEMP_NAME: std::cell::RefCell<Option<std::ffi::OsString>> =
         const { std::cell::RefCell::new(None) };
 }
 
@@ -526,16 +515,6 @@ fn reset_sync_count() {
 #[cfg(all(test, unix))]
 fn sync_count() -> u32 {
     SYNC_COUNT.with(|count| count.get())
-}
-
-#[cfg(all(test, unix))]
-fn arm_nofollow_refusal() {
-    REFUSE_NOFOLLOW.with(|flag| flag.set(true));
-}
-
-#[cfg(all(test, unix))]
-fn clear_nofollow_refusal() {
-    REFUSE_NOFOLLOW.with(|flag| flag.set(false));
 }
 
 #[cfg(all(test, unix))]
@@ -553,64 +532,56 @@ fn take_chown_calls() -> Vec<(Option<u32>, Option<u32>)> {
     CHOWN_CALLS.with(|calls| std::mem::take(&mut *calls.borrow_mut()))
 }
 
-/// Test hook between `lstat` and the `O_NOFOLLOW` open.
+/// Test hook between the parent `lstat` and `openat` of that directory.
 ///
-/// Replaces `link` with a symlink to `target`.
+/// The race window is not otherwise reachable from a single thread.
 #[cfg(all(test, unix))]
-fn arm_symlink_swap(link: &Path, target: &Path) {
-    SWAP_TO_SYMLINK.with(|slot| {
-        *slot.borrow_mut() = Some((link.to_path_buf(), target.to_path_buf()));
-    });
+fn arm_before_parent_open(hook: impl FnOnce() + 'static) {
+    BEFORE_PARENT_OPEN.with(|slot| *slot.borrow_mut() = Some(Box::new(hook)));
 }
 
+/// Test hook between the destination `lstat` and `openat` of that name.
+///
+/// The race window is not otherwise reachable from a single thread.
 #[cfg(all(test, unix))]
-fn before_open() {
-    let swap = SWAP_TO_SYMLINK.with(|slot| slot.borrow_mut().take());
-    if let Some((link, target)) = swap {
-        let _ = std::fs::remove_file(&link);
-        let _ = std::os::unix::fs::symlink(&target, &link);
-    }
+fn arm_before_target_open(hook: impl FnOnce() + 'static) {
+    BEFORE_TARGET_OPEN.with(|slot| *slot.borrow_mut() = Some(Box::new(hook)));
 }
 
-/// Open `dest` without following a symlink and require the same device and inode.
+/// Test hook that pins the temporary name so a planted symlink can match it.
 ///
-/// Permission and owner changes happen later, on the replacement's file
-/// descriptor. Nothing is written and the path is not chmodded here.
+/// Production names are random, so a pre-planted path would not collide.
+#[cfg(all(test, unix))]
+fn arm_fixed_temp_name(name: &str) {
+    FIXED_TEMP_NAME.with(|slot| *slot.borrow_mut() = Some(std::ffi::OsString::from(name)));
+}
+
+/// Test hook that makes the hard-link query fail once.
+#[cfg(all(test, unix))]
+fn arm_link_query_failure() {
+    LINK_QUERY_FAIL.with(|flag| flag.set(true));
+}
+
 #[cfg(unix)]
-fn verify_same_inode(dest: &Path, expected: &std::fs::Metadata) -> Result<()> {
-    use std::os::unix::fs::OpenOptionsExt;
+fn fire_before_parent_open() {
     #[cfg(test)]
-    before_open();
-    let flag = no_follow_flag(dest)?;
-    let file = std::fs::OpenOptions::new()
-        .read(true)
-        .custom_flags(flag)
-        .open(dest)
-        .with_context(|| {
-            format!(
-                "{} changed between stat and open; refusing to write",
-                dest.display()
-            )
-        })?;
-    let opened = file.metadata().with_context(|| {
-        format!(
-            "{} changed between stat and open; refusing to write",
-            dest.display()
-        )
-    })?;
-    if device_inode(&opened) != device_inode(expected) {
-        return Err(FileChanged {
-            path: dest.to_path_buf(),
-        }
-        .into());
+    if let Some(hook) = BEFORE_PARENT_OPEN.with(|slot| slot.borrow_mut().take()) {
+        hook();
     }
-    Ok(())
+}
+
+#[cfg(unix)]
+fn fire_before_target_open() {
+    #[cfg(test)]
+    if let Some(hook) = BEFORE_TARGET_OPEN.with(|slot| slot.borrow_mut().take()) {
+        hook();
+    }
 }
 
 /// Fail a replacement write after `fail_after` bytes.
 ///
 /// The bytes are written only to the temporary file. The destination is not
-/// modified, and dropping the temp removes it.
+/// modified, and the temporary name is removed.
 #[cfg(all(test, unix))]
 fn arm_write_fault(fail_after: usize) {
     WRITE_FAULT.with(|fault| fault.set(Some(fail_after)));
@@ -631,95 +602,251 @@ fn write_all_checked(file: &mut impl Write, bytes: &[u8]) -> std::io::Result<()>
     file.write_all(bytes)
 }
 
-/// This platform will not open a file without `O_NOFOLLOW`.
-#[derive(Debug, thiserror::Error)]
-#[error("refusing to replace {path} without O_NOFOLLOW")]
-pub struct NoFollowUnavailable {
-    /// The path that was left unchanged.
-    pub path: PathBuf,
-}
-
+/// Open the parent once and perform the replacement relative to that descriptor.
+///
+/// Snapper protects against races on the target's own name and its parent
+/// directory entry. It does not defend against an attacker who controls
+/// ancestor directories above the parent. `O_NOFOLLOW` applies only to the
+/// last component of the parent path.
 #[cfg(unix)]
-fn no_follow_flag(path: &Path) -> Result<i32> {
-    #[cfg(test)]
-    if REFUSE_NOFOLLOW.with(|flag| flag.get()) {
-        return Err(NoFollowUnavailable {
-            path: path.to_path_buf(),
+fn write_unix(dest: &Path, contents: &str, meta: Option<&std::fs::Metadata>) -> Result<()> {
+    let parent = dest
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+        .unwrap_or(Path::new("."));
+    let name = dest
+        .file_name()
+        .with_context(|| format!("failed to replace {}", dest.display()))?;
+    let parent_meta = std::fs::symlink_metadata(parent)
+        .with_context(|| format!("failed to stat {}", parent.display()))?;
+    fire_before_parent_open();
+    let dir = rustix::fs::openat(
+        rustix::fs::CWD,
+        parent,
+        parent_directory_flags(),
+        rustix::fs::Mode::empty(),
+    )
+    .with_context(|| {
+        format!(
+            "{} changed between stat and open; refusing to write",
+            parent.display()
+        )
+    })?;
+    let dir_stat = rustix::fs::fstat(&dir).with_context(|| {
+        format!(
+            "{} changed between stat and open; refusing to write",
+            parent.display()
+        )
+    })?;
+    if !inode_matches(stat_dev_ino(&dir_stat), device_inode(&parent_meta)) {
+        return Err(FileChanged {
+            path: parent.to_path_buf(),
         }
         .into());
     }
-    match platform_o_nofollow() {
-        Some(flag) if flag != 0 => Ok(flag),
-        _ => Err(NoFollowUnavailable {
+    if let Some(expected) = meta.filter(|meta| meta.file_type().is_file()) {
+        fire_before_target_open();
+        let file = rustix::fs::openat(&dir, name, target_open_flags(), rustix::fs::Mode::empty())
+            .with_context(|| {
+            format!(
+                "{} changed between stat and open; refusing to write",
+                dest.display()
+            )
+        })?;
+        let opened = rustix::fs::fstat(&file).with_context(|| {
+            format!(
+                "{} changed between stat and open; refusing to write",
+                dest.display()
+            )
+        })?;
+        if !inode_matches(stat_dev_ino(&opened), device_inode(expected)) {
+            return Err(FileChanged {
+                path: dest.to_path_buf(),
+            }
+            .into());
+        }
+    }
+    let mode = meta
+        .map(|meta| replacement_mode(dest, meta))
+        .unwrap_or(0o600);
+    let tmp_name = temp_file_name()?;
+    let tmp_fd = rustix::fs::openat(&dir, &tmp_name, temp_open_flags(), open_mode(mode & 0o600))
+        .with_context(|| format!("failed to create a temporary file in {}", parent.display()))?;
+    if let Err(err) = write_temp(tmp_fd, dest, contents, mode, meta) {
+        let _ = rustix::fs::unlinkat(&dir, &tmp_name, rustix::fs::AtFlags::empty());
+        return Err(err);
+    }
+    rustix::fs::renameat(&dir, &tmp_name, &dir, name)
+        .with_context(|| format!("failed to replace {}", dest.display()))?;
+    let dir_file = std::fs::File::from(dir);
+    sync_file(&dir_file).with_context(|| format!("failed to sync {}", parent.display()))?;
+    Ok(())
+}
+
+/// `O_DIRECTORY|O_NOFOLLOW` on the last component of the parent path.
+#[cfg(unix)]
+fn parent_directory_flags() -> rustix::fs::OFlags {
+    rustix::fs::OFlags::RDONLY
+        | rustix::fs::OFlags::DIRECTORY
+        | rustix::fs::OFlags::NOFOLLOW
+        | rustix::fs::OFlags::CLOEXEC
+}
+
+/// `O_NOFOLLOW` for the destination name. Removing this flag follows a
+/// symlink that still names the inode we already statted.
+#[cfg(unix)]
+fn target_open_flags() -> rustix::fs::OFlags {
+    rustix::fs::OFlags::RDONLY | rustix::fs::OFlags::NOFOLLOW | rustix::fs::OFlags::CLOEXEC
+}
+
+/// `O_CREAT|O_EXCL|O_NOFOLLOW` for the temporary name. `O_EXCL` refuses an
+/// existing name, and `O_NOFOLLOW` refuses to follow one.
+#[cfg(unix)]
+fn temp_open_flags() -> rustix::fs::OFlags {
+    rustix::fs::OFlags::RDWR
+        | rustix::fs::OFlags::CREATE
+        | rustix::fs::OFlags::EXCL
+        | rustix::fs::OFlags::NOFOLLOW
+        | rustix::fs::OFlags::CLOEXEC
+}
+
+#[cfg(unix)]
+fn open_mode(mode: u32) -> rustix::fs::Mode {
+    use rustix::fs::Mode;
+    let mut bits = Mode::empty();
+    for (bit, flag) in [
+        (0o400, Mode::RUSR),
+        (0o200, Mode::WUSR),
+        (0o100, Mode::XUSR),
+        (0o040, Mode::RGRP),
+        (0o020, Mode::WGRP),
+        (0o010, Mode::XGRP),
+        (0o004, Mode::ROTH),
+        (0o002, Mode::WOTH),
+        (0o001, Mode::XOTH),
+    ] {
+        if mode & bit != 0 {
+            bits |= flag;
+        }
+    }
+    bits
+}
+
+/// Compare the opened inode with the earlier `lstat`.
+#[cfg(unix)]
+fn inode_matches(opened: (u64, u64), expected: (u64, u64)) -> bool {
+    opened == expected
+}
+
+#[cfg(unix)]
+fn stat_dev_ino(st: &rustix::fs::Stat) -> (u64, u64) {
+    (stat_number(st.st_dev), stat_number(st.st_ino))
+}
+
+#[cfg(unix)]
+fn stat_number<T>(value: T) -> u64
+where
+    T: TryInto<u64>,
+{
+    value.try_into().unwrap_or(0)
+}
+
+#[cfg(unix)]
+fn temp_file_name() -> Result<std::ffi::OsString> {
+    #[cfg(test)]
+    if let Some(name) = FIXED_TEMP_NAME.with(|slot| slot.borrow_mut().take()) {
+        return Ok(name);
+    }
+    let mut bytes = [0u8; 16];
+    let mut random = std::fs::File::open("/dev/urandom")
+        .context("failed to open /dev/urandom for a temporary name")?;
+    std::io::Read::read_exact(&mut random, &mut bytes)
+        .context("failed to read random bytes for a temporary name")?;
+    let mut name = String::from(".snapper-");
+    const HEX: &[u8; 16] = b"0123456789abcdef";
+    for byte in bytes {
+        name.push(HEX[(byte >> 4) as usize] as char);
+        name.push(HEX[(byte & 0xf) as usize] as char);
+    }
+    name.push_str(".tmp");
+    Ok(std::ffi::OsString::from(name))
+}
+
+#[cfg(unix)]
+fn write_temp(
+    tmp_fd: std::os::fd::OwnedFd,
+    dest: &Path,
+    contents: &str,
+    mode: u32,
+    meta: Option<&std::fs::Metadata>,
+) -> Result<()> {
+    use std::os::unix::fs::PermissionsExt;
+    let mut file = std::fs::File::from(tmp_fd);
+    write_all_checked(&mut file, contents.as_bytes())
+        .with_context(|| format!("failed to write {}", dest.display()))?;
+    file.set_permissions(std::fs::Permissions::from_mode(mode))
+        .with_context(|| format!("failed to keep mode {mode:o} on {}", dest.display()))?;
+    if let Some(meta) = meta {
+        if !meta.file_type().is_symlink() {
+            restore_owner(&file, dest, meta)?;
+        }
+    }
+    sync_file(&file).with_context(|| format!("failed to sync {}", dest.display()))?;
+    Ok(())
+}
+
+fn ensure_hard_links(path: &Path, meta: &std::fs::Metadata, policy: HardlinkPolicy) -> Result<()> {
+    if !meta.file_type().is_file() {
+        return Ok(());
+    }
+    match query_links(path, meta) {
+        Ok(links) if links > 1 && policy == HardlinkPolicy::Refuse => Err(HardLinked {
+            path: path.to_path_buf(),
+            links,
+        }
+        .into()),
+        Ok(_) => Ok(()),
+        Err(_) if policy == HardlinkPolicy::Break => Ok(()),
+        Err(_) => Err(HardLinkUnverified {
             path: path.to_path_buf(),
         }
         .into()),
     }
 }
 
-#[cfg(unix)]
-fn platform_o_nofollow() -> Option<i32> {
-    #[cfg(any(
-        target_os = "linux",
-        target_os = "android",
-        target_os = "macos",
-        target_os = "ios",
-        target_os = "tvos",
-        target_os = "watchos",
-        target_os = "visionos",
-        target_os = "freebsd",
-        target_os = "dragonfly",
-        target_os = "netbsd",
-        target_os = "openbsd",
-        target_os = "solaris",
-        target_os = "illumos",
-    ))]
-    {
-        Some(libc::O_NOFOLLOW)
+fn query_links(path: &Path, meta: &std::fs::Metadata) -> std::io::Result<u64> {
+    #[cfg(test)]
+    if LINK_QUERY_FAIL.with(|flag| flag.replace(false)) {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::PermissionDenied,
+            "injected link query failure",
+        ));
     }
-    #[cfg(not(any(
-        target_os = "linux",
-        target_os = "android",
-        target_os = "macos",
-        target_os = "ios",
-        target_os = "tvos",
-        target_os = "watchos",
-        target_os = "visionos",
-        target_os = "freebsd",
-        target_os = "dragonfly",
-        target_os = "netbsd",
-        target_os = "openbsd",
-        target_os = "solaris",
-        target_os = "illumos",
-    )))]
-    {
-        None
-    }
-}
-
-fn is_hard_linked_file(path: &Path, meta: &std::fs::Metadata) -> bool {
-    meta.file_type().is_file() && link_count_of(path, meta) > 1
+    platform_link_count(path, meta)
 }
 
 #[cfg(unix)]
-fn link_count_of(_path: &Path, meta: &std::fs::Metadata) -> u64 {
-    link_count(meta)
+fn platform_link_count(_path: &Path, meta: &std::fs::Metadata) -> std::io::Result<u64> {
+    Ok(link_count(meta))
 }
 
-/// `GetFileInformationByHandle` is stable. `MetadataExt::number_of_links`
-/// is still unstable on the 1.88 MSRV (`windows_by_handle`).
 #[cfg(windows)]
-fn link_count_of(path: &Path, _meta: &std::fs::Metadata) -> u64 {
+fn platform_link_count(path: &Path, _meta: &std::fs::Metadata) -> std::io::Result<u64> {
     windows_link_count(path)
 }
 
 #[cfg(not(any(unix, windows)))]
-fn link_count_of(_path: &Path, _meta: &std::fs::Metadata) -> u64 {
-    1
+fn platform_link_count(_path: &Path, _meta: &std::fs::Metadata) -> std::io::Result<u64> {
+    Ok(1)
 }
 
+/// `GetFileInformationByHandle` is stable. `MetadataExt::number_of_links`
+/// is still unstable on the 1.88 MSRV (`windows_by_handle`).
+///
+/// An API error is not a link count of one. The caller refuses the write
+/// unless `--break-hardlinks` was requested.
 #[cfg(windows)]
-fn windows_link_count(path: &Path) -> u64 {
+fn windows_link_count(path: &Path) -> std::io::Result<u64> {
     use std::os::windows::ffi::OsStrExt;
     #[repr(C)]
     struct FileTime {
@@ -773,19 +900,18 @@ fn windows_link_count(path: &Path) -> u64 {
             0,
         );
         if handle == -1 || handle == 0 {
-            return 1;
+            return Err(std::io::Error::last_os_error());
         }
         let mut info = std::mem::zeroed::<ByHandleFileInformation>();
         let ok = GetFileInformationByHandle(handle, &mut info);
         let _ = CloseHandle(handle);
         if ok == 0 {
-            1
+            Err(std::io::Error::last_os_error())
         } else {
-            u64::from(info.number_of_links)
+            Ok(u64::from(info.number_of_links))
         }
     }
 }
-
 #[cfg(unix)]
 fn link_count(meta: &std::fs::Metadata) -> u64 {
     #[cfg(target_os = "linux")]
@@ -1491,7 +1617,12 @@ index 111..222 100644
         std::fs::set_permissions(&dest, std::fs::Permissions::from_mode(0o640)).unwrap();
         std::fs::write(&victim, "victim-secret-bytes\n").unwrap();
         std::fs::set_permissions(&victim, std::fs::Permissions::from_mode(0o604)).unwrap();
-        arm_symlink_swap(&dest, &victim);
+        let swapped = dest.clone();
+        let target = victim.clone();
+        arm_before_target_open(move || {
+            let _ = std::fs::remove_file(&swapped);
+            std::os::unix::fs::symlink(&target, &swapped).unwrap();
+        });
         let err = write_replacing(&dest, "REPLACED-BYTES-now\n").unwrap_err();
         let text = format!("{err:#}");
         assert!(
@@ -1559,25 +1690,278 @@ index 111..222 100644
         );
     }
 
+    /// The replacement name is a symlink to the same inode, so `fstat`
+    /// would match the earlier `lstat`. Only `O_NOFOLLOW` refuses the open.
+    ///
+    /// The hook is required: the swap has to land between `lstat` and `openat`.
     #[cfg(unix)]
     #[test]
-    fn a_replace_refuses_without_o_nofollow() {
+    fn a_symlink_to_the_same_inode_is_not_followed() {
+        let dir = tempfile::tempdir().unwrap();
+        let dest = dir.path().join("notes.md");
+        let keeper = dir.path().join("keeper.md");
+        let original = "ORIGINAL-BYTES-stay\n";
+        std::fs::write(&dest, original).unwrap();
+        let swapped = dest.clone();
+        let kept = keeper.clone();
+        arm_before_target_open(move || {
+            std::fs::hard_link(&swapped, &kept).unwrap();
+            std::fs::remove_file(&swapped).unwrap();
+            std::os::unix::fs::symlink("keeper.md", &swapped).unwrap();
+        });
+        let result = write_replacing(&dest, "REPLACED-BYTES-now\n");
+        let Err(err) = result else {
+            panic!(
+                "O_NOFOLLOW was not required: the write succeeded, dest symlink={} contents={:?}",
+                std::fs::symlink_metadata(&dest)
+                    .unwrap()
+                    .file_type()
+                    .is_symlink(),
+                std::fs::read_to_string(&dest).ok()
+            );
+        };
+        let text = format!("{err:#}");
+        assert!(
+            text.contains("refusing to write"),
+            "O_NOFOLLOW must refuse a same-inode symlink, got {text}"
+        );
+        assert!(
+            std::fs::symlink_metadata(&dest)
+                .unwrap()
+                .file_type()
+                .is_symlink(),
+            "following the symlink and renaming over it must fail this test"
+        );
+        assert_eq!(std::fs::read_to_string(&keeper).unwrap(), original);
+        assert!(snapper_temps(dir.path()).is_empty());
+    }
+
+    /// Another regular file occupies the name. There is no symlink, so
+    /// `O_NOFOLLOW` succeeds and only the device/inode compare refuses.
+    ///
+    /// The hook is required: the swap has to land between `lstat` and `openat`.
+    #[cfg(unix)]
+    #[test]
+    fn a_regular_file_swapped_for_another_regular_file_is_refused() {
+        let dir = tempfile::tempdir().unwrap();
+        let dest = dir.path().join("notes.md");
+        let original = "ORIGINAL-BYTES-stay\n";
+        let victim = "VICTIM-BYTES-other\n";
+        std::fs::write(&dest, original).unwrap();
+        let swapped = dest.clone();
+        let aside = dir.path().join("notes.md.old");
+        let moved = aside.clone();
+        arm_before_target_open(move || {
+            std::fs::rename(&swapped, &moved).unwrap();
+            std::fs::write(&swapped, victim).unwrap();
+        });
+        let result = write_replacing(&dest, "REPLACED-BYTES-now\n");
+        let Err(err) = result else {
+            panic!(
+                "the dev/ino check was not required: the write succeeded, dest={:?} aside={:?}",
+                std::fs::read_to_string(&dest).ok(),
+                std::fs::read_to_string(&aside).ok()
+            );
+        };
+        let text = format!("{err:#}");
+        assert!(
+            text.contains("changed between stat and open"),
+            "a different regular file must fail the dev/ino check, got {text}"
+        );
+        assert!(
+            err.downcast_ref::<FileChanged>().is_some()
+                || err
+                    .chain()
+                    .any(|cause| cause.downcast_ref::<FileChanged>().is_some()),
+            "the mismatch must be a typed file-changed error, got {text}"
+        );
+        assert_eq!(
+            std::fs::read_to_string(&dest).unwrap(),
+            victim,
+            "the swapped-in file must be left unwritten"
+        );
+        assert_eq!(std::fs::read_to_string(&aside).unwrap(), original);
+        assert!(
+            !std::fs::symlink_metadata(&dest)
+                .unwrap()
+                .file_type()
+                .is_symlink()
+        );
+        assert!(snapper_temps(dir.path()).is_empty());
+    }
+
+    /// The parent directory entry becomes a symlink to the same directory.
+    /// The directory inode matches, so only `O_NOFOLLOW` on the parent open
+    /// refuses. A symlink to a different directory would also fail the
+    /// directory `fstat` and would not isolate this flag.
+    ///
+    /// The hook is required: the swap has to land between `lstat` and `openat`.
+    #[cfg(unix)]
+    #[test]
+    fn a_parent_swapped_for_a_symlink_to_the_same_directory_is_refused() {
+        let root = tempfile::tempdir().unwrap();
+        let sub = root.path().join("sub");
+        std::fs::create_dir(&sub).unwrap();
+        let notes = sub.join("notes.md");
+        let original = "ORIGINAL-BYTES-stay\n";
+        std::fs::write(&notes, original).unwrap();
+        let parent = sub.clone();
+        let moved = root.path().join("sub.real");
+        arm_before_parent_open(move || {
+            std::fs::rename(&parent, &moved).unwrap();
+            std::os::unix::fs::symlink("sub.real", &parent).unwrap();
+        });
+        let kept = root.path().join("sub.real").join("notes.md");
+        let result = write_replacing(&notes, "REPLACED-BYTES-now\n");
+        let Err(err) = result else {
+            panic!(
+                "parent O_NOFOLLOW was not required: the write succeeded, kept={:?}",
+                std::fs::read_to_string(&kept).ok()
+            );
+        };
+        let text = format!("{err:#}");
+        assert!(
+            text.contains("refusing to write"),
+            "O_NOFOLLOW on the parent must refuse the symlink, got {text}"
+        );
+        assert_eq!(std::fs::read_to_string(&kept).unwrap(), original);
+        assert!(
+            std::fs::symlink_metadata(root.path().join("sub"))
+                .unwrap()
+                .file_type()
+                .is_symlink()
+        );
+    }
+
+    /// The parent path is a new directory that still holds the same file
+    /// inode. `O_NOFOLLOW` succeeds. Only the parent descriptor's device
+    /// and inode compare refuses.
+    ///
+    /// The hook is required: the swap has to land between `lstat` and `openat`.
+    #[cfg(unix)]
+    #[test]
+    fn a_parent_replaced_by_another_directory_is_refused() {
+        let root = tempfile::tempdir().unwrap();
+        let sub = root.path().join("sub");
+        std::fs::create_dir(&sub).unwrap();
+        let notes = sub.join("notes.md");
+        let original = "ORIGINAL-BYTES-stay\n";
+        std::fs::write(&notes, original).unwrap();
+        let parent = sub.clone();
+        let moved = root.path().join("sub.old");
+        arm_before_parent_open(move || {
+            std::fs::rename(&parent, &moved).unwrap();
+            std::fs::create_dir(&parent).unwrap();
+            std::fs::hard_link(moved.join("notes.md"), parent.join("notes.md")).unwrap();
+        });
+        let result = write_replacing(&notes, "REPLACED-BYTES-now\n");
+        let Err(err) = result else {
+            panic!(
+                "the parent dev/ino check was not required: the write succeeded, new={:?} old={:?}",
+                std::fs::read_to_string(root.path().join("sub").join("notes.md")).ok(),
+                std::fs::read_to_string(root.path().join("sub.old").join("notes.md")).ok()
+            );
+        };
+        let text = format!("{err:#}");
+        assert!(
+            text.contains("changed between stat and open"),
+            "the parent dirfd must not match a replacement directory, got {text}"
+        );
+        assert_eq!(
+            std::fs::read_to_string(root.path().join("sub.old").join("notes.md")).unwrap(),
+            original
+        );
+        assert_eq!(
+            std::fs::read_to_string(root.path().join("sub").join("notes.md")).unwrap(),
+            original,
+            "renaming onto the new directory must fail this test"
+        );
+    }
+
+    /// The exact temporary name is planted as a symlink. `O_EXCL` refuses
+    /// an existing name and `O_NOFOLLOW` refuses to follow it. Either flag
+    /// alone leaves the victim untouched; the mutation that follows the
+    /// symlink removes both.
+    ///
+    /// The fixed name is a test hook. Production names are random.
+    #[cfg(unix)]
+    #[test]
+    fn a_preplanted_temp_name_symlink_is_not_followed() {
         let dir = tempfile::tempdir().unwrap();
         let dest = dir.path().join("notes.md");
         let original = "ORIGINAL-BYTES-stay\n";
         std::fs::write(&dest, original).unwrap();
-        arm_nofollow_refusal();
-        let err = write_replacing(&dest, "REPLACED-BYTES-now\n").unwrap_err();
-        clear_nofollow_refusal();
+        let outside = dir.path().join("outside.md");
+        std::fs::write(&outside, "secret\n").unwrap();
+        let planted = dir.path().join(".snapper-fixed.tmp");
+        std::os::unix::fs::symlink(&outside, &planted).unwrap();
+        arm_fixed_temp_name(".snapper-fixed.tmp");
+        let result = write_replacing(&dest, "REPLACED-BYTES-now\n");
+        let Err(err) = result else {
+            panic!(
+                "the temp open followed the planted symlink: dest={:?} outside={:?}",
+                std::fs::read_to_string(&dest).ok(),
+                std::fs::read_to_string(&outside).ok()
+            );
+        };
+        let text = format!("{err:#}");
         assert!(
-            err.downcast_ref::<NoFollowUnavailable>().is_some()
+            text.contains("temporary file"),
+            "creating the planted name must fail, got {text}"
+        );
+        assert_eq!(std::fs::read_to_string(&outside).unwrap(), "secret\n");
+        assert_eq!(std::fs::read_to_string(&dest).unwrap(), original);
+        assert!(
+            std::fs::symlink_metadata(&planted)
+                .unwrap()
+                .file_type()
+                .is_symlink()
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn an_unverifiable_link_count_is_refused() {
+        let dir = tempfile::tempdir().unwrap();
+        let dest = dir.path().join("notes.md");
+        let original = "ORIGINAL-BYTES-stay\n";
+        std::fs::write(&dest, original).unwrap();
+        arm_link_query_failure();
+        let result = write_replacing(&dest, "REPLACED-BYTES-now\n");
+        let Err(err) = result else {
+            panic!(
+                "a link-query error was treated as a single link, dest={:?}",
+                std::fs::read_to_string(&dest).ok()
+            );
+        };
+        let text = format!("{err:#}");
+        assert!(
+            text.contains("could not be checked"),
+            "a link-query error must be refused, got {text}"
+        );
+        assert!(
+            err.downcast_ref::<HardLinkUnverified>().is_some()
                 || err
                     .chain()
-                    .any(|cause| cause.downcast_ref::<NoFollowUnavailable>().is_some()),
-            "missing O_NOFOLLOW must be a typed refusal, got {err:#}"
+                    .any(|cause| cause.downcast_ref::<HardLinkUnverified>().is_some()),
+            "the refusal must be typed, got {text}"
         );
         assert_eq!(std::fs::read_to_string(&dest).unwrap(), original);
         assert!(snapper_temps(dir.path()).is_empty());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn an_unverifiable_link_count_may_break() {
+        let dir = tempfile::tempdir().unwrap();
+        let dest = dir.path().join("notes.md");
+        std::fs::write(&dest, "ORIGINAL-BYTES-stay\n").unwrap();
+        arm_link_query_failure();
+        write_with_policy(&dest, "REPLACED-BYTES-now\n", HardlinkPolicy::Break).unwrap();
+        assert_eq!(
+            std::fs::read_to_string(&dest).unwrap(),
+            "REPLACED-BYTES-now\n"
+        );
     }
 
     #[cfg(unix)]

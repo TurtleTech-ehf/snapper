@@ -74,7 +74,11 @@ Without this flag, =--in-place= leaves a hard-linked file unchanged and exits no
 The error names that file.
 With this flag, snapper writes the new text to a temporary file in the same directory, syncs it, and renames it onto this path.
 The other names keep the previous text.
-On Unix the directory is synced after the rename.
+On Unix the parent directory is opened once and the replacement is renamed through that directory descriptor.
+Snapper protects against races on the target's own name and its parent directory entry.
+It does not defend against an attacker who controls ancestor directories above the parent.
+On Windows the replacement is best-effort and does not hold the parent directory open.
+A hard-link count that cannot be read is refused, unless =--break-hardlinks= is set.
 
 *** =-w=, =--max-width <N>=
 :PROPERTIES:
@@ -155,6 +159,11 @@ A symlink whose target is outside this repository is skipped with a warning.
 The command still exits non-zero, and the other files in the run are still checked.
 A hard-linked file is left unchanged, and the command exits non-zero.
 =--break-hardlinks= replaces that path only, and the other names keep the previous text.
+A hard-link count that cannot be read is refused the same way.
+On Unix the parent directory is opened once, and the replacement uses that directory descriptor.
+Snapper protects against races on the target's own name and its parent directory entry.
+It does not defend against an attacker who controls ancestor directories above the parent.
+On Windows the replacement is best-effort and does not hold the parent directory open.
 The replacement drops setuid, setgid, and the sticky bit.
 =--in-place= uses that same replacement when =--changed= is not set.
 A path that cannot be resolved is an error, not a file outside the repository.
