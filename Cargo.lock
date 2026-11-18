@@ -2225,6 +2225,7 @@ dependencies = [
  "glob",
  "imara-diff",
  "js-sys",
+ "libc",
  "libloading",
  "nnsplit",
  "notify",

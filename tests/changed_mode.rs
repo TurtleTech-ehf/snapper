@@ -793,3 +793,33 @@ fn changed_in_place_keeps_the_file_mode() {
         assert_eq!(fs::read_to_string(&path).unwrap(), expected);
     }
 }
+
+#[cfg(unix)]
+#[test]
+fn in_place_without_changed_does_not_follow_a_symlink() {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    let outside = root.join("outside.md");
+    let original = "Two sentences. Here.\n";
+    fs::write(&outside, original).unwrap();
+    fs::set_permissions(&outside, fs::Permissions::from_mode(0o640)).unwrap();
+    symlink_to(&outside, &root.join("notes.md"));
+    let edit = run(root, &["--in-place", "--color", "never", "notes.md"]);
+    let stderr = String::from_utf8_lossy(&edit.stderr);
+    assert_eq!(
+        fs::read_to_string(&outside).unwrap(),
+        original,
+        "--in-place must not follow a symlink, status {:?}, stderr: {stderr}",
+        edit.status.code()
+    );
+    let mode = fs::metadata(root.join("notes.md"))
+        .unwrap()
+        .permissions()
+        .mode()
+        & 0o777;
+    assert_eq!(
+        mode, 0o640,
+        "plain --in-place must keep the target mode, got {mode:04o}"
+    );
+}

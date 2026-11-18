@@ -141,7 +141,9 @@ A file in a different git repository is an error.
 A symlink whose target is outside this repository is skipped with a warning.
 The command still exits non-zero, and the other files in the run are still checked.
 A hard-linked file is rewritten in place, so every name keeps the new text and the owner.
+A failed rewrite of a hard-linked file restores the original text on every name.
 The replacement drops setuid, setgid, and the sticky bit.
+=--in-place= uses that same replacement when =--changed= is not set.
 A path that cannot be resolved is an error, not a file outside the repository.
 =--changed= cannot be combined with =--range=.
 Stdin has no git path, so pass files.

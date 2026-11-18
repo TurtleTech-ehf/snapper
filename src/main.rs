@@ -366,21 +366,18 @@ fn run() -> Result<()> {
                 }
             } else if cli.in_place {
                 if output != input {
-                    if cli.changed {
-                        if let Err(err) =
-                            snapper_fmt::changed::write_inside_repo(&outcome.path, output)
-                        {
-                            if outside_repo(&err) {
-                                eprintln!("warning: {err:#}");
-                                skipped_outside = true;
-                            } else {
-                                return Err(err);
-                            }
-                        }
+                    let written = if cli.changed {
+                        snapper_fmt::changed::write_inside_repo(&outcome.path, output)
                     } else {
-                        fs::write(&outcome.path, output).with_context(|| {
-                            format!("failed to write {}", outcome.path.display())
-                        })?;
+                        snapper_fmt::changed::replace_file(&outcome.path, output)
+                    };
+                    if let Err(err) = written {
+                        if cli.changed && outside_repo(&err) {
+                            eprintln!("warning: {err:#}");
+                            skipped_outside = true;
+                        } else {
+                            return Err(err);
+                        }
                     }
                 }
             } else if let Some(ref out_path) = cli.output {

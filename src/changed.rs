@@ -315,7 +315,12 @@ impl RepoPathError {
 /// `rename` replaces the directory entry.
 ///
 /// When this process is root, or it owns the file, the replacement keeps the
-/// original uid and gid.
+/// original uid and gid. A group that cannot be set is warned, after trying
+/// uid and gid together and then the gid alone.
+///
+/// The new bytes are synced before `rename`, and the parent directory is
+/// synced after it. A hard-linked file is not truncated until a synced copy
+/// of the old bytes and a synced copy of the new bytes both exist.
 fn write_replacing(dest: &Path, contents: &str) -> Result<()> {
     let meta = match std::fs::symlink_metadata(dest) {
         Ok(meta) => Some(meta),
@@ -335,7 +340,76 @@ fn write_replacing(dest: &Path, contents: &str) -> Result<()> {
         .filter(|parent| !parent.as_os_str().is_empty());
     let parent = parent.unwrap_or(Path::new("."));
     #[cfg(unix)]
-    let mode = meta.as_ref().map(kept_mode).unwrap_or(0o600);
+    let mode = meta
+        .as_ref()
+        .map(|meta| replacement_mode(dest, meta))
+        .unwrap_or(0o600);
+    #[cfg(not(unix))]
+    let mode = 0o600;
+    let mut tmp = private_temp(parent, mode)?;
+    tmp.as_file_mut()
+        .write_all(contents.as_bytes())
+        .with_context(|| format!("failed to write {}", tmp.path().display()))?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        tmp.as_file()
+            .set_permissions(std::fs::Permissions::from_mode(mode))
+            .with_context(|| format!("failed to keep mode {mode:o} on {}", dest.display()))?;
+        if let Some(meta) = meta.as_ref() {
+            if !meta.file_type().is_symlink() {
+                restore_owner(tmp.as_file(), dest, meta)?;
+            }
+        }
+    }
+    #[cfg(not(unix))]
+    if let Some(meta) = meta.as_ref() {
+        if !meta.file_type().is_symlink() {
+            tmp.as_file()
+                .set_permissions(meta.permissions())
+                .with_context(|| format!("failed to keep permissions on {}", dest.display()))?;
+        }
+    }
+    sync_file(tmp.as_file()).with_context(|| format!("failed to sync {}", tmp.path().display()))?;
+    tmp.persist(dest).map_err(|err| {
+        anyhow::Error::from(err.error).context(format!("failed to replace {}", dest.display()))
+    })?;
+    sync_dir(parent)?;
+    Ok(())
+}
+
+/// Replace `path` without the `--changed` repository check.
+///
+/// `--in-place` and `--changed` share this writer. A symlink at `path` is
+/// replaced, not followed.
+pub fn replace_file(path: &Path, contents: &str) -> Result<()> {
+    write_replacing(path, contents)
+}
+
+/// Permission bits to put on a replacement. Special bits are not copied.
+///
+/// A symlink's own `lstat` mode is `0777` on Linux and is not a file mode.
+/// The resolved target's permission bits are used instead. The directory
+/// entry is still replaced rather than followed.
+#[cfg(unix)]
+fn replacement_mode(dest: &Path, meta: &std::fs::Metadata) -> u32 {
+    if meta.file_type().is_symlink() {
+        match std::fs::metadata(dest) {
+            Ok(target) if target.is_file() => kept_mode(&target),
+            _ => 0o600,
+        }
+    } else {
+        kept_mode(meta)
+    }
+}
+
+#[cfg(unix)]
+fn kept_mode(meta: &std::fs::Metadata) -> u32 {
+    use std::os::unix::fs::PermissionsExt;
+    meta.permissions().mode() & 0o777
+}
+
+fn private_temp(parent: &Path, mode: u32) -> Result<tempfile::NamedTempFile> {
     let mut builder = tempfile::Builder::new();
     builder.prefix(".snapper-").suffix(".tmp").rand_bytes(16);
     #[cfg(unix)]
@@ -343,44 +417,67 @@ fn write_replacing(dest: &Path, contents: &str) -> Result<()> {
         use std::os::unix::fs::PermissionsExt;
         builder.permissions(std::fs::Permissions::from_mode(mode));
     }
-    let mut tmp = builder
-        .tempfile_in(parent)
-        .with_context(|| format!("failed to create a temporary file in {}", parent.display()))?;
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        // `open` applies the umask, which can only narrow the mode. Put the
-        // kept mode back before any bytes are visible for longer than that.
-        std::fs::set_permissions(tmp.path(), std::fs::Permissions::from_mode(mode))
-            .with_context(|| format!("failed to keep mode {mode:o} on {}", dest.display()))?;
-    }
     #[cfg(not(unix))]
-    if let Some(meta) = meta.as_ref() {
-        if !meta.file_type().is_symlink() {
-            std::fs::set_permissions(tmp.path(), meta.permissions())
-                .with_context(|| format!("failed to keep permissions on {}", dest.display()))?;
-        }
-    }
-    tmp.as_file_mut()
-        .write_all(contents.as_bytes())
-        .with_context(|| format!("failed to write {}", tmp.path().display()))?;
-    #[cfg(unix)]
-    if let Some(meta) = meta.as_ref() {
-        if !meta.file_type().is_symlink() {
-            restore_owner(tmp.path(), meta)?;
-        }
-    }
-    tmp.persist(dest).map_err(|err| {
-        anyhow::Error::from(err.error).context(format!("failed to replace {}", dest.display()))
-    })?;
+    let _ = mode;
+    builder
+        .tempfile_in(parent)
+        .with_context(|| format!("failed to create a temporary file in {}", parent.display()))
+}
+
+fn sync_file(file: &std::fs::File) -> std::io::Result<()> {
+    #[cfg(test)]
+    SYNC_COUNT.with(|count| count.set(count.get() + 1));
+    file.sync_all()
+}
+
+fn sync_dir(parent: &Path) -> Result<()> {
+    let dir = std::fs::File::open(parent)
+        .with_context(|| format!("failed to open {}", parent.display()))?;
+    sync_file(&dir).with_context(|| format!("failed to sync {}", parent.display()))?;
     Ok(())
 }
 
-/// Permission bits to put on a replacement. Special bits are not copied.
-#[cfg(unix)]
-fn kept_mode(meta: &std::fs::Metadata) -> u32 {
-    use std::os::unix::fs::PermissionsExt;
-    meta.permissions().mode() & 0o777
+#[cfg(test)]
+thread_local! {
+    static SYNC_COUNT: std::cell::Cell<u32> = const { std::cell::Cell::new(0) };
+}
+
+#[cfg(all(test, unix))]
+thread_local! {
+    static REFUSE_NOFOLLOW: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+    static CHOWN_FAULT: std::cell::Cell<u8> = const { std::cell::Cell::new(0) };
+    static OWNER_WARNINGS: std::cell::RefCell<Vec<String>> =
+        const { std::cell::RefCell::new(Vec::new()) };
+}
+
+#[cfg(test)]
+fn reset_sync_count() {
+    SYNC_COUNT.with(|count| count.set(0));
+}
+
+#[cfg(test)]
+fn sync_count() -> u32 {
+    SYNC_COUNT.with(|count| count.get())
+}
+
+#[cfg(all(test, unix))]
+fn arm_nofollow_refusal() {
+    REFUSE_NOFOLLOW.with(|flag| flag.set(true));
+}
+
+#[cfg(all(test, unix))]
+fn clear_nofollow_refusal() {
+    REFUSE_NOFOLLOW.with(|flag| flag.set(false));
+}
+
+#[cfg(all(test, unix))]
+fn arm_chown_fault(kind: u8) {
+    CHOWN_FAULT.with(|flag| flag.set(kind));
+}
+
+#[cfg(all(test, unix))]
+fn take_owner_warnings() -> Vec<String> {
+    OWNER_WARNINGS.with(|warnings| std::mem::take(&mut *warnings.borrow_mut()))
 }
 
 /// Rewrite `dest` without replacing its inode.
@@ -389,42 +486,208 @@ fn kept_mode(meta: &std::fs::Metadata) -> u32 {
 /// extended attributes stay. setuid, setgid, and sticky are cleared first.
 #[cfg(unix)]
 fn write_in_place(dest: &Path, contents: &str, meta: &std::fs::Metadata) -> Result<()> {
-    use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
+    use std::io::{Read, Seek, SeekFrom, Write};
+    use std::os::unix::fs::PermissionsExt;
     let mode = kept_mode(meta);
-    std::fs::set_permissions(dest, std::fs::Permissions::from_mode(mode))
+    let flag = no_follow_flag(dest)?;
+    let original_mode = meta.permissions().mode() & 0o777;
+    let mut file = open_hardlink_for_rewrite(dest, meta, original_mode, flag)?;
+    file.set_permissions(std::fs::Permissions::from_mode(mode))
         .with_context(|| format!("failed to clear special mode bits on {}", dest.display()))?;
-    let mut file = std::fs::OpenOptions::new()
-        .write(true)
-        .truncate(true)
-        .custom_flags(no_follow_flag())
-        .open(dest)
-        .with_context(|| {
-            format!(
-                "{} has {} hard links; snapper rewrites a hard-linked file in place and will not replace its inode",
-                dest.display(),
-                link_count(meta)
-            )
-        })?;
-    file.write_all(contents.as_bytes())
-        .with_context(|| format!("failed to write {}", dest.display()))?;
+
+    file.seek(SeekFrom::Start(0))
+        .with_context(|| format!("failed to read {}", dest.display()))?;
+    let mut original = Vec::new();
+    file.read_to_end(&mut original)
+        .with_context(|| format!("failed to read {}", dest.display()))?;
+
+    let parent = dest
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+        .unwrap_or(Path::new("."));
+    let mut backup = private_temp(parent, 0o600)?;
+    backup
+        .write_all(&original)
+        .and_then(|_| sync_file(backup.as_file()))
+        .with_context(|| format!("failed to back up {}", dest.display()))?;
+    let mut staged = private_temp(parent, 0o600)?;
+    staged
+        .write_all(contents.as_bytes())
+        .and_then(|_| sync_file(staged.as_file()))
+        .with_context(|| format!("failed to stage {}", dest.display()))?;
+
+    let rewrite = (|| -> std::io::Result<()> {
+        file.seek(SeekFrom::Start(0))?;
+        write_all_checked(WriteSite::Hardlink, &mut file, contents.as_bytes())?;
+        file.set_len(contents.len() as u64)?;
+        sync_file(&file)?;
+        Ok(())
+    })();
+    if let Err(err) = rewrite {
+        restore_from_backup(&mut file, &mut backup)
+            .with_context(|| format!("failed to restore {} after a write error", dest.display()))?;
+        let _ = file.set_permissions(std::fs::Permissions::from_mode(mode));
+        return Err(err).with_context(|| format!("failed to write {}", dest.display()));
+    }
     Ok(())
 }
 
+/// Open a hard-linked file without following a symlink swapped into its path.
+///
+/// A mode without owner write cannot be opened for writing. That bit is added
+/// only long enough to obtain the fd, then [`write_in_place`] puts the kept
+/// mode back through the fd.
 #[cfg(unix)]
-fn no_follow_flag() -> i32 {
-    #[cfg(any(target_os = "linux", target_os = "android"))]
-    {
-        0x20000
+fn open_hardlink_for_rewrite(
+    dest: &Path,
+    meta: &std::fs::Metadata,
+    original_mode: u32,
+    flag: i32,
+) -> Result<std::fs::File> {
+    use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
+    let mut widened = false;
+    if original_mode & 0o200 == 0 {
+        std::fs::set_permissions(dest, std::fs::Permissions::from_mode(original_mode | 0o200))
+            .with_context(|| format!("failed to open read-only {}", dest.display()))?;
+        widened = true;
     }
+    match std::fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .custom_flags(flag)
+        .open(dest)
+    {
+        Ok(file) => Ok(file),
+        Err(err) => {
+            if widened {
+                let _ =
+                    std::fs::set_permissions(dest, std::fs::Permissions::from_mode(original_mode));
+            }
+            Err(err).with_context(|| {
+                format!(
+                    "{} has {} hard links; snapper rewrites a hard-linked file in place and will not replace its inode",
+                    dest.display(),
+                    link_count(meta)
+                )
+            })
+        }
+    }
+}
+
+#[cfg(unix)]
+fn restore_from_backup(
+    file: &mut std::fs::File,
+    backup: &mut tempfile::NamedTempFile,
+) -> Result<()> {
+    use std::io::{Read, Seek, SeekFrom, Write};
+    backup
+        .as_file_mut()
+        .seek(SeekFrom::Start(0))
+        .context("failed to read the backup copy")?;
+    let mut bytes = Vec::new();
+    backup
+        .as_file_mut()
+        .read_to_end(&mut bytes)
+        .context("failed to read the backup copy")?;
+    file.seek(SeekFrom::Start(0))
+        .context("failed to restore the original file")?;
+    file.write_all(&bytes)
+        .and_then(|_| file.set_len(bytes.len() as u64))
+        .and_then(|_| sync_file(file))
+        .context("failed to restore the original file")?;
+    Ok(())
+}
+
+#[derive(Clone, Copy)]
+enum WriteSite {
+    Hardlink,
+}
+
+fn write_all_checked(site: WriteSite, file: &mut impl Write, bytes: &[u8]) -> std::io::Result<()> {
+    #[cfg(test)]
+    {
+        if let Some(fault) = take_write_fault(site) {
+            let n = fault.min(bytes.len());
+            if n > 0 {
+                file.write_all(&bytes[..n])?;
+            }
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::StorageFull,
+                "injected write failure",
+            ));
+        }
+    }
+    let _ = site;
+    file.write_all(bytes)
+}
+
+#[cfg(test)]
+fn take_write_fault(site: WriteSite) -> Option<usize> {
+    WRITE_FAULT.with(|fault| {
+        let current = fault.get()?;
+        if current.0 != site as u8 {
+            return None;
+        }
+        fault.set(None);
+        Some(current.1)
+    })
+}
+
+#[cfg(test)]
+thread_local! {
+    static WRITE_FAULT: std::cell::Cell<Option<(u8, usize)>> = const { std::cell::Cell::new(None) };
+}
+
+#[cfg(test)]
+fn arm_hardlink_write_fault(fail_after: usize) {
+    WRITE_FAULT.with(|fault| fault.set(Some((WriteSite::Hardlink as u8, fail_after))));
+}
+
+/// This platform will not open a hard-linked file without `O_NOFOLLOW`.
+#[derive(Debug, thiserror::Error)]
+#[error("refusing to rewrite hard-linked {path} in place without O_NOFOLLOW")]
+pub struct NoFollowUnavailable {
+    /// The hard-linked path that was left unchanged.
+    pub path: PathBuf,
+}
+
+#[cfg(unix)]
+fn no_follow_flag(path: &Path) -> Result<i32> {
+    #[cfg(test)]
+    if REFUSE_NOFOLLOW.with(|flag| flag.get()) {
+        return Err(NoFollowUnavailable {
+            path: path.to_path_buf(),
+        }
+        .into());
+    }
+    match platform_o_nofollow() {
+        Some(flag) if flag != 0 => Ok(flag),
+        _ => Err(NoFollowUnavailable {
+            path: path.to_path_buf(),
+        }
+        .into()),
+    }
+}
+
+#[cfg(unix)]
+fn platform_o_nofollow() -> Option<i32> {
     #[cfg(any(
+        target_os = "linux",
+        target_os = "android",
         target_os = "macos",
         target_os = "ios",
         target_os = "tvos",
         target_os = "watchos",
-        target_os = "visionos"
+        target_os = "visionos",
+        target_os = "freebsd",
+        target_os = "dragonfly",
+        target_os = "netbsd",
+        target_os = "openbsd",
+        target_os = "solaris",
+        target_os = "illumos",
     ))]
     {
-        0x0100
+        Some(libc::O_NOFOLLOW)
     }
     #[cfg(not(any(
         target_os = "linux",
@@ -433,10 +696,16 @@ fn no_follow_flag() -> i32 {
         target_os = "ios",
         target_os = "tvos",
         target_os = "watchos",
-        target_os = "visionos"
+        target_os = "visionos",
+        target_os = "freebsd",
+        target_os = "dragonfly",
+        target_os = "netbsd",
+        target_os = "openbsd",
+        target_os = "solaris",
+        target_os = "illumos",
     )))]
     {
-        0
+        None
     }
 }
 
@@ -476,22 +745,70 @@ fn file_gid(meta: &std::fs::Metadata) -> u32 {
     }
 }
 
-/// Put the original owner back when this process is allowed to.
+/// Put the original owner back on `file` when this process is allowed to.
+///
+/// uid and gid are tried together. If that is refused, the gid is tried
+/// alone. Anything that cannot be kept is warned and the write still stands.
 #[cfg(unix)]
-fn restore_owner(path: &Path, meta: &std::fs::Metadata) -> Result<()> {
+fn restore_owner(file: &std::fs::File, path: &Path, meta: &std::fs::Metadata) -> Result<()> {
     let uid = file_uid(meta);
     let gid = file_gid(meta);
     let euid = current_euid();
     if euid != 0 && euid != uid {
+        warn_owner(
+            path,
+            &format!("could not preserve owner {uid} or group {gid}"),
+        );
         return Ok(());
     }
-    match std::os::unix::fs::chown(path, Some(uid), Some(gid)) {
+    match fchown_fd(file, Some(uid), Some(gid)) {
         Ok(()) => Ok(()),
-        Err(err) if err.kind() == std::io::ErrorKind::PermissionDenied => Ok(()),
+        Err(err) if err.kind() == std::io::ErrorKind::PermissionDenied => {
+            match fchown_fd(file, None, Some(gid)) {
+                Ok(()) => {
+                    warn_owner(
+                        path,
+                        &format!("could not preserve uid {uid}; kept group {gid}"),
+                    );
+                    Ok(())
+                }
+                Err(err) if err.kind() == std::io::ErrorKind::PermissionDenied => {
+                    warn_owner(
+                        path,
+                        &format!("could not preserve owner {uid} or group {gid}"),
+                    );
+                    Ok(())
+                }
+                Err(err) => Err(err)
+                    .with_context(|| format!("failed to keep the owner of {}", path.display())),
+            }
+        }
         Err(err) => {
             Err(err).with_context(|| format!("failed to keep the owner of {}", path.display()))
         }
     }
+}
+
+#[cfg(unix)]
+fn fchown_fd(file: &std::fs::File, uid: Option<u32>, gid: Option<u32>) -> std::io::Result<()> {
+    #[cfg(test)]
+    {
+        let fault = CHOWN_FAULT.with(|flag| flag.get());
+        if fault == 2 || (fault == 1 && uid.is_some()) {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::PermissionDenied,
+                "injected chown failure",
+            ));
+        }
+    }
+    std::os::unix::fs::fchown(file, uid, gid)
+}
+
+#[cfg(unix)]
+fn warn_owner(path: &Path, detail: &str) {
+    eprintln!("warning: {detail} ({})", path.display());
+    #[cfg(test)]
+    OWNER_WARNINGS.with(|warnings| warnings.borrow_mut().push(detail.to_string()));
 }
 
 #[cfg(unix)]
@@ -985,6 +1302,140 @@ index 111..222 100644
             gid,
             "gid must stay {gid}, got {}",
             file_gid(&after)
+        );
+        assert_eq!(
+            std::fs::read_to_string(&dest).unwrap(),
+            "Two sentences.\nHere.\n"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_read_only_hard_link_is_rewritten() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let first = dir.path().join("a.md");
+        let second = dir.path().join("b.md");
+        let original = "Two sentences. Here.\n";
+        std::fs::write(&first, original).unwrap();
+        std::fs::hard_link(&first, &second).unwrap();
+        std::fs::set_permissions(&first, std::fs::Permissions::from_mode(0o400)).unwrap();
+        write_replacing(&first, "Two sentences.\nHere.\n")
+            .expect("a 0400 hard link must be rewritten through its fd");
+        assert_eq!(
+            std::fs::read_to_string(&first).unwrap(),
+            "Two sentences.\nHere.\n"
+        );
+        assert_eq!(
+            std::fs::read_to_string(&second).unwrap(),
+            "Two sentences.\nHere.\n"
+        );
+        let mode = std::fs::metadata(&first).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode, 0o400, "mode must stay 0400, got {mode:04o}");
+        assert_eq!(link_count(&std::fs::metadata(&first).unwrap()), 2);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_failed_hard_link_write_restores_every_name() {
+        let dir = tempfile::tempdir().unwrap();
+        let first = dir.path().join("a.md");
+        let second = dir.path().join("b.md");
+        let original = "Two sentences. Here.\n";
+        std::fs::write(&first, original).unwrap();
+        std::fs::hard_link(&first, &second).unwrap();
+        arm_hardlink_write_fault(4);
+        let err = write_replacing(&first, "Two sentences.\nHere.\n").unwrap_err();
+        let text = format!("{err:#}");
+        assert!(
+            text.contains("injected write failure"),
+            "the injected ENOSPC must surface, got {text}"
+        );
+        assert_eq!(
+            std::fs::read_to_string(&first).unwrap(),
+            original,
+            "a failed rewrite must restore the original bytes"
+        );
+        assert_eq!(
+            std::fs::read_to_string(&second).unwrap(),
+            original,
+            "every hard link must still show the original bytes"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn replacing_a_symlink_uses_the_target_mode() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let outside = dir.path().join("outside.md");
+        let link = dir.path().join("notes.md");
+        std::fs::write(&outside, "secret\n").unwrap();
+        std::fs::set_permissions(&outside, std::fs::Permissions::from_mode(0o640)).unwrap();
+        std::os::unix::fs::symlink(&outside, &link).unwrap();
+        write_replacing(&link, "pwned\n").unwrap();
+        assert_eq!(std::fs::read_to_string(&outside).unwrap(), "secret\n");
+        let mode = std::fs::metadata(&link).unwrap().permissions().mode() & 0o777;
+        assert_eq!(
+            mode, 0o640,
+            "the replacement must take the target mode, not the symlink's 0777, got {mode:04o}"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn replacing_a_file_syncs_it_and_the_directory() {
+        let dir = tempfile::tempdir().unwrap();
+        let dest = dir.path().join("notes.md");
+        std::fs::write(&dest, "Two sentences. Here.\n").unwrap();
+        reset_sync_count();
+        write_replacing(&dest, "Two sentences.\nHere.\n").unwrap();
+        assert!(
+            sync_count() >= 2,
+            "the temp file and its directory must both be synced, saw {}",
+            sync_count()
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_hard_link_rewrite_refuses_without_o_nofollow() {
+        let dir = tempfile::tempdir().unwrap();
+        let first = dir.path().join("a.md");
+        let second = dir.path().join("b.md");
+        let original = "Two sentences. Here.\n";
+        std::fs::write(&first, original).unwrap();
+        std::fs::hard_link(&first, &second).unwrap();
+        arm_nofollow_refusal();
+        let err = write_replacing(&first, "Two sentences.\nHere.\n").unwrap_err();
+        clear_nofollow_refusal();
+        assert!(
+            err.downcast_ref::<NoFollowUnavailable>().is_some()
+                || err
+                    .chain()
+                    .any(|cause| cause.downcast_ref::<NoFollowUnavailable>().is_some()),
+            "missing O_NOFOLLOW must be a typed refusal, got {err:#}"
+        );
+        assert_eq!(std::fs::read_to_string(&first).unwrap(), original);
+        assert_eq!(std::fs::read_to_string(&second).unwrap(), original);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn an_unpreservable_owner_is_warned() {
+        let dir = tempfile::tempdir().unwrap();
+        let dest = dir.path().join("notes.md");
+        std::fs::write(&dest, "Two sentences. Here.\n").unwrap();
+        let _ = take_owner_warnings();
+        arm_chown_fault(2);
+        write_replacing(&dest, "Two sentences.\nHere.\n").unwrap();
+        arm_chown_fault(0);
+        let warnings = take_owner_warnings();
+        assert!(
+            warnings
+                .iter()
+                .any(|warning| warning.contains("could not preserve")),
+            "a group that cannot be kept must be warned, got {warnings:?}"
         );
         assert_eq!(
             std::fs::read_to_string(&dest).unwrap(),
