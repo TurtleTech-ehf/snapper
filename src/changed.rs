@@ -185,6 +185,9 @@ pub fn touch_for_path(base: &str, path: &Path) -> Result<Touch> {
             );
         }
     };
+    // `absolute` does not follow symlinks, so a link inside this checkout can
+    // still name a file outside it. The resolved path has to stay under the root.
+    ensure_resolved_inside(&abs, &top)?;
     let rel = repo_relative(&abs, &top)?;
     let rel_s = rel.to_string_lossy().replace('\\', "/");
     let base = comparison_base(&top, base)?;
@@ -231,7 +234,110 @@ fn same_directory(left: &Path, right: &Path) -> bool {
     left == right
 }
 
+/// Reject a path whose canonical target is not under the work tree.
+///
+/// `--in-place` must not follow a symlink to a file outside the repository.
+/// [`write_inside_repo`] resolves the path and replaces that file, so a link
+/// swapped for an outside target between the check and the write is not followed.
+pub fn ensure_inside_workdir_repo(path: &Path) -> Result<()> {
+    let cwd = std::env::current_dir().context("failed to read the current directory")?;
+    let top = toplevel(&cwd)?;
+    ensure_resolved_inside(path, &top)
+}
+
+/// Write `contents` to the file `path` resolves to, inside the work tree.
+///
+/// The temp file is renamed onto the canonical path. `rename` replaces a
+/// symlink instead of following it, so the write cannot be redirected at a
+/// file outside the repository.
+pub fn write_inside_repo(path: &Path, contents: &str) -> Result<()> {
+    let cwd = std::env::current_dir().context("failed to read the current directory")?;
+    let top = toplevel(&cwd)?;
+    ensure_resolved_inside(path, &top)?;
+    let resolved = path.canonicalize().with_context(|| {
+        let path = path.display();
+        let top = top.display();
+        format!("{path} is outside the git repository {top}")
+    })?;
+    write_replacing(&resolved, contents)
+}
+
+/// Replace `dest` by renaming a temp file in its directory.
+///
+/// A symlink at `dest` is not followed. `rename` replaces that directory
+/// entry, so the symlink's target is not written. The symlink's own mode
+/// is not a file mode and is not copied. A regular file keeps its mode,
+/// including `0600` and `0755`, which `File::create` would otherwise replace
+/// with the process umask.
+fn write_replacing(dest: &Path, contents: &str) -> Result<()> {
+    let parent = dest
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty());
+    let parent = parent.unwrap_or(Path::new("."));
+    let name = dest
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("out");
+    let tmp = parent.join(format!(".snapper-{}-{name}.tmp", std::process::id()));
+    if let Err(err) = std::fs::write(&tmp, contents) {
+        return Err(err).with_context(|| format!("failed to write {}", tmp.display()));
+    }
+    if let Err(err) = copy_replaced_mode(dest, &tmp) {
+        let _ = std::fs::remove_file(&tmp);
+        return Err(err);
+    }
+    if let Err(err) = std::fs::rename(&tmp, dest) {
+        let _ = std::fs::remove_file(&tmp);
+        return Err(err).with_context(|| format!("failed to replace {}", dest.display()));
+    }
+    Ok(())
+}
+
+/// Copy `dest`'s mode onto `tmp` without following a symlink.
+fn copy_replaced_mode(dest: &Path, tmp: &Path) -> Result<()> {
+    let meta = match std::fs::symlink_metadata(dest) {
+        Ok(meta) => meta,
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(err) => {
+            return Err(err).with_context(|| format!("failed to stat {}", dest.display()));
+        }
+    };
+    if meta.file_type().is_symlink() {
+        return Ok(());
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mode = meta.permissions().mode();
+        std::fs::set_permissions(tmp, std::fs::Permissions::from_mode(mode))
+            .with_context(|| format!("failed to keep mode {mode:o} on {}", dest.display()))?;
+    }
+    #[cfg(not(unix))]
+    {
+        std::fs::set_permissions(tmp, meta.permissions())
+            .with_context(|| format!("failed to keep permissions on {}", dest.display()))?;
+    }
+    Ok(())
+}
+
+fn ensure_resolved_inside(path: &Path, top: &Path) -> Result<()> {
+    let top_c = top.canonicalize().unwrap_or_else(|_| top.to_path_buf());
+    let resolved = path.canonicalize().with_context(|| {
+        let path = path.display();
+        let top = top.display();
+        format!("{path} is outside the git repository {top}")
+    })?;
+    if resolved.starts_with(&top_c) {
+        return Ok(());
+    }
+    let path = path.display();
+    let top = top.display();
+    let resolved = resolved.display();
+    bail!("{path} is outside the git repository {top} (resolved to {resolved})")
+}
+
 fn repo_relative(path: &Path, top: &Path) -> Result<PathBuf> {
+    ensure_resolved_inside(path, top)?;
     if let Ok(rel) = path.strip_prefix(top) {
         return Ok(rel.to_path_buf());
     }
@@ -532,6 +638,30 @@ index 111..222 100644
             fixed,
             "Old fused sentence. Still old.\r\n\r\nFresh sentence.\r\nNow fused.\r\n"
         );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn replacing_a_symlink_does_not_follow_it() {
+        let dir = tempfile::tempdir().unwrap();
+        let outside = dir.path().join("outside.md");
+        let link = dir.path().join("notes.md");
+        std::fs::write(&outside, "secret\n").unwrap();
+        std::os::unix::fs::symlink(&outside, &link).unwrap();
+        write_replacing(&link, "pwned\n").unwrap();
+        assert_eq!(
+            std::fs::read_to_string(&outside).unwrap(),
+            "secret\n",
+            "rename must not follow the symlink into the outside file"
+        );
+        assert!(
+            !std::fs::symlink_metadata(&link)
+                .unwrap()
+                .file_type()
+                .is_symlink(),
+            "the path must be replaced with a regular file"
+        );
+        assert_eq!(std::fs::read_to_string(&link).unwrap(), "pwned\n");
     }
 
     #[test]

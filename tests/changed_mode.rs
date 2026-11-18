@@ -553,3 +553,243 @@ fn changed_rejects_a_path_outside_the_repository() {
         "prose outside the repository must not be checked, got {stderr}"
     );
 }
+
+#[cfg(unix)]
+fn symlink_to(target: &Path, link: &Path) {
+    std::os::unix::fs::symlink(target, link).unwrap();
+}
+
+#[cfg(unix)]
+#[test]
+fn changed_check_rejects_a_symlink_to_a_file_outside_the_repo() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().join("repo");
+    let outside = dir.path().join("outside.md");
+    fs::create_dir_all(&root).unwrap();
+    init_repo(&root);
+    fs::write(root.join("README.md"), "Fine.\n").unwrap();
+    commit_all(&root, "base");
+    let original = "Two sentences. Here.\n";
+    fs::write(&outside, original).unwrap();
+    symlink_to(&outside, &root.join("notes.md"));
+    let check = run(
+        &root,
+        &["--check", "--changed", "--color", "never", "notes.md"],
+    );
+    let stderr = String::from_utf8_lossy(&check.stderr);
+    assert!(
+        !check.status.success(),
+        "a symlink to a file outside the repository must be rejected: {stderr}"
+    );
+    assert!(
+        stderr.contains("outside the git repository"),
+        "the error must say the symlink target is outside the repository, got {stderr}"
+    );
+    assert!(
+        !stderr.contains("would reformat"),
+        "the external file must not be checked, got {stderr}"
+    );
+    assert_eq!(
+        fs::read_to_string(&outside).unwrap(),
+        original,
+        "check must not rewrite the external file"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn changed_in_place_does_not_overwrite_a_symlink_target_outside_the_repo() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().join("repo");
+    let outside = dir.path().join("outside.md");
+    fs::create_dir_all(&root).unwrap();
+    init_repo(&root);
+    fs::write(root.join("README.md"), "Fine.\n").unwrap();
+    commit_all(&root, "base");
+    let original = "Two sentences. Here.\n";
+    fs::write(&outside, original).unwrap();
+    symlink_to(&outside, &root.join("notes.md"));
+    let edit = run(
+        &root,
+        &["--in-place", "--changed", "--color", "never", "notes.md"],
+    );
+    let stderr = String::from_utf8_lossy(&edit.stderr);
+    let after = fs::read_to_string(&outside).unwrap();
+    assert_eq!(
+        after,
+        original,
+        "the external file must be left untouched, status {:?}, stderr: {stderr}",
+        edit.status.code()
+    );
+    assert!(
+        !edit.status.success(),
+        "in-place --changed must refuse a symlink that leaves the repository: {stderr}"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn changed_discovery_skips_one_outside_symlink_and_checks_the_rest() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().join("repo");
+    let outside = dir.path().join("outside.md");
+    fs::create_dir_all(&root).unwrap();
+    init_repo(&root);
+    fs::write(root.join("README.md"), "Fine.\n").unwrap();
+    commit_all(&root, "base");
+    let original = "Two sentences. Here.\n";
+    fs::write(&outside, original).unwrap();
+    symlink_to(&outside, &root.join("aaa.md"));
+    fs::write(root.join("zzz.md"), original).unwrap();
+    let check = run(&root, &["--check", "--changed", "--color", "never"]);
+    let stderr = String::from_utf8_lossy(&check.stderr);
+    assert!(
+        stderr.contains("zzz.md"),
+        "a sibling prose file must still be checked when one symlink points outside, got {stderr}"
+    );
+    assert!(
+        stderr.contains("would reformat"),
+        "the in-repo file must be reported, got {stderr}"
+    );
+    assert!(
+        stderr.contains("outside the git repository"),
+        "the outside symlink must be warned, got {stderr}"
+    );
+    assert!(
+        !check.status.success(),
+        "skipping an outside symlink still fails the run: {stderr}"
+    );
+    assert_eq!(fs::read_to_string(&outside).unwrap(), original);
+}
+
+#[cfg(unix)]
+#[test]
+fn changed_discovery_skips_a_relative_symlink_and_checks_the_rest() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().join("repo");
+    let outside = dir.path().join("outside.md");
+    fs::create_dir_all(&root).unwrap();
+    init_repo(&root);
+    fs::write(root.join("README.md"), "Fine.\n").unwrap();
+    commit_all(&root, "base");
+    let original = "Two sentences. Here.\n";
+    fs::write(&outside, original).unwrap();
+    symlink_to(Path::new("../outside.md"), &root.join("aaa.md"));
+    fs::write(root.join("zzz.md"), original).unwrap();
+    let check = run(&root, &["--check", "--changed", "--color", "never"]);
+    let stderr = String::from_utf8_lossy(&check.stderr);
+    assert!(
+        stderr.contains("would reformat") && stderr.contains("zzz.md"),
+        "a relative link must not abort discovery of the other file, got {stderr}"
+    );
+    assert!(
+        stderr.contains("outside the git repository"),
+        "the relative link must be warned, got {stderr}"
+    );
+    assert!(!check.status.success(), "{stderr}");
+    assert_eq!(fs::read_to_string(&outside).unwrap(), original);
+}
+
+#[cfg(unix)]
+#[test]
+fn changed_skips_a_symlinked_directory_and_checks_the_rest() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().join("repo");
+    let outside_dir = dir.path().join("out");
+    fs::create_dir_all(&root).unwrap();
+    fs::create_dir_all(&outside_dir).unwrap();
+    init_repo(&root);
+    fs::write(root.join("README.md"), "Fine.\n").unwrap();
+    commit_all(&root, "base");
+    let original = "Two sentences. Here.\n";
+    let page = outside_dir.join("page.md");
+    fs::write(&page, original).unwrap();
+    symlink_to(&outside_dir, &root.join("sub"));
+    fs::write(root.join("zzz.md"), original).unwrap();
+    let page_arg = root.join("sub").join("page.md");
+    let check = run(
+        &root,
+        &[
+            "--check",
+            "--changed",
+            "--color",
+            "never",
+            page_arg.to_str().unwrap(),
+            "zzz.md",
+        ],
+    );
+    let stderr = String::from_utf8_lossy(&check.stderr);
+    assert!(
+        stderr.contains("zzz.md") && stderr.contains("would reformat"),
+        "a symlinked directory must not abort the rest of the run, got {stderr}"
+    );
+    assert!(
+        stderr.contains("outside the git repository"),
+        "the file reached through the directory symlink must be warned, got {stderr}"
+    );
+    assert!(!check.status.success(), "{stderr}");
+    assert_eq!(fs::read_to_string(&page).unwrap(), original);
+}
+
+#[cfg(unix)]
+#[test]
+fn changed_in_place_updates_an_in_repo_link_target() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().join("repo");
+    fs::create_dir_all(&root).unwrap();
+    init_repo(&root);
+    fs::write(root.join("README.md"), "Fine.\n").unwrap();
+    commit_all(&root, "base");
+    let real = root.join("real.md");
+    fs::write(&real, "Two sentences. Here.\n").unwrap();
+    symlink_to(Path::new("real.md"), &root.join("link.md"));
+    let edit = run(
+        &root,
+        &["--in-place", "--changed", "--color", "never", "link.md"],
+    );
+    let stderr = String::from_utf8_lossy(&edit.stderr);
+    assert!(
+        edit.status.success(),
+        "an in-repo link target must be formatted: {stderr}"
+    );
+    assert_eq!(
+        fs::read_to_string(&real).unwrap(),
+        "Two sentences.\nHere.\n"
+    );
+    let meta = fs::symlink_metadata(root.join("link.md")).unwrap();
+    assert!(
+        meta.file_type().is_symlink(),
+        "the link itself must stay a symlink"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn changed_in_place_keeps_the_file_mode() {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().join("repo");
+    fs::create_dir_all(&root).unwrap();
+    init_repo(&root);
+    fs::write(root.join("README.md"), "Fine.\n").unwrap();
+    commit_all(&root, "base");
+    let original = "Two sentences. Here.\n";
+    let expected = "Two sentences.\nHere.\n";
+    for (name, mode) in [("secret.md", 0o600), ("script.md", 0o755)] {
+        let path = root.join(name);
+        fs::write(&path, original).unwrap();
+        fs::set_permissions(&path, fs::Permissions::from_mode(mode)).unwrap();
+    }
+    let edit = run(&root, &["--in-place", "--changed", "--color", "never"]);
+    let stderr = String::from_utf8_lossy(&edit.stderr);
+    assert!(
+        edit.status.success(),
+        "in-place --changed must format the prose files: {stderr}"
+    );
+    for (name, mode) in [("secret.md", 0o600), ("script.md", 0o755)] {
+        let path = root.join(name);
+        let got = fs::metadata(&path).unwrap().permissions().mode() & 0o777;
+        assert_eq!(got, mode, "{name} must keep mode {mode:04o}, got {got:04o}");
+        assert_eq!(fs::read_to_string(&path).unwrap(), expected);
+    }
+}

@@ -138,6 +138,8 @@ A line that splits into several sentences keeps that line's ending on each of th
 A path may contain spaces.
 A file outside this repository is an error.
 A file in a different git repository is an error.
+A symlink whose target is outside this repository is skipped with a warning.
+The command still exits non-zero, and the other files in the run are still checked.
 =--changed= cannot be combined with =--range=.
 Stdin has no git path, so pass files.
 

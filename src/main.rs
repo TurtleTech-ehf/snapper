@@ -277,17 +277,29 @@ fn run() -> Result<()> {
         }
         let cache = Arc::new(splitter_cache);
 
-        let results: Vec<FileOutcome> = if use_parallel {
+        let processed: Vec<Result<FileOutcome>> = if use_parallel {
             paths
                 .par_iter()
                 .map(|path| process_file(path, &cli, &project_config, &cache))
-                .collect::<Result<Vec<_>>>()?
+                .collect()
         } else {
             paths
                 .iter()
                 .map(|path| process_file(path, &cli, &project_config, &cache))
-                .collect::<Result<Vec<_>>>()?
+                .collect()
         };
+        let mut results = Vec::new();
+        let mut skipped_outside = false;
+        for result in processed {
+            match result {
+                Ok(outcome) => results.push(outcome),
+                Err(err) if outside_repo(&err) => {
+                    eprintln!("warning: {err:#}");
+                    skipped_outside = true;
+                }
+                Err(err) => return Err(err),
+            }
+        }
 
         let mut any_changed = false;
         let mut check_failed = false;
@@ -354,8 +366,22 @@ fn run() -> Result<()> {
                 }
             } else if cli.in_place {
                 if output != input {
-                    fs::write(&outcome.path, output)
-                        .with_context(|| format!("failed to write {}", outcome.path.display()))?;
+                    if cli.changed {
+                        if let Err(err) =
+                            snapper_fmt::changed::write_inside_repo(&outcome.path, output)
+                        {
+                            if outside_repo(&err) {
+                                eprintln!("warning: {err:#}");
+                                skipped_outside = true;
+                            } else {
+                                return Err(err);
+                            }
+                        }
+                    } else {
+                        fs::write(&outcome.path, output).with_context(|| {
+                            format!("failed to write {}", outcome.path.display())
+                        })?;
+                    }
                 }
             } else if let Some(ref out_path) = cli.output {
                 fs::write(out_path, output)
@@ -380,9 +406,17 @@ fn run() -> Result<()> {
         if cli.check && check_failed {
             process::exit(1);
         }
+        if skipped_outside {
+            process::exit(1);
+        }
     }
 
     Ok(())
+}
+
+fn outside_repo(err: &anyhow::Error) -> bool {
+    err.chain()
+        .any(|cause| cause.to_string().contains("outside the git repository"))
 }
 
 /// Key for reusing sentence splitters across files with the same split policy.
