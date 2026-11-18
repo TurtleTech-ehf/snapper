@@ -166,8 +166,7 @@ fn sleep_formatter_times_out_within_bound() {
     assert!(out.status.success(), "snapper exit non-zero on timeout");
     assert!(
         elapsed < Duration::from_secs(35),
-        "snapper waited {:?} for sleep-60 formatter; must be < 35s",
-        elapsed,
+        "snapper waited {elapsed:?} for sleep-60 formatter; must be < 35s"
     );
     let stdout = String::from_utf8(out.stdout).unwrap();
     let stderr = String::from_utf8(out.stderr).unwrap();

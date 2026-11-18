@@ -4376,8 +4376,7 @@ mod tests {
         let regions = MarkdownParser.parse(input);
         assert!(
             regions.iter().all(|r| matches!(r, Region::Structure(_))),
-            "all table rows should be Structure, got: {:?}",
-            regions
+            "all table rows should be Structure, got: {regions:?}"
         );
     }
 
