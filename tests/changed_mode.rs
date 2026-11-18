@@ -823,3 +823,64 @@ fn in_place_without_changed_does_not_follow_a_symlink() {
         "plain --in-place must keep the target mode, got {mode:04o}"
     );
 }
+
+#[cfg(unix)]
+#[test]
+fn in_place_refuses_a_hard_link_unless_break_hardlinks() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    let original = "Two sentences. Here.\n";
+    let expected = "Two sentences.\nHere.\n";
+    let first = root.join("a.md");
+    let second = root.join("b.md");
+    fs::write(&first, original).unwrap();
+    fs::hard_link(&first, &second).unwrap();
+    let refused = run(root, &["--in-place", "--color", "never", "a.md"]);
+    let stderr = String::from_utf8_lossy(&refused.stderr);
+    assert!(
+        !refused.status.success(),
+        "a hard link must exit non-zero, stderr: {stderr}"
+    );
+    assert!(
+        stderr.contains("hard-linked") && stderr.contains("a.md"),
+        "the error must name the hard-linked file, got {stderr}"
+    );
+    assert_eq!(fs::read_to_string(&first).unwrap(), original);
+    assert_eq!(fs::read_to_string(&second).unwrap(), original);
+    let broken = run(
+        root,
+        &[
+            "--in-place",
+            "--break-hardlinks",
+            "--color",
+            "never",
+            "a.md",
+        ],
+    );
+    let stderr = String::from_utf8_lossy(&broken.stderr);
+    assert!(
+        broken.status.success(),
+        "--break-hardlinks must replace this path only: {stderr}"
+    );
+    assert_eq!(fs::read_to_string(&first).unwrap(), expected);
+    assert_eq!(
+        fs::read_to_string(&second).unwrap(),
+        original,
+        "the other name must keep the old text"
+    );
+    assert_eq!(nlink(&first), 1);
+    assert_eq!(nlink(&second), 1);
+}
+
+#[cfg(unix)]
+fn nlink(path: &Path) -> u64 {
+    let meta = fs::metadata(path).unwrap();
+    #[cfg(target_os = "linux")]
+    {
+        std::os::linux::fs::MetadataExt::st_nlink(&meta)
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        std::os::unix::fs::MetadataExt::nlink(&meta)
+    }
+}

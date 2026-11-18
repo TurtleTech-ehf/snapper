@@ -366,10 +366,15 @@ fn run() -> Result<()> {
                 }
             } else if cli.in_place {
                 if output != input {
-                    let written = if cli.changed {
-                        snapper_fmt::changed::write_inside_repo(&outcome.path, output)
+                    let hardlinks = if cli.break_hardlinks {
+                        snapper_fmt::changed::HardlinkPolicy::Break
                     } else {
-                        snapper_fmt::changed::replace_file(&outcome.path, output)
+                        snapper_fmt::changed::HardlinkPolicy::Refuse
+                    };
+                    let written = if cli.changed {
+                        snapper_fmt::changed::write_inside_repo(&outcome.path, output, hardlinks)
+                    } else {
+                        snapper_fmt::changed::replace_file(&outcome.path, output, hardlinks)
                     };
                     if let Err(err) = written {
                         if cli.changed && outside_repo(&err) {

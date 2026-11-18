@@ -71,6 +71,16 @@ pub struct Cli {
     #[arg(short, long)]
     pub in_place: bool,
 
+    /// Replace one name of a hard-linked file, instead of refusing it.
+    ///
+    /// Without this flag, `--in-place` leaves a hard-linked file unchanged
+    /// and exits non-zero. The error names that file.
+    /// With this flag, the new text is synced to a temporary file in the
+    /// same directory and renamed onto this path. The other names keep
+    /// the previous text.
+    #[arg(long)]
+    pub break_hardlinks: bool,
+
     /// Maximum line width (0 = unlimited).
     #[arg(short = 'w', long, default_value_t = 0)]
     pub max_width: usize,
@@ -357,6 +367,20 @@ mod tests {
         assert!(cli.resolve_use_pandoc_config(Some(true)));
         let native = Cli::parse_from(["snapper", "--native"]);
         assert!(!native.resolve_use_pandoc_config(Some(true)));
+    }
+
+    #[test]
+    fn help_documents_break_hardlinks() {
+        let err = Cli::try_parse_from(["snapper", "--help"]).unwrap_err();
+        let text = err.to_string();
+        assert!(
+            text.contains("--break-hardlinks"),
+            "help must document the flag, got {text}"
+        );
+        assert!(
+            text.contains("hard-linked"),
+            "help must say the file is hard-linked, got {text}"
+        );
     }
 
     #[test]

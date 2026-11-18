@@ -62,6 +62,19 @@ Write output to a file instead of stdout.
 
 Modify input files in place.
 Requires file arguments (not stdin).
+A hard-linked file is left unchanged, and the command exits non-zero, unless =--break-hardlinks= is set.
+
+*** =--break-hardlinks=
+:PROPERTIES:
+:CUSTOM_ID: opt-break-hardlinks
+:END:
+
+Replace one name of a hard-linked file.
+Without this flag, =--in-place= leaves a hard-linked file unchanged and exits non-zero.
+The error names that file.
+With this flag, snapper writes the new text to a temporary file in the same directory, syncs it, and renames it onto this path.
+The other names keep the previous text.
+On Unix the directory is synced after the rename.
 
 *** =-w=, =--max-width <N>=
 :PROPERTIES:
@@ -140,8 +153,8 @@ A file outside this repository is an error.
 A file in a different git repository is an error.
 A symlink whose target is outside this repository is skipped with a warning.
 The command still exits non-zero, and the other files in the run are still checked.
-A hard-linked file is rewritten in place, so every name keeps the new text and the owner.
-A failed rewrite of a hard-linked file restores the original text on every name.
+A hard-linked file is left unchanged, and the command exits non-zero.
+=--break-hardlinks= replaces that path only, and the other names keep the previous text.
 The replacement drops setuid, setgid, and the sticky bit.
 =--in-place= uses that same replacement when =--changed= is not set.
 A path that cannot be resolved is an error, not a file outside the repository.

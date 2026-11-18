@@ -9,8 +9,9 @@ All notable changes to this project will be documented in this file. See [conven
 - (**asciidoc**) native reflow for `.adoc` and `.asciidoc`, including lists, admonitions, and example interiors
 #### Bug Fixes
 - (**cli** / **check**) `--changed` creates its replacement with a private name and the file's permission bits, and does not follow a symlink planted at the temporary path
-- (**cli** / **check**) `--changed` rewrites a hard-linked file in place, keeps the owner when it can, and drops setuid, setgid, and the sticky bit
-- (**cli** / **check**) a failed hard-link rewrite restores the original bytes, and `--in-place` uses that same writer without `--changed`
+- (**cli** / **check**) a hard-linked file is left unchanged and the command exits non-zero; `--break-hardlinks` replaces that path only, and the other names keep the previous text
+- (**cli** / **check**) a replacement is synced before rename, permissions and owner are set on the file descriptor, and a path that changes between stat and open is left unwritten
+- (**cli** / **check**) `--in-place` uses that same writer without `--changed`
 - (**cli** / **check**) a path `--changed` cannot resolve is a resolve error, not an outside-repository warning
 - (**cli** / **check**) `--changed` skips a symlink whose target is outside the repository, still checks the other files, and replaces the resolved file so a swapped link is not followed
 - (**cli** / **check**) a ranged reflow keeps the ending of a line that splits into several sentences, including a mix of LF and CRLF

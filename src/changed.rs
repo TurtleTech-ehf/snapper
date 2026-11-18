@@ -250,8 +250,9 @@ pub fn ensure_inside_workdir_repo(path: &Path) -> Result<()> {
 ///
 /// The temp file is renamed onto the canonical path. `rename` replaces a
 /// symlink instead of following it, so the write cannot be redirected at a
-/// file outside the repository. A hard-linked file is rewritten in place.
-pub fn write_inside_repo(path: &Path, contents: &str) -> Result<()> {
+/// file outside the repository. A hard-linked file is left untouched unless
+/// `hardlinks` is [`HardlinkPolicy::Break`], which replaces this path only.
+pub fn write_inside_repo(path: &Path, contents: &str, hardlinks: HardlinkPolicy) -> Result<()> {
     let cwd = std::env::current_dir().context("failed to read the current directory")?;
     let top = toplevel(&cwd)?;
     ensure_resolved_inside(path, &top)?;
@@ -265,7 +266,7 @@ pub fn write_inside_repo(path: &Path, contents: &str) -> Result<()> {
             .into());
         }
     };
-    write_replacing(&resolved, contents)
+    write_with_policy(&resolved, contents, hardlinks)
 }
 
 /// Why a `--changed` path was not accepted.
@@ -301,27 +302,72 @@ impl RepoPathError {
     }
 }
 
+/// What to do with a destination that has more than one hard link.
+///
+/// Overwriting the inode in place cannot be made crash-safe: a killed
+/// process or a power loss leaves every name torn, and a backup temp does
+/// not survive that. The default is to refuse. [`HardlinkPolicy::Break`]
+/// replaces this directory entry only.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HardlinkPolicy {
+    /// Leave the file untouched and return [`HardLinked`].
+    Refuse,
+    /// Rename a new inode onto this path. Other names keep the old text.
+    Break,
+}
+
+/// `path` has more than one hard link, and the write was refused.
+#[derive(Debug, thiserror::Error)]
+#[error(
+    "{path} is hard-linked ({links} names); refusing to rewrite it. Pass --break-hardlinks to replace this path only"
+)]
+pub struct HardLinked {
+    /// The path that was left untouched.
+    pub path: PathBuf,
+    /// `nlink` from the `lstat` that refused the write.
+    pub links: u64,
+}
+
+/// `path` was not the same inode when it was opened as when it was statted.
+#[derive(Debug, thiserror::Error)]
+#[error("{path} changed between stat and open; refusing to write")]
+pub struct FileChanged {
+    /// The path that was left unwritten.
+    pub path: PathBuf,
+}
+
+/// Replace `dest` with `contents`, refusing a hard link.
+#[cfg(test)]
+fn write_replacing(dest: &Path, contents: &str) -> Result<()> {
+    write_with_policy(dest, contents, HardlinkPolicy::Refuse)
+}
+
 /// Replace `dest` with `contents`.
 ///
 /// The new file is created with `OpenOptions::create_new` (so a symlink at
 /// the temporary path is not followed) and an unpredictable name in `dest`'s
 /// directory. Its mode is the original permission bits with setuid, setgid,
-/// and sticky removed, from the moment of creation, so the file is never
-/// wider than the original and never carries those special bits.
+/// and sticky removed, from the moment of creation.
 ///
-/// A regular file with more than one hard link is rewritten in place.
-/// Replacing that inode would drop the other names, and would also drop the
-/// owner, ACLs, and extended attributes. A symlink at `dest` is not followed:
-/// `rename` replaces the directory entry.
+/// A regular file with more than one hard link is not rewritten in place.
+/// [`HardlinkPolicy::Refuse`] returns [`HardLinked`] and does not create a
+/// temporary file. [`HardlinkPolicy::Break`] renames the new inode onto this
+/// path, so the other names keep the previous inode.
 ///
-/// When this process is root, or it owns the file, the replacement keeps the
-/// original uid and gid. A group that cannot be set is warned, after trying
-/// uid and gid together and then the gid alone.
+/// A regular file is opened with `O_NOFOLLOW` after `lstat`, and the opened
+/// inode's device and inode number must match that `lstat`. A mismatch, or
+/// an open that fails because the path became a symlink, refuses the write
+/// before any temporary file is created. Permission and owner changes use
+/// that replacement's file descriptor, never the path.
 ///
-/// The new bytes are synced before `rename`, and the parent directory is
-/// synced after it. A hard-linked file is not truncated until a synced copy
-/// of the old bytes and a synced copy of the new bytes both exist.
-fn write_replacing(dest: &Path, contents: &str) -> Result<()> {
+/// A symlink at `dest` is not followed: `rename` replaces the directory
+/// entry. Its replacement mode is the resolved target's permission bits.
+///
+/// The new bytes are synced before `rename`. On Unix the parent directory
+/// is synced after the rename. Windows cannot open a directory without
+/// `FILE_FLAG_BACKUP_SEMANTICS`, so the directory sync is skipped there and
+/// a successful rename is not reported as a failure.
+fn write_with_policy(dest: &Path, contents: &str, policy: HardlinkPolicy) -> Result<()> {
     let meta = match std::fs::symlink_metadata(dest) {
         Ok(meta) => Some(meta),
         Err(err) if err.kind() == std::io::ErrorKind::NotFound => None,
@@ -329,10 +375,19 @@ fn write_replacing(dest: &Path, contents: &str) -> Result<()> {
             return Err(err).with_context(|| format!("failed to stat {}", dest.display()));
         }
     };
+    if let Some(meta) = meta.as_ref() {
+        if is_hard_linked_file(dest, meta) && policy == HardlinkPolicy::Refuse {
+            return Err(HardLinked {
+                path: dest.to_path_buf(),
+                links: link_count_of(dest, meta),
+            }
+            .into());
+        }
+    }
     #[cfg(unix)]
     if let Some(meta) = meta.as_ref() {
-        if meta.file_type().is_file() && link_count(meta) > 1 {
-            return write_in_place(dest, contents, meta);
+        if meta.file_type().is_file() {
+            verify_same_inode(dest, meta)?;
         }
     }
     let parent = dest
@@ -347,8 +402,7 @@ fn write_replacing(dest: &Path, contents: &str) -> Result<()> {
     #[cfg(not(unix))]
     let mode = 0o600;
     let mut tmp = private_temp(parent, mode)?;
-    tmp.as_file_mut()
-        .write_all(contents.as_bytes())
+    write_all_checked(tmp.as_file_mut(), contents.as_bytes())
         .with_context(|| format!("failed to write {}", tmp.path().display()))?;
     #[cfg(unix)]
     {
@@ -374,16 +428,18 @@ fn write_replacing(dest: &Path, contents: &str) -> Result<()> {
     tmp.persist(dest).map_err(|err| {
         anyhow::Error::from(err.error).context(format!("failed to replace {}", dest.display()))
     })?;
-    sync_dir(parent)?;
+    #[cfg(unix)]
+    sync_parent(parent)?;
     Ok(())
 }
 
 /// Replace `path` without the `--changed` repository check.
 ///
 /// `--in-place` and `--changed` share this writer. A symlink at `path` is
-/// replaced, not followed.
-pub fn replace_file(path: &Path, contents: &str) -> Result<()> {
-    write_replacing(path, contents)
+/// replaced, not followed. A hard link is refused unless `hardlinks` is
+/// [`HardlinkPolicy::Break`].
+pub fn replace_file(path: &Path, contents: &str, hardlinks: HardlinkPolicy) -> Result<()> {
+    write_with_policy(path, contents, hardlinks)
 }
 
 /// Permission bits to put on a replacement. Special bits are not copied.
@@ -430,7 +486,14 @@ fn sync_file(file: &std::fs::File) -> std::io::Result<()> {
     file.sync_all()
 }
 
-fn sync_dir(parent: &Path) -> Result<()> {
+/// Sync the directory that holds the renamed file.
+///
+/// Unix can `fsync` a directory opened with `File::open`. Windows needs
+/// `FILE_FLAG_BACKUP_SEMANTICS`, and opening the directory after a
+/// successful rename would report failure for a write that already landed.
+/// Callers skip this function on non-Unix targets.
+#[cfg(unix)]
+fn sync_parent(parent: &Path) -> Result<()> {
     let dir = std::fs::File::open(parent)
         .with_context(|| format!("failed to open {}", parent.display()))?;
     sync_file(&dir).with_context(|| format!("failed to sync {}", parent.display()))?;
@@ -440,6 +503,7 @@ fn sync_dir(parent: &Path) -> Result<()> {
 #[cfg(test)]
 thread_local! {
     static SYNC_COUNT: std::cell::Cell<u32> = const { std::cell::Cell::new(0) };
+    static WRITE_FAULT: std::cell::Cell<Option<usize>> = const { std::cell::Cell::new(None) };
 }
 
 #[cfg(all(test, unix))]
@@ -448,14 +512,18 @@ thread_local! {
     static CHOWN_FAULT: std::cell::Cell<u8> = const { std::cell::Cell::new(0) };
     static OWNER_WARNINGS: std::cell::RefCell<Vec<String>> =
         const { std::cell::RefCell::new(Vec::new()) };
+    static CHOWN_CALLS: std::cell::RefCell<Vec<(Option<u32>, Option<u32>)>> =
+        const { std::cell::RefCell::new(Vec::new()) };
+    static SWAP_TO_SYMLINK: std::cell::RefCell<Option<(PathBuf, PathBuf)>> =
+        const { std::cell::RefCell::new(None) };
 }
 
-#[cfg(test)]
+#[cfg(all(test, unix))]
 fn reset_sync_count() {
     SYNC_COUNT.with(|count| count.set(0));
 }
 
-#[cfg(test)]
+#[cfg(all(test, unix))]
 fn sync_count() -> u32 {
     SYNC_COUNT.with(|count| count.get())
 }
@@ -480,174 +548,94 @@ fn take_owner_warnings() -> Vec<String> {
     OWNER_WARNINGS.with(|warnings| std::mem::take(&mut *warnings.borrow_mut()))
 }
 
-/// Rewrite `dest` without replacing its inode.
-///
-/// Used when `nlink > 1`. The other directory entries, the owner, ACLs, and
-/// extended attributes stay. setuid, setgid, and sticky are cleared first.
-#[cfg(unix)]
-fn write_in_place(dest: &Path, contents: &str, meta: &std::fs::Metadata) -> Result<()> {
-    use std::io::{Read, Seek, SeekFrom, Write};
-    use std::os::unix::fs::PermissionsExt;
-    let mode = kept_mode(meta);
-    let flag = no_follow_flag(dest)?;
-    let original_mode = meta.permissions().mode() & 0o777;
-    let mut file = open_hardlink_for_rewrite(dest, meta, original_mode, flag)?;
-    file.set_permissions(std::fs::Permissions::from_mode(mode))
-        .with_context(|| format!("failed to clear special mode bits on {}", dest.display()))?;
-
-    file.seek(SeekFrom::Start(0))
-        .with_context(|| format!("failed to read {}", dest.display()))?;
-    let mut original = Vec::new();
-    file.read_to_end(&mut original)
-        .with_context(|| format!("failed to read {}", dest.display()))?;
-
-    let parent = dest
-        .parent()
-        .filter(|parent| !parent.as_os_str().is_empty())
-        .unwrap_or(Path::new("."));
-    let mut backup = private_temp(parent, 0o600)?;
-    backup
-        .write_all(&original)
-        .and_then(|_| sync_file(backup.as_file()))
-        .with_context(|| format!("failed to back up {}", dest.display()))?;
-    let mut staged = private_temp(parent, 0o600)?;
-    staged
-        .write_all(contents.as_bytes())
-        .and_then(|_| sync_file(staged.as_file()))
-        .with_context(|| format!("failed to stage {}", dest.display()))?;
-
-    let rewrite = (|| -> std::io::Result<()> {
-        file.seek(SeekFrom::Start(0))?;
-        write_all_checked(WriteSite::Hardlink, &mut file, contents.as_bytes())?;
-        file.set_len(contents.len() as u64)?;
-        sync_file(&file)?;
-        Ok(())
-    })();
-    if let Err(err) = rewrite {
-        restore_from_backup(&mut file, &mut backup)
-            .with_context(|| format!("failed to restore {} after a write error", dest.display()))?;
-        let _ = file.set_permissions(std::fs::Permissions::from_mode(mode));
-        return Err(err).with_context(|| format!("failed to write {}", dest.display()));
-    }
-    Ok(())
+#[cfg(all(test, unix))]
+fn take_chown_calls() -> Vec<(Option<u32>, Option<u32>)> {
+    CHOWN_CALLS.with(|calls| std::mem::take(&mut *calls.borrow_mut()))
 }
 
-/// Open a hard-linked file without following a symlink swapped into its path.
+/// Test hook between `lstat` and the `O_NOFOLLOW` open.
 ///
-/// A mode without owner write cannot be opened for writing. That bit is added
-/// only long enough to obtain the fd, then [`write_in_place`] puts the kept
-/// mode back through the fd.
-#[cfg(unix)]
-fn open_hardlink_for_rewrite(
-    dest: &Path,
-    meta: &std::fs::Metadata,
-    original_mode: u32,
-    flag: i32,
-) -> Result<std::fs::File> {
-    use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
-    let mut widened = false;
-    if original_mode & 0o200 == 0 {
-        std::fs::set_permissions(dest, std::fs::Permissions::from_mode(original_mode | 0o200))
-            .with_context(|| format!("failed to open read-only {}", dest.display()))?;
-        widened = true;
+/// Replaces `link` with a symlink to `target`.
+#[cfg(all(test, unix))]
+fn arm_symlink_swap(link: &Path, target: &Path) {
+    SWAP_TO_SYMLINK.with(|slot| {
+        *slot.borrow_mut() = Some((link.to_path_buf(), target.to_path_buf()));
+    });
+}
+
+#[cfg(all(test, unix))]
+fn before_open() {
+    let swap = SWAP_TO_SYMLINK.with(|slot| slot.borrow_mut().take());
+    if let Some((link, target)) = swap {
+        let _ = std::fs::remove_file(&link);
+        let _ = std::os::unix::fs::symlink(&target, &link);
     }
-    match std::fs::OpenOptions::new()
+}
+
+/// Open `dest` without following a symlink and require the same device and inode.
+///
+/// Permission and owner changes happen later, on the replacement's file
+/// descriptor. Nothing is written and the path is not chmodded here.
+#[cfg(unix)]
+fn verify_same_inode(dest: &Path, expected: &std::fs::Metadata) -> Result<()> {
+    use std::os::unix::fs::OpenOptionsExt;
+    #[cfg(test)]
+    before_open();
+    let flag = no_follow_flag(dest)?;
+    let file = std::fs::OpenOptions::new()
         .read(true)
-        .write(true)
         .custom_flags(flag)
         .open(dest)
-    {
-        Ok(file) => Ok(file),
-        Err(err) => {
-            if widened {
-                let _ =
-                    std::fs::set_permissions(dest, std::fs::Permissions::from_mode(original_mode));
-            }
-            Err(err).with_context(|| {
-                format!(
-                    "{} has {} hard links; snapper rewrites a hard-linked file in place and will not replace its inode",
-                    dest.display(),
-                    link_count(meta)
-                )
-            })
+        .with_context(|| {
+            format!(
+                "{} changed between stat and open; refusing to write",
+                dest.display()
+            )
+        })?;
+    let opened = file.metadata().with_context(|| {
+        format!(
+            "{} changed between stat and open; refusing to write",
+            dest.display()
+        )
+    })?;
+    if device_inode(&opened) != device_inode(expected) {
+        return Err(FileChanged {
+            path: dest.to_path_buf(),
         }
+        .into());
     }
-}
-
-#[cfg(unix)]
-fn restore_from_backup(
-    file: &mut std::fs::File,
-    backup: &mut tempfile::NamedTempFile,
-) -> Result<()> {
-    use std::io::{Read, Seek, SeekFrom, Write};
-    backup
-        .as_file_mut()
-        .seek(SeekFrom::Start(0))
-        .context("failed to read the backup copy")?;
-    let mut bytes = Vec::new();
-    backup
-        .as_file_mut()
-        .read_to_end(&mut bytes)
-        .context("failed to read the backup copy")?;
-    file.seek(SeekFrom::Start(0))
-        .context("failed to restore the original file")?;
-    file.write_all(&bytes)
-        .and_then(|_| file.set_len(bytes.len() as u64))
-        .and_then(|_| sync_file(file))
-        .context("failed to restore the original file")?;
     Ok(())
 }
 
-#[derive(Clone, Copy)]
-enum WriteSite {
-    Hardlink,
+/// Fail a replacement write after `fail_after` bytes.
+///
+/// The bytes are written only to the temporary file. The destination is not
+/// modified, and dropping the temp removes it.
+#[cfg(all(test, unix))]
+fn arm_write_fault(fail_after: usize) {
+    WRITE_FAULT.with(|fault| fault.set(Some(fail_after)));
 }
 
-fn write_all_checked(site: WriteSite, file: &mut impl Write, bytes: &[u8]) -> std::io::Result<()> {
+fn write_all_checked(file: &mut impl Write, bytes: &[u8]) -> std::io::Result<()> {
     #[cfg(test)]
-    {
-        if let Some(fault) = take_write_fault(site) {
-            let n = fault.min(bytes.len());
-            if n > 0 {
-                file.write_all(&bytes[..n])?;
-            }
-            return Err(std::io::Error::new(
-                std::io::ErrorKind::StorageFull,
-                "injected write failure",
-            ));
+    if let Some(fault) = WRITE_FAULT.with(|fault| fault.take()) {
+        let n = fault.min(bytes.len());
+        if n > 0 {
+            file.write_all(&bytes[..n])?;
         }
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::StorageFull,
+            "injected write failure",
+        ));
     }
-    let _ = site;
     file.write_all(bytes)
 }
 
-#[cfg(test)]
-fn take_write_fault(site: WriteSite) -> Option<usize> {
-    WRITE_FAULT.with(|fault| {
-        let current = fault.get()?;
-        if current.0 != site as u8 {
-            return None;
-        }
-        fault.set(None);
-        Some(current.1)
-    })
-}
-
-#[cfg(test)]
-thread_local! {
-    static WRITE_FAULT: std::cell::Cell<Option<(u8, usize)>> = const { std::cell::Cell::new(None) };
-}
-
-#[cfg(test)]
-fn arm_hardlink_write_fault(fail_after: usize) {
-    WRITE_FAULT.with(|fault| fault.set(Some((WriteSite::Hardlink as u8, fail_after))));
-}
-
-/// This platform will not open a hard-linked file without `O_NOFOLLOW`.
+/// This platform will not open a file without `O_NOFOLLOW`.
 #[derive(Debug, thiserror::Error)]
-#[error("refusing to rewrite hard-linked {path} in place without O_NOFOLLOW")]
+#[error("refusing to replace {path} without O_NOFOLLOW")]
 pub struct NoFollowUnavailable {
-    /// The hard-linked path that was left unchanged.
+    /// The path that was left unchanged.
     pub path: PathBuf,
 }
 
@@ -709,6 +697,95 @@ fn platform_o_nofollow() -> Option<i32> {
     }
 }
 
+fn is_hard_linked_file(path: &Path, meta: &std::fs::Metadata) -> bool {
+    meta.file_type().is_file() && link_count_of(path, meta) > 1
+}
+
+#[cfg(unix)]
+fn link_count_of(_path: &Path, meta: &std::fs::Metadata) -> u64 {
+    link_count(meta)
+}
+
+/// `GetFileInformationByHandle` is stable. `MetadataExt::number_of_links`
+/// is still unstable on the 1.88 MSRV (`windows_by_handle`).
+#[cfg(windows)]
+fn link_count_of(path: &Path, _meta: &std::fs::Metadata) -> u64 {
+    windows_link_count(path)
+}
+
+#[cfg(not(any(unix, windows)))]
+fn link_count_of(_path: &Path, _meta: &std::fs::Metadata) -> u64 {
+    1
+}
+
+#[cfg(windows)]
+fn windows_link_count(path: &Path) -> u64 {
+    use std::os::windows::ffi::OsStrExt;
+    #[repr(C)]
+    struct FileTime {
+        low: u32,
+        high: u32,
+    }
+    #[repr(C)]
+    struct ByHandleFileInformation {
+        file_attributes: u32,
+        creation_time: FileTime,
+        last_access_time: FileTime,
+        last_write_time: FileTime,
+        volume_serial_number: u32,
+        file_size_high: u32,
+        file_size_low: u32,
+        number_of_links: u32,
+        file_index_high: u32,
+        file_index_low: u32,
+    }
+    unsafe extern "system" {
+        fn CreateFileW(
+            file_name: *const u16,
+            desired_access: u32,
+            share_mode: u32,
+            security_attributes: *mut core::ffi::c_void,
+            creation_disposition: u32,
+            flags_and_attributes: u32,
+            template_file: isize,
+        ) -> isize;
+        fn GetFileInformationByHandle(
+            file: isize,
+            information: *mut ByHandleFileInformation,
+        ) -> i32;
+        fn CloseHandle(handle: isize) -> i32;
+    }
+    const GENERIC_READ: u32 = 0x8000_0000;
+    const FILE_SHARE_ALL: u32 = 0x1 | 0x2 | 0x4;
+    const OPEN_EXISTING: u32 = 3;
+    let mut wide: Vec<u16> = path.as_os_str().encode_wide().collect();
+    wide.push(0);
+    // SAFETY: `wide` is NUL-terminated UTF-16. The handle is closed before
+    // this function returns, and `info` is read only after the query succeeds.
+    unsafe {
+        let handle = CreateFileW(
+            wide.as_ptr(),
+            GENERIC_READ,
+            FILE_SHARE_ALL,
+            core::ptr::null_mut(),
+            OPEN_EXISTING,
+            0,
+            0,
+        );
+        if handle == -1 || handle == 0 {
+            return 1;
+        }
+        let mut info = std::mem::zeroed::<ByHandleFileInformation>();
+        let ok = GetFileInformationByHandle(handle, &mut info);
+        let _ = CloseHandle(handle);
+        if ok == 0 {
+            1
+        } else {
+            u64::from(info.number_of_links)
+        }
+    }
+}
+
 #[cfg(unix)]
 fn link_count(meta: &std::fs::Metadata) -> u64 {
     #[cfg(target_os = "linux")]
@@ -718,6 +795,20 @@ fn link_count(meta: &std::fs::Metadata) -> u64 {
     #[cfg(not(target_os = "linux"))]
     {
         std::os::unix::fs::MetadataExt::nlink(meta)
+    }
+}
+
+#[cfg(unix)]
+fn device_inode(meta: &std::fs::Metadata) -> (u64, u64) {
+    #[cfg(target_os = "linux")]
+    {
+        use std::os::linux::fs::MetadataExt;
+        (meta.st_dev(), meta.st_ino())
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        use std::os::unix::fs::MetadataExt;
+        (meta.dev(), meta.ino())
     }
 }
 
@@ -791,6 +882,8 @@ fn restore_owner(file: &std::fs::File, path: &Path, meta: &std::fs::Metadata) ->
 
 #[cfg(unix)]
 fn fchown_fd(file: &std::fs::File, uid: Option<u32>, gid: Option<u32>) -> std::io::Result<()> {
+    #[cfg(test)]
+    CHOWN_CALLS.with(|calls| calls.borrow_mut().push((uid, gid)));
     #[cfg(test)]
     {
         let fault = CHOWN_FAULT.with(|flag| flag.get());
@@ -1254,27 +1347,55 @@ index 111..222 100644
 
     #[cfg(unix)]
     #[test]
-    fn a_hardlinked_file_is_rewritten_in_place() {
+    fn a_hard_link_is_refused_and_left_untouched() {
         let dir = tempfile::tempdir().unwrap();
         let first = dir.path().join("a.md");
         let second = dir.path().join("b.md");
-        std::fs::write(&first, "Two sentences. Here.\n").unwrap();
+        let original = "ORIGINAL-BYTES-stay\n";
+        std::fs::write(&first, original).unwrap();
         std::fs::hard_link(&first, &second).unwrap();
-        write_replacing(&first, "Two sentences.\nHere.\n").unwrap();
-        assert_eq!(
-            std::fs::read_to_string(&first).unwrap(),
-            "Two sentences.\nHere.\n"
+        let err = write_replacing(&first, "REPLACED-BYTES-now\n").unwrap_err();
+        let text = format!("{err:#}");
+        assert!(
+            text.contains("hard-linked") && text.contains("a.md"),
+            "the error must name the hard-linked file, got {text}"
         );
+        assert!(
+            err.downcast_ref::<HardLinked>().is_some()
+                || err
+                    .chain()
+                    .any(|cause| cause.downcast_ref::<HardLinked>().is_some()),
+            "the refusal must be a typed hard-link error, got {text}"
+        );
+        assert_eq!(std::fs::read_to_string(&first).unwrap(), original);
+        assert_eq!(std::fs::read_to_string(&second).unwrap(), original);
+        assert_eq!(link_count(&std::fs::metadata(&first).unwrap()), 2);
+        assert!(
+            snapper_temps(dir.path()).is_empty(),
+            "refusing a hard link must not leave temp files: {:?}",
+            snapper_temps(dir.path())
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn break_hardlinks_replaces_this_name_only() {
+        let dir = tempfile::tempdir().unwrap();
+        let first = dir.path().join("a.md");
+        let second = dir.path().join("b.md");
+        let original = "ORIGINAL-BYTES-stay\n";
+        let replaced = "REPLACED-BYTES-now\n";
+        std::fs::write(&first, original).unwrap();
+        std::fs::hard_link(&first, &second).unwrap();
+        write_with_policy(&first, replaced, HardlinkPolicy::Break).unwrap();
+        assert_eq!(std::fs::read_to_string(&first).unwrap(), replaced);
         assert_eq!(
             std::fs::read_to_string(&second).unwrap(),
-            "Two sentences.\nHere.\n",
-            "the other name of a hard link must see the same rewrite"
+            original,
+            "the other name must keep the old inode"
         );
-        assert_eq!(
-            link_count(&std::fs::metadata(&first).unwrap()),
-            2,
-            "rewriting must not replace the inode"
-        );
+        assert_eq!(link_count(&std::fs::metadata(&first).unwrap()), 1);
+        assert_eq!(link_count(&std::fs::metadata(&second).unwrap()), 1);
     }
 
     #[cfg(unix)]
@@ -1311,25 +1432,23 @@ index 111..222 100644
 
     #[cfg(unix)]
     #[test]
-    fn a_read_only_hard_link_is_rewritten() {
+    fn a_read_only_hard_link_is_left_untouched() {
         use std::os::unix::fs::PermissionsExt;
         let dir = tempfile::tempdir().unwrap();
         let first = dir.path().join("a.md");
         let second = dir.path().join("b.md");
-        let original = "Two sentences. Here.\n";
+        let original = "ORIGINAL-BYTES-stay\n";
         std::fs::write(&first, original).unwrap();
         std::fs::hard_link(&first, &second).unwrap();
         std::fs::set_permissions(&first, std::fs::Permissions::from_mode(0o400)).unwrap();
-        write_replacing(&first, "Two sentences.\nHere.\n")
-            .expect("a 0400 hard link must be rewritten through its fd");
-        assert_eq!(
-            std::fs::read_to_string(&first).unwrap(),
-            "Two sentences.\nHere.\n"
+        let err = write_replacing(&first, "REPLACED-BYTES-now\n").unwrap_err();
+        let text = format!("{err:#}");
+        assert!(
+            text.contains("hard-linked"),
+            "a 0400 hard link must be refused, got {text}"
         );
-        assert_eq!(
-            std::fs::read_to_string(&second).unwrap(),
-            "Two sentences.\nHere.\n"
-        );
+        assert_eq!(std::fs::read_to_string(&first).unwrap(), original);
+        assert_eq!(std::fs::read_to_string(&second).unwrap(), original);
         let mode = std::fs::metadata(&first).unwrap().permissions().mode() & 0o777;
         assert_eq!(mode, 0o400, "mode must stay 0400, got {mode:04o}");
         assert_eq!(link_count(&std::fs::metadata(&first).unwrap()), 2);
@@ -1337,29 +1456,72 @@ index 111..222 100644
 
     #[cfg(unix)]
     #[test]
-    fn a_failed_hard_link_write_restores_every_name() {
+    fn a_failed_write_leaves_the_original_and_no_temp_files() {
         let dir = tempfile::tempdir().unwrap();
-        let first = dir.path().join("a.md");
-        let second = dir.path().join("b.md");
-        let original = "Two sentences. Here.\n";
-        std::fs::write(&first, original).unwrap();
-        std::fs::hard_link(&first, &second).unwrap();
-        arm_hardlink_write_fault(4);
-        let err = write_replacing(&first, "Two sentences.\nHere.\n").unwrap_err();
+        let dest = dir.path().join("notes.md");
+        let original = "ORIGINAL-BYTES-stay\n";
+        std::fs::write(&dest, original).unwrap();
+        arm_write_fault(4);
+        let err = write_replacing(&dest, "REPLACED-BYTES-now\n").unwrap_err();
         let text = format!("{err:#}");
         assert!(
             text.contains("injected write failure"),
-            "the injected ENOSPC must surface, got {text}"
+            "the injected failure must surface, got {text}"
         );
         assert_eq!(
-            std::fs::read_to_string(&first).unwrap(),
+            std::fs::read_to_string(&dest).unwrap(),
             original,
-            "a failed rewrite must restore the original bytes"
+            "a failed write must leave the original bytes, which differ from the new prefix"
+        );
+        assert!(
+            snapper_temps(dir.path()).is_empty(),
+            "a failed write must not leave temp files: {:?}",
+            snapper_temps(dir.path())
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_symlink_swapped_in_before_open_is_not_written() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let dest = dir.path().join("notes.md");
+        let victim = dir.path().join("victim.md");
+        std::fs::write(&dest, "ORIGINAL-BYTES-stay\n").unwrap();
+        std::fs::set_permissions(&dest, std::fs::Permissions::from_mode(0o640)).unwrap();
+        std::fs::write(&victim, "victim-secret-bytes\n").unwrap();
+        std::fs::set_permissions(&victim, std::fs::Permissions::from_mode(0o604)).unwrap();
+        arm_symlink_swap(&dest, &victim);
+        let err = write_replacing(&dest, "REPLACED-BYTES-now\n").unwrap_err();
+        let text = format!("{err:#}");
+        assert!(
+            text.contains("refusing to write") || text.contains("changed between stat and open"),
+            "a symlink swapped in before open must be refused, got {text}"
         );
         assert_eq!(
-            std::fs::read_to_string(&second).unwrap(),
-            original,
-            "every hard link must still show the original bytes"
+            std::fs::read_to_string(&victim).unwrap(),
+            "victim-secret-bytes\n"
+        );
+        let mode = std::fs::symlink_metadata(&victim)
+            .unwrap()
+            .permissions()
+            .mode()
+            & 0o777;
+        assert_eq!(
+            mode, 0o604,
+            "the symlink target must keep its mode, got {mode:04o}"
+        );
+        assert!(
+            std::fs::symlink_metadata(&dest)
+                .unwrap()
+                .file_type()
+                .is_symlink(),
+            "the raced symlink must stay a symlink"
+        );
+        assert!(
+            snapper_temps(dir.path()).is_empty(),
+            "a refused write must not leave temp files: {:?}",
+            snapper_temps(dir.path())
         );
     }
 
@@ -1399,15 +1561,13 @@ index 111..222 100644
 
     #[cfg(unix)]
     #[test]
-    fn a_hard_link_rewrite_refuses_without_o_nofollow() {
+    fn a_replace_refuses_without_o_nofollow() {
         let dir = tempfile::tempdir().unwrap();
-        let first = dir.path().join("a.md");
-        let second = dir.path().join("b.md");
-        let original = "Two sentences. Here.\n";
-        std::fs::write(&first, original).unwrap();
-        std::fs::hard_link(&first, &second).unwrap();
+        let dest = dir.path().join("notes.md");
+        let original = "ORIGINAL-BYTES-stay\n";
+        std::fs::write(&dest, original).unwrap();
         arm_nofollow_refusal();
-        let err = write_replacing(&first, "Two sentences.\nHere.\n").unwrap_err();
+        let err = write_replacing(&dest, "REPLACED-BYTES-now\n").unwrap_err();
         clear_nofollow_refusal();
         assert!(
             err.downcast_ref::<NoFollowUnavailable>().is_some()
@@ -1416,8 +1576,37 @@ index 111..222 100644
                     .any(|cause| cause.downcast_ref::<NoFollowUnavailable>().is_some()),
             "missing O_NOFOLLOW must be a typed refusal, got {err:#}"
         );
-        assert_eq!(std::fs::read_to_string(&first).unwrap(), original);
-        assert_eq!(std::fs::read_to_string(&second).unwrap(), original);
+        assert_eq!(std::fs::read_to_string(&dest).unwrap(), original);
+        assert!(snapper_temps(dir.path()).is_empty());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_refused_uid_still_tries_the_group() {
+        let dir = tempfile::tempdir().unwrap();
+        let dest = dir.path().join("notes.md");
+        std::fs::write(&dest, "Two sentences. Here.\n").unwrap();
+        let gid = file_gid(&std::fs::metadata(&dest).unwrap());
+        let _ = take_owner_warnings();
+        let _ = take_chown_calls();
+        arm_chown_fault(1);
+        write_replacing(&dest, "Two sentences.\nHere.\n")
+            .expect("a refused uid must fall back to the gid and still replace the file");
+        arm_chown_fault(0);
+        let calls = take_chown_calls();
+        assert!(
+            calls
+                .iter()
+                .any(|(uid, group)| uid.is_none() && *group == Some(gid)),
+            "removing the gid-only fchown must fail this test, got {calls:?}"
+        );
+        let warnings = take_owner_warnings();
+        assert!(
+            warnings
+                .iter()
+                .any(|warning| warning.contains("kept group")),
+            "the warning must say the group was kept, got {warnings:?}"
+        );
     }
 
     #[cfg(unix)]
@@ -1437,6 +1626,29 @@ index 111..222 100644
                 .any(|warning| warning.contains("could not preserve")),
             "a group that cannot be kept must be warned, got {warnings:?}"
         );
+        assert_eq!(
+            std::fs::read_to_string(&dest).unwrap(),
+            "Two sentences.\nHere.\n"
+        );
+    }
+
+    #[cfg(unix)]
+    fn snapper_temps(dir: &Path) -> Vec<String> {
+        std::fs::read_dir(dir)
+            .unwrap()
+            .flatten()
+            .map(|entry| entry.file_name().to_string_lossy().into_owned())
+            .filter(|name| name.starts_with(".snapper-"))
+            .collect()
+    }
+
+    #[cfg(not(unix))]
+    #[test]
+    fn replacing_a_file_does_not_fail_after_the_rename() {
+        let dir = tempfile::tempdir().unwrap();
+        let dest = dir.path().join("notes.md");
+        std::fs::write(&dest, "Two sentences. Here.\n").unwrap();
+        write_replacing(&dest, "Two sentences.\nHere.\n").unwrap();
         assert_eq!(
             std::fs::read_to_string(&dest).unwrap(),
             "Two sentences.\nHere.\n"
