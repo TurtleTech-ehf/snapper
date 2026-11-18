@@ -415,8 +415,11 @@ fn run() -> Result<()> {
 }
 
 fn outside_repo(err: &anyhow::Error) -> bool {
-    err.chain()
-        .any(|cause| cause.to_string().contains("outside the git repository"))
+    err.chain().any(|cause| {
+        cause
+            .downcast_ref::<snapper_fmt::changed::RepoPathError>()
+            .is_some_and(snapper_fmt::changed::RepoPathError::is_outside)
+    })
 }
 
 /// Key for reusing sentence splitters across files with the same split policy.
@@ -701,6 +704,29 @@ mod tests {
     fn both_zero_returns_zero() {
         assert_eq!(resolve_max_width(0, None, None), 0);
         assert_eq!(resolve_max_width(0, Some(0), None), 0);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_canonicalize_failure_is_not_classified_as_outside() {
+        let root = std::env::current_dir().unwrap();
+        let dir = tempfile::tempdir_in(&root).unwrap();
+        let link = dir.path().join("missing.md");
+        std::os::unix::fs::symlink("no-such-target.md", &link).unwrap();
+        let err = snapper_fmt::changed::touch_for_path("HEAD", &link).unwrap_err();
+        assert!(
+            !outside_repo(&err),
+            "a canonicalize failure must not be skipped as outside, got {err:#}"
+        );
+        let text = format!("{err:#}");
+        assert!(
+            !text.contains("outside the git repository"),
+            "the message must not call a resolve failure outside, got {text}"
+        );
+        assert!(
+            text.contains("failed to resolve"),
+            "a dangling symlink must be a resolve error, got {text}"
+        );
     }
 
     #[test]

@@ -140,6 +140,9 @@ A file outside this repository is an error.
 A file in a different git repository is an error.
 A symlink whose target is outside this repository is skipped with a warning.
 The command still exits non-zero, and the other files in the run are still checked.
+A hard-linked file is rewritten in place, so every name keeps the new text and the owner.
+The replacement drops setuid, setgid, and the sticky bit.
+A path that cannot be resolved is an error, not a file outside the repository.
 =--changed= cannot be combined with =--range=.
 Stdin has no git path, so pass files.
 

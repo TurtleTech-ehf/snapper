@@ -11,6 +11,7 @@
 //! for byte, including their newline style.
 
 use std::collections::BTreeSet;
+use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -178,11 +179,11 @@ pub fn touch_for_path(base: &str, path: &Path) -> Result<Touch> {
             );
         }
         Err(_) => {
-            bail!(
-                "{} is outside the git repository {}",
-                path.display(),
-                cwd_top.display()
-            );
+            return Err(RepoPathError::Outside {
+                path: path.to_path_buf(),
+                top: cwd_top,
+            }
+            .into());
         }
     };
     // `absolute` does not follow symlinks, so a link inside this checkout can
@@ -249,91 +250,279 @@ pub fn ensure_inside_workdir_repo(path: &Path) -> Result<()> {
 ///
 /// The temp file is renamed onto the canonical path. `rename` replaces a
 /// symlink instead of following it, so the write cannot be redirected at a
-/// file outside the repository.
+/// file outside the repository. A hard-linked file is rewritten in place.
 pub fn write_inside_repo(path: &Path, contents: &str) -> Result<()> {
     let cwd = std::env::current_dir().context("failed to read the current directory")?;
     let top = toplevel(&cwd)?;
     ensure_resolved_inside(path, &top)?;
-    let resolved = path.canonicalize().with_context(|| {
-        let path = path.display();
-        let top = top.display();
-        format!("{path} is outside the git repository {top}")
-    })?;
+    let resolved = match path.canonicalize() {
+        Ok(resolved) => resolved,
+        Err(source) => {
+            return Err(RepoPathError::Unresolved {
+                path: path.to_path_buf(),
+                source,
+            }
+            .into());
+        }
+    };
     write_replacing(&resolved, contents)
 }
 
-/// Replace `dest` by renaming a temp file in its directory.
+/// Why a `--changed` path was not accepted.
 ///
-/// A symlink at `dest` is not followed. `rename` replaces that directory
-/// entry, so the symlink's target is not written. The symlink's own mode
-/// is not a file mode and is not copied. A regular file keeps its mode,
-/// including `0600` and `0755`, which `File::create` would otherwise replace
-/// with the process umask.
-fn write_replacing(dest: &Path, contents: &str) -> Result<()> {
-    let parent = dest
-        .parent()
-        .filter(|parent| !parent.as_os_str().is_empty());
-    let parent = parent.unwrap_or(Path::new("."));
-    let name = dest
-        .file_name()
-        .and_then(|name| name.to_str())
-        .unwrap_or("out");
-    let tmp = parent.join(format!(".snapper-{}-{name}.tmp", std::process::id()));
-    if let Err(err) = std::fs::write(&tmp, contents) {
-        return Err(err).with_context(|| format!("failed to write {}", tmp.display()));
-    }
-    if let Err(err) = copy_replaced_mode(dest, &tmp) {
-        let _ = std::fs::remove_file(&tmp);
-        return Err(err);
-    }
-    if let Err(err) = std::fs::rename(&tmp, dest) {
-        let _ = std::fs::remove_file(&tmp);
-        return Err(err).with_context(|| format!("failed to replace {}", dest.display()));
-    }
-    Ok(())
+/// [`RepoPathError::is_outside`] is the only case the command skips. A path
+/// that cannot be canonicalized is [`RepoPathError::Unresolved`], not an
+/// outside-repository warning.
+#[derive(Debug, thiserror::Error)]
+pub enum RepoPathError {
+    /// `path` is not in `top`, or it resolved to somewhere else.
+    #[error("{path} is outside the git repository {top}")]
+    Outside { path: PathBuf, top: PathBuf },
+    /// `path` resolved to `resolved`, which is not under `top`.
+    #[error("{path} is outside the git repository {top} (resolved to {resolved})")]
+    OutsideResolved {
+        path: PathBuf,
+        top: PathBuf,
+        resolved: PathBuf,
+    },
+    /// `path` could not be canonicalized. This is not an outside path.
+    #[error("failed to resolve {path}")]
+    Unresolved {
+        path: PathBuf,
+        #[source]
+        source: std::io::Error,
+    },
 }
 
-/// Copy `dest`'s mode onto `tmp` without following a symlink.
-fn copy_replaced_mode(dest: &Path, tmp: &Path) -> Result<()> {
+impl RepoPathError {
+    /// True when the path is outside this repository, not when it failed to resolve.
+    pub fn is_outside(&self) -> bool {
+        matches!(self, Self::Outside { .. } | Self::OutsideResolved { .. })
+    }
+}
+
+/// Replace `dest` with `contents`.
+///
+/// The new file is created with `OpenOptions::create_new` (so a symlink at
+/// the temporary path is not followed) and an unpredictable name in `dest`'s
+/// directory. Its mode is the original permission bits with setuid, setgid,
+/// and sticky removed, from the moment of creation, so the file is never
+/// wider than the original and never carries those special bits.
+///
+/// A regular file with more than one hard link is rewritten in place.
+/// Replacing that inode would drop the other names, and would also drop the
+/// owner, ACLs, and extended attributes. A symlink at `dest` is not followed:
+/// `rename` replaces the directory entry.
+///
+/// When this process is root, or it owns the file, the replacement keeps the
+/// original uid and gid.
+fn write_replacing(dest: &Path, contents: &str) -> Result<()> {
     let meta = match std::fs::symlink_metadata(dest) {
-        Ok(meta) => meta,
-        Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Ok(meta) => Some(meta),
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => None,
         Err(err) => {
             return Err(err).with_context(|| format!("failed to stat {}", dest.display()));
         }
     };
-    if meta.file_type().is_symlink() {
-        return Ok(());
+    #[cfg(unix)]
+    if let Some(meta) = meta.as_ref() {
+        if meta.file_type().is_file() && link_count(meta) > 1 {
+            return write_in_place(dest, contents, meta);
+        }
     }
+    let parent = dest
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty());
+    let parent = parent.unwrap_or(Path::new("."));
+    #[cfg(unix)]
+    let mode = meta.as_ref().map(kept_mode).unwrap_or(0o600);
+    let mut builder = tempfile::Builder::new();
+    builder.prefix(".snapper-").suffix(".tmp").rand_bytes(16);
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
-        let mode = meta.permissions().mode();
-        std::fs::set_permissions(tmp, std::fs::Permissions::from_mode(mode))
+        builder.permissions(std::fs::Permissions::from_mode(mode));
+    }
+    let mut tmp = builder
+        .tempfile_in(parent)
+        .with_context(|| format!("failed to create a temporary file in {}", parent.display()))?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        // `open` applies the umask, which can only narrow the mode. Put the
+        // kept mode back before any bytes are visible for longer than that.
+        std::fs::set_permissions(tmp.path(), std::fs::Permissions::from_mode(mode))
             .with_context(|| format!("failed to keep mode {mode:o} on {}", dest.display()))?;
     }
     #[cfg(not(unix))]
-    {
-        std::fs::set_permissions(tmp, meta.permissions())
-            .with_context(|| format!("failed to keep permissions on {}", dest.display()))?;
+    if let Some(meta) = meta.as_ref() {
+        if !meta.file_type().is_symlink() {
+            std::fs::set_permissions(tmp.path(), meta.permissions())
+                .with_context(|| format!("failed to keep permissions on {}", dest.display()))?;
+        }
     }
+    tmp.as_file_mut()
+        .write_all(contents.as_bytes())
+        .with_context(|| format!("failed to write {}", tmp.path().display()))?;
+    #[cfg(unix)]
+    if let Some(meta) = meta.as_ref() {
+        if !meta.file_type().is_symlink() {
+            restore_owner(tmp.path(), meta)?;
+        }
+    }
+    tmp.persist(dest).map_err(|err| {
+        anyhow::Error::from(err.error).context(format!("failed to replace {}", dest.display()))
+    })?;
     Ok(())
+}
+
+/// Permission bits to put on a replacement. Special bits are not copied.
+#[cfg(unix)]
+fn kept_mode(meta: &std::fs::Metadata) -> u32 {
+    use std::os::unix::fs::PermissionsExt;
+    meta.permissions().mode() & 0o777
+}
+
+/// Rewrite `dest` without replacing its inode.
+///
+/// Used when `nlink > 1`. The other directory entries, the owner, ACLs, and
+/// extended attributes stay. setuid, setgid, and sticky are cleared first.
+#[cfg(unix)]
+fn write_in_place(dest: &Path, contents: &str, meta: &std::fs::Metadata) -> Result<()> {
+    use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
+    let mode = kept_mode(meta);
+    std::fs::set_permissions(dest, std::fs::Permissions::from_mode(mode))
+        .with_context(|| format!("failed to clear special mode bits on {}", dest.display()))?;
+    let mut file = std::fs::OpenOptions::new()
+        .write(true)
+        .truncate(true)
+        .custom_flags(no_follow_flag())
+        .open(dest)
+        .with_context(|| {
+            format!(
+                "{} has {} hard links; snapper rewrites a hard-linked file in place and will not replace its inode",
+                dest.display(),
+                link_count(meta)
+            )
+        })?;
+    file.write_all(contents.as_bytes())
+        .with_context(|| format!("failed to write {}", dest.display()))?;
+    Ok(())
+}
+
+#[cfg(unix)]
+fn no_follow_flag() -> i32 {
+    #[cfg(any(target_os = "linux", target_os = "android"))]
+    {
+        0x20000
+    }
+    #[cfg(any(
+        target_os = "macos",
+        target_os = "ios",
+        target_os = "tvos",
+        target_os = "watchos",
+        target_os = "visionos"
+    ))]
+    {
+        0x0100
+    }
+    #[cfg(not(any(
+        target_os = "linux",
+        target_os = "android",
+        target_os = "macos",
+        target_os = "ios",
+        target_os = "tvos",
+        target_os = "watchos",
+        target_os = "visionos"
+    )))]
+    {
+        0
+    }
+}
+
+#[cfg(unix)]
+fn link_count(meta: &std::fs::Metadata) -> u64 {
+    #[cfg(target_os = "linux")]
+    {
+        std::os::linux::fs::MetadataExt::st_nlink(meta)
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        std::os::unix::fs::MetadataExt::nlink(meta)
+    }
+}
+
+#[cfg(unix)]
+fn file_uid(meta: &std::fs::Metadata) -> u32 {
+    #[cfg(target_os = "linux")]
+    {
+        std::os::linux::fs::MetadataExt::st_uid(meta)
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        std::os::unix::fs::MetadataExt::uid(meta)
+    }
+}
+
+#[cfg(unix)]
+fn file_gid(meta: &std::fs::Metadata) -> u32 {
+    #[cfg(target_os = "linux")]
+    {
+        std::os::linux::fs::MetadataExt::st_gid(meta)
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        std::os::unix::fs::MetadataExt::gid(meta)
+    }
+}
+
+/// Put the original owner back when this process is allowed to.
+#[cfg(unix)]
+fn restore_owner(path: &Path, meta: &std::fs::Metadata) -> Result<()> {
+    let uid = file_uid(meta);
+    let gid = file_gid(meta);
+    let euid = current_euid();
+    if euid != 0 && euid != uid {
+        return Ok(());
+    }
+    match std::os::unix::fs::chown(path, Some(uid), Some(gid)) {
+        Ok(()) => Ok(()),
+        Err(err) if err.kind() == std::io::ErrorKind::PermissionDenied => Ok(()),
+        Err(err) => {
+            Err(err).with_context(|| format!("failed to keep the owner of {}", path.display()))
+        }
+    }
+}
+
+#[cfg(unix)]
+fn current_euid() -> u32 {
+    unsafe extern "C" {
+        fn geteuid() -> u32;
+    }
+    unsafe { geteuid() }
 }
 
 fn ensure_resolved_inside(path: &Path, top: &Path) -> Result<()> {
     let top_c = top.canonicalize().unwrap_or_else(|_| top.to_path_buf());
-    let resolved = path.canonicalize().with_context(|| {
-        let path = path.display();
-        let top = top.display();
-        format!("{path} is outside the git repository {top}")
-    })?;
+    let resolved = match path.canonicalize() {
+        Ok(resolved) => resolved,
+        Err(source) => {
+            return Err(RepoPathError::Unresolved {
+                path: path.to_path_buf(),
+                source,
+            }
+            .into());
+        }
+    };
     if resolved.starts_with(&top_c) {
         return Ok(());
     }
-    let path = path.display();
-    let top = top.display();
-    let resolved = resolved.display();
-    bail!("{path} is outside the git repository {top} (resolved to {resolved})")
+    Err(RepoPathError::OutsideResolved {
+        path: path.to_path_buf(),
+        top: top.to_path_buf(),
+        resolved,
+    }
+    .into())
 }
 
 fn repo_relative(path: &Path, top: &Path) -> Result<PathBuf> {
@@ -343,16 +532,13 @@ fn repo_relative(path: &Path, top: &Path) -> Result<PathBuf> {
     }
     let path_c = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
     let top_c = top.canonicalize().unwrap_or_else(|_| top.to_path_buf());
-    path_c
+    Ok(path_c
         .strip_prefix(&top_c)
         .map(|rel| rel.to_path_buf())
-        .with_context(|| {
-            format!(
-                "{} is outside the git repository {}",
-                path.display(),
-                top.display()
-            )
-        })
+        .map_err(|_| RepoPathError::Outside {
+            path: path.to_path_buf(),
+            top: top.to_path_buf(),
+        })?)
 }
 
 fn validate_ref(base: &str) -> Result<()> {
@@ -662,6 +848,175 @@ index 111..222 100644
             "the path must be replaced with a regular file"
         );
         assert_eq!(std::fs::read_to_string(&link).unwrap(), "pwned\n");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_preplanted_temp_symlink_is_not_followed() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let dest = dir.path().join("notes.md");
+        std::fs::write(&dest, "Two sentences. Here.\n").unwrap();
+        std::fs::set_permissions(&dest, std::fs::Permissions::from_mode(0o600)).unwrap();
+        let outside = dir.path().join("outside.md");
+        std::fs::write(&outside, "secret\n").unwrap();
+        let planted = dir
+            .path()
+            .join(format!(".snapper-{}-notes.md.tmp", std::process::id()));
+        std::os::unix::fs::symlink(&outside, &planted).unwrap();
+        write_replacing(&dest, "Two sentences.\nHere.\n").unwrap();
+        assert_eq!(
+            std::fs::read_to_string(&outside).unwrap(),
+            "secret\n",
+            "a symlink at the old temp name must not be followed"
+        );
+        assert_eq!(
+            std::fs::read_to_string(&dest).unwrap(),
+            "Two sentences.\nHere.\n"
+        );
+        let mode = std::fs::metadata(&dest).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode, 0o600, "mode must stay 0600, got {mode:04o}");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn replacement_mode_is_never_wider_than_the_original() {
+        use std::os::unix::fs::PermissionsExt;
+        use std::sync::Arc;
+        use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
+        let dir = tempfile::tempdir().unwrap();
+        let dest = dir.path().join("secret.md");
+        std::fs::write(&dest, "x\n").unwrap();
+        std::fs::set_permissions(&dest, std::fs::Permissions::from_mode(0o400)).unwrap();
+        let stop = Arc::new(AtomicBool::new(false));
+        let wider = Arc::new(AtomicBool::new(false));
+        let seen = Arc::new(AtomicU32::new(0));
+        let dir_path = dir.path().to_path_buf();
+        let stop_w = Arc::clone(&stop);
+        let wider_w = Arc::clone(&wider);
+        let seen_w = Arc::clone(&seen);
+        let watcher = std::thread::spawn(move || {
+            while !stop_w.load(Ordering::Relaxed) {
+                let Ok(entries) = std::fs::read_dir(&dir_path) else {
+                    continue;
+                };
+                for entry in entries.flatten() {
+                    if entry.file_name() == "secret.md" || entry.file_name() == "payload" {
+                        continue;
+                    }
+                    let Ok(meta) = std::fs::symlink_metadata(entry.path()) else {
+                        continue;
+                    };
+                    if meta.file_type().is_symlink() {
+                        wider_w.store(true, Ordering::Relaxed);
+                        continue;
+                    }
+                    let mode = meta.permissions().mode() & 0o777;
+                    seen_w.fetch_max(mode, Ordering::Relaxed);
+                    if mode & !0o400 != 0 {
+                        wider_w.store(true, Ordering::Relaxed);
+                    }
+                }
+            }
+        });
+        let payload = "Sentence stands here. Another follows it.\n".repeat(400_000);
+        write_replacing(&dest, &payload).unwrap();
+        stop.store(true, Ordering::Relaxed);
+        watcher.join().unwrap();
+        let final_mode = std::fs::metadata(&dest).unwrap().permissions().mode() & 0o777;
+        assert_eq!(
+            final_mode, 0o400,
+            "final mode must stay 0400, got {final_mode:04o}"
+        );
+        assert!(
+            !wider.load(Ordering::Relaxed),
+            "a temp file was wider than 0400 (saw {:04o})",
+            seen.load(Ordering::Relaxed)
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_hardlinked_file_is_rewritten_in_place() {
+        let dir = tempfile::tempdir().unwrap();
+        let first = dir.path().join("a.md");
+        let second = dir.path().join("b.md");
+        std::fs::write(&first, "Two sentences. Here.\n").unwrap();
+        std::fs::hard_link(&first, &second).unwrap();
+        write_replacing(&first, "Two sentences.\nHere.\n").unwrap();
+        assert_eq!(
+            std::fs::read_to_string(&first).unwrap(),
+            "Two sentences.\nHere.\n"
+        );
+        assert_eq!(
+            std::fs::read_to_string(&second).unwrap(),
+            "Two sentences.\nHere.\n",
+            "the other name of a hard link must see the same rewrite"
+        );
+        assert_eq!(
+            link_count(&std::fs::metadata(&first).unwrap()),
+            2,
+            "rewriting must not replace the inode"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn special_mode_bits_are_stripped_and_the_group_is_kept() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let dest = dir.path().join("script.md");
+        std::fs::write(&dest, "Two sentences. Here.\n").unwrap();
+        std::os::unix::fs::chown(&dest, None, Some(4)).unwrap();
+        std::fs::set_permissions(&dest, std::fs::Permissions::from_mode(0o7755)).unwrap();
+        let before = std::fs::metadata(&dest).unwrap();
+        let uid = file_uid(&before);
+        let gid = file_gid(&before);
+        write_replacing(&dest, "Two sentences.\nHere.\n").unwrap();
+        let after = std::fs::metadata(&dest).unwrap();
+        let mode = after.permissions().mode() & 0o7777;
+        assert_eq!(
+            mode, 0o755,
+            "setuid, setgid, and sticky must be cleared, got {mode:04o}"
+        );
+        assert_eq!(file_uid(&after), uid, "uid must stay {uid}");
+        assert_eq!(
+            file_gid(&after),
+            gid,
+            "gid must stay {gid}, got {}",
+            file_gid(&after)
+        );
+        assert_eq!(
+            std::fs::read_to_string(&dest).unwrap(),
+            "Two sentences.\nHere.\n"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_dangling_symlink_is_not_outside_the_repository() {
+        let root = std::env::current_dir().unwrap();
+        let dir = tempfile::tempdir_in(&root).unwrap();
+        let link = dir.path().join("missing.md");
+        std::os::unix::fs::symlink("no-such-target.md", &link).unwrap();
+        let err = touch_for_path("HEAD", &link).unwrap_err();
+        let text = format!("{err:#}");
+        assert!(
+            !text.contains("outside the git repository"),
+            "a canonicalize failure must not be reported as outside, got {text}"
+        );
+        assert!(
+            text.contains("failed to resolve"),
+            "a dangling symlink must be a resolve error, got {text}"
+        );
+        assert!(
+            err.chain().any(|cause| {
+                cause
+                    .downcast_ref::<RepoPathError>()
+                    .is_some_and(|repo| !repo.is_outside())
+            }),
+            "the error must be a typed resolve failure, got {text}"
+        );
     }
 
     #[test]
