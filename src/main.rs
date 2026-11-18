@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::fs;
 use std::io::{self, IsTerminal, Read};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process;
 use std::sync::Arc;
 
@@ -135,14 +135,30 @@ fn run() -> Result<()> {
         }
     }
 
-    let project_config = ProjectConfig::resolve(cli.config.as_deref()).unwrap_or_default();
+    let project_config =
+        ProjectConfig::resolve(cli.config.as_deref()).context("failed to load .snapperrc.toml")?;
 
-    if cli.files.is_empty() {
+    if cli.files.is_empty() && !cli.changed {
         // Read from stdin
         let mut input = String::new();
         io::stdin()
             .read_to_string(&mut input)
             .context("failed to read stdin")?;
+
+        if let Some(path) = cli.stdin_filepath.as_deref() {
+            if project_config.file_skipped(path) {
+                if cli.check || cli.diff {
+                    return Ok(());
+                }
+                if let Some(ref out) = cli.output {
+                    fs::write(out, &input)
+                        .with_context(|| format!("failed to write {}", out.display()))?;
+                } else {
+                    print!("{input}");
+                }
+                return Ok(());
+            }
+        }
 
         // Format detection: --format > --stdin-filepath > plaintext
         let format = resolve_format(
@@ -163,7 +179,10 @@ fn run() -> Result<()> {
 
         if cli.check {
             let splitter = build_splitter(&config).context("failed to build sentence splitter")?;
-            let threshold = resolve_long_threshold(config.max_width, project_config.long_threshold);
+            let threshold = resolve_long_threshold(
+                config.max_width,
+                project_config.long_threshold_for_path(cli.stdin_filepath.as_deref()),
+            );
             let diagnostics =
                 collect_diagnostics(&input, format, splitter.as_ref(), threshold, Some(&config));
             let would = output != input;
@@ -218,13 +237,27 @@ fn run() -> Result<()> {
         // Process files in parallel whenever there is more than one path.
         // Splitters are built once per distinct config key (format/lang/neural/…)
         // so multi-file and --neural do not reload models per path.
-        let use_parallel = cli.files.len() > 1;
+        let discovered = if cli.files.is_empty() {
+            let found = snapper_fmt::changed::changed_prose_files(&cli.changed_from)?;
+            if found.is_empty() {
+                eprintln!("No prose files changed.");
+                return Ok(());
+            }
+            found
+        } else {
+            Vec::new()
+        };
+        let file_args: &[PathBuf] = if cli.files.is_empty() {
+            &discovered
+        } else {
+            &cli.files
+        };
+        let use_parallel = file_args.len() > 1;
         let mut splitter_cache: HashMap<SplitterKey, Arc<dyn SentenceSplitter>> = HashMap::new();
 
-        let paths: Vec<&Path> = cli
-            .files
+        let paths: Vec<&Path> = file_args
             .iter()
-            .map(Path::new)
+            .map(PathBuf::as_path)
             .filter(|path| !should_skip_path(path, &cli, &project_config))
             .collect();
 
@@ -244,31 +277,46 @@ fn run() -> Result<()> {
         }
         let cache = Arc::new(splitter_cache);
 
-        let results: Vec<(String, String, String)> = if use_parallel {
+        let processed: Vec<Result<FileOutcome>> = if use_parallel {
             paths
                 .par_iter()
                 .map(|path| process_file(path, &cli, &project_config, &cache))
-                .collect::<Result<Vec<_>>>()?
+                .collect()
         } else {
             paths
                 .iter()
                 .map(|path| process_file(path, &cli, &project_config, &cache))
-                .collect::<Result<Vec<_>>>()?
+                .collect()
         };
+        let mut results = Vec::new();
+        let mut skipped_outside = false;
+        for result in processed {
+            match result {
+                Ok(outcome) => results.push(outcome),
+                Err(err) if outside_repo(&err) => {
+                    eprintln!("warning: {err:#}");
+                    skipped_outside = true;
+                }
+                Err(err) => return Err(err),
+            }
+        }
 
         let mut any_changed = false;
         let mut check_failed = false;
         let mut check_results: Vec<CheckResult> = Vec::new();
 
         let color = resolve_color(cli.color, false);
-        for (path_str, input, output) in &results {
+        for outcome in &results {
+            let path_str = &outcome.display;
+            let input = &outcome.input;
+            let output = &outcome.output;
             if cli.diff {
                 if output != input {
                     snapper_fmt::diff::print_diff(path_str, input, output, color);
                     any_changed = true;
                 }
             } else if cli.check {
-                let path = Path::new(path_str);
+                let path = outcome.path.as_path();
                 let format = resolve_format(
                     cli.format.map(Format::from_arg),
                     Some(path),
@@ -279,10 +327,13 @@ fn run() -> Result<()> {
                 let splitter = cache
                     .get(&key)
                     .ok_or_else(|| anyhow::anyhow!("splitter cache miss for {path_str}"))?;
-                let threshold =
-                    resolve_long_threshold(config.max_width, project_config.long_threshold);
+                let threshold = resolve_long_threshold(
+                    config.max_width,
+                    project_config.long_threshold_for_path(Some(path)),
+                );
                 let diagnostics =
                     collect_diagnostics(input, format, splitter.as_ref(), threshold, Some(&config));
+                let diagnostics = filter_scope(diagnostics, outcome.scope.as_deref());
                 let would = output != input;
                 let long_fail =
                     cli.strict_long && diagnostics.iter().any(|d| d.kind == DiagnosticKind::Long);
@@ -315,8 +366,22 @@ fn run() -> Result<()> {
                 }
             } else if cli.in_place {
                 if output != input {
-                    fs::write(path_str, output)
-                        .with_context(|| format!("failed to write {path_str}"))?;
+                    if cli.changed {
+                        if let Err(err) =
+                            snapper_fmt::changed::write_inside_repo(&outcome.path, output)
+                        {
+                            if outside_repo(&err) {
+                                eprintln!("warning: {err:#}");
+                                skipped_outside = true;
+                            } else {
+                                return Err(err);
+                            }
+                        }
+                    } else {
+                        fs::write(&outcome.path, output).with_context(|| {
+                            format!("failed to write {}", outcome.path.display())
+                        })?;
+                    }
                 }
             } else if let Some(ref out_path) = cli.output {
                 fs::write(out_path, output)
@@ -341,9 +406,17 @@ fn run() -> Result<()> {
         if cli.check && check_failed {
             process::exit(1);
         }
+        if skipped_outside {
+            process::exit(1);
+        }
     }
 
     Ok(())
+}
+
+fn outside_repo(err: &anyhow::Error) -> bool {
+    err.chain()
+        .any(|cause| cause.to_string().contains("outside the git repository"))
 }
 
 /// Key for reusing sentence splitters across files with the same split policy.
@@ -370,14 +443,39 @@ impl SplitterKey {
     }
 }
 
-/// Process a single file: read, format, return (path, input, output).
+/// One formatted file. `scope` is `None` when every line counts, or the
+/// 1-indexed lines of paragraphs `--changed` is allowed to report.
+struct FileOutcome {
+    /// Path used for reading and `--in-place` writes.
+    path: PathBuf,
+    /// Repository-relative path shown in check, diff, and JSON output.
+    display: String,
+    input: String,
+    output: String,
+    scope: Option<Vec<usize>>,
+}
+
+fn filter_scope(
+    diagnostics: Vec<snapper_fmt::check::LineDiagnostic>,
+    scope: Option<&[usize]>,
+) -> Vec<snapper_fmt::check::LineDiagnostic> {
+    let Some(scope) = scope else {
+        return diagnostics;
+    };
+    diagnostics
+        .into_iter()
+        .filter(|d| scope.binary_search(&d.line).is_ok())
+        .collect()
+}
+
+/// Process a single file: read, format, return the path and both texts.
 fn process_file(
     path: &Path,
     cli: &Cli,
     project_config: &ProjectConfig,
     splitter_cache: &HashMap<SplitterKey, Arc<dyn SentenceSplitter>>,
-) -> Result<(String, String, String)> {
-    let path_str = path.display().to_string();
+) -> Result<FileOutcome> {
+    let path_str = repo_relative_display(path);
     let input =
         fs::read_to_string(path).with_context(|| format!("failed to read {}", path.display()))?;
 
@@ -387,6 +485,19 @@ fn process_file(
     let splitter = splitter_cache
         .get(&key)
         .ok_or_else(|| anyhow::anyhow!("splitter cache miss for {path_str}"))?;
+
+    if cli.changed {
+        let touch = snapper_fmt::changed::touch_for_path(&cli.changed_from, path)?;
+        let scope = snapper_fmt::changed::diagnostic_lines(&input, &touch);
+        let output = snapper_fmt::changed::reflow_touch(&input, &config, &touch)?;
+        return Ok(FileOutcome {
+            path: path.to_path_buf(),
+            display: path_str,
+            input,
+            output,
+            scope,
+        });
+    }
 
     let output = if let Some(ref range_str) = cli.range {
         let (start, end) =
@@ -398,7 +509,53 @@ fn process_file(
         format_text_with_splitter(&input, &config, splitter.as_ref())?
     };
 
-    Ok((path_str, input, output))
+    Ok(FileOutcome {
+        path: path.to_path_buf(),
+        display: path_str,
+        input,
+        output,
+        scope: None,
+    })
+}
+
+/// Path printed for a file. Inside a git checkout this is relative to the
+/// repository root, so a run from a subdirectory does not print an absolute path.
+fn repo_relative_display(path: &Path) -> String {
+    let abs = std::path::absolute(path).unwrap_or_else(|_| path.to_path_buf());
+    let start = abs.parent().unwrap_or(Path::new("."));
+    let top = process::Command::new("git")
+        .arg("-C")
+        .arg(start)
+        .args(["rev-parse", "--show-toplevel"])
+        .output()
+        .ok()
+        .filter(|output| output.status.success())
+        .and_then(|output| String::from_utf8(output.stdout).ok())
+        .and_then(|stdout| {
+            stdout
+                .lines()
+                .next()
+                .map(str::trim)
+                .filter(|line| !line.is_empty())
+                .map(PathBuf::from)
+        });
+    if let Some(top) = top {
+        if let Ok(rel) = abs.strip_prefix(&top) {
+            let text = rel.to_string_lossy().replace('\\', "/");
+            if !text.is_empty() {
+                return text;
+            }
+        }
+        if let (Ok(abs_c), Ok(top_c)) = (abs.canonicalize(), top.canonicalize()) {
+            if let Ok(rel) = abs_c.strip_prefix(&top_c) {
+                let text = rel.to_string_lossy().replace('\\', "/");
+                if !text.is_empty() {
+                    return text;
+                }
+            }
+        }
+    }
+    path.display().to_string()
 }
 
 fn build_format_config(
@@ -410,7 +567,7 @@ fn build_format_config(
     let format_key = format.config_key();
     let max_width = resolve_max_width(
         cli.max_width,
-        project_config.max_width_for_format(format_key),
+        project_config.max_width_for_path(format_key, file_path),
         file_path,
     );
     let neural_lang = cli
@@ -419,10 +576,11 @@ fn build_format_config(
         .or_else(|| project_config.lang.clone())
         .unwrap_or_else(|| "en".to_string());
 
-    // CLI --clause-breaks wins when set; otherwise project config (default false).
-    let clause_breaks = cli.clause_breaks || project_config.clause_breaks.unwrap_or(false);
+    // CLI --clause-breaks wins when set; otherwise a path rule, then the
+    // top-level key (default false).
+    let clause_breaks = cli.clause_breaks || project_config.clause_breaks_for_path(file_path);
     let lowercase_starts =
-        cli.lowercase_starts || project_config.lowercase_starts_for_format(format_key);
+        cli.lowercase_starts || project_config.lowercase_starts_for_path(format_key, file_path);
 
     FormatConfig {
         format,
@@ -430,7 +588,7 @@ fn build_format_config(
         use_neural: cli.neural,
         neural_lang,
         neural_model_path: cli.model_path.clone(),
-        extra_abbreviations: project_config.abbreviations_for_format(format_key),
+        extra_abbreviations: project_config.abbreviations_for_path(format_key, file_path),
         latex_verbatim_envs: project_config.latex_verbatim_envs(),
         latex_structure_envs: project_config.latex_structure_envs(),
         latex_verbatim_commands: project_config.latex_verbatim_commands(),
@@ -458,6 +616,17 @@ fn resolve_format(
     }
 
     if let Some(path) = path {
+        if let Some(name) = project_config
+            .matching_rule(path)
+            .and_then(|rule| rule.format.as_deref())
+        {
+            return Format::from_config_key(name).with_context(|| {
+                format!(
+                    "{}: unknown format {name:?} in a [[path]] rule",
+                    path.display()
+                )
+            });
+        }
         if let Some(detected) = Format::recognized_from_path(path) {
             return Ok(detected);
         }
@@ -466,7 +635,7 @@ fn resolve_format(
             None => "no file extension".to_string(),
         };
         anyhow::bail!(
-            "{}: not a prose format ({hint}); pass --format or use .org/.tex/.md/.rst/.typ/.txt",
+            "{}: not a prose format ({hint}); pass --format or use .org/.tex/.md/.rst/.typ/.adoc/.txt",
             path.display()
         );
     }
@@ -479,7 +648,7 @@ fn resolve_format(
 }
 
 fn should_skip_path(path: &Path, cli: &Cli, project_config: &ProjectConfig) -> bool {
-    (cli.check || cli.in_place) && project_config.is_ignored(path)
+    (cli.check || cli.in_place) && project_config.file_skipped(path)
 }
 
 /// Resolve max_width: CLI flag > project config > editorconfig > 0 (unlimited).

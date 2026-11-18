@@ -35,7 +35,7 @@ Semantic line break formatter
 
 * `-f`, `--format <FORMAT>` — Input format (auto-detected from extension if omitted)
 
-  Possible values: `org`, `latex`, `markdown`, `rst`, `plaintext`, `typst`
+  Possible values: `org`, `latex`, `markdown`, `rst`, `plaintext`, `typst`, `asciidoc`
 
 * `--stdin-filepath <STDIN_FILEPATH>` — Assume this filename when reading stdin (for format auto-detection)
 * `-o`, `--output <OUTPUT>` — Output file (stdout if omitted)
@@ -51,11 +51,15 @@ Semantic line break formatter
 * `--lang <LANG>` — Language for neural sentence detection (default: en). Available: en, de, fr, no, sv, zh, tr, ru, uk
 * `--model-path <MODEL_PATH>` — Path to custom ONNX model file for neural detection
 * `--use-pandoc` — Force the pandoc path (auto FFI then CLI). Errors if FFI and `pandoc` on PATH are both missing (no silent all-prose). The default is the native line parsers. This flag, or `use_pandoc = true` in `.snapperrc.toml`, opts into pandoc. Markdown is read and written as `gfm`. A render mismatch leaves the input unchanged and warns on stderr. A list item or blockquote at the end of the file still splits when the final newline is missing. RST `..` comments and `snapper:off` / `snapper:on` are written through so the output still contains that text. Parse may use in-process FFI; the writer still needs `pandoc` on PATH (`libsnapper_pandoc` is reader-only) unless that library exports a writer
-* `--native` — Accepted for compatibility. The default is already the native line parsers (markdown/org/rst/latex/typst/plaintext). Editors, wasm, and LSP stay native. Conflicts with `--use-pandoc`
+* `--native` — Accepted for compatibility. The default is already the native line parsers (markdown/org/rst/latex/typst/asciidoc/plaintext). Editors, wasm, and LSP stay native. Conflicts with `--use-pandoc`
 * `--pandoc-backend <BACKEND>` — Pandoc AST source when the pandoc path is used: `auto` (prefer in-process FFI, else CLI), `ffi` (`libsnapper_pandoc`), or `cli` (`pandoc` subprocess). Default: `auto`. `ffi` fails explicitly if the library is missing. The writer still needs `pandoc` on PATH (no silent spawn surprise)
 
   Default value: `auto`
 * `--check` — Exit with code 1 if any file would change
+* `--changed` — Limit `--check`, `--diff`, and reflow to paragraphs that contain a line added or modified since the `--changed-from` ref. With no file arguments, the paths come from `git diff` and untracked prose files. A file missing at the base ref is checked in full. Untouched paragraphs stay as they are
+* `--changed-from <REV>` — Git ref `--changed` compares against. Defaults to `HEAD`. The diff uses the merge base of this ref and `HEAD`. Ignored unless `--changed` is set
+
+  Default value: `HEAD`
 * `--strict-long` — Treat advisory `long` diagnostics as `--check` failures
 
   Default value: `false`
@@ -106,7 +110,7 @@ Sentence-level diff between two files
 
 * `-f`, `--format <FORMAT>` — Input format (auto-detected from extension if omitted)
 
-  Possible values: `org`, `latex`, `markdown`, `rst`, `plaintext`, `typst`
+  Possible values: `org`, `latex`, `markdown`, `rst`, `plaintext`, `typst`, `asciidoc`
 
 * `--no-color` — Disable colored output
 
@@ -129,7 +133,7 @@ Sentence-level diff against a git ref
 
 * `-f`, `--format <FORMAT>` — Input format (auto-detected from extension if omitted)
 
-  Possible values: `org`, `latex`, `markdown`, `rst`, `plaintext`, `typst`
+  Possible values: `org`, `latex`, `markdown`, `rst`, `plaintext`, `typst`, `asciidoc`
 
 * `--no-color` — Disable colored output
 
@@ -165,7 +169,7 @@ Watch files and reformat on change
 
 * `-f`, `--format <FORMAT>` — Input format (auto-detected from extension if omitted)
 
-  Possible values: `org`, `latex`, `markdown`, `rst`, `plaintext`, `typst`
+  Possible values: `org`, `latex`, `markdown`, `rst`, `plaintext`, `typst`, `asciidoc`
 
 
 

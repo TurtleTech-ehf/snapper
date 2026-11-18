@@ -34,6 +34,7 @@
     "onLanguage:plaintext",
     "onLanguage:restructuredtext",
     "onLanguage:typst",
+    "onLanguage:asciidoc",
     "workspaceContains:**/*.typ"
   ],
   "main": "./out/extension.js",
@@ -94,7 +95,7 @@
       {
         "command": "snapper.formatDocument",
         "key": "shift+alt+f",
-        "when": "resourceLangId == 'markdown' || resourceLangId == 'org' || resourceLangId == 'latex' || resourceLangId == 'plaintext' || resourceLangId == 'restructuredtext' || resourceLangId == 'typst'"
+        "when": "resourceLangId == 'markdown' || resourceLangId == 'org' || resourceLangId == 'latex' || resourceLangId == 'plaintext' || resourceLangId == 'restructuredtext' || resourceLangId == 'typst' || resourceLangId == 'asciidoc'"
       }
     ]
   },

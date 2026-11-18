@@ -9,7 +9,7 @@ use crate::format::Format;
 /// Auto-detects format from the file extension.
 pub fn format_file(path: &str, max_width: usize) -> Result<String> {
     let content =
-        std::fs::read_to_string(path).with_context(|| format!("failed to read {}", path))?;
+        std::fs::read_to_string(path).with_context(|| format!("failed to read {path}"))?;
     let fmt = Format::recognized_from_path(Path::new(path)).ok_or_else(|| {
         anyhow::anyhow!("{path}: not a prose format; pass --format or use .org/.tex/.md/.rst/.txt")
     })?;
@@ -28,7 +28,7 @@ pub fn format_file_with(
     extra_abbreviations: Vec<String>,
 ) -> Result<String> {
     let content =
-        std::fs::read_to_string(path).with_context(|| format!("failed to read {}", path))?;
+        std::fs::read_to_string(path).with_context(|| format!("failed to read {path}"))?;
     let fmt = Format::recognized_from_path(Path::new(path)).ok_or_else(|| {
         anyhow::anyhow!("{path}: not a prose format; pass --format or use .org/.tex/.md/.rst/.txt")
     })?;
@@ -45,7 +45,7 @@ pub fn format_file_with(
 /// or `Some(unified_diff)` if changes are needed.
 pub fn check_file(path: &str, max_width: usize) -> Result<Option<String>> {
     let original =
-        std::fs::read_to_string(path).with_context(|| format!("failed to read {}", path))?;
+        std::fs::read_to_string(path).with_context(|| format!("failed to read {path}"))?;
     let formatted = format_file(path, max_width)?;
     if original == formatted {
         return Ok(None);
@@ -56,12 +56,12 @@ pub fn check_file(path: &str, max_width: usize) -> Result<Option<String>> {
 /// Format a file in-place. Returns `true` if the file was changed.
 pub fn format_in_place(path: &str, max_width: usize) -> Result<bool> {
     let original =
-        std::fs::read_to_string(path).with_context(|| format!("failed to read {}", path))?;
+        std::fs::read_to_string(path).with_context(|| format!("failed to read {path}"))?;
     let formatted = format_file(path, max_width)?;
     if original == formatted {
         return Ok(false);
     }
-    std::fs::write(path, &formatted).with_context(|| format!("failed to write {}", path))?;
+    std::fs::write(path, &formatted).with_context(|| format!("failed to write {path}"))?;
     Ok(true)
 }
 

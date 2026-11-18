@@ -1,14 +1,14 @@
 use std::collections::HashMap;
-use std::path::Path;
+use std::path::{Component, Path, PathBuf};
 
-use anyhow::Result;
+use anyhow::{Result, bail};
 #[cfg(any(feature = "cli", feature = "watch"))]
 use glob::Pattern;
 use serde::Deserialize;
 
 /// Per-format overrides in .snapperrc.toml.
 #[derive(Debug, Default, Deserialize)]
-#[serde(default)]
+#[serde(default, deny_unknown_fields)]
 pub struct FormatOverrides {
     pub extra_abbreviations: Vec<String>,
     pub max_width: Option<usize>,
@@ -73,7 +73,7 @@ pub struct FormatOverrides {
 /// - `escape`: character that escapes the next one inside a string. Defaults
 ///   to a backslash.
 #[derive(Debug, Default, Clone, Deserialize, PartialEq, Eq)]
-#[serde(default)]
+#[serde(default, deny_unknown_fields)]
 pub struct CodeLang {
     pub line_comment: Option<String>,
     pub block_comment: Option<[String; 2]>,
@@ -101,9 +101,42 @@ impl CodeLang {
     }
 }
 
+/// One `[[path]]` rule in `.snapperrc.toml`.
+///
+/// Rules are ordered. The first rule whose glob matches the file supplies
+/// every key it sets. Later rules are not consulted. A pattern with no `/`
+/// also matches the file name, so `*.md` covers `docs/a.md`.
+#[derive(Debug, Default, Clone, Deserialize, PartialEq, Eq)]
+#[serde(default, deny_unknown_fields)]
+pub struct PathRule {
+    /// One glob, relative to the directory that holds the config file.
+    pub glob: Option<String>,
+    /// More globs for the same overrides.
+    pub globs: Vec<String>,
+    pub max_width: Option<usize>,
+    pub clause_breaks: Option<bool>,
+    pub lowercase_starts: Option<bool>,
+    pub extra_abbreviations: Vec<String>,
+    /// Format name (`org`, `latex`, `markdown`, `rst`, `typst`, `asciidoc`, `plaintext`).
+    /// Used when the CLI did not pass `--format`.
+    pub format: Option<String>,
+    /// Skip the file during `--check` and `--in-place`, same as `ignore`.
+    pub ignore: bool,
+    pub long_threshold: Option<usize>,
+}
+
+impl PathRule {
+    fn patterns(&self) -> impl Iterator<Item = &str> {
+        self.glob
+            .as_deref()
+            .into_iter()
+            .chain(self.globs.iter().map(String::as_str))
+    }
+}
+
 /// Per-project configuration loaded from `.snapperrc.toml`.
 #[derive(Debug, Default, Deserialize)]
-#[serde(default)]
+#[serde(default, deny_unknown_fields)]
 pub struct ProjectConfig {
     /// Additional abbreviations that should not trigger sentence breaks.
     pub extra_abbreviations: Vec<String>,
@@ -138,6 +171,16 @@ pub struct ProjectConfig {
     pub rst: Option<FormatOverrides>,
     pub plaintext: Option<FormatOverrides>,
     pub typst: Option<FormatOverrides>,
+    pub asciidoc: Option<FormatOverrides>,
+
+    /// Ordered path rules. The first match wins. See [`PathRule`].
+    #[serde(default, rename = "path")]
+    pub paths: Vec<PathRule>,
+
+    /// Directory that held the config file. Set by [`ProjectConfig::load`].
+    /// Glob matching is relative to this directory. Not read from TOML.
+    #[serde(skip)]
+    pub root: Option<PathBuf>,
 
     /// Per-language code-block reflow and formatter configuration.
     /// Key is the language identifier as it appears on the code fence
@@ -164,13 +207,38 @@ impl ProjectConfig {
     }
 
     /// Load config from a specific path.
+    ///
+    /// `root` becomes the config file's directory so `[[path]]` globs resolve
+    /// against that tree rather than whatever the process later uses as cwd.
     pub fn load(path: &Path) -> Result<Self> {
         let contents = std::fs::read_to_string(path)?;
-        Self::parse(&contents)
+        let mut config = Self::parse(&contents)?;
+        config.root = path.parent().map(|parent| {
+            if parent.as_os_str().is_empty() {
+                std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."))
+            } else if parent.is_absolute() {
+                parent.to_path_buf()
+            } else {
+                std::env::current_dir()
+                    .unwrap_or_else(|_| PathBuf::from("."))
+                    .join(parent)
+            }
+        });
+        warn_unsupported_path_globs(&config);
+        Ok(config)
     }
 
     fn parse(toml_str: &str) -> Result<Self> {
         let config: ProjectConfig = toml::from_str(toml_str)?;
+        for (index, rule) in config.paths.iter().enumerate() {
+            let has_glob = rule.patterns().any(|pattern| !pattern.trim().is_empty());
+            if !has_glob {
+                bail!(
+                    "[[path]] rule {} has no glob (set `glob` or `globs` to a non-empty pattern)",
+                    index + 1
+                );
+            }
+        }
         Ok(config)
     }
 
@@ -195,6 +263,7 @@ impl ProjectConfig {
             "rst" => self.rst.as_ref(),
             "plaintext" => self.plaintext.as_ref(),
             "typst" => self.typst.as_ref(),
+            "asciidoc" => self.asciidoc.as_ref(),
             _ => None,
         };
         if let Some(ov) = overrides {
@@ -212,6 +281,7 @@ impl ProjectConfig {
             "rst" => self.rst.as_ref(),
             "plaintext" => self.plaintext.as_ref(),
             "typst" => self.typst.as_ref(),
+            "asciidoc" => self.asciidoc.as_ref(),
             _ => None,
         };
         overrides.and_then(|ov| ov.max_width).or(self.max_width)
@@ -228,12 +298,119 @@ impl ProjectConfig {
             "rst" => self.rst.as_ref(),
             "plaintext" => self.plaintext.as_ref(),
             "typst" => self.typst.as_ref(),
+            "asciidoc" => self.asciidoc.as_ref(),
             _ => None,
         };
         overrides
             .and_then(|ov| ov.lowercase_starts)
             .or(self.lowercase_starts)
             .unwrap_or(false)
+    }
+
+    /// First `[[path]]` rule that matches `path`, if any.
+    pub fn matching_rule(&self, path: &Path) -> Option<&PathRule> {
+        let candidates = self.relative_candidates(path);
+        self.paths.iter().find(|rule| {
+            rule.patterns()
+                .any(|pattern| candidates.iter().any(|cand| path_glob_match(pattern, cand)))
+        })
+    }
+
+    /// True when a matching path rule sets `ignore`.
+    pub fn path_ignored(&self, path: &Path) -> bool {
+        self.matching_rule(path).is_some_and(|rule| rule.ignore)
+    }
+
+    /// True when a path rule or the top-level `ignore` list skips `path`.
+    pub fn file_skipped(&self, path: &Path) -> bool {
+        if self.path_ignored(path) {
+            return true;
+        }
+        #[cfg(any(feature = "cli", feature = "watch"))]
+        {
+            self.is_ignored(path)
+        }
+        #[cfg(not(any(feature = "cli", feature = "watch")))]
+        {
+            let _ = path;
+            false
+        }
+    }
+
+    /// `max_width` from the first matching path rule, else the format value.
+    pub fn max_width_for_path(&self, format: &str, path: Option<&Path>) -> Option<usize> {
+        if let Some(path) = path {
+            if let Some(width) = self.matching_rule(path).and_then(|rule| rule.max_width) {
+                return Some(width);
+            }
+        }
+        self.max_width_for_format(format)
+    }
+
+    /// `clause_breaks` from the first matching path rule, else the top-level key.
+    pub fn clause_breaks_for_path(&self, path: Option<&Path>) -> bool {
+        path.and_then(|candidate| self.matching_rule(candidate))
+            .and_then(|rule| rule.clause_breaks)
+            .or(self.clause_breaks)
+            .unwrap_or(false)
+    }
+
+    /// Path rule, then per-format, then the top-level key. Missing stays false.
+    pub fn lowercase_starts_for_path(&self, format: &str, path: Option<&Path>) -> bool {
+        if let Some(path) = path {
+            if let Some(value) = self
+                .matching_rule(path)
+                .and_then(|rule| rule.lowercase_starts)
+            {
+                return value;
+            }
+        }
+        self.lowercase_starts_for_format(format)
+    }
+
+    /// Top-level and per-format abbreviations, plus extras from a matching rule.
+    pub fn abbreviations_for_path(&self, format: &str, path: Option<&Path>) -> Vec<String> {
+        let mut abbrevs = self.abbreviations_for_format(format);
+        if let Some(path) = path {
+            if let Some(rule) = self.matching_rule(path) {
+                abbrevs.extend(rule.extra_abbreviations.iter().cloned());
+            }
+        }
+        abbrevs
+    }
+
+    /// Path rule threshold, else the top-level `long_threshold`.
+    pub fn long_threshold_for_path(&self, path: Option<&Path>) -> Option<usize> {
+        path.and_then(|candidate| self.matching_rule(candidate))
+            .and_then(|rule| rule.long_threshold)
+            .or(self.long_threshold)
+    }
+
+    fn relative_candidates(&self, path: &Path) -> Vec<String> {
+        let mut out = Vec::new();
+        let mut push = |rel: &Path| {
+            let text = rel.to_string_lossy().replace('\\', "/");
+            let text = text.trim_start_matches("./").to_string();
+            if !text.is_empty() && !out.iter().any(|existing| existing == &text) {
+                out.push(text);
+            }
+        };
+        if let Some(root) = &self.root {
+            // The config directory is the only base. A cwd-relative guess
+            // matches the wrong file, and a path outside the tree matches none.
+            let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+            if let Some(rel) = path_relative_to_config(root, &cwd, path) {
+                push(Path::new(&rel));
+            }
+            return out;
+        }
+        if let Ok(cwd) = std::env::current_dir() {
+            if let Ok(rel) = path.strip_prefix(&cwd) {
+                push(rel);
+            }
+        }
+        push(path);
+        out
     }
 
     /// Extra `[latex].verbatim_envs` names. Empty when the key is missing.
@@ -277,9 +454,252 @@ impl ProjectConfig {
     }
 }
 
+/// Path of `path` relative to `root`, after joining a relative `path` onto `cwd`.
+///
+/// `.` and `..` are collapsed without reading the filesystem. `None` means
+/// `path` is `root` itself or lives outside it.
+pub(crate) fn path_relative_to_config(root: &Path, cwd: &Path, path: &Path) -> Option<String> {
+    let absolute = if path.is_absolute() {
+        normalize_lex(path)
+    } else {
+        normalize_lex(&cwd.join(path))
+    };
+    let root = if root.is_absolute() {
+        normalize_lex(root)
+    } else {
+        normalize_lex(&cwd.join(root))
+    };
+    // A symlink and its target are the same file. Compare the canonical
+    // paths when they exist so an absolute path through a link still matches.
+    let absolute = canonicalize_existing(&absolute);
+    let root = canonicalize_existing(&root);
+    let rel = absolute.strip_prefix(&root).ok()?;
+    if rel.as_os_str().is_empty() {
+        return None;
+    }
+    let text = rel.to_string_lossy().replace('\\', "/");
+    let text = text.trim_start_matches("./").to_string();
+    if text.is_empty() { None } else { Some(text) }
+}
+
+fn canonicalize_existing(path: &Path) -> PathBuf {
+    if let Ok(canonical) = path.canonicalize() {
+        return canonical;
+    }
+    let mut cur = path.to_path_buf();
+    let mut tail = Vec::new();
+    while !cur.as_os_str().is_empty() && !cur.exists() {
+        let Some(name) = cur.file_name().map(|name| name.to_os_string()) else {
+            break;
+        };
+        tail.push(name);
+        if !cur.pop() {
+            break;
+        }
+    }
+    if let Ok(canonical) = cur.canonicalize() {
+        let mut out = canonical;
+        for name in tail.into_iter().rev() {
+            out.push(name);
+        }
+        return out;
+    }
+    path.to_path_buf()
+}
+
+fn normalize_lex(path: &Path) -> PathBuf {
+    let mut out = PathBuf::new();
+    for comp in path.components() {
+        match comp {
+            Component::CurDir => {}
+            Component::ParentDir => {
+                if !out.pop() && !out.has_root() {
+                    out.push("..");
+                }
+            }
+            other => out.push(other.as_os_str()),
+        }
+    }
+    out
+}
+
+fn warn_unsupported_path_globs(config: &ProjectConfig) {
+    for rule in &config.paths {
+        for pattern in rule.patterns() {
+            if let Some(reason) = unsupported_glob_reason(pattern) {
+                eprintln!(
+                    "snapper: [[path]] glob {pattern:?} is not fully supported ({reason}); the rule may not match the files you expect"
+                );
+            }
+        }
+    }
+}
+
+/// `[[path]]` globs understand `*`, `?`, and `**` as its own segment.
+/// Anything else is reported once, from [`ProjectConfig::load`].
+pub(crate) fn unsupported_glob_reason(pattern: &str) -> Option<&'static str> {
+    if pattern
+        .chars()
+        .any(|c| matches!(c, '[' | ']' | '{' | '}' | '\\'))
+    {
+        return Some("character classes, braces, and escapes are not matched");
+    }
+    for segment in pattern.split('/') {
+        if segment.contains("**") && segment != "**" {
+            return Some("`**` must be its own path segment");
+        }
+    }
+    None
+}
+
+/// Drop a repeated `./` prefix. A trailing `/` means the directory and
+/// everything under it (`docs/` matches `docs/a.md` and `docs/sub/a.md`).
+fn normalize_glob(pattern: &str) -> String {
+    let mut pattern = pattern.trim();
+    while let Some(rest) = pattern.strip_prefix("./") {
+        pattern = rest;
+    }
+    let pattern = pattern.trim_start_matches('/');
+    if pattern.len() > 1 && pattern.ends_with('/') {
+        format!("{}/**", pattern.trim_end_matches('/'))
+    } else {
+        pattern.to_string()
+    }
+}
+
+/// `pattern` against `path`, both using `/`.
+///
+/// `**` matches across directories. `*` and `?` stay inside one directory.
+/// A pattern with no `/` also matches the final path segment.
+/// True when `pattern` matches `path` the way a `[[path]]` glob does.
+///
+/// MCP and WASM use this so an ignore rule is the same match the CLI uses.
+pub fn path_rule_matches(pattern: &str, path: &str) -> bool {
+    path_glob_match(pattern, path)
+}
+
+fn path_glob_match(pattern: &str, path: &str) -> bool {
+    let pattern = normalize_glob(pattern);
+    let path = path.trim_start_matches("./");
+    if glob_parts(&pattern, path) {
+        return true;
+    }
+    if !pattern.contains('/') {
+        if let Some(name) = path.rsplit('/').next() {
+            return glob_parts(&pattern, name);
+        }
+    }
+    false
+}
+
+fn glob_parts(pattern: &str, path: &str) -> bool {
+    let pat: Vec<&str> = pattern.split('/').filter(|s| !s.is_empty()).collect();
+    let segs: Vec<&str> = path.split('/').filter(|s| !s.is_empty()).collect();
+    match_parts(&pat, &segs)
+}
+
+fn match_parts(pat: &[&str], segs: &[&str]) -> bool {
+    if pat.is_empty() {
+        return segs.is_empty();
+    }
+    if pat[0] == "**" {
+        if match_parts(&pat[1..], segs) {
+            return true;
+        }
+        return !segs.is_empty() && match_parts(pat, &segs[1..]);
+    }
+    !segs.is_empty() && seg_match(pat[0], segs[0]) && match_parts(&pat[1..], &segs[1..])
+}
+
+fn seg_match(pattern: &str, segment: &str) -> bool {
+    fn rec(pat: &[char], text: &[char]) -> bool {
+        if pat.is_empty() {
+            return text.is_empty();
+        }
+        if pat[0] == '*' {
+            if rec(&pat[1..], text) {
+                return true;
+            }
+            return !text.is_empty() && rec(pat, &text[1..]);
+        }
+        if text.is_empty() {
+            return false;
+        }
+        (pat[0] == '?' || pat[0] == text[0]) && rec(&pat[1..], &text[1..])
+    }
+    let pat: Vec<char> = pattern.chars().collect();
+    let text: Vec<char> = segment.chars().collect();
+    rec(&pat, &text)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_typo_names_the_unknown_field() {
+        let err = ProjectConfig::parse("max_wdith = 10\n").unwrap_err();
+        let text = err.to_string();
+        assert!(
+            text.contains("max_wdith"),
+            "the error must name the typo, got {text}"
+        );
+        let err = ProjectConfig::parse("[[path]]\nmax_wdith = 10\n").unwrap_err();
+        let text = err.to_string();
+        assert!(
+            text.contains("max_wdith"),
+            "a path-rule typo must be named, got {text}"
+        );
+    }
+
+    #[test]
+    fn a_path_rule_needs_a_glob() {
+        for toml in ["[[path]]\nignore = true\n", "[[path]]\nglob = \"\"\n"] {
+            let err = ProjectConfig::parse(toml).unwrap_err();
+            let text = err.to_string();
+            assert!(
+                text.contains("glob"),
+                "missing or empty glob must be an error, got {text} for {toml:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn globs_drop_a_leading_dot_slash_and_a_trailing_slash() {
+        assert!(path_glob_match("./docs/*.md", "docs/a.md"));
+        assert!(path_glob_match("docs/", "docs/a.md"));
+        assert!(path_glob_match("docs/", "docs/sub/a.md"));
+        assert!(path_glob_match("docs/**/*.md", "docs/sub/a.md"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_symlink_resolves_to_the_config_root() {
+        let dir = tempfile::tempdir().unwrap();
+        let real = dir.path().join("real");
+        std::fs::create_dir_all(real.join("docs")).unwrap();
+        std::fs::write(real.join("docs/note.md"), "x").unwrap();
+        let link = dir.path().join("link");
+        std::os::unix::fs::symlink(&real, &link).unwrap();
+        let via_link = path_relative_to_config(&real, dir.path(), &link.join("docs/note.md"));
+        assert_eq!(via_link.as_deref(), Some("docs/note.md"));
+        let via_real = path_relative_to_config(&link, dir.path(), &real.join("docs/note.md"));
+        assert_eq!(via_real.as_deref(), Some("docs/note.md"));
+    }
+
+    #[test]
+    fn symlink_config_test_is_unix_only() {
+        let src = include_str!("config.rs");
+        let marker = "fn a_symlink_resolves_to_the_config_root";
+        let at = src.find(marker).expect("symlink test");
+        let before = &src[..at];
+        let attr = before.rfind("#[cfg(unix)]").unwrap_or(0);
+        let last_fn = before.rfind("\n    fn ").unwrap_or(0);
+        assert!(
+            attr > last_fn,
+            "a_symlink_resolves_to_the_config_root calls std::os::unix::fs::symlink and must be #[cfg(unix)] so Windows can compile the tests"
+        );
+    }
 
     #[test]
     fn parse_empty_config() {
@@ -476,11 +896,114 @@ verbatim_commands = ["Verb"]
     }
 
     #[test]
-    fn latex_other_regex_key_is_ignored() {
-        // latexindent's `other:` regex matching is not supported.
-        let config = ProjectConfig::parse("[latex]\nother = \".*code\"\n").unwrap();
-        assert!(config.latex_verbatim_envs().is_empty());
-        assert!(config.latex_structure_envs().is_empty());
-        assert!(config.latex_verbatim_commands().is_empty());
+    fn latex_other_regex_key_is_rejected() {
+        // latexindent's `other:` regex matching is not a snapper key.
+        let err = ProjectConfig::parse("[latex]\nother = \".*code\"\n").unwrap_err();
+        let text = err.to_string();
+        assert!(
+            text.contains("other"),
+            "an unknown latex key must be named, got {text}"
+        );
+    }
+
+    #[test]
+    fn path_globs_match_directories_and_bare_names() {
+        assert!(path_glob_match("docs/**/*.md", "docs/a/b.md"));
+        assert!(path_glob_match("docs/**/*.md", "docs/b.md"));
+        assert!(!path_glob_match("docs/**/*.md", "docs/a/b.org"));
+        assert!(path_glob_match("*.md", "docs/a.md"));
+        assert!(path_glob_match("notes/?.txt", "notes/a.txt"));
+        assert!(!path_glob_match("notes/?.txt", "notes/ab.txt"));
+    }
+
+    #[test]
+    fn the_first_matching_path_rule_wins() {
+        let config = ProjectConfig::parse(
+            r#"
+max_width = 80
+extra_abbreviations = ["Global"]
+clause_breaks = false
+
+[[path]]
+glob = "docs/**"
+max_width = 40
+clause_breaks = true
+extra_abbreviations = ["RFC"]
+
+[[path]]
+globs = ["docs/special.md"]
+max_width = 0
+ignore = true
+"#,
+        )
+        .unwrap();
+        let special = Path::new("docs/special.md");
+        assert_eq!(
+            config.max_width_for_path("markdown", Some(special)),
+            Some(40)
+        );
+        assert!(config.clause_breaks_for_path(Some(special)));
+        assert!(!config.path_ignored(special));
+        let abbrevs = config.abbreviations_for_path("markdown", Some(special));
+        assert!(abbrevs.contains(&"Global".to_string()));
+        assert!(abbrevs.contains(&"RFC".to_string()));
+        let other = Path::new("notes/a.md");
+        assert_eq!(config.max_width_for_path("markdown", Some(other)), Some(80));
+        assert!(!config.clause_breaks_for_path(Some(other)));
+    }
+
+    #[test]
+    fn a_rooted_rule_ignores_a_path_outside_the_config_tree() {
+        let mut config = ProjectConfig::parse(
+            r#"
+[[path]]
+glob = "*.md"
+ignore = true
+"#,
+        )
+        .unwrap();
+        config.root = Some(PathBuf::from("/work/repo"));
+        assert!(
+            !config.path_ignored(Path::new("/other/docs/note.md")),
+            "a file outside the config root must not match"
+        );
+        assert!(
+            !config.path_ignored(Path::new("docs/note.md")),
+            "a cwd-relative guess must not match a rooted rule"
+        );
+    }
+
+    #[test]
+    fn path_relative_to_config_joins_the_working_directory() {
+        let rel = path_relative_to_config(
+            Path::new("/work/repo"),
+            Path::new("/work/repo/docs"),
+            Path::new("note.md"),
+        );
+        assert_eq!(rel.as_deref(), Some("docs/note.md"));
+        let parent = path_relative_to_config(
+            Path::new("/work/repo"),
+            Path::new("/work/repo/docs"),
+            Path::new("../notes/a.md"),
+        );
+        assert_eq!(parent.as_deref(), Some("notes/a.md"));
+        assert_eq!(
+            path_relative_to_config(
+                Path::new("/work/repo"),
+                Path::new("/work/repo"),
+                Path::new("/other/note.md"),
+            ),
+            None
+        );
+    }
+
+    #[test]
+    fn unsupported_globs_are_named_once() {
+        assert!(unsupported_glob_reason("docs/**/*.md").is_none());
+        assert!(unsupported_glob_reason("*.md").is_none());
+        assert!(unsupported_glob_reason("docs/{a,b}/*.md").is_some());
+        assert!(unsupported_glob_reason("docs/[abc]/*.md").is_some());
+        assert!(unsupported_glob_reason("**.md").is_some());
+        assert!(unsupported_glob_reason(r"docs/\*.md").is_some());
     }
 }

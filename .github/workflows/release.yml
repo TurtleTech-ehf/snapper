@@ -128,7 +128,7 @@ jobs:
           submodules: recursive
       - name: Install Rust
         if: ${{ matrix.container }}
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@1.88
       - name: Install dist
         shell: bash
         run: bash scripts/install_cargo_dist.sh

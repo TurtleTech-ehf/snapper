@@ -14,15 +14,17 @@
   (push '(snapper-latex . ("snapper" "--native" "--format" "latex")) apheleia-formatters)
   (push '(snapper-md . ("snapper" "--native" "--format" "markdown")) apheleia-formatters)
   (push '(snapper-typst . ("snapper" "--native" "--format" "typst")) apheleia-formatters)
+  (push '(snapper-adoc . ("snapper" "--native" "--format" "asciidoc")) apheleia-formatters)
   (push '(org-mode . snapper-org) apheleia-mode-alist)
   (push '(latex-mode . snapper-latex) apheleia-mode-alist)
   (push '(markdown-mode . snapper-md) apheleia-mode-alist)
   (push '(typst-mode . snapper-typst) apheleia-mode-alist)
-  (push '(typst-ts-mode . snapper-typst) apheleia-mode-alist))
+  (push '(typst-ts-mode . snapper-typst) apheleia-mode-alist)
+  (push '(adoc-mode . snapper-adoc) apheleia-mode-alist))
 #+end_src
 
 =--format= does not auto-detect from the buffer name.
-Each mode must pass the matching format token (=org=, =latex=, =markdown=, =rst=, =typst=, =plaintext=).
+Each mode must pass the matching format token (=org=, =latex=, =markdown=, =rst=, =typst=, =asciidoc=, =plaintext=).
 
 * Vim / Neovim
 :PROPERTIES:
@@ -36,6 +38,7 @@ autocmd FileType org setlocal formatprg=snapper\ --native\ --format\ org
 autocmd FileType tex setlocal formatprg=snapper\ --native\ --format\ latex
 autocmd FileType markdown setlocal formatprg=snapper\ --native\ --format\ markdown
 autocmd FileType typst setlocal formatprg=snapper\ --native\ --format\ typst
+autocmd FileType asciidoc setlocal formatprg=snapper\ --native\ --format\ asciidoc
 #+end_src
 
 Then =gq= to reformat selected text, or =gggqG= to reformat the entire buffer.

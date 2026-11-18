@@ -38,8 +38,10 @@ impl SnapperLsp {
         *self.project_config.lock().expect("config lock poisoned") = config;
     }
 
-    fn make_config(&self, format: Format) -> FormatConfig {
+    fn make_config(&self, format: Format, uri: &Url) -> FormatConfig {
         let project = self.project_config.lock().expect("config lock poisoned");
+        let path = uri.to_file_path().ok();
+        let path_ref = path.as_deref();
         let format_str = match format {
             Format::Org => "org",
             Format::Latex => "latex",
@@ -47,16 +49,19 @@ impl SnapperLsp {
             Format::Rst => "rst",
             Format::Plaintext => "plaintext",
             Format::Typst => "typst",
+            Format::AsciiDoc => "asciidoc",
         };
         FormatConfig {
             format,
-            max_width: project.max_width_for_format(format_str).unwrap_or(0),
-            extra_abbreviations: project.abbreviations_for_format(format_str),
+            max_width: project
+                .max_width_for_path(format_str, path_ref)
+                .unwrap_or(0),
+            extra_abbreviations: project.abbreviations_for_path(format_str, path_ref),
             latex_verbatim_envs: project.latex_verbatim_envs(),
             latex_structure_envs: project.latex_structure_envs(),
             latex_verbatim_commands: project.latex_verbatim_commands(),
-            clause_breaks: project.clause_breaks.unwrap_or(false),
-            lowercase_starts: project.lowercase_starts_for_format(format_str),
+            clause_breaks: project.clause_breaks_for_path(path_ref),
+            lowercase_starts: project.lowercase_starts_for_path(format_str, path_ref),
             // VS Code / Helix LSP stay native even if the CLI default flips.
             use_pandoc: false,
             ..Default::default()
@@ -64,26 +69,36 @@ impl SnapperLsp {
     }
 
     fn format_document(&self, uri: &Url) -> Option<Vec<TextEdit>> {
+        if self.path_is_ignored(uri) {
+            return None;
+        }
         // Returns None if lock is poisoned (graceful degradation)
         let docs = self.documents.lock().ok()?;
         let (text, format) = docs.get(uri)?;
-        let config = self.make_config(*format);
+        let config = self.make_config(*format, uri);
         let formatted = format_text(text, &config).ok()?;
         whole_document_edit(text, formatted)
     }
 
     fn compute_diagnostics(&self, uri: &Url) -> Vec<Diagnostic> {
+        if self.path_is_ignored(uri) {
+            return vec![];
+        }
         let docs = self.documents.lock().expect("document store poisoned");
         let Some((text, format)) = docs.get(uri) else {
             return vec![];
         };
-        let config = self.make_config(*format);
+        let config = self.make_config(*format, uri);
         let Ok(splitter) = build_splitter(&config) else {
             return vec![];
         };
         let threshold = {
             let project = self.project_config.lock().expect("config lock poisoned");
-            resolve_long_threshold(config.max_width, project.long_threshold)
+            let path = uri.to_file_path().ok();
+            resolve_long_threshold(
+                config.max_width,
+                project.long_threshold_for_path(path.as_deref()),
+            )
         };
 
         collect_diagnostics(text, *format, splitter.as_ref(), threshold, Some(&config))
@@ -108,6 +123,14 @@ impl SnapperLsp {
                 }
             })
             .collect()
+    }
+
+    fn path_is_ignored(&self, uri: &Url) -> bool {
+        let Ok(path) = uri.to_file_path() else {
+            return false;
+        };
+        let project = self.project_config.lock().expect("config lock poisoned");
+        project.file_skipped(&path)
     }
 }
 
@@ -179,7 +202,14 @@ impl LanguageServer for SnapperLsp {
     async fn did_open(&self, params: DidOpenTextDocumentParams) {
         let uri = params.text_document.uri.clone();
         let text = params.text_document.text.clone();
-        let format = detect_format_from_uri(&uri, &params.text_document.language_id);
+        let Some(format) = detect_format_from_uri(&uri, &params.text_document.language_id) else {
+            self.documents
+                .lock()
+                .expect("document store poisoned")
+                .remove(&uri);
+            self.client.publish_diagnostics(uri, vec![], None).await;
+            return;
+        };
 
         self.documents
             .lock()
@@ -197,7 +227,10 @@ impl LanguageServer for SnapperLsp {
         if let Some(change) = params.content_changes.into_iter().last() {
             let format = {
                 let docs = self.documents.lock().expect("document store poisoned");
-                docs.get(&uri).map_or(Format::Plaintext, |(_, f)| *f)
+                let Some((_, format)) = docs.get(&uri) else {
+                    return;
+                };
+                *format
             };
             self.documents
                 .lock()
@@ -252,7 +285,7 @@ impl LanguageServer for SnapperLsp {
             return Ok(None);
         };
 
-        let config = self.make_config(*format);
+        let config = self.make_config(*format, uri);
         // A range that already covers the whole buffer, final break
         // included, is the same edit as format document. Slicing through
         // `lines` drops that break and the replacement can put it back.
@@ -333,7 +366,7 @@ impl LanguageServer for SnapperLsp {
             });
         };
 
-        let config = self.make_config(*format);
+        let config = self.make_config(*format, uri);
 
         for diag in &snapper_diags {
             let lines: Vec<&str> = text.lines().collect();
@@ -395,7 +428,7 @@ impl LanguageServer for SnapperLsp {
             return Ok(None);
         };
 
-        let config = self.make_config(*format);
+        let config = self.make_config(*format, uri);
         let width_display = if config.max_width == 0 {
             "unlimited".to_string()
         } else {
@@ -445,7 +478,7 @@ impl LanguageServer for SnapperLsp {
         };
 
         let line = text.lines().nth(pos.line as usize).unwrap_or("");
-        let config = self.make_config(*format);
+        let config = self.make_config(*format, uri);
         let formatted = format_text(line, &config).unwrap_or_default();
 
         // Show hover preview only if the line actually needs formatting
@@ -538,21 +571,37 @@ fn whole_document_edit(text: &str, formatted: String) -> Option<Vec<TextEdit>> {
     }
 }
 
-fn detect_format_from_uri(uri: &Url, language_id: &str) -> Format {
+/// The same decision the CLI makes in `recognized_from_path`.
+///
+/// `.asc` is OpenPGP armor. That refusal wins over the language id, including
+/// `plaintext`, so an editor that labels the buffer plaintext cannot reflow it.
+/// A known language id still wins for every other path. A path whose extension
+/// is not a prose format is `None` so the buffer is left alone.
+fn detect_format_from_uri(uri: &Url, language_id: &str) -> Option<Format> {
+    if let Ok(path) = uri.to_file_path()
+        && path
+            .extension()
+            .and_then(|ext| ext.to_str())
+            .is_some_and(|ext| ext.eq_ignore_ascii_case("asc"))
+    {
+        return None;
+    }
     match language_id {
-        "org" => return Format::Org,
-        "latex" | "tex" => return Format::Latex,
-        "markdown" => return Format::Markdown,
-        "plaintext" => return Format::Plaintext,
-        "restructuredtext" => return Format::Rst,
-        "typst" => return Format::Typst,
+        "org" => return Some(Format::Org),
+        "latex" | "tex" => return Some(Format::Latex),
+        "markdown" => return Some(Format::Markdown),
+        "plaintext" => return Some(Format::Plaintext),
+        "restructuredtext" => return Some(Format::Rst),
+        "typst" => return Some(Format::Typst),
+        "asciidoc" | "asciidoctor" => return Some(Format::AsciiDoc),
         _ => {}
     }
     if let Ok(path) = uri.to_file_path() {
-        Format::recognized_from_path(&path).unwrap_or(Format::Plaintext)
-    } else {
-        Format::Plaintext
+        if path.extension().is_some() {
+            return Format::recognized_from_path(&path);
+        }
     }
+    Some(Format::Plaintext)
 }
 
 /// Run the LSP server on stdin/stdout.
@@ -1691,5 +1740,113 @@ mod tests {
         assert_eq!(reproduced, "One.\nTwo.\n");
         assert_eq!(reproduced_again, "One.\nTwo.\n");
         assert_eq!(trailing_newlines(&reproduced_again), 1);
+    }
+
+    #[tokio::test]
+    async fn asc_armor_is_not_rewritten_as_plaintext() {
+        let (service, _socket) = LspService::new(SnapperLsp::new);
+        let server = service.inner();
+        let uri = Url::parse("file:///tmp/note.asc").expect("uri");
+        let text = "-----BEGIN PGP MESSAGE-----\nKeep this. Together.\n-----END PGP MESSAGE-----\n";
+        server
+            .did_open(DidOpenTextDocumentParams {
+                text_document: TextDocumentItem::new(
+                    uri.clone(),
+                    String::new(),
+                    1,
+                    text.to_string(),
+                ),
+            })
+            .await;
+        let edits = server
+            .formatting(DocumentFormattingParams {
+                text_document: TextDocumentIdentifier::new(uri.clone()),
+                options: FormattingOptions {
+                    tab_size: 2,
+                    insert_spaces: true,
+                    ..FormattingOptions::default()
+                },
+                work_done_progress_params: WorkDoneProgressParams::default(),
+            })
+            .await
+            .expect("formatting");
+        assert!(
+            edits.is_none(),
+            ".asc must not be rewritten as plaintext, got {edits:?}"
+        );
+        assert!(
+            server.compute_diagnostics(&uri).is_empty(),
+            "pgp armor must not produce plaintext diagnostics"
+        );
+    }
+
+    #[tokio::test]
+    async fn plaintext_language_id_does_not_override_asc() {
+        let (service, _socket) = LspService::new(SnapperLsp::new);
+        let server = service.inner();
+        let uri = Url::parse("file:///tmp/note.asc").expect("uri");
+        let text = "-----BEGIN PGP MESSAGE-----\nKeep this. Together.\n-----END PGP MESSAGE-----\n";
+        server
+            .did_open(DidOpenTextDocumentParams {
+                text_document: TextDocumentItem::new(
+                    uri.clone(),
+                    "plaintext".to_string(),
+                    1,
+                    text.to_string(),
+                ),
+            })
+            .await;
+        let edits = server
+            .formatting(DocumentFormattingParams {
+                text_document: TextDocumentIdentifier::new(uri.clone()),
+                options: FormattingOptions {
+                    tab_size: 2,
+                    insert_spaces: true,
+                    ..FormattingOptions::default()
+                },
+                work_done_progress_params: WorkDoneProgressParams::default(),
+            })
+            .await
+            .expect("formatting");
+        assert!(
+            edits.is_none(),
+            "language id plaintext must not rewrite .asc, got {edits:?}"
+        );
+        assert!(
+            server.compute_diagnostics(&uri).is_empty(),
+            "language id plaintext must not diagnose .asc"
+        );
+    }
+
+    #[test]
+    fn an_ignored_path_has_no_diagnostics_or_edits() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join(".snapperrc.toml"),
+            "[[path]]\nglob = \"skip/*.md\"\nignore = true\n",
+        )
+        .unwrap();
+        let file = dir.path().join("skip/bad.md");
+        std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+        let text = "Two sentences. Here.\n";
+        std::fs::write(&file, text).unwrap();
+        let uri = Url::from_file_path(&file).unwrap();
+        let (service, _socket) = LspService::new(SnapperLsp::new);
+        let server = service.inner();
+        *server.root_path.lock().expect("root lock") = Some(dir.path().to_path_buf());
+        server.reload_config();
+        server
+            .documents
+            .lock()
+            .expect("docs lock")
+            .insert(uri.clone(), (text.to_string(), Format::Markdown));
+        assert!(
+            server.compute_diagnostics(&uri).is_empty(),
+            "an ignored path must not report diagnostics"
+        );
+        assert!(
+            server.format_document(&uri).is_none(),
+            "an ignored path must not produce a format edit"
+        );
     }
 }

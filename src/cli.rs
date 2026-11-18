@@ -12,6 +12,8 @@ pub enum FormatArg {
     Rst,
     Plaintext,
     Typst,
+    #[value(alias = "adoc")]
+    Asciidoc,
 }
 
 #[derive(Debug, Clone, Copy, ValueEnum)]
@@ -120,7 +122,7 @@ pub struct Cli {
 
     /// Accepted for compatibility.
     /// The default is already the native line parsers
-    /// (markdown/org/rst/latex/typst/plaintext).
+    /// (markdown/org/rst/latex/typst/asciidoc/plaintext).
     /// Editors, wasm, and LSP stay native.
     /// Conflicts with `--use-pandoc`.
     #[arg(long, conflicts_with = "use_pandoc")]
@@ -137,6 +139,24 @@ pub struct Cli {
     /// Exit with code 1 if any file would change.
     #[arg(long)]
     pub check: bool,
+
+    /// Limit `--check`, `--diff`, and reflow to paragraphs that contain a
+    /// line added or modified since the `--changed-from` ref.
+    ///
+    /// With no file arguments, the paths come from `git diff` and from
+    /// untracked prose files. A file that does not exist at the base ref
+    /// is checked in full. Paragraphs with no added or modified line stay
+    /// as they are, including ones that would fail a whole-file check.
+    #[arg(long, conflicts_with = "range")]
+    pub changed: bool,
+
+    /// Git ref `--changed` compares against. Defaults to `HEAD`.
+    ///
+    /// The diff is taken against the merge base of this ref and `HEAD`,
+    /// so a commit that exists only on the ref is not a local edit.
+    /// Ignored unless `--changed` is set.
+    #[arg(long, value_name = "REV", default_value = "HEAD")]
+    pub changed_from: String,
 
     /// Show a unified diff of what would change.
     #[arg(long)]
