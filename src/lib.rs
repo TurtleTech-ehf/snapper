@@ -579,9 +579,26 @@ pub fn format_range(
         .map(|(text, _)| *text)
         .collect::<Vec<_>>()
         .join("\n");
-    let formatted = format_text(&range_text, config)?;
     let endings: Vec<&str> = range.iter().map(|(_, ending)| *ending).collect();
-    let expanded = endings_for_split_lines(range, &formatted, config);
+    let first_ending = endings.first().copied().unwrap_or("\n");
+    let mixed_endings = endings.iter().any(|ending| *ending != first_ending);
+    // A uniform ending is rewritten in one pass below, so it stays one
+    // `format_text`. Mixed endings reuse that formatted string. Sentence
+    // counts from the splitter built for it attribute each source line,
+    // instead of formatting the range a second time.
+    let (formatted, expanded) = if !mixed_endings {
+        let formatted = format_text(&range_text, config)?;
+        (formatted, vec![first_ending])
+    } else if config.format == Format::Markdown && markdown_range_joins(range) {
+        let formatted = format_text(&range_text, config)?;
+        let expanded = endings_for_split_lines(range, &formatted, config, None);
+        (formatted, expanded)
+    } else {
+        let splitter = build_splitter(config)?;
+        let formatted = format_text_with_splitter(&range_text, config, splitter.as_ref())?;
+        let expanded = endings_for_split_lines(range, &formatted, config, Some(splitter.as_ref()));
+        (formatted, expanded)
+    };
     let formatted = apply_range_endings(&formatted, &expanded);
     let formatted_ends = formatted.ends_with('\n');
     result.push_str(&formatted);
@@ -659,14 +676,41 @@ fn formatted_line_count(text: &str, config: &FormatConfig) -> usize {
     }
 }
 
+/// Sentence counts from the splitter that already formatted `formatted`.
+///
+/// Used only when the sum matches the formatted line count, so a mixed
+/// ending range does not call `format_text` a second time. A mismatch falls
+/// back to [`line_counts`].
+fn sentence_counts_matching_output(
+    range: &[(&str, &str)],
+    output_lines: usize,
+    splitter: Option<&dyn crate::sentence::SentenceSplitter>,
+) -> Option<Vec<usize>> {
+    let splitter = splitter?;
+    let counts: Vec<usize> = range
+        .iter()
+        .map(|(text, _)| {
+            if text.trim().is_empty() {
+                1
+            } else {
+                splitter.split(text).len().max(1)
+            }
+        })
+        .collect();
+    if counts.iter().sum::<usize>() == output_lines {
+        Some(counts)
+    } else {
+        None
+    }
+}
+
 /// How many formatted lines each source line becomes.
 ///
-/// One pass. Plain text uses one `format_text` of the range, with a
-/// private-use mark between lines. Markdown that joins a blockquote, list,
-/// or heading (including a lazy continuation) cannot use that mark, so
-/// those ranges count each source line on its own. The two counts are not
-/// both computed: a second pass was 3.6x to 6.3x slower than one
-/// `format_text` of the same prose.
+/// The fallback when sentence counts from the already formatted text do not
+/// match its line count. Plain text uses one `format_text` of the range,
+/// with a private-use mark between lines. Markdown that joins a blockquote,
+/// list, or heading (including a lazy continuation) cannot use that mark, so
+/// those ranges count each source line on its own.
 fn line_counts(range: &[(&str, &str)], config: &FormatConfig) -> Vec<usize> {
     if config.format == Format::Markdown && markdown_range_joins(range) {
         return per_line_counts(range, config);
@@ -768,6 +812,7 @@ fn endings_for_split_lines<'a>(
     range: &[(&'a str, &'a str)],
     formatted: &str,
     config: &FormatConfig,
+    splitter: Option<&dyn crate::sentence::SentenceSplitter>,
 ) -> Vec<&'a str> {
     if range.is_empty() {
         return Vec::new();
@@ -780,7 +825,12 @@ fn endings_for_split_lines<'a>(
         return vec![first];
     }
     let output_lines = output_line_count(formatted);
-    let mut counts = line_counts(range, config);
+    let mut counts =
+        if let Some(counts) = sentence_counts_matching_output(range, output_lines, splitter) {
+            counts
+        } else {
+            line_counts(range, config)
+        };
     let sum: usize = counts.iter().sum();
     if output_lines > sum {
         let extra = output_lines - sum;
@@ -1158,6 +1208,56 @@ mod region_fallback_tests {
         assert!(
             ratio_2000 < 2.0,
             "a 2000-line Markdown range must stay within 2x of one format pass, got {ratio_2000:.2}x"
+        );
+    }
+
+    /// Mixed LF and CRLF must not format the range a second time.
+    #[test]
+    #[ignore = "release timing; run with cargo test --release -- --ignored"]
+    fn mixed_ending_range_stays_near_one_format_pass() {
+        let cfg = md_cfg();
+        let mut ratio_1000 = 0.0;
+        for n in [400usize, 800, 1600] {
+            let mut doc = String::new();
+            for i in 0..n {
+                let ending = if i % 2 == 0 { "\n" } else { "\r\n" };
+                doc.push_str(&format!(
+                    "Sentence {i} stands here today. Another follows it immediately.{ending}"
+                ));
+            }
+            let lines = split_keep_endings(&doc).len();
+            let mut whole = Vec::new();
+            let mut once = Vec::new();
+            for i in 0..4 {
+                let start = std::time::Instant::now();
+                let out = format_range(&doc, &cfg, 1, lines).unwrap();
+                let whole_s = start.elapsed().as_secs_f64();
+                std::hint::black_box(&out);
+                let start = std::time::Instant::now();
+                let out = format_text(&doc, &cfg).unwrap();
+                let once_s = start.elapsed().as_secs_f64();
+                std::hint::black_box(&out);
+                if i == 0 {
+                    continue;
+                }
+                whole.push(whole_s);
+                once.push(once_s);
+            }
+            whole.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            once.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            let whole_m = whole[whole.len() / 2];
+            let once_m = once[once.len() / 2];
+            let ratio = whole_m / once_m;
+            eprintln!(
+                "mixed n={n} whole_median={whole_m:.6}s one_pass_median={once_m:.6}s whole/one={ratio:.2} whole={whole:?}"
+            );
+            if n == 800 {
+                ratio_1000 = ratio;
+            }
+        }
+        assert!(
+            ratio_1000 < 1.5,
+            "a mixed-ending Markdown range must stay within 1.5x of one format pass, got {ratio_1000:.2}x"
         );
     }
 

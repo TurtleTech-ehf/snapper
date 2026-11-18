@@ -13,6 +13,7 @@ All notable changes to this project will be documented in this file. See [conven
 - (**cli** / **check**) a path `--changed` cannot resolve is a resolve error, not an outside-repository warning
 - (**cli** / **check**) `--changed` skips a symlink whose target is outside the repository, still checks the other files, and replaces the resolved file so a swapped link is not followed
 - (**cli** / **check**) a ranged reflow keeps the ending of a line that splits into several sentences, including a mix of LF and CRLF
+- (**cli** / **check**) a mixed LF and CRLF range is formatted once; the formatted text is reused for the per-line endings
 - (**cli** / **check**) `--changed` rejects a file outside this repository or in a different git repository
 - (**lsp**) `.asc` stays unformatted when the language id is plaintext
 - (**wasm**) the package accepts `path` and `ignore`, and `detectFormat` is null for `.asc`
