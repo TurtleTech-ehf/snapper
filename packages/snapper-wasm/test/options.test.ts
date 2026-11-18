@@ -16,6 +16,16 @@ type _nullable = Assert<
 const _publishedContract: [_path, _ignore, _nullable] = [true, true, true];
 void _publishedContract;
 
+test("Format includes Typst and AsciiDoc at the wasm enum values", () => {
+  assert.equal(Format.Org, 0);
+  assert.equal(Format.Latex, 1);
+  assert.equal(Format.Markdown, 2);
+  assert.equal(Format.Rst, 3);
+  assert.equal(Format.Plaintext, 4);
+  assert.equal(Format.Typst, 5);
+  assert.equal(Format.AsciiDoc, 6);
+});
+
 test("applyFormatOptions forwards path and ignore", () => {
   const calls: string[] = [];
   applyFormatOptions(

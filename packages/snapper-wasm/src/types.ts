@@ -5,6 +5,8 @@ export enum Format {
   Markdown = 2,
   Rst = 3,
   Plaintext = 4,
+  Typst = 5,
+  AsciiDoc = 6,
 }
 
 /** Options for formatting text. */
