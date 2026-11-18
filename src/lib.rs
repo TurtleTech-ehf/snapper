@@ -1383,6 +1383,27 @@ mod region_fallback_tests {
     }
 
     #[test]
+    fn width_or_clause_breaks_stay_off_the_fast_path_when_counts_would_match() {
+        let input = "One. Two.\nThree. Four.\r\n";
+        for (max_width, clause_breaks) in [(80usize, false), (0, true)] {
+            let cfg = FormatConfig {
+                format: Format::Markdown,
+                max_width,
+                clause_breaks,
+                ..Default::default()
+            };
+            reset_fast_path_hits();
+            let out = format_range(input, &cfg, 1, 2).unwrap();
+            assert_eq!(out, "One.\nTwo.\nThree.\r\nFour.\r\n");
+            assert_eq!(
+                fast_path_hits(),
+                0,
+                "max_width={max_width} clause_breaks={clause_breaks} must stay off the sentence fast path even when each line's sentences match the formatted lines"
+            );
+        }
+    }
+
+    #[test]
     fn width_and_clause_breaks_skip_the_sentence_fast_path() {
         let input = "Alpha, beta stands here. Gamma follows.\n\
 Delta, epsilon stands here. Zeta follows.\r\n";
