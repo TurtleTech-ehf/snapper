@@ -278,6 +278,9 @@ fn reflow_prose(
         // comment would be reread as structure on the next pass.
         glue_typst_attached_lines(&mut sentences);
     }
+    if config.format == Format::AsciiDoc {
+        glue_adoc_attached_lines(&mut sentences);
+    }
     let nsent = sentences.len();
     for (i, sentence) in sentences.iter().enumerate() {
         // A Typst comment or hash expression owns its newline. Wrapping
@@ -673,6 +676,7 @@ fn line_opens_block(format: Format, line: &str) -> bool {
         Format::Latex => latex_opens_block(line),
         Format::Rst => rst_opens_block(line),
         Format::Typst => crate::parser::typst::typst_line_opens_block(line),
+        Format::AsciiDoc => crate::parser::asciidoc::adoc_line_opens_block(line),
     }
 }
 
@@ -1007,6 +1011,28 @@ fn md_same_line_ol_opener(text: &str) -> bool {
     i += 1;
     matches!(bytes.get(i), Some(b' ') | Some(b'\t'))
         && bytes.get(i + 1).is_some_and(|b| !b.is_ascii_whitespace())
+}
+
+/// Keep an AsciiDoc block opener on the sentence before it.
+///
+/// A later sentence that begins with a heading, list, admonition, or
+/// delimiter would be reread as structure. The first sentence stays.
+fn glue_adoc_attached_lines(sentences: &mut Vec<String>) {
+    let mut i = 1usize;
+    while i < sentences.len() {
+        let trimmed = sentences[i].trim_start();
+        if !crate::parser::asciidoc::adoc_line_opens_block(trimmed) {
+            i += 1;
+            continue;
+        }
+        let extra = sentences.remove(i).trim().to_string();
+        let prev = sentences[i - 1].trim_end().to_string();
+        sentences[i - 1] = if prev.is_empty() {
+            extra
+        } else {
+            format!("{prev} {extra}")
+        };
+    }
 }
 
 /// Keep a Typst block opener on the sentence before it.
@@ -1404,6 +1430,14 @@ fn hanging_indent_width(s: &str) -> usize {
     if crate::parser::markdown::md_definition_list_marker_len(s) == Some(s.len()) {
         return s.chars().count();
     }
+    // AsciiDoc lists (`** `, `. `, `<1> `), checklists, definition
+    // markers (`term:: `), and admonitions (`NOTE: `) hang at the marker.
+    // `* ` and `- ` also match the generic bullet arm below.
+    if crate::parser::asciidoc::adoc_list_marker_len(s) == Some(s.len())
+        || crate::parser::asciidoc::adoc_admonition_marker_len(s) == Some(s.len())
+    {
+        return s.chars().count();
+    }
     // Parser markers are `core` plus one or more trailing spaces; leading
     // indent is part of the hang so nested `   - ` continues at column 5.
     // Extra spaces after `*` (`*  Candidate:`) stay in the hang so a
@@ -1466,6 +1500,9 @@ fn is_hard_break_structure(s: &str) -> bool {
     if crate::parser::org::is_org_line_break_structure(s) {
         return true;
     }
+    if is_asciidoc_hard_break(s) {
+        return true;
+    }
     let Some(body) = s.strip_suffix('\n') else {
         return false;
     };
@@ -1473,6 +1510,14 @@ fn is_hard_break_structure(s: &str) -> bool {
         return true;
     }
     body.len() >= 2 && body.bytes().all(|b| b == b' ')
+}
+
+/// AsciiDoc keeps a trailing ` +` on the line. The prose rewrite must not
+/// insert a newline in front of that structure.
+fn is_asciidoc_hard_break(s: &str) -> bool {
+    let body = s.strip_suffix('\n').unwrap_or(s);
+    let body = body.strip_suffix('\r').unwrap_or(body);
+    body == " +" || body == "\t+"
 }
 
 fn suppress_prose_trailing_newline(s: &str) -> bool {
@@ -1507,6 +1552,25 @@ mod tests {
         let regions = vec![Region::Prose(input.to_string())];
         let config = ReflowConfig::default();
         reflow(&regions, &UnicodeSentenceSplitter::new(), &config)
+    }
+
+    #[test]
+    fn the_typst_doc_comment_is_not_attached_to_asciidoc() {
+        let src = include_str!("reflow.rs");
+        let adoc = src
+            .find("fn glue_adoc_attached_lines")
+            .expect("asciidoc glue");
+        let before = &src[..adoc];
+        let block_start = before.rfind("\n\n").map(|i| i + 2).unwrap_or(0);
+        let comment = before[block_start..].trim();
+        assert!(
+            !comment.contains("Typst"),
+            "the Typst rustdoc is attached to the AsciiDoc function:\n{comment}"
+        );
+        assert!(
+            comment.contains("AsciiDoc"),
+            "the AsciiDoc function should document itself, got {comment}"
+        );
     }
 
     #[test]

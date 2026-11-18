@@ -44,6 +44,9 @@ fn detect_formats(dir: &Path) -> Vec<&'static str> {
     if check("typ") || check("typst") {
         formats.push("typst");
     }
+    if check("adoc") || check("asciidoc") {
+        formats.push("asciidoc");
+    }
     formats
 }
 
@@ -87,6 +90,13 @@ max_width = 0
 
 # Advisory long-line threshold when max_width is 0 (default 120)
 # long_threshold = 120
+
+# First matching [[path]] rule wins. Globs are relative to this file.
+# A pattern with no slash also matches the file name.
+# [[path]]
+# glob = "docs/**/*.md"
+# max_width = 72
+# clause_breaks = true
 
 # Per-language code-block reflow and formatter delegation.
 # Each language entry may set any combination of:
@@ -136,6 +146,7 @@ fn generate_gitattributes(formats: &[&str]) -> String {
             "latex" => "*.tex",
             "markdown" => "*.md",
             "typst" => "*.typ",
+            "asciidoc" => "*.adoc",
             _ => continue,
         };
         lines.push_str(&format!("{ext} filter=snapper\n"));
@@ -179,7 +190,7 @@ fi
 git diff --cached --name-only --diff-filter=ACM -z |
 while IFS= read -r -d '' f || [ -n "$f" ]; do
   case "$f" in
-    *.org|*.tex|*.latex|*.md|*.markdown|*.rst|*.typ|*.typst|*.txt)
+    *.org|*.tex|*.latex|*.md|*.markdown|*.rst|*.typ|*.typst|*.adoc|*.asciidoc|*.txt)
       "$SNAPPER" --native --in-place -- "$f"
       git -c filter.snapper.clean=cat add -- "$f"
       ;;
@@ -286,6 +297,10 @@ fn generate_apheleia(formats: &[&str]) -> String {
         if *fmt == "typst" {
             s.push_str("  (push '(typst-mode . snapper) apheleia-mode-alist)\n");
             s.push_str("  (push '(typst-ts-mode . snapper) apheleia-mode-alist)\n");
+            continue;
+        }
+        if *fmt == "asciidoc" {
+            s.push_str("  (push '(adoc-mode . snapper) apheleia-mode-alist)\n");
             continue;
         }
         let mode = match *fmt {
@@ -431,6 +446,8 @@ mod tests {
         );
         assert!(hook.contains("--in-place"));
         assert!(hook.contains("filter.snapper.clean=cat"));
-        assert!(hook.contains("*.org|*.tex|*.latex|*.md|*.markdown|*.rst|*.typ|*.typst|*.txt"));
+        assert!(hook.contains(
+            "*.org|*.tex|*.latex|*.md|*.markdown|*.rst|*.typ|*.typst|*.adoc|*.asciidoc|*.txt"
+        ));
     }
 }

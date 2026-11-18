@@ -1,3 +1,4 @@
+pub mod asciidoc;
 pub mod latex;
 pub mod markdown;
 pub mod org;
@@ -110,6 +111,7 @@ pub fn parser_for_format_config(
         Format::Rst => Box::new(rst::RstParser),
         Format::Plaintext => Box::new(plaintext::PlaintextParser),
         Format::Typst => Box::new(typst::TypstParser),
+        Format::AsciiDoc => Box::new(asciidoc::AsciiDocParser),
     }
 }
 

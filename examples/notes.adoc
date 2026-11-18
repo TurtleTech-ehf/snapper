@@ -1,0 +1,27 @@
+= A short note
+:author: A. Writer
+
+The method is stable.
+It converges in three steps.
+
+* The baseline is slower.
+  It uses more memory.
+
+NOTE: Keep the warning on its own line.
+The second sentence stays with the paragraph.
+
+[source,rust]
+----
+fn answer() -> i32 {
+    // Keep the code. Do not split this comment yet.
+    42
+}
+----
+
+See the listing above.
+The next claim follows.
+
+====
+Inside the example.
+The second sentence is its own line.
+====

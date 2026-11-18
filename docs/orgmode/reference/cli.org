@@ -62,6 +62,23 @@ Write output to a file instead of stdout.
 
 Modify input files in place.
 Requires file arguments (not stdin).
+A hard-linked file is left unchanged, and the command exits non-zero, unless =--break-hardlinks= is set.
+
+*** =--break-hardlinks=
+:PROPERTIES:
+:CUSTOM_ID: opt-break-hardlinks
+:END:
+
+Replace one name of a hard-linked file.
+Without this flag, =--in-place= leaves a hard-linked file unchanged and exits non-zero.
+The error names that file.
+With this flag, snapper writes the new text to a temporary file in the same directory, syncs it, and renames it onto this path.
+The other names keep the previous text.
+On Unix the parent directory is opened once and the replacement is renamed through that directory descriptor.
+Snapper protects against races on the target's own name and its parent directory entry.
+It does not defend against an attacker who controls ancestor directories above the parent.
+On Windows the replacement is best-effort and does not hold the parent directory open.
+A hard-link count that cannot be read is refused, unless =--break-hardlinks= is set.
 
 *** =-w=, =--max-width <N>=
 :PROPERTIES:
@@ -117,6 +134,43 @@ Check mode for CI.
 Exits with code 1 if any file would change, without modifying anything.
 Prints the paths of files that would be reformatted to stderr.
 With no file arguments, checks stdin (JSON/SARIF on stdout, same exit codes).
+
+*** =--changed=
+:PROPERTIES:
+:CUSTOM_ID: opt-changed
+:END:
+
+Limit =--check=, =--diff=, and reflow to paragraphs that contain a line added or modified since a git ref.
+The ref comes from =--changed-from= and defaults to =HEAD=.
+The comparison uses the merge base of that ref and HEAD.
+A commit that exists only on the ref is not a local edit.
+With no file arguments, the paths come from =git diff= and from untracked prose files.
+Those paths are printed relative to the repository root.
+A file that does not exist at the ref is checked in full.
+A paragraph with no added or modified line is left as it is, including a paragraph that would fail a whole-file check.
+Deleting a line still checks the paragraph that bordered the deletion.
+A repository with no commits yet is compared with the empty tree, so untracked prose is still checked.
+Each line keeps the ending it had, so a mix of LF and CRLF is not rewritten to one style.
+A line that splits into several sentences keeps that line's ending on each of them.
+A path may contain spaces.
+A file outside this repository is an error.
+A file in a different git repository is an error.
+A symlink whose target is outside this repository is skipped with a warning.
+The command still exits non-zero, and the other files in the run are still checked.
+A hard-linked file is left unchanged, and the command exits non-zero.
+=--break-hardlinks= replaces that path only, and the other names keep the previous text.
+A hard-link count that cannot be read is refused the same way.
+On Unix the parent directory is opened once, and the replacement uses that directory descriptor.
+Snapper protects against races on the target's own name and its parent directory entry.
+It does not defend against an attacker who controls ancestor directories above the parent.
+On Windows the replacement is best-effort and does not hold the parent directory open.
+The replacement drops setuid, setgid, and the sticky bit.
+=--in-place= uses that same replacement when =--changed= is not set.
+A path that cannot be resolved is an error, not a file outside the repository.
+=--changed= cannot be combined with =--range=.
+Stdin has no git path, so pass files.
+
+Example: =snapper --check --changed --changed-from origin/main=
 
 *** =--diff=
 :PROPERTIES:

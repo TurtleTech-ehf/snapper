@@ -28,7 +28,7 @@ pub struct LineRange {
 pub struct FormatTextParams {
     /// Text to format with semantic line breaks.
     pub text: String,
-    /// Document format: "org", "latex", "markdown", "rst", "typst", or "plaintext".
+    /// Document format: "org", "latex", "markdown", "rst", "typst", "asciidoc", or "plaintext".
     #[serde(default = "default_format")]
     pub format: String,
     /// Maximum line width (0 = unlimited).
@@ -50,6 +50,10 @@ pub struct FormatTextParams {
     /// Optional 1-indexed inclusive line range. Same meaning as CLI `--range`.
     #[serde(default)]
     pub range: Option<LineRange>,
+    /// File path. When set, `.snapperrc.toml` ignore rules skip the file
+    /// the same way the CLI does, and the text is returned unchanged.
+    #[serde(default)]
+    pub path: Option<String>,
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -65,7 +69,7 @@ pub struct DetectFormatParams {
 pub struct CheckFormattingParams {
     /// Text to check for semantic line break violations.
     pub text: String,
-    /// Document format: "org", "latex", "markdown", "rst", "typst", or "plaintext".
+    /// Document format: "org", "latex", "markdown", "rst", "typst", "asciidoc", or "plaintext".
     #[serde(default = "default_format")]
     pub format: String,
     /// Maximum line width (0 = unlimited). Used as the `long` threshold when set.
@@ -81,6 +85,9 @@ pub struct CheckFormattingParams {
     /// (same as CLI `--lowercase-starts`; default false).
     #[serde(default)]
     pub lowercase_starts: bool,
+    /// File path. An ignored path passes the check without diagnostics.
+    #[serde(default)]
+    pub path: Option<String>,
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -95,6 +102,28 @@ fn default_format() -> String {
 
 fn parse_format(s: &str) -> Format {
     Format::from_extension(s)
+}
+
+/// Load `.snapperrc.toml` from `path`'s directory and apply the CLI skip.
+///
+/// A missing file is not an error. A file that does not parse is: swallowing
+/// it would format the buffer with the defaults and hide the typo.
+fn path_is_ignored(path: Option<&str>) -> Result<bool, rmcp::ErrorData> {
+    let Some(path) = path.filter(|path| !path.is_empty()) else {
+        return Ok(false);
+    };
+    let path = Path::new(path);
+    let start = path
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+        .unwrap_or(Path::new("."));
+    match crate::config::ProjectConfig::find_and_load(start) {
+        Ok(config) => Ok(config.file_skipped(path)),
+        Err(err) => Err(rmcp::ErrorData::invalid_params(
+            format!("failed to load .snapperrc.toml: {err:#}"),
+            None,
+        )),
+    }
 }
 
 fn make_config(
@@ -186,6 +215,11 @@ impl SnapperMcpServer {
         &self,
         Parameters(params): Parameters<FormatTextParams>,
     ) -> Result<Json<FormatTextResult>, rmcp::ErrorData> {
+        if path_is_ignored(params.path.as_deref())? {
+            return Ok(Json(FormatTextResult {
+                formatted: params.text,
+            }));
+        }
         let format = parse_format(&params.format);
         let config = make_config(
             format,
@@ -230,7 +264,15 @@ impl SnapperMcpServer {
     fn check_formatting(
         &self,
         Parameters(params): Parameters<CheckFormattingParams>,
-    ) -> Json<CheckFormattingResult> {
+    ) -> Result<Json<CheckFormattingResult>, rmcp::ErrorData> {
+        if path_is_ignored(params.path.as_deref())? {
+            return Ok(Json(CheckFormattingResult {
+                violations: vec![],
+                passed: true,
+                would_reformat: false,
+                diagnostics: vec![],
+            }));
+        }
         let format = parse_format(&params.format);
         let config = make_config(
             format,
@@ -262,12 +304,12 @@ impl SnapperMcpServer {
                 excerpt: d.excerpt,
             })
             .collect();
-        Json(CheckFormattingResult {
+        Ok(Json(CheckFormattingResult {
             violations,
             passed: !would,
             would_reformat: would,
             diagnostics: dto,
-        })
+        }))
     }
 
     #[tool(
@@ -301,6 +343,7 @@ fn format_name(f: Format) -> String {
         Format::Rst => "rst",
         Format::Plaintext => "plaintext",
         Format::Typst => "typst",
+        Format::AsciiDoc => "asciidoc",
     }
     .to_string()
 }
@@ -339,6 +382,7 @@ mod tests {
             clause_breaks: false,
             lowercase_starts: false,
             range: None,
+            path: None,
         }
     }
 
@@ -355,7 +399,9 @@ mod tests {
                 max_width: 0,
                 clause_breaks,
                 lowercase_starts: false,
+                path: None,
             }))
+            .expect("check_formatting")
             .0
     }
 
@@ -455,6 +501,72 @@ mod tests {
         params.lowercase_starts = true;
         let out = format(params);
         assert_eq!(out, "There are two.\nsetup-python moved to PyPy 8.0.0.");
+    }
+
+    #[test]
+    fn format_text_leaves_an_ignored_path_unchanged() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        std::fs::write(
+            root.join(".snapperrc.toml"),
+            "[[path]]\nglob = \"skip/*.md\"\nignore = true\n",
+        )
+        .unwrap();
+        std::fs::create_dir_all(root.join("skip")).unwrap();
+        let path = root.join("skip/a.md");
+        let input = "Two sentences. Here.\n";
+        let mut params = plaintext(input);
+        params.path = Some(path.display().to_string());
+        let out = format(params);
+        assert_eq!(out, input, "an ignored path must not be reformatted");
+        let checked = SnapperMcpServer::new()
+            .check_formatting(Parameters(CheckFormattingParams {
+                text: input.to_string(),
+                format: "plaintext".to_string(),
+                max_width: 0,
+                clause_breaks: false,
+                lowercase_starts: false,
+                path: Some(path.display().to_string()),
+            }))
+            .expect("check_formatting")
+            .0;
+        assert!(checked.passed);
+        assert!(!checked.would_reformat);
+        assert!(checked.diagnostics.is_empty());
+    }
+
+    #[test]
+    fn format_text_reports_a_malformed_project_config() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join(".snapperrc.toml"), "max_wdith = 72\n").unwrap();
+        let path = dir.path().join("a.md");
+        let mut params = plaintext("Two sentences. Here.\n");
+        params.path = Some(path.display().to_string());
+        let result = SnapperMcpServer::new().format_text(Parameters(params));
+        let err = result.err().unwrap_or_else(|| {
+            panic!("a malformed .snapperrc.toml must be an error, not a reformatted document")
+        });
+        let msg = err.message.to_string();
+        assert!(
+            msg.contains("max_wdith") || msg.contains("unknown field"),
+            "the error must name the bad key, got {msg}"
+        );
+        let checked = SnapperMcpServer::new().check_formatting(Parameters(CheckFormattingParams {
+            text: "Two sentences. Here.\n".to_string(),
+            format: "plaintext".to_string(),
+            max_width: 0,
+            clause_breaks: false,
+            lowercase_starts: false,
+            path: Some(path.display().to_string()),
+        }));
+        let checked_err = checked
+            .err()
+            .unwrap_or_else(|| panic!("check_formatting must surface a malformed .snapperrc.toml"));
+        let checked_msg = checked_err.message.to_string();
+        assert!(
+            checked_msg.contains("max_wdith") || checked_msg.contains("unknown field"),
+            "the check error must name the bad key, got {checked_msg}"
+        );
     }
 
     #[test]

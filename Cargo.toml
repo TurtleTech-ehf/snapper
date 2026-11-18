@@ -3,8 +3,8 @@ name = "snapper-fmt"
 version = "0.11.10"
 edition = "2024"
 autotests = false
-rust-version = "1.85"
-description = "Semantic line break formatter for Org, LaTeX, Markdown, RST, Typst, and plaintext"
+rust-version = "1.88"
+description = "Semantic line break formatter for Org, LaTeX, Markdown, RST, Typst, AsciiDoc, and plaintext"
 repository = "https://github.com/TurtleTech-ehf/snapper"
 license = "MIT"
 keywords = ["sembr", "formatter", "markdown", "latex", "orgmode"]
@@ -129,6 +129,9 @@ tree-sitter-cpp = { version = "0.23", optional = true }
 tree-sitter-go = { version = "0.25", optional = true }
 tree-sitter-bash = { version = "0.25", optional = true }
 tree-sitter-html = { version = "0.23", optional = true }
+
+[target.'cfg(unix)'.dependencies]
+rustix = { version = "=1.1.4", features = ["fs"] }
 
 [dev-dependencies]
 tempfile = "3"

@@ -16,6 +16,7 @@ pub enum Format {
     Rst,
     Plaintext,
     Typst,
+    AsciiDoc,
 }
 
 impl Format {
@@ -30,6 +31,9 @@ impl Format {
             "rst" | "rest" => Some(Format::Rst),
             "txt" | "text" => Some(Format::Plaintext),
             "typ" | "typst" => Some(Format::Typst),
+            // `.asc` is OpenPGP armor. Treating it as AsciiDoc turns the
+            // `-----BEGIN` line into a listing and eats the message.
+            "adoc" | "asciidoc" => Some(Format::AsciiDoc),
             _ => None,
         }
     }
@@ -62,7 +66,29 @@ impl Format {
                 return format;
             }
         }
-        crate::detect::score_text(text)
+        let scored = crate::detect::score_text(text);
+        if scored == Format::Plaintext && crate::parser::asciidoc::looks_like_asciidoc(text) {
+            Format::AsciiDoc
+        } else {
+            scored
+        }
+    }
+
+    /// Format name as it appears in `.snapperrc.toml` (`org`, `latex`, …).
+    ///
+    /// Extension aliases (`md`, `tex`, `typ`, `txt`) are accepted. An unknown
+    /// name is `None` so a typo in a path rule can be reported.
+    pub fn from_config_key(name: &str) -> Option<Self> {
+        match name {
+            "org" => Some(Format::Org),
+            "latex" | "tex" => Some(Format::Latex),
+            "markdown" | "md" => Some(Format::Markdown),
+            "rst" | "rest" => Some(Format::Rst),
+            "plaintext" | "text" | "txt" => Some(Format::Plaintext),
+            "typst" | "typ" => Some(Format::Typst),
+            "asciidoc" | "adoc" => Some(Format::AsciiDoc),
+            _ => None,
+        }
     }
 
     pub fn config_key(self) -> &'static str {
@@ -73,6 +99,7 @@ impl Format {
             Format::Rst => "rst",
             Format::Plaintext => "plaintext",
             Format::Typst => "typst",
+            Format::AsciiDoc => "asciidoc",
         }
     }
 
@@ -85,6 +112,7 @@ impl Format {
             crate::cli::FormatArg::Rst => Format::Rst,
             crate::cli::FormatArg::Plaintext => Format::Plaintext,
             crate::cli::FormatArg::Typst => Format::Typst,
+            crate::cli::FormatArg::Asciidoc => Format::AsciiDoc,
         }
     }
 }
@@ -124,6 +152,15 @@ mod tests {
             Format::recognized_from_extension("typst"),
             Some(Format::Typst)
         );
+        assert_eq!(
+            Format::recognized_from_path(Path::new("notes.adoc")),
+            Some(Format::AsciiDoc)
+        );
+        assert_eq!(
+            Format::recognized_from_extension("asciidoc"),
+            Some(Format::AsciiDoc)
+        );
+        assert_eq!(Format::recognized_from_extension("asc"), None);
     }
 
     #[test]

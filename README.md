@@ -46,7 +46,7 @@ By breaking at sentence boundaries instead, each edit affects only the sentence 
 This convention, often called [semantic line breaks](https://sembr.org/), enjoys longstanding support from technical writers.
 `snapper` is a deterministic formatter (UAX #29 plus abbreviation tables and optional nnsplit).
 It is not [admk/sembr](https://github.com/admk/sembr) (learned clause breaks) and not [sembr/skills](https://github.com/sembr/skills) (agent rewrite instructions).
-`latexindent.pl` covers LaTeX only; snapper is a standalone Rust binary for Org-mode, LaTeX, Markdown, RST, Typst, and plaintext.
+`latexindent.pl` covers LaTeX only; snapper is a standalone Rust binary for Org-mode, LaTeX, Markdown, RST, Typst, AsciiDoc, and plaintext.
 
 
 <a id="design"></a>
@@ -136,6 +136,16 @@ Editors, wasm, and LSP stay native.
 Check formatting without modifying (for CI):
 
     snapper --check paper.org paper.tex notes.md
+
+Limit that check to paragraphs that contain a line added or modified since a git ref (default HEAD):
+
+    snapper --check --changed
+    snapper --check --changed --changed-from origin/main
+
+With no file arguments, `--changed` reads `git diff` and untracked prose files.
+The ref is compared through its merge base with HEAD.
+An edit inside a paragraph reflows that paragraph.
+A paragraph nobody has touched is left as it is.
 
 Limit line width (wrap long sentences at word boundaries):
 
@@ -241,6 +251,12 @@ Configuration guide (org source in-tree): `docs/orgmode/howto/mcp-integration.or
 </tr>
 
 <tr>
+<td class="org-left">AsciiDoc</td>
+<td class="org-left"><code>.adoc</code>, <code>.asciidoc</code></td>
+<td class="org-left">Headings, attributes, listings, and macros stay; list bodies and example interiors reflow</td>
+</tr>
+
+<tr>
 <td class="org-left">Plaintext</td>
 <td class="org-left"><code>.txt</code></td>
 <td class="org-left">(none; all text treated as prose). Unknown extensions are refused unless <code>--format</code> is set</td>
@@ -284,7 +300,7 @@ With `lazy.nvim` (rocks support):
 
     {
       "TurtleTech-ehf/snapper",
-      ft = { "org", "tex", "markdown", "rst", "typst" },
+      ft = { "org", "tex", "markdown", "rst", "typst", "asciidoc" },
       config = function()
         vim.opt.runtimepath:append(
           vim.fn.stdpath("data") .. "/lazy/snapper/editors/nvim"
@@ -369,6 +385,13 @@ Drop a `.snapperrc.toml` in your project root:
     verbatim_commands = ["Verb"]
 
 Missing `[latex]` keys keep the built-in minted/lstlisting/verbatim/comment/Piton, equation/figure, and verb/lstinline/spverb/Verb/piton lists.
+An ordered `[[path]]` rule overrides those values for files that match its glob.
+The first match wins.
+
+    [[path]]
+    glob = "docs/**/*.md"
+    max_width = 72
+
 `snapper` walks up from the current directory to find it.
 
 

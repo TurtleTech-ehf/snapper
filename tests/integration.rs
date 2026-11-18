@@ -4,6 +4,10 @@
 //! binary links the library once. `pandoc_parity_speed` keeps its own
 //! process because it sets the pandoc cache variables other tests read.
 
+#[path = "asciidoc_format.rs"]
+mod asciidoc_format;
+#[path = "changed_mode.rs"]
+mod changed_mode;
 #[path = "check_line_diagnostics.rs"]
 mod check_line_diagnostics;
 #[path = "cli_integration.rs"]
@@ -118,6 +122,8 @@ mod md_spanning_lrd_title;
 mod md_unclosed_double_backtick;
 #[path = "md_yaml_front_matter.rs"]
 mod md_yaml_front_matter;
+#[path = "msrv.rs"]
+mod msrv;
 #[path = "org_angle_links.rs"]
 mod org_angle_links;
 #[path = "org_brace_subscript.rs"]
@@ -194,6 +200,8 @@ mod org_wrap_created_link;
 mod org_wrap_file_token;
 #[path = "pandoc_ast_backend.rs"]
 mod pandoc_ast_backend;
+#[path = "path_rules.rs"]
+mod path_rules;
 #[path = "rst_abbrev_list_continuation.rs"]
 mod rst_abbrev_list_continuation;
 #[path = "rst_anonymous_targets.rs"]

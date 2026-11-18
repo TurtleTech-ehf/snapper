@@ -10,7 +10,7 @@ M.defaults = {
     timeout_ms = 1000,
     async = false,
   },
-  filetypes = { "org", "tex", "markdown", "rst", "typst" },
+  filetypes = { "org", "tex", "markdown", "rst", "typst", "asciidoc" },
   keymaps = {
     format = "<leader>sf",     -- Format buffer
     format_range = "<leader>sF", -- Format selection

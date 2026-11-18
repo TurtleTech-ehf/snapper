@@ -18,7 +18,7 @@ By breaking at sentence boundaries instead, each edit affects only the sentence 
 This convention, often called [[https://sembr.org/][semantic line breaks]], enjoys longstanding support from technical writers.
 ~snapper~ is a deterministic formatter (UAX #29 plus abbreviation tables and optional nnsplit).
 It is not [[https://github.com/admk/sembr][admk/sembr]] (learned clause breaks) and not [[https://github.com/sembr/skills][sembr/skills]] (agent rewrite instructions).
-~latexindent.pl~ covers LaTeX only; snapper is a standalone Rust binary for Org-mode, LaTeX, Markdown, RST, Typst, and plaintext.
+~latexindent.pl~ covers LaTeX only; snapper is a standalone Rust binary for Org-mode, LaTeX, Markdown, RST, Typst, AsciiDoc, and plaintext.
 ** Design
 :PROPERTIES:
 :CUSTOM_ID: design
@@ -101,6 +101,15 @@ Check formatting without modifying (for CI):
 #+begin_src bash
 snapper --check paper.org paper.tex notes.md
 #+end_src
+Limit that check to paragraphs that contain a line added or modified since a git ref (default HEAD):
+#+begin_src bash
+snapper --check --changed
+snapper --check --changed --changed-from origin/main
+#+end_src
+With no file arguments, =--changed= reads =git diff= and untracked prose files.
+The ref is compared through its merge base with HEAD.
+An edit inside a paragraph reflows that paragraph.
+A paragraph nobody has touched is left as it is.
 Limit line width (wrap long sentences at word boundaries):
 #+begin_src bash
 snapper --max-width 80 paper.org
@@ -161,6 +170,7 @@ Configuration guide (org source in-tree): =docs/orgmode/howto/mcp-integration.or
 | Markdown  | =.md=, =.markdown=     | Front matter, HTML; fenced blocks comment reflow when configured |
 | RST       | =.rst=                 | Directives, literals; =.. code-block::= comment reflow         |
 | Typst     | =.typ=                 | Headings, math, raw fences; =#set= / =#let= stay code; list bodies reflow |
+| AsciiDoc  | =.adoc=, =.asciidoc= | Headings, attributes, listings, and macros stay; list bodies and example interiors reflow |
 | Plaintext | =.txt=                 | (none; all text treated as prose). Unknown extensions are refused unless =--format= is set |
 ** Pre-commit hook
 :PROPERTIES:
@@ -272,6 +282,13 @@ structure_envs = ["algorithm", "comment"]
 verbatim_commands = ["Verb"]
 #+end_src
 Missing =[latex]= keys keep the built-in minted/lstlisting/verbatim/comment/Piton, equation/figure, and verb/lstinline/spverb/Verb/piton lists.
+An ordered =[[path]]= rule overrides those values for files that match its glob.
+The first match wins.
+#+begin_src toml
+[[path]]
+glob = "docs/**/*.md"
+max_width = 72
+#+end_src
 ~snapper~ walks up from the current directory to find it.
 * Documentation
 :PROPERTIES:

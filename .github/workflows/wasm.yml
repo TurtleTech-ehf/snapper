@@ -27,7 +27,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@1.88
         with:
           targets: wasm32-unknown-unknown
 
@@ -52,7 +52,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@1.88
         with:
           targets: wasm32-unknown-unknown
       - uses: jetli/wasm-pack-action@v0.4.0
@@ -94,6 +94,7 @@ jobs:
         working-directory: packages/snapper-wasm
         run: |
           npm install
+          npm test
           npm run build
 
       - name: Build Obsidian plugin
@@ -119,6 +120,7 @@ jobs:
         working-directory: packages/snapper-wasm
         run: |
           npm install
+          npm test
           npm run build
 
       - name: Build Word add-in

@@ -25,6 +25,8 @@ static NON_ORG_INLINE_TOKEN_RE: LazyLock<Regex> =
     LazyLock::new(|| build_inline_token_regex(Some(Format::Plaintext)));
 static MARKDOWN_INLINE_TOKEN_RE: LazyLock<Regex> =
     LazyLock::new(|| build_inline_token_regex(Some(Format::Markdown)));
+static ASCIIDOC_INLINE_TOKEN_RE: LazyLock<Regex> =
+    LazyLock::new(|| build_inline_token_regex(Some(Format::AsciiDoc)));
 static TYPST_INLINE_TOKEN_RE: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(
         [
@@ -45,108 +47,120 @@ static TYPST_INLINE_TOKEN_RE: LazyLock<Regex> = LazyLock::new(|| {
 });
 
 fn build_inline_token_regex(format: Option<Format>) -> Regex {
+    let mut patterns: Vec<&str> = vec![
+        r"\[\[[^\]]*\]\]",           // Org links: [[url]] or [[url][desc]]
+        r"\[\[[^\]]*\]\[[^\]]*\]\]", // Org links with desc
+        // org-element 5.5 citation: [cite/style:prefix;@key p. 7;suffix]
+        // Must be atomic so a page locator is not a sentence boundary.
+        r"\[cite(?:/[-a-zA-Z0-9_/]*)?:[^\]]*\]",
+        // org-element-footnote-reference-parser / org-footnote-re
+        // inline arm: [fn::def] / [fn:LABEL:def]. First ] closes.
+        // Standard [fn:LABEL] is not a token (GitHub #231).
+        r"\[fn:(?:[-_\w]+)?:[^\]]*\]",
+        // org-element-radio-target-parser / org-radio-target-regexp:
+        // <<<contents>>> with no <, >, or newline. Must precede <<...>>
+        // so the triple-angle form stays one token (GitHub #211).
+        r"<<<[^<>\n]+>>>",
+        // org-element-target-parser / org-target-regexp: <<contents>>
+        r"<<[^<>\n]+>>",
+        // org-element-macro-parser / org-macro.el:
+        // {{{name}}} or {{{name(args)}}}. Name is
+        // [a-zA-Z][-a-zA-Z0-9_]*; args are non-greedy and may
+        // span lines. Two-brace {{...}} is not a macro (GitHub #212).
+        r"\{\{\{[a-zA-Z][-a-zA-Z0-9_]*(?:\((?:.|\n)*?\))?\}\}\}",
+        // org-element-timestamp-parser (org-ts-regexp / org-tsr-regexp).
+        // Diary <%%(...)> first (unique prefix). Ranges before singles
+        // so <ts>--<ts> stays one token. YYYY-MM-DD after [ or < so
+        // radio/macro/fn/cite/autolink are not stolen (GitHub #248).
+        r"<%%\([^>\n]+\)[^\n>]*>",
+        r"[<\[][0-9]{4}-[0-9]{2}-[0-9]{2} ?[^\]>\r\n]*?[>\]]--[<\[][0-9]{4}-[0-9]{2}-[0-9]{2} ?[^\]>\r\n]*?[>\]]",
+        r"<[0-9]{4}-[0-9]{2}-[0-9]{2} ?[^>\r\n]*?>",
+        r"\[[0-9]{4}-[0-9]{2}-[0-9]{2} ?[^\]\r\n]*?\]",
+        r"\[[^\]]+\]\([^)]+\)",  // Markdown links: [text](url)
+        r"!\[[^\]]*\]\([^)]+\)", // Markdown images: ![alt](url)
+        // CommonMark 0.31.2 §6.3 full / collapsed reference links.
+        // The label must follow the text immediately. A bare `[text]`
+        // with no interior sentence punctuation is not a token: that
+        // would swallow `[fn:1]` and every other bracket group.
+        // A shortcut whose label contains `.` `!` or `?` is one span.
+        r"!\[[^\]]*\]\[[^\]]*\]", // Markdown reference images: ![alt][ref]
+        r"\[[^\]]+\]\[[^\]]*\]",  // Markdown reference links: [text][ref]
+        // Pandoc citation: `[@doe2020]` / `[see @doe2020, pp. 33]`.
+        // `@` is the key, not an email glued to the previous word.
+        // Org `[cite:…]` is already a token above.
+        r"\[(?:[^\[\]\n]*[;\s])?-?@[A-Za-z][^\[\]\n]*\]",
+        // Shortcut reference whose label holds a sentence boundary.
+        // No look-around: the regex crate rejects it. `[fn:1]` has no
+        // `.` `!` or `?`, and `[cite:…]` / `[fn::…]` match earlier.
+        r"\[[^\[\]\n]*[.!?][^\[\]\n]*\]",
+        r"\$\$[^$\n]+\$\$", // Display math: $$...$$
+        // org-element-latex-fragment-parser: after `$` the next char
+        // is not space/tab/newline/`,`/`.`/`;`; the char before the
+        // closer is not space/tab/newline/`,`. A `.` may sit against
+        // the closer (`$See this. Then that.$`, pandoc tex_math_dollars).
+        // `$ x. Next $` is leftover prose. `$a. b$` and `$x = 3.14$`
+        // stay fragments.
+        r"\$[^\s,.;$\n](?:[^$\n]*[^\s,$\n])?\$",
+        // org-element-latex-fragment-parser: \(...\) / \[...\] search
+        // to the closer. `[^\\\n]` dropped interior `\alpha` / `\beta`.
+        r"\\\([^\n]+?\\\)", // LaTeX inline math: \(...\)
+        r"\\\[[^\n]+?\\\]", // Org / LaTeX display math fragment: \[...\]
+        // org-element-latex-fragment-parser macro:
+        // \\[a-zA-Z]+\*? then ([arg]|{arg})* (zero braces is a fragment).
+        r"\\[a-zA-Z]+\*?(?:\[[^\]\[\n{}]*\]|\{[^{}\n]*\})+",
+        // Org emphasis must be protected before sentence splits so a line
+        // cannot begin with `*rest` (false headline) or leave markers open.
+        // Org requires a non-space immediately after the opener and before
+        // the closer; content may include spaces and sentence punctuation.
+        // (Rust `regex` has no lookbehind; encode the border as char classes.)
+        r"\*[^*\s\n](?:[^*\n]*[^*\s\n])?\*", // Org bold: *text*
+        ORG_ITALIC_PATTERN,                  // Org italic: /text/
+        ORG_UNDERLINE_PATTERN,               // Org underline: _text_
+        ORG_STRIKE_PATTERN,                  // Org strike-through: +text+
+        // Org `=verbatim=` / `~code~` and Markdown backtick spans are
+        // paired below: a regex that forbids the delimiter inside the
+        // span closes on the first inner copy and leaves the real closer
+        // (and any period before it) unprotected.
+        // Org angular links (ol.el org-link-angle-re / GitHub #335):
+        // `<%s:\([^>\n]*\(?:\n[ \t]*[^> \t\n][^>\n]*\)*\)>` where %s
+        // is org-link-types. Path may contain spaces; folded
+        // continuation is the Emacs `\n[ \t]*[^> \t\n][^>\n]*` arm.
+        // Type is lowercase so `Vec<T: Bound>` is not stolen.
+        // Must precede the bare `file:` token. CommonMark autolinks
+        // stay the no-space alternative below.
+        r"<[a-z][a-z0-9+.\-]*:[^<>\n]*(?:\n[ \t]*[^<> \t\n][^<>\n]*)*>",
+        r"<[A-Za-z][A-Za-z0-9+.\-]*:[^\s<>]*>", // Autolink: <http://...>
+        r"<[^\s<>@]+@[^\s<>]+>",                // Autolink: <user@host>
+        r#"https?://\S+[^.\s!?,;:)\]'""]"#,     // URLs (don't swallow trailing punctuation)
+        r#"file:\S+[^.\s!?,;:)\]'""]"#, // Org file: links (don't swallow trailing punctuation)
+        // org-element-export-snippet-parser. Backend is [-A-Za-z0-9]+
+        // so html5 and hyphen names stay one token (GitHub #354).
+        r"@@[-A-Za-z0-9]+:.*?@@",
+    ];
+    if format == Some(Format::AsciiDoc) {
+        // Before the bare URL token, which would stop inside `[a. b]`.
+        patterns.insert(
+            0,
+            r"(?:link|xref|mailto|image|video|audio|icon):[^\s\[\n]+\[[^\]\n]*\]",
+        );
+        patterns.insert(1, r"https?://[^\s\[\n]+\[[^\]\n]*\]");
+    }
     Regex::new(
-        &[
-            r"\[\[[^\]]*\]\]",           // Org links: [[url]] or [[url][desc]]
-            r"\[\[[^\]]*\]\[[^\]]*\]\]", // Org links with desc
-            // org-element 5.5 citation: [cite/style:prefix;@key p. 7;suffix]
-            // Must be atomic so a page locator is not a sentence boundary.
-            r"\[cite(?:/[-a-zA-Z0-9_/]*)?:[^\]]*\]",
-            // org-element-footnote-reference-parser / org-footnote-re
-            // inline arm: [fn::def] / [fn:LABEL:def]. First ] closes.
-            // Standard [fn:LABEL] is not a token (GitHub #231).
-            r"\[fn:(?:[-_\w]+)?:[^\]]*\]",
-            // org-element-radio-target-parser / org-radio-target-regexp:
-            // <<<contents>>> with no <, >, or newline. Must precede <<...>>
-            // so the triple-angle form stays one token (GitHub #211).
-            r"<<<[^<>\n]+>>>",
-            // org-element-target-parser / org-target-regexp: <<contents>>
-            r"<<[^<>\n]+>>",
-            // org-element-macro-parser / org-macro.el:
-            // {{{name}}} or {{{name(args)}}}. Name is
-            // [a-zA-Z][-a-zA-Z0-9_]*; args are non-greedy and may
-            // span lines. Two-brace {{...}} is not a macro (GitHub #212).
-            r"\{\{\{[a-zA-Z][-a-zA-Z0-9_]*(?:\((?:.|\n)*?\))?\}\}\}",
-            // org-element-timestamp-parser (org-ts-regexp / org-tsr-regexp).
-            // Diary <%%(...)> first (unique prefix). Ranges before singles
-            // so <ts>--<ts> stays one token. YYYY-MM-DD after [ or < so
-            // radio/macro/fn/cite/autolink are not stolen (GitHub #248).
-            r"<%%\([^>\n]+\)[^\n>]*>",
-            r"[<\[][0-9]{4}-[0-9]{2}-[0-9]{2} ?[^\]>\r\n]*?[>\]]--[<\[][0-9]{4}-[0-9]{2}-[0-9]{2} ?[^\]>\r\n]*?[>\]]",
-            r"<[0-9]{4}-[0-9]{2}-[0-9]{2} ?[^>\r\n]*?>",
-            r"\[[0-9]{4}-[0-9]{2}-[0-9]{2} ?[^\]\r\n]*?\]",
-            r"\[[^\]]+\]\([^)]+\)",  // Markdown links: [text](url)
-            r"!\[[^\]]*\]\([^)]+\)", // Markdown images: ![alt](url)
-            // CommonMark 0.31.2 §6.3 full / collapsed reference links.
-            // The label must follow the text immediately. A bare `[text]`
-            // with no interior sentence punctuation is not a token: that
-            // would swallow `[fn:1]` and every other bracket group.
-            // A shortcut whose label contains `.` `!` or `?` is one span.
-            r"!\[[^\]]*\]\[[^\]]*\]", // Markdown reference images: ![alt][ref]
-            r"\[[^\]]+\]\[[^\]]*\]",  // Markdown reference links: [text][ref]
-            // Pandoc citation: `[@doe2020]` / `[see @doe2020, pp. 33]`.
-            // `@` is the key, not an email glued to the previous word.
-            // Org `[cite:…]` is already a token above.
-            r"\[(?:[^\[\]\n]*[;\s])?-?@[A-Za-z][^\[\]\n]*\]",
-            // Shortcut reference whose label holds a sentence boundary.
-            // No look-around: the regex crate rejects it. `[fn:1]` has no
-            // `.` `!` or `?`, and `[cite:…]` / `[fn::…]` match earlier.
-            r"\[[^\[\]\n]*[.!?][^\[\]\n]*\]",
-            r"\$\$[^$\n]+\$\$", // Display math: $$...$$
-            // org-element-latex-fragment-parser: after `$` the next char
-            // is not space/tab/newline/`,`/`.`/`;`; the char before the
-            // closer is not space/tab/newline/`,`. A `.` may sit against
-            // the closer (`$See this. Then that.$`, pandoc tex_math_dollars).
-            // `$ x. Next $` is leftover prose. `$a. b$` and `$x = 3.14$`
-            // stay fragments.
-            r"\$[^\s,.;$\n](?:[^$\n]*[^\s,$\n])?\$",
-            // org-element-latex-fragment-parser: \(...\) / \[...\] search
-            // to the closer. `[^\\\n]` dropped interior `\alpha` / `\beta`.
-            r"\\\([^\n]+?\\\)", // LaTeX inline math: \(...\)
-            r"\\\[[^\n]+?\\\]", // Org / LaTeX display math fragment: \[...\]
-            // org-element-latex-fragment-parser macro:
-            // \\[a-zA-Z]+\*? then ([arg]|{arg})* (zero braces is a fragment).
-            r"\\[a-zA-Z]+\*?(?:\[[^\]\[\n{}]*\]|\{[^{}\n]*\})+",
-            // Org emphasis must be protected before sentence splits so a line
-            // cannot begin with `*rest` (false headline) or leave markers open.
-            // Org requires a non-space immediately after the opener and before
-            // the closer; content may include spaces and sentence punctuation.
-            // (Rust `regex` has no lookbehind; encode the border as char classes.)
-            r"\*[^*\s\n](?:[^*\n]*[^*\s\n])?\*", // Org bold: *text*
-            ORG_ITALIC_PATTERN,                       // Org italic: /text/
-            ORG_UNDERLINE_PATTERN,                    // Org underline: _text_
-            ORG_STRIKE_PATTERN,                       // Org strike-through: +text+
-            // Org `=verbatim=` / `~code~` and Markdown backtick spans are
-            // paired below: a regex that forbids the delimiter inside the
-            // span closes on the first inner copy and leaves the real closer
-            // (and any period before it) unprotected.
-            // Org angular links (ol.el org-link-angle-re / GitHub #335):
-            // `<%s:\([^>\n]*\(?:\n[ \t]*[^> \t\n][^>\n]*\)*\)>` where %s
-            // is org-link-types. Path may contain spaces; folded
-            // continuation is the Emacs `\n[ \t]*[^> \t\n][^>\n]*` arm.
-            // Type is lowercase so `Vec<T: Bound>` is not stolen.
-            // Must precede the bare `file:` token. CommonMark autolinks
-            // stay the no-space alternative below.
-            r"<[a-z][a-z0-9+.\-]*:[^<>\n]*(?:\n[ \t]*[^<> \t\n][^<>\n]*)*>",
-            r"<[A-Za-z][A-Za-z0-9+.\-]*:[^\s<>]*>", // Autolink: <http://...>
-            r"<[^\s<>@]+@[^\s<>]+>",                // Autolink: <user@host>
-            r#"https?://\S+[^.\s!?,;:)\]'""]"#,     // URLs (don't swallow trailing punctuation)
-            r#"file:\S+[^.\s!?,;:)\]'""]"#, // Org file: links (don't swallow trailing punctuation)
-            // org-element-export-snippet-parser. Backend is [-A-Za-z0-9]+
-            // so html5 and hyphen names stay one token (GitHub #354).
-            r"@@[-A-Za-z0-9]+:.*?@@",
-        ]
-        .into_iter()
-        .filter_map(|pattern| match pattern {
-            ORG_ITALIC_PATTERN | ORG_STRIKE_PATTERN
-                if format.is_some_and(|format| format != Format::Org) => None,
-            ORG_UNDERLINE_PATTERN if format == Some(Format::Markdown) => {
-                Some(MARKDOWN_UNDERSCORE_PATTERN)
-            }
-            _ => Some(pattern),
-        })
-        .collect::<Vec<_>>()
-        .join("|"),
+        &patterns
+            .into_iter()
+            .filter_map(|pattern| match pattern {
+                ORG_ITALIC_PATTERN | ORG_STRIKE_PATTERN
+                    if format.is_some_and(|format| format != Format::Org) =>
+                {
+                    None
+                }
+                ORG_UNDERLINE_PATTERN if format == Some(Format::Markdown) => {
+                    Some(MARKDOWN_UNDERSCORE_PATTERN)
+                }
+                _ => Some(pattern),
+            })
+            .collect::<Vec<_>>()
+            .join("|"),
     )
     .expect("valid inline token regex")
 }
@@ -156,6 +170,7 @@ fn inline_token_regex(format: Option<Format>) -> &'static Regex {
         None | Some(Format::Org) => &INLINE_TOKEN_RE,
         Some(Format::Markdown) => &MARKDOWN_INLINE_TOKEN_RE,
         Some(Format::Typst) => &TYPST_INLINE_TOKEN_RE,
+        Some(Format::AsciiDoc) => &ASCIIDOC_INLINE_TOKEN_RE,
         Some(_) => &NON_ORG_INLINE_TOKEN_RE,
     }
 }

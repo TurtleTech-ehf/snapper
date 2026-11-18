@@ -9,6 +9,7 @@
 
 export { Format, type FormatOptions } from "./types.js";
 import { Format, type FormatOptions } from "./types.js";
+import { applyFormatOptions, normalizeDetectedFormat } from "./options.js";
 
 // The wasm-pack output is expected at ../pkg/ relative to the package root.
 // Consumers must ensure the WASM binary is available (bundled or fetched).
@@ -79,10 +80,15 @@ export class SnapperFormatter {
     }
   }
 
-  /** Detect document format from a filename. */
-  detectFormat(filename: string): Format {
+  /**
+   * Detect document format from a filename.
+   * `.asc` is OpenPGP armor and returns null, matching the CLI.
+   */
+  detectFormat(filename: string): Format | null {
     const wasm = this.ensureInit();
-    return wasm.detectFormat(filename) as unknown as Format;
+    return normalizeDetectedFormat(
+      wasm.detectFormat(filename) as unknown as number | null | undefined,
+    );
   }
 
   /** Return the snapper version. */
@@ -95,20 +101,6 @@ export class SnapperFormatter {
     config: InstanceType<WasmModule["WasmConfig"]>,
     options?: FormatOptions,
   ): void {
-    if (!options) return;
-    if (options.format !== undefined) {
-      config.set_format(options.format as unknown as number);
-    }
-    if (options.maxWidth !== undefined) {
-      config.set_max_width(options.maxWidth);
-    }
-    if (options.lang) {
-      config.set_lang(options.lang);
-    }
-    if (options.extraAbbreviations) {
-      for (const abbrev of options.extraAbbreviations) {
-        config.add_abbreviation(abbrev);
-      }
-    }
+    applyFormatOptions(config, options);
   }
 }

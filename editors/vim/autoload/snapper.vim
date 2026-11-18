@@ -46,5 +46,5 @@ function! snapper#info()
   echo 'Snapper Info:'
   echo '  Binary: available'
   echo '  Version: ' . trim(version_output)
-  echo '  Supported formats: org, latex, markdown, rst, typst, plaintext'
+  echo '  Supported formats: org, latex, markdown, rst, typst, asciidoc, plaintext'
 endfunction

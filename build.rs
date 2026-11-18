@@ -318,10 +318,10 @@ fn find_static_archive() -> Option<PathBuf> {
         }
     }
     let dist = manifest.join("native/snapper-pandoc/dist-newstyle");
-    if dist.is_dir() {
-        if let Some(found) = find_file(&dist, "libsnapper_pandoc.a") {
-            return Some(found);
-        }
+    if dist.is_dir()
+        && let Some(found) = find_file(&dist, "libsnapper_pandoc.a")
+    {
+        return Some(found);
     }
     None
 }
@@ -336,10 +336,10 @@ fn find_file(root: &Path, name: &str) -> Option<PathBuf> {
             if p.is_file() && p.file_name().and_then(|s| s.to_str()) == Some(name) {
                 return Some(p);
             }
-            if p.is_dir() {
-                if let Some(f) = walk(&p, name, depth + 1) {
-                    return Some(f);
-                }
+            if p.is_dir()
+                && let Some(f) = walk(&p, name, depth + 1)
+            {
+                return Some(f);
             }
         }
         None

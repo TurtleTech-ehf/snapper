@@ -2,6 +2,36 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 - - -
+## Unreleased
+#### Features
+- (**cli** / **check**) `--changed` limits check, diff, and reflow to paragraphs that contain a line added or modified since a git ref
+- (**config**) `[[path]]` rules set width, breaks, abbreviations, format, and ignore for the first matching glob
+- (**asciidoc**) native reflow for `.adoc` and `.asciidoc`, including lists, admonitions, and example interiors
+#### Bug Fixes
+- (**cli** / **check**) `--changed` creates its replacement with a private name and the file's permission bits, and does not follow a symlink planted at the temporary path
+- (**cli** / **check**) a hard-linked file is left unchanged and the command exits non-zero; `--break-hardlinks` replaces that path only, and the other names keep the previous text
+- (**cli** / **check**) a replacement is synced before rename, permissions and owner are set on the file descriptor, and a path that changes between stat and open is left unwritten
+- (**cli** / **check**) a Unix replacement opens the parent directory once and creates, writes, and renames the temporary file through that descriptor; it protects races on the target's own name and its parent directory entry, and does not defend against an attacker who controls an ancestor above that parent
+- (**cli** / **check**) a hard-link count that cannot be read is refused unless `--break-hardlinks` is set; Windows still replaces by path and is best-effort
+- (**cli** / **check**) `--in-place` uses that same writer without `--changed`
+- (**cli** / **check**) a path `--changed` cannot resolve is a resolve error, not an outside-repository warning
+- (**cli** / **check**) `--changed` skips a symlink whose target is outside the repository, still checks the other files, and replaces the resolved file so a swapped link is not followed
+- (**cli** / **check**) a ranged reflow keeps the ending of a line that splits into several sentences, including a mix of LF and CRLF
+- (**cli** / **check**) a mixed LF and CRLF range is formatted once; the formatted text is reused for the per-line endings
+- (**cli** / **check**) a mixed-ending range keeps each line's ending only when that line's own sentence count matches, and a width or clause-break reflow does not use the one-pass count
+- (**cli** / **check**) `--changed` rejects a file outside this repository or in a different git repository
+- (**lsp**) `.asc` stays unformatted when the language id is plaintext
+- (**wasm**) the package accepts `path` and `ignore`, and `detectFormat` is null for `.asc`
+- (**mcp**) a malformed `.snapperrc.toml` is an error instead of being ignored
+- (**build**) the MSRV is 1.88, matching darling 0.23, and CI installs that toolchain
+- (**cli** / **check**) `--changed` diffs the merge base, literal pathspecs, and keeps CRLF
+- (**cli** / **check**) `--changed` keeps each line's ending, checks a paragraph that only lost a line, accepts a repository with no commits, and prints repo-relative paths
+- (**config**) `[[path]]` globs match from the config file, a broken config is an error, and ignore covers stdin and the language server
+- (**config**) unknown keys and a `[[path]]` rule with no glob are errors; `./` and a trailing `/` are normalized; symlinks match; MCP and WASM use the same ignore matcher
+- (**asciidoc**) keep `+` continuations, hard breaks, styled paragraphs, numbered lists, and exact listing closers; `.asc` is not AsciiDoc
+- (**asciidoc**) `[%hardbreaks]`, `[source]` on an open block, a tab hard break, and `link:…[a. b]` stay intact; `.asc` is not plaintext in the language server or WASM
+
+- - -
 ## v0.11.10 - 2026-10-11
 #### Bug Fixes
 - (**sentence**) keep journal title abbreviations inside the sentence - (4904216) - *HaoZeke*

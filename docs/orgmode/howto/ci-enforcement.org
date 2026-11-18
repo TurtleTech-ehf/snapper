@@ -40,7 +40,7 @@ Add to =.pre-commit-config.yaml=:
     - id: snapper
 #+end_src
 
-This runs =snapper --in-place= on changed files matching =.org=, =.tex=/=.latex=, =.md=/=.markdown=, =.rst=, =.typ=/=.typst=, and =.txt= (extension match; pre-commit identify has no =org= type).
+This runs =snapper --in-place= on changed files matching =.org=, =.tex=/=.latex=, =.md=/=.markdown=, =.rst=, =.typ=/=.typst=, =.adoc=/=.asciidoc=, and =.txt= (extension match; pre-commit identify has no =org= type).
 Requires a Rust toolchain to build the hook from this repo.
 
 * Manual GitHub Actions
@@ -73,6 +73,15 @@ For structured output:
 :PROPERTIES:
 :CUSTOM_ID: preview-changes
 :END:
+
+Use =--changed= when a repository already contains paragraphs that are not one sentence per line.
+The check then reports only paragraphs that contain a line added or modified since the base ref.
+That base is the merge base of the ref and HEAD.
+
+#+begin_src yaml
+- name: Check new prose
+  run: snapper --check --changed --changed-from origin/main
+#+end_src
 
 Use =--diff= to show what would change:
 

@@ -84,7 +84,7 @@ pub fn unified_diff(path: &str, original: &str, formatted: &str) -> String {
     if body.is_empty() {
         return String::new();
     }
-    format!("--- a/{}\n+++ b/{}\n{}", path, path, body)
+    format!("--- a/{path}\n+++ b/{path}\n{body}")
 }
 
 /// Print a unified diff to stdout. No-op if texts are identical.

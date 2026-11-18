@@ -12,6 +12,8 @@ pub enum FormatArg {
     Rst,
     Plaintext,
     Typst,
+    #[value(alias = "adoc")]
+    Asciidoc,
 }
 
 #[derive(Debug, Clone, Copy, ValueEnum)]
@@ -69,6 +71,23 @@ pub struct Cli {
     #[arg(short, long)]
     pub in_place: bool,
 
+    /// Replace one name of a hard-linked file, instead of refusing it.
+    ///
+    /// Without this flag, `--in-place` leaves a hard-linked file unchanged
+    /// and exits non-zero. The error names that file.
+    /// With this flag, the new text is synced to a temporary file in the
+    /// same directory and renamed onto this path. The other names keep
+    /// the previous text. On Unix the parent directory is opened once and
+    /// the replacement uses that directory descriptor. Snapper protects
+    /// against races on the target's own name and its parent directory
+    /// entry. It does not defend against an attacker who controls ancestor
+    /// directories above the parent. On Windows the replacement is
+    /// best-effort and does not hold the parent directory open. A
+    /// hard-link count that cannot be read is refused unless this flag is
+    /// set.
+    #[arg(long)]
+    pub break_hardlinks: bool,
+
     /// Maximum line width (0 = unlimited).
     #[arg(short = 'w', long, default_value_t = 0)]
     pub max_width: usize,
@@ -120,7 +139,7 @@ pub struct Cli {
 
     /// Accepted for compatibility.
     /// The default is already the native line parsers
-    /// (markdown/org/rst/latex/typst/plaintext).
+    /// (markdown/org/rst/latex/typst/asciidoc/plaintext).
     /// Editors, wasm, and LSP stay native.
     /// Conflicts with `--use-pandoc`.
     #[arg(long, conflicts_with = "use_pandoc")]
@@ -137,6 +156,24 @@ pub struct Cli {
     /// Exit with code 1 if any file would change.
     #[arg(long)]
     pub check: bool,
+
+    /// Limit `--check`, `--diff`, and reflow to paragraphs that contain a
+    /// line added or modified since the `--changed-from` ref.
+    ///
+    /// With no file arguments, the paths come from `git diff` and from
+    /// untracked prose files. A file that does not exist at the base ref
+    /// is checked in full. Paragraphs with no added or modified line stay
+    /// as they are, including ones that would fail a whole-file check.
+    #[arg(long, conflicts_with = "range")]
+    pub changed: bool,
+
+    /// Git ref `--changed` compares against. Defaults to `HEAD`.
+    ///
+    /// The diff is taken against the merge base of this ref and `HEAD`,
+    /// so a commit that exists only on the ref is not a local edit.
+    /// Ignored unless `--changed` is set.
+    #[arg(long, value_name = "REV", default_value = "HEAD")]
+    pub changed_from: String,
 
     /// Show a unified diff of what would change.
     #[arg(long)]
@@ -337,6 +374,20 @@ mod tests {
         assert!(cli.resolve_use_pandoc_config(Some(true)));
         let native = Cli::parse_from(["snapper", "--native"]);
         assert!(!native.resolve_use_pandoc_config(Some(true)));
+    }
+
+    #[test]
+    fn help_documents_break_hardlinks() {
+        let err = Cli::try_parse_from(["snapper", "--help"]).unwrap_err();
+        let text = err.to_string();
+        assert!(
+            text.contains("--break-hardlinks"),
+            "help must document the flag, got {text}"
+        );
+        assert!(
+            text.contains("hard-linked"),
+            "help must say the file is hard-linked, got {text}"
+        );
     }
 
     #[test]
