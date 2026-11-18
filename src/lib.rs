@@ -589,7 +589,9 @@ pub fn format_range(
     let (formatted, expanded) = if !mixed_endings {
         let formatted = format_text(&range_text, config)?;
         (formatted, vec![first_ending])
-    } else if config.format == Format::Markdown && markdown_range_joins(range) {
+    } else if !sentence_fast_path_allowed(config)
+        || (config.format == Format::Markdown && markdown_range_joins(range))
+    {
         let formatted = format_text(&range_text, config)?;
         let expanded = endings_for_split_lines(range, &formatted, config, None);
         (formatted, expanded)
@@ -676,16 +678,21 @@ fn formatted_line_count(text: &str, config: &FormatConfig) -> usize {
     }
 }
 
-/// Sentence counts from the splitter that already formatted `formatted`.
+/// Sentence counts may attribute a mixed-ending range only when each source
+/// line's own sentences are the formatted lines assigned to it.
 ///
-/// Used only when the sum matches the formatted line count, so a mixed
-/// ending range does not call `format_text` a second time. A mismatch falls
-/// back to [`line_counts`].
+/// A sum that matches while two lines over- and under-count is rejected.
+/// `max_width` and `clause_breaks` change the line count without a second
+/// sentence, so they never take this path.
 fn sentence_counts_matching_output(
     range: &[(&str, &str)],
-    output_lines: usize,
+    formatted: &str,
+    config: &FormatConfig,
     splitter: Option<&dyn crate::sentence::SentenceSplitter>,
 ) -> Option<Vec<usize>> {
+    if !sentence_fast_path_allowed(config) {
+        return None;
+    }
     let splitter = splitter?;
     let counts: Vec<usize> = range
         .iter()
@@ -697,11 +704,86 @@ fn sentence_counts_matching_output(
             }
         })
         .collect();
-    if counts.iter().sum::<usize>() == output_lines {
-        Some(counts)
-    } else {
-        None
+    let lines = formatted_body_lines(formatted);
+    if counts.iter().sum::<usize>() != lines.len() {
+        return None;
     }
+    if !counts_match_each_line(range, &lines, &counts, splitter) {
+        return None;
+    }
+    #[cfg(test)]
+    note_fast_path();
+    Some(counts)
+}
+
+/// Width and clause breaks insert line breaks the sentence splitter does not count.
+fn sentence_fast_path_allowed(config: &FormatConfig) -> bool {
+    config.max_width == 0 && !config.clause_breaks
+}
+
+fn formatted_body_lines(formatted: &str) -> Vec<&str> {
+    let trimmed = formatted.trim_end_matches(['\n', '\r']);
+    if trimmed.is_empty() {
+        vec![""]
+    } else {
+        trimmed.lines().collect()
+    }
+}
+
+fn counts_match_each_line(
+    range: &[(&str, &str)],
+    lines: &[&str],
+    counts: &[usize],
+    splitter: &dyn crate::sentence::SentenceSplitter,
+) -> bool {
+    let mut offset = 0usize;
+    for ((text, _), &count) in range.iter().zip(counts) {
+        let end = offset + count;
+        if end > lines.len() {
+            return false;
+        }
+        if !source_matches_slice(text, &lines[offset..end], splitter) {
+            return false;
+        }
+        offset = end;
+    }
+    offset == lines.len()
+}
+
+fn source_matches_slice(
+    text: &str,
+    slice: &[&str],
+    splitter: &dyn crate::sentence::SentenceSplitter,
+) -> bool {
+    if text.trim().is_empty() {
+        return slice.len() == 1 && slice[0].trim().is_empty();
+    }
+    let sentences = splitter.split(text);
+    sentences.len() == slice.len()
+        && sentences
+            .iter()
+            .zip(slice)
+            .all(|(sentence, line)| sentence.trim() == line.trim())
+}
+
+#[cfg(test)]
+thread_local! {
+    static FAST_PATH_HITS: std::cell::Cell<u32> = const { std::cell::Cell::new(0) };
+}
+
+#[cfg(test)]
+fn note_fast_path() {
+    FAST_PATH_HITS.with(|hits| hits.set(hits.get() + 1));
+}
+
+#[cfg(test)]
+fn reset_fast_path_hits() {
+    FAST_PATH_HITS.with(|hits| hits.set(0));
+}
+
+#[cfg(test)]
+fn fast_path_hits() -> u32 {
+    FAST_PATH_HITS.with(|hits| hits.get())
 }
 
 /// How many formatted lines each source line becomes.
@@ -826,7 +908,7 @@ fn endings_for_split_lines<'a>(
     }
     let output_lines = output_line_count(formatted);
     let mut counts =
-        if let Some(counts) = sentence_counts_matching_output(range, output_lines, splitter) {
+        if let Some(counts) = sentence_counts_matching_output(range, formatted, config, splitter) {
             counts
         } else {
             line_counts(range, config)
@@ -1256,9 +1338,74 @@ mod region_fallback_tests {
             }
         }
         assert!(
-            ratio_1000 < 1.5,
-            "a mixed-ending Markdown range must stay within 1.5x of one format pass, got {ratio_1000:.2}x"
+            ratio_1000 < 1.1,
+            "a mixed-ending Markdown range must stay within 1.1x of one format pass, got {ratio_1000:.2}x"
         );
+    }
+
+    #[test]
+    fn offsetting_sentence_counts_are_not_accepted() {
+        struct Offset;
+        impl crate::sentence::SentenceSplitter for Offset {
+            fn split(&self, text: &str) -> Vec<String> {
+                if text.contains("Alpha") {
+                    vec!["a".into(), "b".into(), "c".into()]
+                } else {
+                    vec!["d".into()]
+                }
+            }
+        }
+        let range = [("Alpha. Beta.", "\n"), ("Gamma. Delta.", "\r\n")];
+        let formatted = "Alpha.\nBeta.\nGamma.\nDelta.\n";
+        let got = sentence_counts_matching_output(
+            &range,
+            formatted,
+            &FormatConfig::default(),
+            Some(&Offset),
+        );
+        assert_eq!(
+            got, None,
+            "counts that only sum to the output length must not attribute endings, got {got:?}"
+        );
+    }
+
+    #[test]
+    fn mixed_prose_keeps_each_lines_ending_on_the_fast_path() {
+        let cfg = md_cfg();
+        let input = "One. Two.\nThree. Four.\r\n";
+        reset_fast_path_hits();
+        let out = format_range(input, &cfg, 1, 2).unwrap();
+        assert_eq!(out, "One.\nTwo.\nThree.\r\nFour.\r\n");
+        assert!(
+            fast_path_hits() > 0,
+            "plain mixed prose must reuse the formatted sentences"
+        );
+    }
+
+    #[test]
+    fn width_and_clause_breaks_skip_the_sentence_fast_path() {
+        let input = "Alpha, beta stands here. Gamma follows.\n\
+Delta, epsilon stands here. Zeta follows.\r\n";
+        for (max_width, clause_breaks) in [(24usize, false), (0, true)] {
+            let cfg = FormatConfig {
+                format: Format::Markdown,
+                max_width,
+                clause_breaks,
+                ..Default::default()
+            };
+            reset_fast_path_hits();
+            let out = format_range(input, &cfg, 1, 2).unwrap();
+            let expected = format_range_per_line(input, &cfg, 1, 2).unwrap();
+            assert_eq!(
+                out, expected,
+                "max_width={max_width} clause_breaks={clause_breaks} must match per-line endings"
+            );
+            assert_eq!(
+                fast_path_hits(),
+                0,
+                "max_width={max_width} clause_breaks={clause_breaks} must not use sentence counts"
+            );
+        }
     }
 
     #[test]
